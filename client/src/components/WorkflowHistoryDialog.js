@@ -107,9 +107,15 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
   const rawHistory = document?.fullWorkflowHistory ?? document?.workflowHistory ?? [];
   // Sort by changedAt so full flow is in chronological order (backend may not always send sorted)
   const workflowHistory = [...rawHistory].sort((a, b) => new Date(a.changedAt || 0) - new Date(b.changedAt || 0));
-  const referenceNumber = document?.referenceNumber || document?.documentNumber || document?.orderNumber || 'N/A';
+  const referenceNumber =
+    document?.referenceNumber ||
+    document?.documentNumber ||
+    document?.orderNumber ||
+    document?.indentNumber ||
+    'N/A';
   const title = documentType === 'settlement' ? 'Payment Settlement' : 
-                documentType === 'preAudit' ? 'Pre Audit Document' : 
+               documentType === 'preAudit' ? 'Pre Audit Document' : 
+               documentType === 'indent' ? 'Indent' :
                 document?.orderNumber ? 'Purchase Order' : 'Document';
   const currentStatus = String(
     document?.workflowStatus ||
@@ -175,9 +181,11 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
           </Typography>
         )}
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-          {document?.orderNumber && document?.fullWorkflowHistory?.length
-            ? 'Full flow: Indent → Requisition → Purchase Order (Procurement → Pre-Audit → CEO Secretariat)'
-            : 'Full flow: Procurement → Pre-Audit → CEO Secretariat'}
+          {documentType === 'indent'
+            ? 'Track all status transitions and who handled each step.'
+            : document?.orderNumber && document?.fullWorkflowHistory?.length
+              ? 'Full flow: Indent → Requisition → Purchase Order (Procurement → Pre-Audit → CEO Secretariat)'
+              : 'Full flow: Procurement → Pre-Audit → CEO Secretariat'}
         </Typography>
       </DialogTitle>
       <DialogContent>

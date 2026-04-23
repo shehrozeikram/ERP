@@ -7,10 +7,19 @@ import {
   TextField,
   CircularProgress,
   Chip,
-  Tooltip
+  Tooltip,
+  Grid,
+  Alert,
+  Autocomplete,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow
 } from '@mui/material';
 import { Print as PrintIcon, CheckCircle as CheckCircleIcon, Save as SaveIcon, CallSplit as SplitIcon } from '@mui/icons-material';
 import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
+import { comparativeAuthoritySelectionLocked } from '../../utils/comparativeStatementAuthority';
 
 /**
  * Shared Comparative Statement view. Used in Procurement (Comparative Statements page) and Pre-Audit (PO view tab).
@@ -25,12 +34,24 @@ import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
  * @param {function} onSelectVendor - (quotation) => void — selects entire quotation as winner (optional)
  * @param {boolean} savingApprovals - Disable save button (optional)
  * @param {boolean} updating - Disable select buttons (optional)
- * @param {string} approvalsSavedForRequisition - Requisition id when approvals saved; enables Select (optional)
  * @param {function} onNoteChange - (value) => void when note is edited (optional, for !readOnly)
- * @param {function} onApprovalChange - (key, value) => void when approval field is edited (optional, for !readOnly)
  * @param {boolean} showPrintButton - Show Print button (default true when !readOnly)
  * @param {function} onCreateSplitPOs - ({ vendorAssignments }) => void — called when user clicks "Shortlist Vendors" (saves assignments; create POs from Quotations page) (optional)
  * @param {boolean} creatingSplitPOs - Disables the Shortlist button while in progress (optional)
+ * @param {boolean} canSelectVendors - Enables Select/Shortlist actions only after comparative approvals are fully approved
+ * @param {Array} authorityUserOptions - User options for approval authority dropdowns
+ * @param {boolean} authorityUserLoading - Loading state for authority user search
+ * @param {Object} authorityUserSelection - Selected users map by authority key
+ * @param {function} onAuthorityUserChange - (key, userObject) => void
+ * @param {function} onAuthorityUserSearchInput - (searchText) => void
+ * @param {function} onSubmitComparative - Submit comparative for approvals
+ * @param {boolean} submittingComparative - Submit in progress
+ * @param {boolean} canSubmitComparative - Whether submit is currently allowed
+ * @param {function} onApproveComparative - Approve comparative as pending authority
+ * @param {function} onRejectComparative - Open reject flow as pending authority
+ * @param {boolean} canApproveComparative - Whether current user can approve/reject now
+ * @param {boolean} approvingComparative - Approve in progress
+ * @param {boolean} canEditApprovalAuthorities - When false, authority user Autocompletes and Save are disabled (after lock)
  */
 const ComparativeStatementView = ({
   requisition,
@@ -44,19 +65,59 @@ const ComparativeStatementView = ({
   onSelectVendor,
   savingApprovals = false,
   updating = false,
-  approvalsSavedForRequisition = null,
   onNoteChange,
-  onApprovalChange,
   showPrintButton = !readOnly,
   onCreateSplitPOs,
-  creatingSplitPOs = false
+  creatingSplitPOs = false,
+  canSelectVendors = true,
+  authorityUserOptions = [],
+  authorityUserLoading = false,
+  authorityUserSelection = {},
+  onAuthorityUserChange,
+  onAuthorityUserSearchInput,
+  onSubmitComparative,
+  submittingComparative = false,
+  canSubmitComparative = false,
+  onApproveComparative,
+  onRejectComparative,
+  canApproveComparative = false,
+  approvingComparative = false,
+  canEditApprovalAuthorities = true
 }) => {
   const selectedRequisition = requisition;
   const comparativeNote = note;
   const keys = ['preparedBy', 'verifiedBy', 'authorisedRep', 'financeRep', 'managerProcurement'];
+  const comparativeApproval = selectedRequisition?.comparativeApproval;
+  const comparativeSteps = Array.isArray(comparativeApproval?.approvers) ? comparativeApproval.approvers : [];
+  const comparativeAuthorityUserMap = (() => {
+    const csa = selectedRequisition?.comparativeStatementApprovals || {};
+    const slots = [
+      { key: 'preparedByUser', label: 'Prepared By' },
+      { key: 'verifiedByUser', label: 'Verified By (Procurement Committee)' },
+      { key: 'authorisedRepUser', label: 'Authorised Rep.' },
+      { key: 'financeRepUser', label: 'Finance Rep.' },
+      { key: 'managerProcurementUser', label: 'Manager Procurement' }
+    ];
+    const map = new Map();
+    slots.forEach((slot) => {
+      const id = csa?.[slot.key]?._id || csa?.[slot.key];
+      if (!id) return;
+      map.set(String(id), slot.label);
+    });
+    return map;
+  })();
 
   // Per-item vendor assignment: { itemIndex: quotationId }
   const [vendorAssignments, setVendorAssignments] = useState({});
+
+  React.useEffect(() => {
+    const saved = selectedRequisition?.splitPOAssignments;
+    if (saved && typeof saved === 'object') {
+      setVendorAssignments(saved);
+    } else {
+      setVendorAssignments({});
+    }
+  }, [selectedRequisition?._id, selectedRequisition?.splitPOAssignments]);
 
   const handleAssignVendorToItem = useCallback((itemIndex, quotationId) => {
     setVendorAssignments(prev => {
@@ -137,80 +198,6 @@ const ComparativeStatementView = ({
         </Box>
       )}
 
-      {/* Approval authorities - editable or read-only */}
-      <Box sx={{ mb: 3, '@media print': { pageBreakInside: 'avoid' } }}>
-        {!readOnly && (
-          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5, '@media print': { display: 'none' } }}>
-            Approval authorities (fill and save below, then you can select vendor)
-          </Typography>
-        )}
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif' }}>
-          <tbody>
-            <tr>
-              {['Prepared By', 'Verified By: Procurement Committee', 'Authorised Rep.', 'Finance Rep.', 'Manager Procurement'].map((label, i) => {
-                const fieldKey = keys[i];
-                const value = approvalAuthority[fieldKey] || '';
-                return (
-                  <td key={fieldKey} style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
-                    <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1 }} />
-                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>{label}</Typography>
-                    {readOnly ? (
-                      <Typography variant="body2" sx={{ mt: 0.5, textAlign: 'center' }}>{value || '—'}</Typography>
-                    ) : (
-                      <TextField
-                        size="small"
-                        placeholder="Name / Designation"
-                        value={value}
-                        onChange={(e) => onApprovalChange && onApprovalChange(fieldKey, e.target.value)}
-                        sx={{ mt: 0.5, '& .MuiInputBase-input': { fontSize: '0.75rem', textAlign: 'center' }, '& .MuiOutlinedInput-notchedOutline': { border: 'none', borderBottom: '1px solid #ccc' }, minWidth: '100%' }}
-                        variant="standard"
-                      />
-                    )}
-                  </td>
-                );
-              })}
-            </tr>
-          </tbody>
-        </table>
-        {selectedRequisition &&
-          (selectedRequisition.requestedBy?.digitalSignature ||
-            (selectedRequisition.approvalChain || []).some(
-              (s) => s.status === 'approved' && s.approver?.digitalSignature
-            )) && (
-          <Box sx={{ mt: 2, '@media print': { pageBreakInside: 'avoid' } }}>
-            <Typography variant="caption" fontWeight={600} color="text.secondary" display="block" sx={{ mb: 1 }}>
-              Purchase request — electronic signatures on file
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'flex-end' }}>
-              {selectedRequisition.requestedBy?.digitalSignature ? (
-                <Box sx={{ textAlign: 'center' }}>
-                  <DigitalSignatureImage userOrPath={selectedRequisition.requestedBy} alt="Requester" />
-                  <Typography variant="caption" display="block">
-                    Requester
-                  </Typography>
-                </Box>
-              ) : null}
-              {(selectedRequisition.approvalChain || []).map((step, idx) =>
-                step.status === 'approved' && step.approver?.digitalSignature ? (
-                  <Box key={step.approver?._id || idx} sx={{ textAlign: 'center' }}>
-                    <DigitalSignatureImage userOrPath={step.approver} alt={`Approver ${idx + 1}`} />
-                    <Typography variant="caption" display="block">
-                      Approver {idx + 1}
-                    </Typography>
-                  </Box>
-                ) : null
-              )}
-            </Box>
-          </Box>
-        )}
-        {!readOnly && onSaveApprovals && (
-          <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'flex-end', '@media print': { display: 'none' } }}>
-            <Button variant="contained" color="primary" size="small" startIcon={savingApprovals ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />} onClick={onSaveApprovals} disabled={savingApprovals}>
-              {savingApprovals ? 'Saving…' : 'Save approval authorities'}
-            </Button>
-          </Box>
-        )}
-      </Box>
 
       {/* Comparative Table */}
       {loadingQuotations ? (
@@ -239,7 +226,7 @@ const ComparativeStatementView = ({
                 size="small"
                 startIcon={creatingSplitPOs ? <CircularProgress size={16} color="inherit" /> : <SplitIcon />}
                 onClick={handleCreateSplitPOs}
-                disabled={creatingSplitPOs || assignedCount === 0}
+                disabled={creatingSplitPOs || assignedCount === 0 || !canSelectVendors}
                 sx={{ ml: 'auto' }}
               >
                 {creatingSplitPOs ? 'Shortlisting…' : 'Shortlist Vendors'}
@@ -253,24 +240,25 @@ const ComparativeStatementView = ({
                 <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
                   <th colSpan={4} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem' }}>Vendor</th>
                   {quotations.map((quote, idx) => (
-                    <th key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem', backgroundColor: quote.status === 'Finalized' ? '#c8e6c9' : '#f5f5f5', verticalAlign: 'top' }}>
+                    <th key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem', backgroundColor: quote.status === 'Finalized' ? '#c8e6c9' : quote.status === 'Shortlisted' ? '#ffe0b2' : '#f5f5f5', verticalAlign: 'top' }}>
                       {!readOnly && onSelectVendor && (
                         <Box sx={{ mb: 1, '@media print': { display: 'none' } }}>
                           <Button
-                            variant={quote.status === 'Finalized' ? 'contained' : 'outlined'}
-                            color={quote.status === 'Finalized' ? 'success' : 'primary'}
+                            variant={quote.status === 'Finalized' || quote.status === 'Shortlisted' ? 'contained' : 'outlined'}
+                            color={quote.status === 'Finalized' ? 'success' : quote.status === 'Shortlisted' ? 'warning' : 'primary'}
                             startIcon={quote.status === 'Finalized' ? <CheckCircleIcon /> : null}
                             onClick={() => onSelectVendor(quote)}
-                            disabled={updating || quote.status === 'Finalized' || approvalsSavedForRequisition !== selectedRequisition?._id}
+                            disabled={updating || quote.status === 'Finalized' || !canSelectVendors}
                             size="small"
                             sx={{ fontSize: '0.7rem', padding: '4px 8px', minWidth: 'auto' }}
                           >
-                            {quote.status === 'Finalized' ? 'Selected' : 'Select All'}
+                            {quote.status === 'Finalized' ? 'Finalized' : quote.status === 'Shortlisted' ? 'Shortlisted' : 'Select All'}
                           </Button>
                         </Box>
                       )}
                       {quote.vendor?.name || `Vendor ${idx + 1}`}
-                      {quote.status === 'Finalized' && <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', mt: 0.5, color: '#2e7d32', fontWeight: 600 }}>(Selected)</Box>}
+                      {quote.status === 'Finalized' && <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', mt: 0.5, color: '#2e7d32', fontWeight: 600 }}>(Finalized)</Box>}
+                      {quote.status === 'Shortlisted' && <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', mt: 0.5, color: '#ed6c02', fontWeight: 600 }}>(Shortlisted)</Box>}
                     </th>
                   ))}
                 </tr>
@@ -434,6 +422,224 @@ const ComparativeStatementView = ({
         ) : (
           <Typography component="span">{comparativeNote || '—'}</Typography>
         )}
+      </Box>
+
+      {/* Approval authorities moved below Note */}
+      <Box sx={{ mb: 3, '@media print': { pageBreakInside: 'avoid' } }}>
+        {!readOnly ? (
+          <Box sx={{ '@media print': { display: 'none' } }}>
+            <Typography variant="h6" fontWeight={600} sx={{ mb: 1.5 }}>
+              Approval Authorities
+            </Typography>
+            {canApproveComparative ? (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                You are a pending approver for this comparative statement.
+              </Alert>
+            ) : null}
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Select employees for each authority. These selected users become comparative approvers.
+            </Alert>
+            {!readOnly &&
+              comparativeAuthoritySelectionLocked(selectedRequisition) &&
+              !canEditApprovalAuthorities && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Only Prepared By, Procurement Manager (GM), or Super Admin can change approval authority users after
+                  they have been assigned.
+                </Alert>
+              )}
+            <Grid container spacing={2}>
+              {[
+                { key: 'preparedBy', label: 'Prepared By' },
+                { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
+                { key: 'authorisedRep', label: 'Authorised Representative' },
+                { key: 'financeRep', label: 'Finance Representative' },
+                { key: 'managerProcurement', label: 'Manager Procurement' }
+              ].map((field) => {
+                const sel = authorityUserSelection?.[field.key] || null;
+                return (
+                  <Grid item xs={12} md={6} key={field.key}>
+                    {field.key === 'preparedBy' ? (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={field.label}
+                        value={
+                          sel
+                            ? ([sel.firstName, sel.lastName].filter(Boolean).join(' ').trim() || sel.email || '')
+                            : (approvalAuthority.preparedBy || '')
+                        }
+                        helperText="Auto-filled from the logged-in user"
+                        InputProps={{ readOnly: true }}
+                      />
+                    ) : (
+                      <Autocomplete
+                        disabled={!canEditApprovalAuthorities}
+                        options={authorityUserOptions}
+                        loading={authorityUserLoading}
+                        value={sel}
+                        onChange={(_, next) => onAuthorityUserChange && onAuthorityUserChange(field.key, next)}
+                        onInputChange={(_, input, reason) => {
+                          if (reason === 'input' && onAuthorityUserSearchInput) {
+                            onAuthorityUserSearchInput(input);
+                          }
+                        }}
+                        getOptionLabel={(option) => {
+                          const n = [option.firstName, option.lastName].filter(Boolean).join(' ').trim();
+                          return n || option.email || option.employeeId || '';
+                        }}
+                        isOptionEqualToValue={(a, b) => a?._id === b?._id}
+                        renderInput={(params) => (
+                          <TextField {...params} label={field.label} size="small" placeholder="Select employee" />
+                        )}
+                      />
+                    )}
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </Box>
+        ) : null}
+        {!readOnly && (onSaveApprovals || onSubmitComparative || onApproveComparative || onRejectComparative) && (
+          <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'flex-end', gap: 1, '@media print': { display: 'none' } }}>
+            {onApproveComparative && (
+              <Button
+                variant="contained"
+                color="success"
+                size="small"
+                onClick={onApproveComparative}
+                disabled={!canApproveComparative || approvingComparative}
+              >
+                {approvingComparative ? 'Approving…' : 'Approve'}
+              </Button>
+            )}
+            {onRejectComparative && (
+              <Button
+                variant="contained"
+                color="error"
+                size="small"
+                onClick={onRejectComparative}
+                disabled={!canApproveComparative}
+              >
+                Reject
+              </Button>
+            )}
+            {onSubmitComparative && (
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                onClick={onSubmitComparative}
+                disabled={!canSubmitComparative || submittingComparative}
+              >
+                {submittingComparative ? 'Submitting…' : 'Send to Approval Authorities'}
+              </Button>
+            )}
+            {onSaveApprovals ? (
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                startIcon={savingApprovals ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+                onClick={onSaveApprovals}
+                disabled={savingApprovals || !canEditApprovalAuthorities}
+              >
+                {savingApprovals ? 'Saving…' : 'Save approval authorities'}
+              </Button>
+            ) : null}
+          </Box>
+        )}
+        {/* Comparative approval progress inside Approval Authorities */}
+        {selectedRequisition ? (
+          <Box sx={{ mt: 3 }} className="comparative-approval-progress">
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+              Comparative approval progress
+            </Typography>
+            {comparativeSteps.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                {readOnly
+                  ? 'No comparative approval chain is recorded for this requisition.'
+                  : 'Save approval authorities to configure the approval chain.'}
+              </Typography>
+            ) : (
+              <>
+                <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 720 }}>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'action.hover' }}>
+                      <TableCell sx={{ fontWeight: 700 }}>Authority / approver</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }} align="center">
+                        Digital signature
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {comparativeSteps.map((step, idx) => {
+                      const approver = step.approver;
+                      const aid = approver?._id || approver;
+                      const name =
+                        [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                        approver?.email ||
+                        (aid ? `User ${String(aid).slice(-6)}` : `Approver ${idx + 1}`);
+                      const authorityLabel = comparativeAuthorityUserMap.get(String(aid || ''));
+                      const status = step.status || 'pending';
+                      const statusColor =
+                        status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                      const statusLabel =
+                        status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                      return (
+                        <TableRow key={String(aid || idx)}>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={600}>
+                              {authorityLabel || 'Approver'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {name}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={statusLabel}
+                              color={statusColor}
+                              variant={status === 'pending' ? 'outlined' : 'filled'}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            {step.actedAt ? new Date(step.actedAt).toLocaleString() : '—'}
+                          </TableCell>
+                          <TableCell align="center" sx={{ verticalAlign: 'middle' }}>
+                            {status === 'approved' && approver?.digitalSignature ? (
+                              <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                            ) : status === 'approved' ? (
+                              <Typography variant="caption" color="text.secondary">
+                                No signature on file
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">
+                                —
+                              </Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+                {comparativeApproval?.status === 'approved' ? (
+                  <Typography variant="caption" color="success.main" display="block" sx={{ mt: 1 }}>
+                    All required approvers have approved. Related quotation(s) should be finalized for PO creation.
+                  </Typography>
+                ) : null}
+                {comparativeApproval?.status === 'rejected' && comparativeApproval?.rejectionObservation ? (
+                  <Typography variant="caption" color="error.main" display="block" sx={{ mt: 1 }}>
+                    Observation: {comparativeApproval.rejectionObservation}
+                  </Typography>
+                ) : null}
+              </>
+            )}
+          </Box>
+        ) : null}
       </Box>
     </Paper>
   );

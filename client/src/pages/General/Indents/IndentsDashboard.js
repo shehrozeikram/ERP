@@ -56,6 +56,7 @@ import dayjs from 'dayjs';
 import toast from 'react-hot-toast';
 import { formatPKR } from '../../../utils/currency';
 import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
+import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
 
 // Stat Card Component
 const StatCard = ({ title, value, subtitle, icon, color, onClick }) => (
@@ -110,7 +111,6 @@ const IndentsDashboard = () => {
   const [returnPaymentDialog, setReturnPaymentDialog] = useState({ open: false, payment: null });
   const [paymentActionLoading, setPaymentActionLoading] = useState(false);
   const [approvalComments, setApprovalComments] = useState('');
-  const [approvalSignature, setApprovalSignature] = useState('');
   const [rejectionComments, setRejectionComments] = useState('');
   const [rejectionSignature, setRejectionSignature] = useState('');
   const [returnComments, setReturnComments] = useState('');
@@ -182,6 +182,7 @@ const IndentsDashboard = () => {
       'under review': 'warning',
       'approved': 'success',
       'rejected': 'error',
+      'rejected in procurement': 'error',
       'partially fulfilled': 'info',
       'fulfilled': 'success',
       'cancelled': 'default',
@@ -317,7 +318,181 @@ const IndentsDashboard = () => {
         }));
     const hasObservations = Array.isArray(observations) && observations.length > 0;
     const hasChangeSummary = poData?.resubmissionChangeSummary && String(poData.resubmissionChangeSummary).trim().length > 0;
-    const auth = poData?.approvalAuthorities || {};
+    const renderComparativeApprovalProgress = (indent, po) => {
+      if (!indent) return null;
+      const ca = indent.comparativeApproval || {};
+      const steps = Array.isArray(ca.approvers) ? ca.approvers : [];
+      const authorityUserMap = (() => {
+        const csa = indent?.comparativeStatementApprovals || {};
+        const slots = [
+          { key: 'preparedByUser', label: 'Prepared By' },
+          { key: 'verifiedByUser', label: 'Verified By (Procurement Committee)' },
+          { key: 'authorisedRepUser', label: 'Authorised Rep.' },
+          { key: 'financeRepUser', label: 'Finance Rep.' },
+          { key: 'managerProcurementUser', label: 'Manager Procurement' }
+        ];
+        const map = new Map();
+        slots.forEach((slot) => {
+          const id = csa?.[slot.key]?._id || csa?.[slot.key];
+          if (!id) return;
+          map.set(String(id), slot.label);
+        });
+        return map;
+      })();
+      const poWorkflowRows = [];
+      if (po?.auditApprovedBy || po?.auditApprovedAt) {
+        poWorkflowRows.push({
+          authorityLabel: 'Audit Department',
+          approver: po.auditApprovedBy,
+          status: 'approved',
+          actedAt: po.auditApprovedAt
+        });
+      } else if (
+        po?.status === 'Pending Audit' ||
+        po?.status === 'Forwarded to Audit Director' ||
+        po?.status === 'Audit Approved'
+      ) {
+        poWorkflowRows.push({
+          authorityLabel: 'Audit Department',
+          approver: null,
+          status: 'pending',
+          actedAt: null
+        });
+      }
+
+      if (po?.ceoApprovedBy || po?.ceoApprovedAt || po?.ceoDigitalSignature) {
+        poWorkflowRows.push({
+          authorityLabel: 'CEO',
+          approver: po.ceoApprovedBy,
+          status: 'approved',
+          actedAt: po.ceoApprovedAt,
+          digitalSignature: po.ceoDigitalSignature
+        });
+      } else if (
+        po?.status === 'Forwarded to CEO' ||
+        po?.status === 'Pending CEO Approval'
+      ) {
+        poWorkflowRows.push({
+          authorityLabel: 'CEO',
+          approver: null,
+          status: 'pending',
+          actedAt: null
+        });
+      }
+
+      return (
+        <Box sx={{ mt: 3 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+            Comparative approval progress
+          </Typography>
+          {steps.length === 0 && poWorkflowRows.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No comparative approval chain is recorded for this requisition.
+            </Typography>
+          ) : (
+            <>
+              <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'action.hover' }}>
+                    <TableCell sx={{ fontWeight: 700 }}>Authority / approver</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {steps.map((step, idx) => {
+                    const approver = step.approver;
+                    const aid = approver?._id || approver;
+                    const name =
+                      [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                      approver?.email ||
+                      (aid ? `User ${String(aid).slice(-6)}` : `Approver ${idx + 1}`);
+                    const authorityLabel = authorityUserMap.get(String(aid || ''));
+                    const status = step.status || 'pending';
+                    const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                    const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                    return (
+                      <TableRow key={String(aid || idx)}>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>
+                            {authorityLabel || 'Approver'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {name}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} />
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          {step.actedAt ? new Date(step.actedAt).toLocaleString() : '—'}
+                        </TableCell>
+                        <TableCell align="center">
+                          {status === 'approved' && approver?.digitalSignature ? (
+                            <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                          ) : status === 'approved' ? (
+                            <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {poWorkflowRows.map((row, idx) => {
+                    const approver = row.approver;
+                    const aid = approver?._id || approver;
+                    const name =
+                      [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                      approver?.email ||
+                      (aid ? `User ${String(aid).slice(-6)}` : 'Pending');
+                    const status = row.status || 'pending';
+                    const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                    const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                    return (
+                      <TableRow key={`po-approval-${idx}`}>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>
+                            {row.authorityLabel}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {name}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} />
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          {row.actedAt ? new Date(row.actedAt).toLocaleString() : '—'}
+                        </TableCell>
+                        <TableCell align="center">
+                          {status === 'approved' && (row.digitalSignature || approver?.digitalSignature) ? (
+                            <DigitalSignatureImage
+                              userOrPath={row.digitalSignature || approver}
+                              alt={`Signature ${row.authorityLabel}`}
+                            />
+                          ) : status === 'approved' ? (
+                            <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              {ca?.status === 'rejected' && ca?.rejectionObservation ? (
+                <Typography variant="caption" color="error.main" display="block" sx={{ mt: 1 }}>
+                  Observation: {ca.rejectionObservation}
+                </Typography>
+              ) : null}
+            </>
+          )}
+        </Box>
+      );
+    };
 
     return (
       <Paper
@@ -676,72 +851,18 @@ const IndentsDashboard = () => {
           </Box>
         </Box>
 
-        {/* Approval/Signature Section */}
-        <Box sx={{ mt: 4 }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '0.85rem',
-              fontFamily: 'Arial, sans-serif'
-            }}
-          >
-            <tbody>
-              <tr>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
-                  {auth.preparedBy && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.preparedBy}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
-                  {auth.managerProcurement && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.managerProcurement}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Procurement</Typography>
-                  {auth.verifiedBy && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.verifiedBy}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Internal Auditor</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Finance</Typography>
-                  {auth.financeRep && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.financeRep}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
-                  {auth.authorisedRep && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.authorisedRep}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>President</Typography>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </Box>
+        {renderComparativeApprovalProgress(poData?.indent, poData)}
       </Paper>
     );
   };
 
   // CEO Actions for Payments
   const handleApprovePayment = async () => {
-    if (!approvalSignature.trim()) {
-      toast.error('Please provide digital signature');
-      return;
-    }
-
     if (approvePaymentDialog.payment?.isPurchaseOrder) {
       try {
         setPaymentActionLoading(true);
         const response = await api.put(`/procurement/purchase-orders/${approvePaymentDialog.payment._id}/ceo-approve`, {
-          approvalComments,
-          digitalSignature: approvalSignature
+          approvalComments
         });
         let successMessage = 'Purchase order approved successfully';
         if (response.data?.sentToFinance) successMessage = 'Purchase order approved by CEO and sent to Finance (advance/partial advance terms)';
@@ -749,7 +870,6 @@ const IndentsDashboard = () => {
         toast.success(successMessage);
         setApprovePaymentDialog({ open: false, payment: null });
         setApprovalComments('');
-        setApprovalSignature('');
         loadDashboardData();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to approve purchase order');
@@ -762,8 +882,7 @@ const IndentsDashboard = () => {
     try {
       setPaymentActionLoading(true);
       const response = await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
-        comments: approvalComments || `Approved by CEO with digital signature: ${approvalSignature}`,
-        digitalSignature: approvalSignature
+        comments: approvalComments || 'Document approved'
       });
       
       let successMessage = 'Payment approved successfully';
@@ -774,7 +893,6 @@ const IndentsDashboard = () => {
       toast.success(successMessage);
       setApprovePaymentDialog({ open: false, payment: null });
       setApprovalComments('');
-      setApprovalSignature('');
       loadDashboardData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to approve payment');
@@ -1404,15 +1522,7 @@ const IndentsDashboard = () => {
             label="Comments (Optional)"
             value={approvalComments}
             onChange={(e) => setApprovalComments(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={approvalSignature}
-            onChange={(e) => setApprovalSignature(e.target.value)}
-            placeholder="Type your name as digital signature"
-            required
+            sx={{ mb: 1 }}
           />
         </DialogContent>
         <DialogActions>
@@ -1421,7 +1531,7 @@ const IndentsDashboard = () => {
             onClick={handleApprovePayment}
             variant="contained"
             color="success"
-            disabled={paymentActionLoading || !approvalSignature.trim()}
+            disabled={paymentActionLoading}
             startIcon={<CheckCircle />}
           >
             {paymentActionLoading ? <CircularProgress size={20} /> : 'Approve'}

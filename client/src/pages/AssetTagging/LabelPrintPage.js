@@ -50,6 +50,10 @@ export default function LabelPrintPage() {
     return <Box p={4} textAlign="center"><CircularProgress /></Box>;
   }
 
+  const projectLabel = asset?.project
+    ? [asset.project.code, asset.project.name].filter(Boolean).join(' - ') || asset.project.projectId || asset.project.name
+    : '';
+
   return (
     <Box className="print-label-root" sx={{ p: 2, minHeight: '100vh', bgcolor: '#fff', '@media print': { bgcolor: '#fff', p: 0, minHeight: 'auto' } }}>
       <Box
@@ -146,8 +150,13 @@ export default function LabelPrintPage() {
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
-              Sardar group of companies
+              Sardar Group Of Companies
             </Typography>
+            {projectLabel ? (
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
+                {projectLabel}
+              </Typography>
+            ) : null}
             <Box component="img" src={qr.dataUrl} alt="QR" sx={{ width: '34mm', height: '34mm', display: 'block' }} />
             <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5, fontSize: '0.75rem' }}>
               {tag.tagCode}
@@ -187,8 +196,13 @@ export default function LabelPrintPage() {
                   {isSelected ? (
                     <>
                       <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
-                        Sardar group of companies
+                        Sardar Group Of Companies
                       </Typography>
+                      {projectLabel ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
+                          {projectLabel}
+                        </Typography>
+                      ) : null}
                       <Box component="img" src={qr.dataUrl} alt="QR" sx={{ width: '34mm', height: '34mm', display: 'block' }} />
                       <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5, fontSize: '0.75rem' }}>
                         {tag.tagCode}

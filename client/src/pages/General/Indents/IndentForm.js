@@ -581,6 +581,7 @@ const IndentForm = () => {
       setError('');
 
       const draftApproverIds = approverSlots.map((u) => u?._id).filter(Boolean);
+      const canSendDraftApprovers = !isEdit || (indentMeta.status || 'Draft') === 'Draft';
 
       const indentData = {
         title: formData.title.trim(),
@@ -603,8 +604,8 @@ const IndentForm = () => {
         })),
         justification: formData.justification.trim(),
         signatures: formData.signatures,
-        status: 'Draft',
-        draftApproverIds
+        status: isEdit ? (indentMeta.status || 'Draft') : 'Draft',
+        ...(canSendDraftApprovers ? { draftApproverIds } : {})
       };
       
       // Include indentNumber if the user has provided one; backend auto-generates if omitted

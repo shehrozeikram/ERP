@@ -85,6 +85,12 @@ const Requisitions = () => {
     note: '',
     submitting: false
   });
+  const [rejectDialog, setRejectDialog] = useState({
+    open: false,
+    requisition: null,
+    observation: '',
+    submitting: false
+  });
   const [quotations, setQuotations] = useState([]);
   const [loadingQuotations, setLoadingQuotations] = useState(false);
 
@@ -217,6 +223,37 @@ const Requisitions = () => {
     }
   };
 
+  const handleOpenRejectDialog = (requisition) => {
+    setRejectDialog({
+      open: true,
+      requisition,
+      observation: '',
+      submitting: false
+    });
+  };
+
+  const handleRejectRequisition = async () => {
+    const requisitionId = rejectDialog.requisition?._id;
+    const observation = (rejectDialog.observation || '').trim();
+    if (!requisitionId || !observation) {
+      setError('Observation is required to reject requisition.');
+      return;
+    }
+
+    try {
+      setRejectDialog((prev) => ({ ...prev, submitting: true }));
+      const response = await api.put(`/procurement/requisitions/${requisitionId}/reject`, { observation });
+      if (response.data.success) {
+        setSuccess(response.data.message || 'Requisition rejected successfully.');
+        setRejectDialog({ open: false, requisition: null, observation: '', submitting: false });
+        loadRequisitions();
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reject requisition');
+      setRejectDialog((prev) => ({ ...prev, submitting: false }));
+    }
+  };
+
   const handleView = async (requisition) => {
     setViewDialog({ open: true, data: requisition, tab: 0 });
     if (!requisition._id) return;
@@ -340,6 +377,7 @@ const Requisitions = () => {
       'Under Review': 'warning',
       'Approved': 'success',
       'Rejected': 'error',
+      'Rejected in Procurement': 'error',
       'Partially Fulfilled': 'warning',
       'Fulfilled': 'success',
       'Cancelled': 'default'
@@ -393,6 +431,7 @@ const Requisitions = () => {
             <MenuItem value="Approved">Approved</MenuItem>
             <MenuItem value="Partially Fulfilled">Partially Fulfilled</MenuItem>
             <MenuItem value="Fulfilled">Fulfilled</MenuItem>
+            <MenuItem value="Rejected in Procurement">Rejected in Procurement</MenuItem>
           </TextField>
           <TextField
             select
@@ -484,6 +523,17 @@ const Requisitions = () => {
                             onClick={() => handleOpenAssignDialog(req)}
                           >
                             <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {canManageAssignments && ['Approved', 'Partially Fulfilled', 'Fulfilled'].includes(req.status) && (
+                        <Tooltip title="Reject with Observation">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleOpenRejectDialog(req)}
+                          >
+                            <RejectIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
@@ -1445,6 +1495,50 @@ const Requisitions = () => {
             startIcon={loading ? <CircularProgress size={20} /> : <EmailIcon />}
           >
             Send Email
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* REJECT REQUISITION DIALOG */}
+      <Dialog
+        open={rejectDialog.open}
+        onClose={() => setRejectDialog({ open: false, requisition: null, observation: '', submitting: false })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reject Requisition</DialogTitle>
+        <DialogContent>
+          {rejectDialog.requisition && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                <strong>Requisition #:</strong> {rejectDialog.requisition.indentNumber}<br />
+                <strong>Title:</strong> {rejectDialog.requisition.title}
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={4}
+                label="Observation (Required)"
+                placeholder="Write the procurement observation for rejection..."
+                value={rejectDialog.observation}
+                onChange={(e) => setRejectDialog((prev) => ({ ...prev, observation: e.target.value }))}
+                inputProps={{ maxLength: 1000 }}
+                helperText={`${(rejectDialog.observation || '').length}/1000`}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectDialog({ open: false, requisition: null, observation: '', submitting: false })}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleRejectRequisition}
+            disabled={rejectDialog.submitting || !rejectDialog.observation.trim()}
+          >
+            {rejectDialog.submitting ? 'Rejecting...' : 'Reject Requisition'}
           </Button>
         </DialogActions>
       </Dialog>

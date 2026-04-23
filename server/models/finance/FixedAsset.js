@@ -53,6 +53,7 @@ const fixedAssetSchema = new mongoose.Schema(
     // Location / assignment
     location: { type: String, trim: true },
     assignedTo: { type: String, trim: true },
+    project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
     costCenter: { type: mongoose.Schema.Types.ObjectId, ref: 'CostCenter' },
     serialNumber: { type: String, trim: true },
     // Status

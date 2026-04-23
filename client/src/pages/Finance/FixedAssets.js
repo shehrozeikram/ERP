@@ -44,6 +44,7 @@ const emptyForm = {
   locationShelf: '',
   locationBin: '',
   assignedTo: '',
+  project: '',
   serialNumber: ''
 };
 
@@ -123,6 +124,7 @@ export default function FixedAssets() {
   const [form, setForm]     = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [employees, setEmployees] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [mainStores, setMainStores] = useState([]);
   const [selectedMainStoreId, setSelectedMainStoreId] = useState('');
   const [selectedSubStores, setSelectedSubStores] = useState([]);
@@ -174,9 +176,22 @@ export default function FixedAssets() {
     }
   }, []);
 
+  const loadProjects = useCallback(async () => {
+    try {
+      const res = await api.get('/finance/fixed-assets/projects');
+      setProjects(res.data?.data || []);
+    } catch {
+      setProjects([]);
+    }
+  }, []);
+
   useEffect(() => {
     loadEmployees();
   }, [loadEmployees]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
 
   const loadStores = useCallback(async () => {
     try {
@@ -226,6 +241,7 @@ export default function FixedAssets() {
     setEditing(a);
     setForm({
       ...a,
+      project: a.project?._id || a.project || '',
       purchaseDate: a.purchaseDate?.split('T')[0] || '',
       depreciationRate: a.depreciationRate ?? (a.usefulLifeYears ? (100 / Number(a.usefulLifeYears || 1)) : 0),
       locationBuilding: inferredBuilding || HQ_LOCATION,
@@ -257,7 +273,8 @@ export default function FixedAssets() {
             ? 0
             : Number(form.depreciationRate || 0),
         location: normalizedLocation,
-        assignedTo: form.assignedTo || ''
+        assignedTo: form.assignedTo || '',
+        project: form.project || null
       };
       delete payload.locationBuilding;
       delete payload.locationFloor;
@@ -639,6 +656,22 @@ export default function FixedAssets() {
                 />
               </Stack>
             )}
+            <FormControl fullWidth size="small">
+              <InputLabel id="project-label">Project</InputLabel>
+              <Select
+                labelId="project-label"
+                label="Project"
+                value={form.project || ''}
+                onChange={(e) => setForm({ ...form, project: e.target.value })}
+              >
+                <MenuItem value=""><em>No project</em></MenuItem>
+                {projects.map((proj) => (
+                  <MenuItem key={proj._id} value={proj._id}>
+                    {[proj.code, proj.name].filter(Boolean).join(' - ') || proj.projectId || 'Project'}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <FormControl fullWidth size="small">
               <InputLabel id="assigned-to-label">Assigned To</InputLabel>
               <Select

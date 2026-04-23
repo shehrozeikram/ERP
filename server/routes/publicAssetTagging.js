@@ -19,7 +19,9 @@ router.get('/resolve/:tagCode', asyncHandler(async (req, res) => {
   const tag = await AssetTag.findOne({ tagCode, status: 'active' }).populate('asset');
   if (!tag) return res.status(404).json({ success: false, message: 'Tag not found or void' });
 
-  const assetDoc = await FixedAsset.findById(tag.asset._id || tag.asset).lean();
+  const assetDoc = await FixedAsset.findById(tag.asset._id || tag.asset)
+    .populate('project', 'name code projectId')
+    .lean();
   if (!assetDoc) return res.status(404).json({ success: false, message: 'Asset not found' });
 
   // Keep public payload intentionally minimal for unauthenticated access.
@@ -29,6 +31,14 @@ router.get('/resolve/:tagCode', asyncHandler(async (req, res) => {
     name: assetDoc.name,
     category: assetDoc.category,
     location: assetDoc.location,
+    project: assetDoc.project
+      ? {
+          _id: assetDoc.project._id,
+          name: assetDoc.project.name || '',
+          code: assetDoc.project.code || '',
+          projectId: assetDoc.project.projectId || ''
+        }
+      : null,
     serialNumber: assetDoc.serialNumber,
     status: assetDoc.status
   };

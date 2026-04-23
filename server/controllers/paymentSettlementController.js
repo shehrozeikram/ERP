@@ -1,5 +1,6 @@
 const PaymentSettlement = require('../models/hr/PaymentSettlement');
 const AccountsPayable = require('../models/finance/AccountsPayable');
+const User = require('../models/User');
 const FinanceHelper = require('../utils/financeHelper');
 const { asyncHandler } = require('../middleware/errorHandler');
 const multer = require('multer');
@@ -15,6 +16,15 @@ const {
   getBaseWorkflowStatus,
   getSourceStatus
 } = require('../utils/paymentSettlementWorkflow');
+const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+
+const getUserIdsByRoles = async (roles = []) => {
+  const users = await User.find({
+    isActive: true,
+    role: { $in: roles }
+  }).select('_id');
+  return users.map((u) => String(u._id));
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -562,6 +572,32 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
     settlement.updatedBy = req.user.id;
 
     await settlement.save();
+
+    // Realtime notification on forward-to-CEO transition (CEO Secretariat / CEO queue)
+    if (workflowStatus === 'Forwarded to CEO') {
+      const recipientIds = await getUserIdsByRoles(['higher_management', 'admin', 'super_admin']);
+      if (recipientIds.length) {
+        await createAndEmitNotification({
+          recipientIds,
+          title: 'Payment forwarded to CEO',
+          message: `Payment settlement ${settlement.referenceNumber || settlement._id} is forwarded to CEO and awaiting approval.`,
+          type: 'info',
+          category: 'approval',
+          priority: 'high',
+          actionUrl: '/general/ceo-secretariat/payments',
+          createdBy: req.user.id,
+          excludeUserId: req.user.id,
+          metadata: {
+            module: 'general',
+            entityId: settlement._id,
+            entityType: 'PaymentSettlement',
+            queueStage: 'forwarded_to_ceo',
+            targetModule: 'general',
+            targetTab: 'ceo_payments'
+          }
+        });
+      }
+    }
 
     const updatedSettlement = await PaymentSettlement.findById(req.params.id)
       .populate('createdBy', 'firstName lastName email')

@@ -78,6 +78,7 @@ router.get('/assets', authorize(...TAG_ROLES), asyncHandler(async (req, res) => 
   }
 
   let assets = await FixedAsset.find(filter)
+    .populate('project', 'name code projectId')
     .populate('costCenter', 'name code')
     .sort({ assetNumber: 1 })
     .lean();
@@ -113,7 +114,9 @@ router.get('/assets', authorize(...TAG_ROLES), asyncHandler(async (req, res) => 
 
 // ── GET /api/asset-tagging/assets/:assetId — one asset + active tag (for label / detail)
 router.get('/assets/:assetId', authorize(...TAG_ROLES), asyncHandler(async (req, res) => {
-  const asset = await FixedAsset.findById(req.params.assetId).populate('costCenter', 'name code');
+  const asset = await FixedAsset.findById(req.params.assetId)
+    .populate('project', 'name code projectId')
+    .populate('costCenter', 'name code');
   if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
   const currentTag = await AssetTag.findOne({ asset: asset._id, status: 'active' });
   res.json({ success: true, data: { asset, currentTag } });
@@ -139,7 +142,9 @@ router.get('/resolve/:tagCode', authorize(...TAG_ROLES), asyncHandler(async (req
   const tag = await AssetTag.findOne({ tagCode, status: 'active' }).populate('asset');
   if (!tag) return res.status(404).json({ success: false, message: 'Tag not found or void' });
 
-  const asset = await FixedAsset.findById(tag.asset._id || tag.asset).populate('costCenter', 'name code');
+  const asset = await FixedAsset.findById(tag.asset._id || tag.asset)
+    .populate('project', 'name code projectId')
+    .populate('costCenter', 'name code');
   const transferHistory = await AssetTagEvent.find({
     asset: asset._id,
     eventType: 'transfer'

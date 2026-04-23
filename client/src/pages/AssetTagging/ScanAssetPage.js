@@ -69,6 +69,9 @@ export default function ScanAssetPage() {
   const asset = data?.asset;
   const transferHistory = data?.transferHistory || [];
   const assetLocationRows = asset ? formatAssetLocationLabeledRows(asset.location) : [];
+  const projectLabel = asset?.project
+    ? [asset.project.code, asset.project.name].filter(Boolean).join(' - ') || asset.project.projectId || asset.project.name
+    : '';
 
   return (
     <Box sx={{ p: { xs: 1.5, sm: 3 }, maxWidth: { xs: '100%', sm: 560 }, mx: 'auto' }}>
@@ -109,6 +112,9 @@ export default function ScanAssetPage() {
             )}
           </Box>
           <Typography variant="body2" color="text.secondary">Custodian: {asset.assignedTo || '—'}</Typography>
+          {projectLabel ? (
+            <Typography variant="body2" color="text.secondary">{projectLabel}</Typography>
+          ) : null}
           <Typography variant="body2" color="text.secondary">Serial: {asset.serialNumber || '—'}</Typography>
           {user ? (
             <Typography variant="body2" sx={{ mt: 1 }}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -13,7 +13,6 @@ import {
   TablePagination,
   TextField,
   MenuItem,
-  Chip,
   Alert,
   CircularProgress,
   Grid,
@@ -34,8 +33,11 @@ import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
+import { useAuth } from '../../contexts/AuthContext';
+import { canEditComparativeAuthorityUsers } from '../../utils/comparativeStatementAuthority';
 
 const ComparativeStatements = () => {
+  const { user } = useAuth();
   // State management
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -59,6 +61,23 @@ const ComparativeStatements = () => {
   // Editable note (saved with approval authorities)
   const [comparativeNote, setComparativeNote] = useState('');
   const [creatingSplitPOs, setCreatingSplitPOs] = useState(false);
+  const [canManageAssignments, setCanManageAssignments] = useState(false);
+  const [approverOptions, setApproverOptions] = useState([]);
+  const [approverSearchLoading, setApproverSearchLoading] = useState(false);
+  const [authorityUserSelection, setAuthorityUserSelection] = useState({
+    preparedBy: null,
+    verifiedBy: null,
+    authorisedRep: null,
+    financeRep: null,
+    managerProcurement: null
+  });
+  const [, setSavingComparativeApprovers] = useState(false);
+  const [submittingComparative, setSubmittingComparative] = useState(false);
+  const [approvingComparative, setApprovingComparative] = useState(false);
+  const [rejectingComparative, setRejectingComparative] = useState(false);
+  const [rejectObservation, setRejectObservation] = useState('');
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const authoritySearchDebounceRef = useRef(null);
 
   // Load requisitions on component mount
   useEffect(() => {
@@ -80,6 +99,7 @@ const ComparativeStatements = () => {
         // The API returns 'indents' not 'requisitions'
         const requisitionsData = response.data.data?.indents || response.data.data?.requisitions || [];
         setRequisitions(requisitionsData);
+        setCanManageAssignments(Boolean(response.data.data?.canManageAssignments));
       } else {
         setError('Failed to load requisitions');
       }
@@ -105,12 +125,33 @@ const ComparativeStatements = () => {
         const fullRequisition = reqResponse.data.data;
         setSelectedRequisition(fullRequisition);
         const approvals = fullRequisition.comparativeStatementApprovals || {};
+        const currentUserOption = user
+          ? {
+              _id: user._id || user.id,
+              firstName: user.firstName || '',
+              lastName: user.lastName || '',
+              email: user.email || '',
+              employeeId: user.employeeId || ''
+            }
+          : null;
+        const preparedBySelection = approvals.preparedByUser || currentUserOption || null;
         setApprovalAuthority({
-          preparedBy: approvals.preparedBy || '',
+          preparedBy:
+            approvals.preparedBy ||
+            (preparedBySelection
+              ? ([preparedBySelection.firstName, preparedBySelection.lastName].filter(Boolean).join(' ').trim() || preparedBySelection.email || '')
+              : ''),
           verifiedBy: approvals.verifiedBy || '',
           authorisedRep: approvals.authorisedRep || '',
           financeRep: approvals.financeRep || '',
           managerProcurement: approvals.managerProcurement || ''
+        });
+        setAuthorityUserSelection({
+          preparedBy: preparedBySelection,
+          verifiedBy: approvals.verifiedByUser || null,
+          authorisedRep: approvals.authorisedRepUser || null,
+          financeRep: approvals.financeRepUser || null,
+          managerProcurement: approvals.managerProcurementUser || null
         });
         setComparativeNote(fullRequisition.notes != null ? String(fullRequisition.notes) : '');
         const hasExistingApprovals = approvals.preparedBy || approvals.verifiedBy || approvals.authorisedRep || approvals.financeRep || approvals.managerProcurement;
@@ -130,6 +171,165 @@ const ComparativeStatements = () => {
     }
   };
 
+  const loadApproverOptions = async (q = '') => {
+    try {
+      setApproverSearchLoading(true);
+      const res = await api.get('/indents/approver-candidates', { params: { search: q, limit: 100 } });
+      setApproverOptions(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch {
+      setApproverOptions([]);
+    } finally {
+      setApproverSearchLoading(false);
+    }
+  };
+
+  const handleAuthoritySearchInput = (value) => {
+    if (authoritySearchDebounceRef.current) clearTimeout(authoritySearchDebounceRef.current);
+    authoritySearchDebounceRef.current = setTimeout(() => {
+      loadApproverOptions(value || '');
+    }, 300);
+  };
+
+  useEffect(() => {
+    if (selectedRequisition?._id) loadApproverOptions('');
+  }, [selectedRequisition?._id]);
+
+  useEffect(() => () => {
+    if (authoritySearchDebounceRef.current) clearTimeout(authoritySearchDebounceRef.current);
+  }, []);
+
+  const comparativeApproval = selectedRequisition?.comparativeApproval || {};
+  const comparativeStatus = comparativeApproval?.status || 'not_configured';
+  const approvalSteps = Array.isArray(comparativeApproval?.approvers) ? comparativeApproval.approvers : [];
+  const userId = user?.id || user?._id;
+  const isPendingApprover = approvalSteps.some((s) => {
+    const approverId = s?.approver?._id || s?.approver;
+    return String(approverId || '') === String(userId || '') && s?.status === 'pending';
+  });
+  const assignedToId = selectedRequisition?.procurementAssignment?.assignedTo?._id || selectedRequisition?.procurementAssignment?.assignedTo;
+  const isAssignedProcurementUser = assignedToId && String(assignedToId) === String(userId || '');
+  const canConfigureComparative = Boolean(selectedRequisition?._id) && (canManageAssignments || isAssignedProcurementUser);
+  const hasVendorSelection = Boolean(
+    (Array.isArray(quotations) && quotations.some((q) => ['Shortlisted', 'Finalized'].includes(q?.status))) ||
+    (selectedRequisition?.splitPOAssignments && Object.keys(selectedRequisition.splitPOAssignments).length > 0)
+  );
+  const canSubmitComparative =
+    canConfigureComparative &&
+    ['draft', 'rejected'].includes(comparativeStatus) &&
+    approvalSteps.length > 0 &&
+    hasVendorSelection;
+  const canApproveComparative = comparativeStatus === 'submitted' && isPendingApprover;
+  const canEditAuthoritySlots =
+    Boolean(canConfigureComparative && selectedRequisition && canEditComparativeAuthorityUsers(user, selectedRequisition));
+
+  const handleAuthorityUserChange = (fieldKey, userObj) => {
+    if (fieldKey === 'preparedBy') return;
+    if (!canEditAuthoritySlots) return;
+    setAuthorityUserSelection((prev) => ({ ...prev, [fieldKey]: userObj || null }));
+    setApprovalAuthority((prev) => ({
+      ...prev,
+      [fieldKey]:
+        userObj
+          ? ([userObj.firstName, userObj.lastName].filter(Boolean).join(' ').trim() || userObj.email || '')
+          : ''
+    }));
+  };
+
+  const handleSaveComparativeApprovers = async () => {
+    if (!selectedRequisition?._id) return;
+    const approverIds = [...new Set(Object.values(authorityUserSelection).map((u) => u?._id).filter(Boolean))];
+    if (!approverIds.length) {
+      setError('Select at least one comparative approver.');
+      return;
+    }
+    try {
+      setSavingComparativeApprovers(true);
+      setError('');
+      const res = await api.put(`/procurement/requisitions/${selectedRequisition._id}/comparative-approvers`, {
+        approverIds
+      });
+      if (res.data?.success) {
+        const updated = res.data.data;
+        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        setSuccess('Comparative approvers configured successfully.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to configure comparative approvers');
+    } finally {
+      setSavingComparativeApprovers(false);
+    }
+  };
+
+  const handleSubmitComparative = async () => {
+    if (!selectedRequisition?._id) return;
+    try {
+      setSubmittingComparative(true);
+      setError('');
+      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-submit`);
+      if (res.data?.success) {
+        const updated = res.data.data;
+        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        setSuccess('Comparative statement submitted for approvals.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to submit comparative statement');
+    } finally {
+      setSubmittingComparative(false);
+    }
+  };
+
+  const handleApproveComparative = async () => {
+    if (!selectedRequisition?._id) return;
+    try {
+      setApprovingComparative(true);
+      setError('');
+      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-approve`);
+      if (res.data?.success) {
+        const updated = res.data.data;
+        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        setSuccess(res.data.message || 'Approval recorded.');
+        // Server finalizes shortlisted (or split-PO) quotations; refresh list so UI shows Finalized.
+        if (updated?.comparativeApproval?.status === 'approved' && selectedRequisition?._id) {
+          try {
+            const response = await api.get(`/procurement/quotations/by-indent/${selectedRequisition._id}`);
+            if (response.data.success) {
+              setQuotations(response.data.data || []);
+            }
+            setSuccess('All authorities approved. Quotation(s) are finalized where a vendor was shortlisted.');
+          } catch (refreshErr) {
+            console.error('Refresh quotations after comparative approval failed:', refreshErr);
+          }
+        }
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to approve comparative statement');
+    } finally {
+      setApprovingComparative(false);
+    }
+  };
+
+  const handleRejectComparative = async () => {
+    if (!selectedRequisition?._id || !rejectObservation.trim()) return;
+    try {
+      setRejectingComparative(true);
+      setError('');
+      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-reject`, {
+        observation: rejectObservation.trim()
+      });
+      if (res.data?.success) {
+        const updated = res.data.data;
+        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        setRejectDialogOpen(false);
+        setRejectObservation('');
+        setSuccess(res.data.message || 'Comparative statement rejected.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reject comparative statement');
+    } finally {
+      setRejectingComparative(false);
+    }
+  };
+
   const formatDateForPrint = (date) => {
     if (!date) return '';
     return dayjs(date).format('DD/MM/YYYY');
@@ -145,10 +345,33 @@ const ComparativeStatements = () => {
     try {
       setSavingApprovals(true);
       setError('');
-      await api.put(`/indents/${selectedRequisition._id}/comparative-statement-approvals`, {
+      const preparedByUser =
+        authorityUserSelection.preparedBy ||
+        (user
+          ? {
+              _id: user._id || user.id,
+              firstName: user.firstName || '',
+              lastName: user.lastName || '',
+              email: user.email || ''
+            }
+          : null);
+      const payload = {
         ...approvalAuthority,
+        preparedBy:
+          preparedByUser
+            ? ([preparedByUser.firstName, preparedByUser.lastName].filter(Boolean).join(' ').trim() || preparedByUser.email || '')
+            : '',
+        preparedByUser: preparedByUser?._id || null,
+        verifiedByUser: authorityUserSelection.verifiedBy?._id || null,
+        authorisedRepUser: authorityUserSelection.authorisedRep?._id || null,
+        financeRepUser: authorityUserSelection.financeRep?._id || null,
+        managerProcurementUser: authorityUserSelection.managerProcurement?._id || null,
         notes: comparativeNote
+      };
+      await api.put(`/indents/${selectedRequisition._id}/comparative-statement-approvals`, {
+        ...payload
       });
+      await handleSaveComparativeApprovers();
       setApprovalsSavedForRequisition(selectedRequisition._id);
       setSuccess('Approval authorities and note saved successfully.');
       setTimeout(() => setSuccess(''), 3000);
@@ -169,6 +392,7 @@ const ComparativeStatements = () => {
       setCreatingSplitPOs(true);
       setError('');
       await api.put(`/indents/${selectedRequisition._id}/split-po-assignments`, { vendorAssignments });
+      setSelectedRequisition((prev) => (prev ? { ...prev, splitPOAssignments: vendorAssignments } : prev));
       if (selectedRequisition?._id) {
         const response = await api.get(`/procurement/quotations/by-indent/${selectedRequisition._id}`);
         if (response.data.success) {
@@ -190,19 +414,18 @@ const ComparativeStatements = () => {
     try {
       setUpdating(true);
       setError('');
-      
-      // Update selected quotation to Finalized
+      const selectedStatus = comparativeStatus === 'approved' ? 'Finalized' : 'Shortlisted';
       await api.put(`/procurement/quotations/${selectDialog.quotation._id}`, {
-        status: 'Finalized'
+        status: selectedStatus
       });
 
-      // Update other quotations to Rejected (optional - you can remove this if you want to keep them as is)
+      // Keep only one active preferred vendor marker before approval.
       const otherQuotations = quotations.filter(q => q._id !== selectDialog.quotation._id);
       for (const quote of otherQuotations) {
-        if (quote.status !== 'Finalized') {
+        if (quote.status === 'Shortlisted') {
           try {
             await api.put(`/procurement/quotations/${quote._id}`, {
-              status: 'Rejected'
+              status: 'Received'
             });
           } catch (err) {
             console.error(`Failed to update quotation ${quote._id}:`, err);
@@ -219,7 +442,11 @@ const ComparativeStatements = () => {
       }
 
       setSelectDialog({ open: false, quotation: null });
-      setSuccess('Vendor selected successfully. Quotation status updated to Finalized.');
+      setSuccess(
+        selectedStatus === 'Finalized'
+          ? 'Vendor selected successfully. Quotation status updated to Finalized.'
+          : 'Vendor preference saved as Shortlisted. It will be finalized after all authorities approve.'
+      );
       
       // Auto-dismiss success message after 5 seconds
       setTimeout(() => {
@@ -292,25 +519,40 @@ const ComparativeStatements = () => {
 
         {/* Comparative Statement Display */}
         {selectedRequisition && (
-          <ComparativeStatementView
-            requisition={selectedRequisition}
-            quotations={quotations}
-            approvalAuthority={approvalAuthority}
-            note={comparativeNote}
-            readOnly={false}
-            formatNumber={formatNumber}
-            loadingQuotations={loadingQuotations}
-            onSaveApprovals={handleSaveApprovals}
-            onSelectVendor={handleSelectVendor}
-            savingApprovals={savingApprovals}
-            updating={updating}
-            approvalsSavedForRequisition={approvalsSavedForRequisition}
-            onNoteChange={setComparativeNote}
-            onApprovalChange={(key, value) => setApprovalAuthority((prev) => ({ ...prev, [key]: value }))}
-            onCreateSplitPOs={handleCreateSplitPOs}
-            creatingSplitPOs={creatingSplitPOs}
-            showPrintButton
-          />
+          <>
+            <ComparativeStatementView
+              requisition={selectedRequisition}
+              quotations={quotations}
+              approvalAuthority={approvalAuthority}
+              note={comparativeNote}
+              readOnly={false}
+              formatNumber={formatNumber}
+              loadingQuotations={loadingQuotations}
+              onSaveApprovals={canConfigureComparative ? handleSaveApprovals : undefined}
+              onSelectVendor={handleSelectVendor}
+              savingApprovals={savingApprovals}
+              updating={updating}
+              approvalsSavedForRequisition={approvalsSavedForRequisition}
+              onNoteChange={canConfigureComparative ? setComparativeNote : undefined}
+              authorityUserOptions={approverOptions}
+              authorityUserLoading={approverSearchLoading}
+              authorityUserSelection={authorityUserSelection}
+              onAuthorityUserChange={handleAuthorityUserChange}
+              onAuthorityUserSearchInput={handleAuthoritySearchInput}
+              onCreateSplitPOs={canConfigureComparative ? handleCreateSplitPOs : undefined}
+              creatingSplitPOs={creatingSplitPOs}
+              showPrintButton
+              canSelectVendors={canConfigureComparative}
+              onSubmitComparative={handleSubmitComparative}
+              submittingComparative={submittingComparative}
+              canSubmitComparative={canSubmitComparative}
+              onApproveComparative={handleApproveComparative}
+              onRejectComparative={() => setRejectDialogOpen(true)}
+              canApproveComparative={canApproveComparative}
+              approvingComparative={approvingComparative}
+              canEditApprovalAuthorities={canEditAuthoritySlots}
+            />
+          </>
         )}
 
         {/* Print Styles */}
@@ -393,8 +635,8 @@ const ComparativeStatements = () => {
             <br /><br />
             This will:
             <ul>
-              <li>Update this quotation status to <strong>Finalized</strong></li>
-              <li>Update other quotations status to <strong>Rejected</strong></li>
+              <li>Mark this quotation as <strong>{comparativeStatus === 'approved' ? 'Finalized' : 'Shortlisted'}</strong></li>
+              <li>Reset any previously shortlisted vendor to <strong>Received</strong></li>
             </ul>
           </DialogContentText>
         </DialogContent>
@@ -409,7 +651,30 @@ const ComparativeStatements = () => {
             disabled={updating}
             startIcon={updating ? <CircularProgress size={20} /> : <CheckCircleIcon />}
           >
-            {updating ? 'Updating...' : 'Confirm Selection'}
+            {updating ? 'Updating...' : (comparativeStatus === 'approved' ? 'Confirm Finalize' : 'Confirm Shortlist')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Reject Comparative Statement</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            minRows={4}
+            label="Observation (required)"
+            value={rejectObservation}
+            onChange={(e) => setRejectObservation(e.target.value)}
+            inputProps={{ maxLength: 1000 }}
+            helperText={`${rejectObservation.length}/1000`}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleRejectComparative} disabled={rejectingComparative || !rejectObservation.trim()}>
+            {rejectingComparative ? 'Rejecting...' : 'Reject'}
           </Button>
         </DialogActions>
       </Dialog>

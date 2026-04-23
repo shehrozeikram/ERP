@@ -9,6 +9,10 @@ const User = require('../models/User');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const Quotation = require('../models/procurement/Quotation');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const {
+  canMutateComparativeAuthorityUsers,
+  authorityUserRefsChanged
+} = require('../utils/comparativeStatementAuthorityLock');
 
 const router = express.Router();
 
@@ -74,6 +78,25 @@ const notifyIndentTransition = async ({
   });
 };
 
+const pushIndentWorkflowHistory = (indent, {
+  fromStatus = '',
+  toStatus = '',
+  changedBy = null,
+  comments = '',
+  module = 'Indent'
+} = {}) => {
+  if (!indent) return;
+  if (!Array.isArray(indent.workflowHistory)) indent.workflowHistory = [];
+  indent.workflowHistory.push({
+    fromStatus,
+    toStatus,
+    changedBy,
+    changedAt: new Date(),
+    comments,
+    module
+  });
+};
+
 function syncSignatureSlotFromApprover(indent, chainIndex, approverUser) {
   if (!indent.signatures) indent.signatures = {};
   const key = APPROVAL_SIGNATURE_KEYS[chainIndex];
@@ -95,7 +118,7 @@ router.get('/',
   [
     query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
     query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
-    query('status').optional().isIn(['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Partially Fulfilled', 'Fulfilled', 'Cancelled']),
+    query('status').optional().isIn(['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Rejected in Procurement', 'Partially Fulfilled', 'Fulfilled', 'Cancelled']),
     query('category').optional().trim(),
     query('department').optional().isMongoId().withMessage('Invalid department ID'),
     query('search').optional().trim()
@@ -402,13 +425,39 @@ router.get('/:id',
       .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature')
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
-      .populate('comments.user', 'firstName lastName email');
+      .populate('comments.user', 'firstName lastName email')
+      .populate('procurementRejection.rejectedBy', 'firstName lastName email')
+      .populate('comparativeStatementApprovals.preparedByUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeStatementApprovals.verifiedByUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeStatementApprovals.authorisedRepUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeStatementApprovals.financeRepUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeStatementApprovals.managerProcurementUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
 
     if (!indent || !indent.isActive) {
       return res.status(404).json({
         success: false,
         message: 'Indent not found'
       });
+    }
+
+    // Backfill initial history entry for records created before workflow tracking
+    // or rare cases where first event wasn't written.
+    if (!Array.isArray(indent.workflowHistory) || indent.workflowHistory.length === 0) {
+      const createdById =
+        indent.createdBy?._id || indent.createdBy || indent.requestedBy?._id || indent.requestedBy || null;
+      pushIndentWorkflowHistory(indent, {
+        fromStatus: '',
+        toStatus: indent.status || 'Draft',
+        changedBy: createdById,
+        comments: 'Indent created',
+        module: 'Indent'
+      });
+      await indent.save({ validateBeforeSave: false });
+      await indent.populate('workflowHistory.changedBy', 'firstName lastName email');
     }
 
     res.json({
@@ -519,11 +568,19 @@ router.post('/',
     }
 
     const indent = new Indent(indentData);
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: '',
+      toStatus: indent.status || 'Draft',
+      changedBy: req.user.id,
+      comments: 'Indent created',
+      module: 'Indent'
+    });
     await indent.save();
 
     await indent.populate('department', 'name code');
     await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
     await indent.populate('createdBy', 'firstName lastName email');
+    await indent.populate('workflowHistory.changedBy', 'firstName lastName email');
 
     res.status(201).json({
       success: true,
@@ -543,7 +600,7 @@ router.put('/:id',
     body('description').optional().trim().isLength({ max: 1000 }).withMessage('Description cannot exceed 1000 characters'),
     body('items.*.itemName').optional().trim().notEmpty().withMessage('Item name cannot be empty'),
     body('items.*.quantity').optional().isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
-    body('status').optional().isIn(['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'])
+    body('status').optional().isIn(['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Rejected in Procurement', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'])
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -678,7 +735,71 @@ router.put('/:id/comparative-statement-approvals',
       });
     }
 
-    const { preparedBy, verifiedBy, authorisedRep, financeRep, managerProcurement, notes } = req.body;
+    if (authorityUserRefsChanged(indent, req.body) && !canMutateComparativeAuthorityUsers(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'Only Prepared By, Procurement Manager (GM), or Super Admin can change comparative approval authority users after they have been set.'
+      });
+    }
+
+    const {
+      preparedBy,
+      verifiedBy,
+      authorisedRep,
+      financeRep,
+      managerProcurement,
+      preparedByUser,
+      verifiedByUser,
+      authorisedRepUser,
+      financeRepUser,
+      managerProcurementUser,
+      notes
+    } = req.body;
+
+    const userFields = {
+      preparedByUser,
+      verifiedByUser,
+      authorisedRepUser,
+      financeRepUser,
+      managerProcurementUser
+    };
+    const validIds = Object.values(userFields).filter((v) => v && mongoose.Types.ObjectId.isValid(String(v)));
+    if (validIds.length > 0) {
+      const activeUsers = await User.find({ _id: { $in: validIds }, isActive: true }).select('_id firstName lastName email');
+      const byId = new Map(activeUsers.map((u) => [String(u._id), u]));
+      for (const [fieldKey, fieldVal] of Object.entries(userFields)) {
+        if (!fieldVal) continue;
+        const keyStr = String(fieldVal);
+        if (!byId.has(keyStr)) {
+          return res.status(400).json({
+            success: false,
+            message: `${fieldKey} must be an active user.`
+          });
+        }
+      }
+      // Autofill authority display names from selected users (keeps print-friendly names in sync)
+      if (preparedByUser) {
+        const u = byId.get(String(preparedByUser));
+        if (u) indent.comparativeStatementApprovals.preparedBy = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || '';
+      }
+      if (verifiedByUser) {
+        const u = byId.get(String(verifiedByUser));
+        if (u) indent.comparativeStatementApprovals.verifiedBy = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || '';
+      }
+      if (authorisedRepUser) {
+        const u = byId.get(String(authorisedRepUser));
+        if (u) indent.comparativeStatementApprovals.authorisedRep = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || '';
+      }
+      if (financeRepUser) {
+        const u = byId.get(String(financeRepUser));
+        if (u) indent.comparativeStatementApprovals.financeRep = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || '';
+      }
+      if (managerProcurementUser) {
+        const u = byId.get(String(managerProcurementUser));
+        if (u) indent.comparativeStatementApprovals.managerProcurement = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || '';
+      }
+    }
 
     if (!indent.comparativeStatementApprovals) {
       indent.comparativeStatementApprovals = {};
@@ -688,6 +809,11 @@ router.put('/:id/comparative-statement-approvals',
     if (authorisedRep !== undefined) indent.comparativeStatementApprovals.authorisedRep = authorisedRep || '';
     if (financeRep !== undefined) indent.comparativeStatementApprovals.financeRep = financeRep || '';
     if (managerProcurement !== undefined) indent.comparativeStatementApprovals.managerProcurement = managerProcurement || '';
+    if (preparedByUser !== undefined) indent.comparativeStatementApprovals.preparedByUser = preparedByUser || null;
+    if (verifiedByUser !== undefined) indent.comparativeStatementApprovals.verifiedByUser = verifiedByUser || null;
+    if (authorisedRepUser !== undefined) indent.comparativeStatementApprovals.authorisedRepUser = authorisedRepUser || null;
+    if (financeRepUser !== undefined) indent.comparativeStatementApprovals.financeRepUser = financeRepUser || null;
+    if (managerProcurementUser !== undefined) indent.comparativeStatementApprovals.managerProcurementUser = managerProcurementUser || null;
     if (notes !== undefined) indent.notes = notes == null ? '' : String(notes).trim();
 
     indent.updatedBy = req.user.id;
@@ -843,12 +969,20 @@ router.post('/:id/submit',
       });
     }
 
+    const previousStatus = indent.status;
     indent.approvalChain = unique.map((id) => ({
       approver: id,
       status: 'pending'
     }));
     indent.draftApproverIds = [];
     indent.status = 'Submitted';
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: previousStatus,
+      toStatus: indent.status,
+      changedBy: req.user.id,
+      comments: 'Submitted for approval',
+      module: 'Indent'
+    });
     indent.updatedBy = req.user.id;
     await indent.save();
 
@@ -919,6 +1053,7 @@ router.post('/:id/approve',
       }
 
       const actingUser = await User.findById(req.user._id).select('firstName lastName email').lean();
+      const previousStatus = indent.status;
       indent.approvalChain[stepIndex].status = 'approved';
       indent.approvalChain[stepIndex].actedAt = new Date();
       syncSignatureSlotFromApprover(indent, stepIndex, actingUser);
@@ -929,7 +1064,20 @@ router.post('/:id/approve',
         indent.approvedBy = req.user._id;
         indent.approvedDate = new Date();
         indent.storeRoutingStatus = 'pending_store_check';
+      } else {
+        indent.status = 'Under Review';
       }
+
+      const approverName = [actingUser?.firstName, actingUser?.lastName].filter(Boolean).join(' ').trim() || actingUser?.email || 'Approver';
+      pushIndentWorkflowHistory(indent, {
+        fromStatus: previousStatus,
+        toStatus: indent.status,
+        changedBy: req.user.id,
+        comments: allApproved
+          ? `${approverName} approved indent. Sent to Store Dashboard for stock check.`
+          : `${approverName} approved their step.`,
+        module: 'Indent'
+      });
 
       indent.updatedBy = req.user.id;
       await indent.save();
@@ -972,6 +1120,13 @@ router.post('/:id/approve',
     indent.approvedDate = new Date();
     indent.updatedBy = req.user.id;
     indent.storeRoutingStatus = 'pending_store_check'; // Goes to Store first for stock check
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: 'Submitted',
+      toStatus: indent.status,
+      changedBy: req.user.id,
+      comments: 'Approved and sent to Store Dashboard for stock check.',
+      module: 'Indent'
+    });
     await indent.save();
 
     await indent.populate('department', 'name code');
@@ -1037,10 +1192,18 @@ router.post('/:id/move-to-procurement',
       });
     }
 
+    const previousStatus = indent.status;
     indent.storeRoutingStatus = 'moved_to_procurement';
     indent.movedToProcurementBy = req.user.id;
     indent.movedToProcurementAt = new Date();
     indent.movedToProcurementReason = (req.body.reason || '').trim();
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: previousStatus,
+      toStatus: previousStatus,
+      changedBy: req.user.id,
+      comments: `Moved to Procurement Requisitions. Reason: ${indent.movedToProcurementReason}`,
+      module: 'Store'
+    });
     indent.updatedBy = req.user.id;
     await indent.save({ validateBeforeSave: false });
 
@@ -1062,6 +1225,83 @@ router.post('/:id/move-to-procurement',
     res.json({
       success: true,
       message: 'Indent moved to Procurement Requisitions successfully',
+      data: indent
+    });
+  })
+);
+
+// @route   POST /api/indents/:id/resubmit-to-procurement
+// @desc    Requester resubmits a procurement-rejected indent back to procurement stage (no re-approval chain)
+// @access  Private
+router.post('/:id/resubmit-to-procurement',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.id);
+
+    if (!indent || !indent.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Indent not found'
+      });
+    }
+
+    if (indent.status !== 'Rejected in Procurement') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only requisitions rejected in procurement can be resubmitted.'
+      });
+    }
+
+    if (String(indent.requestedBy) !== String(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the requester can resubmit this requisition.'
+      });
+    }
+
+    const previousStatus = indent.status;
+    indent.status = 'Approved';
+    indent.storeRoutingStatus = 'moved_to_procurement';
+    indent.procurementRejection = {
+      rejectedBy: null,
+      rejectedAt: null,
+      observation: ''
+    };
+    indent.procurementAssignment = indent.procurementAssignment || {};
+    indent.procurementAssignment.status = 'unassigned';
+    indent.procurementAssignment.assignedTo = null;
+    indent.procurementAssignment.note = '';
+    indent.updatedBy = req.user.id;
+
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: previousStatus,
+      toStatus: indent.status,
+      changedBy: req.user.id,
+      comments: 'Requester revised and resubmitted to Procurement (no re-approval required).',
+      module: 'Indent'
+    });
+
+    await indent.save({ validateBeforeSave: false });
+
+    await indent.populate('department', 'name code');
+    await indent.populate('requestedBy', 'firstName lastName email employeeId digitalSignature');
+    await indent.populate('approvedBy', 'firstName lastName email digitalSignature');
+    await indent.populate('procurementRejection.rejectedBy', 'firstName lastName email');
+    await indent.populate('workflowHistory.changedBy', 'firstName lastName email');
+
+    const procurementRecipients = await getProcurementWorkflowRecipients();
+    await notifyIndentTransition({
+      recipientIds: procurementRecipients,
+      actorId: req.user.id,
+      title: 'Requisition resubmitted to Procurement',
+      message: `Requisition ${indent.indentNumber || ''} has been revised by requester and resubmitted.`,
+      actionUrl: INDENT_TARGET_ROUTES.procurementRequisitions,
+      indentId: indent._id
+    });
+
+    res.json({
+      success: true,
+      message: 'Requisition resubmitted to procurement successfully.',
       data: indent
     });
   })
@@ -1114,11 +1354,19 @@ router.post('/:id/reject',
         });
       }
 
+      const previousStatus = indent.status;
       indent.approvalChain[stepIndex].status = 'rejected';
       indent.approvalChain[stepIndex].actedAt = new Date();
       indent.approvalChain[stepIndex].comment = req.body.rejectionReason;
       indent.status = 'Rejected';
       indent.rejectionReason = req.body.rejectionReason;
+      pushIndentWorkflowHistory(indent, {
+        fromStatus: previousStatus,
+        toStatus: indent.status,
+        changedBy: req.user.id,
+        comments: `Rejected: ${req.body.rejectionReason}`,
+        module: 'Indent'
+      });
       indent.updatedBy = req.user.id;
       await indent.save();
 
@@ -1140,8 +1388,16 @@ router.post('/:id/reject',
       });
     }
 
+    const previousStatus = indent.status;
     indent.status = 'Rejected';
     indent.rejectionReason = req.body.rejectionReason;
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: previousStatus,
+      toStatus: indent.status,
+      changedBy: req.user.id,
+      comments: `Rejected: ${req.body.rejectionReason}`,
+      module: 'Indent'
+    });
     indent.updatedBy = req.user.id;
     await indent.save();
 

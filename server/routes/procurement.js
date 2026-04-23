@@ -22,6 +22,7 @@ const QuotationInvitation = require('../models/procurement/QuotationInvitation')
 const Indent = require('../models/general/Indent');
 const Project = require('../models/hr/Project');
 const User = require('../models/User');
+const { canMutateComparativeAuthorityUsers } = require('../utils/comparativeStatementAuthorityLock');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
 console.log('✅ Procurement routes loaded successfully');
@@ -30,6 +31,8 @@ const router = express.Router();
 
 const PROCUREMENT_MODULE_KEY = 'procurement';
 const PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES = ['gm procurement', 'general manager procurement'];
+const AUDIT_MODULE_KEY = 'audit';
+const AUDIT_DIRECTOR_ROLE_NAMES = ['audit_director', 'audit director'];
 
 const normalizeRoleLabel = (value) => String(value || '').trim().toLowerCase();
 
@@ -61,6 +64,25 @@ const userHasRoleName = (user, acceptedRoleNames = []) => {
 const hasProcurementModuleAccess = (roleDoc) => {
   if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
   return roleDoc.permissions.some((permission) => permission?.module === PROCUREMENT_MODULE_KEY);
+};
+
+const hasModuleAccess = (roleDoc, moduleKey) => {
+  if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
+  return roleDoc.permissions.some((permission) => permission?.module === moduleKey);
+};
+
+const hasAuditAccess = (user) => {
+  if (!user) return false;
+  if (['super_admin', 'admin', 'audit_manager', 'auditor', 'audit_director'].includes(user.role)) return true;
+  if (hasModuleAccess(user.roleRef, AUDIT_MODULE_KEY)) return true;
+  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, AUDIT_MODULE_KEY))) return true;
+  return false;
+};
+
+const isAuditDirectorUser = (user) => {
+  if (!user) return false;
+  if (user.role === 'audit_director' || user.role === 'Audit Director') return true;
+  return userHasRoleName(user, AUDIT_DIRECTOR_ROLE_NAMES);
 };
 
 const hasProcurementAccess = (user) => {
@@ -125,6 +147,35 @@ const getStoreWorkflowRecipients = async () => {
   return [...new Set([...byStoreDept, ...byProcurementDept, ...byStoreRoles])];
 };
 
+const getAuditWorkflowRecipients = async () => {
+  const byAuditDept = await getUserIdsByDepartment('audit');
+  const byAuditRoles = await getUserIdsByRoles(['audit_manager', 'auditor', 'audit_director', 'admin', 'super_admin']);
+  return [...new Set([...byAuditDept, ...byAuditRoles])];
+};
+
+const getCeoSecretariatRecipients = async () => {
+  const byHrRoles = await getUserIdsByRoles(['hr_manager', 'admin', 'super_admin']);
+  const byHrDept = await getUserIdsByDepartment('hr');
+  return [...new Set([...byHrRoles, ...byHrDept])];
+};
+
+const getCeoRecipients = async () => {
+  const byRole = await getUserIdsByRoles(['higher_management', 'admin', 'super_admin']);
+  return [...new Set(byRole)];
+};
+
+const getFinanceWorkflowRecipients = async () => {
+  const byFinanceDept = await getUserIdsByDepartment('finance');
+  const byFinanceRoles = await getUserIdsByRoles(['finance_manager', 'admin', 'super_admin']);
+  return [...new Set([...byFinanceDept, ...byFinanceRoles])];
+};
+
+const getProcurementWorkflowRecipients = async () => {
+  const byProcurementDept = await getUserIdsByDepartment('procurement');
+  const byProcurementRoles = await getUserIdsByRoles(['procurement_manager', 'admin', 'super_admin']);
+  return [...new Set([...byProcurementDept, ...byProcurementRoles])];
+};
+
 const notifyDocumentRecipients = async ({
   recipientIds = [],
   actorId = null,
@@ -133,7 +184,8 @@ const notifyDocumentRecipients = async ({
   actionUrl,
   entityId,
   entityType = 'Document',
-  module = 'procurement'
+  module = 'procurement',
+  metadata = {}
 }) => {
   const ids = normalizeIds(recipientIds).filter((id) => id !== String(actorId || ''));
   if (ids.length === 0) return;
@@ -151,7 +203,8 @@ const notifyDocumentRecipients = async ({
     metadata: {
       module,
       entityId,
-      entityType
+      entityType,
+      ...metadata
     }
   });
 };
@@ -216,7 +269,59 @@ const canViewQuotationsByIndentRead = (user, indent) => {
   if (canOperateAssignedProcurementRequisition(user, indent)) return true;
   if (isAuditReadRole(user)) return true;
   if (user.role === 'higher_management') return true;
+  const approverSteps = Array.isArray(indent?.comparativeApproval?.approvers) ? indent.comparativeApproval.approvers : [];
+  const isComparativeApprover = approverSteps.some((step) => String(step?.approver || '') === String(user.id));
+  if (isComparativeApprover) return true;
   return false;
+};
+
+const ensureComparativeApprovalObject = (indent) => {
+  if (!indent.comparativeApproval || typeof indent.comparativeApproval !== 'object') {
+    indent.comparativeApproval = {
+      status: 'not_configured',
+      approvers: [],
+      submittedBy: null,
+      submittedAt: null,
+      lastResubmittedAt: null,
+      rejectedBy: null,
+      rejectedAt: null,
+      rejectionObservation: ''
+    };
+  }
+  if (!Array.isArray(indent.comparativeApproval.approvers)) {
+    indent.comparativeApproval.approvers = [];
+  }
+  return indent.comparativeApproval;
+};
+
+const comparativeApprovalIsFullyApproved = (indent) => {
+  const ca = indent?.comparativeApproval;
+  return !!(
+    ca &&
+    ca.status === 'approved' &&
+    Array.isArray(ca.approvers) &&
+    ca.approvers.length > 0 &&
+    ca.approvers.every((s) => s.status === 'approved')
+  );
+};
+
+const pushIndentWorkflowHistory = (indent, {
+  fromStatus = '',
+  toStatus = '',
+  changedBy = null,
+  comments = '',
+  module = 'Procurement'
+} = {}) => {
+  if (!indent) return;
+  if (!Array.isArray(indent.workflowHistory)) indent.workflowHistory = [];
+  indent.workflowHistory.push({
+    fromStatus,
+    toStatus,
+    changedBy,
+    changedAt: new Date(),
+    comments,
+    module
+  });
 };
 
 // Convert blank string ObjectId-like fields from forms into undefined
@@ -456,11 +561,20 @@ router.get('/purchase-orders/:id',
       .populate('vendor', 'name email phone contactPerson address')
       .populate({
         path: 'indent',
-        select: 'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes comparativeStatementApprovals approvalChain',
+        select:
+          'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes comparativeStatementApprovals comparativeApproval splitPOAssignments approvalChain justification signatures',
         populate: [
           { path: 'department', select: 'name code' },
           { path: 'requestedBy', select: 'firstName lastName email digitalSignature' },
-          { path: 'approvalChain.approver', select: 'firstName lastName email digitalSignature' }
+          { path: 'approvalChain.approver', select: 'firstName lastName email digitalSignature' },
+          { path: 'comparativeApproval.approvers.approver', select: 'firstName lastName email employeeId digitalSignature' },
+          { path: 'comparativeApproval.submittedBy', select: 'firstName lastName email' },
+          { path: 'comparativeApproval.rejectedBy', select: 'firstName lastName email' },
+          { path: 'comparativeStatementApprovals.preparedByUser', select: 'firstName lastName email employeeId digitalSignature' },
+          { path: 'comparativeStatementApprovals.verifiedByUser', select: 'firstName lastName email employeeId digitalSignature' },
+          { path: 'comparativeStatementApprovals.authorisedRepUser', select: 'firstName lastName email employeeId digitalSignature' },
+          { path: 'comparativeStatementApprovals.financeRepUser', select: 'firstName lastName email employeeId digitalSignature' },
+          { path: 'comparativeStatementApprovals.managerProcurementUser', select: 'firstName lastName email employeeId digitalSignature' }
         ]
       })
       .populate('quotation', 'quotationNumber quotationDate')
@@ -743,7 +857,7 @@ function buildIndentWorkflowHistory(indent) {
     module: 'Indent'
   });
 
-  if (indent.status && indent.status !== 'Draft' && !['Approved', 'Rejected', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'].includes(indent.status)) {
+  if (indent.status && indent.status !== 'Draft' && !['Approved', 'Rejected', 'Rejected in Procurement', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'].includes(indent.status)) {
     const submittedAt = indent.updatedAt || createdAt;
     const submittedBy = indent.updatedBy || indent.requestedBy || createdBy;
     entries.push({
@@ -1012,6 +1126,24 @@ router.put('/purchase-orders/:id/send-to-audit',
       .populate('auditObservations.addedBy', 'firstName lastName email')
       .populate('auditObservations.answeredBy', 'firstName lastName email')
       .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
+
+    const auditRecipients = await getAuditWorkflowRecipients();
+    await notifyDocumentRecipients({
+      recipientIds: auditRecipients,
+      actorId: req.user.id,
+      title: 'PO pending Audit review',
+      message: `Purchase Order ${purchaseOrder.orderNumber || purchaseOrder.poNumber || ''} moved to Audit queue. Please review in Pre-Audit.`,
+      actionUrl: '/audit',
+      entityId: purchaseOrder._id,
+      entityType: 'PurchaseOrder',
+      module: 'procurement',
+      metadata: {
+        queueStage: 'pending_audit',
+        targetModule: 'audit',
+        targetTab: 'pre_audit'
+      }
+    });
+
     res.json({
       success: true,
       message: 'Purchase order sent to audit successfully',
@@ -1021,25 +1153,88 @@ router.put('/purchase-orders/:id/send-to-audit',
 );
 
 // @route   PUT /api/procurement/purchase-orders/:id/audit-approve
-// @desc    Audit Director approves PO after it was forwarded to them (status -> Send to CEO Office). Super Admin may approve from Pending Audit for operations.
-// @access  Private (Super Admin, Audit Director)
+// @desc    Two-step audit approval for PO:
+//          1) Assistant/auditor initial approval in Pending Audit
+//          2) Audit Director final approval after Forwarded to Audit Director
+// @access  Private (dynamic audit access)
 router.put('/purchase-orders/:id/audit-approve',
-  authorize('super_admin', 'audit_director'),
+  authMiddleware,
   asyncHandler(async (req, res) => {
+    if (!hasAuditAccess(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to audit this purchase order.'
+      });
+    }
+
     const purchaseOrder = await PurchaseOrder.findById(req.params.id);
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    const isSuperAdmin = req.user.role === 'super_admin';
-    const canApproveFrom =
-      purchaseOrder.status === 'Forwarded to Audit Director' ||
-      (isSuperAdmin && purchaseOrder.status === 'Pending Audit');
-    if (!canApproveFrom) {
+
+    // Step 1: Initial audit approval by assistant/auditor while PO is still in Pending Audit.
+    if (purchaseOrder.status === 'Pending Audit') {
+      if (isAuditDirectorUser(req.user)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Initial pre-audit approval must be completed by assistant/auditor before director approval.'
+        });
+      }
+      const initialComments = req.body.approvalComments || req.body.comments || '';
+      purchaseOrder.preAuditInitialApprovedBy = req.user.id;
+      purchaseOrder.preAuditInitialApprovedAt = new Date();
+      purchaseOrder.preAuditInitialComments = initialComments;
+      purchaseOrder.updatedBy = req.user.id;
+      pushPOWorkflowHistory(
+        purchaseOrder,
+        'Pending Audit',
+        'Pending Audit',
+        req.user.id,
+        initialComments || 'Initial pre-audit approval recorded. Forward to Audit Director for final approval.',
+        'Pre-Audit'
+      );
+      await purchaseOrder.save();
+
+      const updatedInitial = await PurchaseOrder.findById(purchaseOrder._id)
+        .populate('vendor', 'name email phone')
+        .populate('preAuditInitialApprovedBy', 'firstName lastName email digitalSignature')
+        .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
+
+      const auditRecipients = await getAuditWorkflowRecipients();
+      await notifyDocumentRecipients({
+        recipientIds: auditRecipients,
+        actorId: req.user.id,
+        title: 'Initial pre-audit approval recorded',
+        message: `Purchase Order ${purchaseOrder.orderNumber || purchaseOrder.poNumber || ''} has initial audit approval and is ready to forward to Audit Director.`,
+        actionUrl: '/audit',
+        entityId: purchaseOrder._id,
+        entityType: 'PurchaseOrder',
+        module: 'procurement',
+        metadata: {
+          queueStage: 'initial_audit_approved',
+          targetModule: 'audit',
+          targetTab: 'pre_audit'
+        }
+      });
+
+      return res.json({
+        success: true,
+        message: 'Initial pre-audit approval recorded. Please forward to Audit Director for final approval.',
+        data: updatedInitial
+      });
+    }
+
+    // Step 2: Final approval by Audit Director after forwarded.
+    if (purchaseOrder.status !== 'Forwarded to Audit Director') {
       return res.status(400).json({
         success: false,
-        message: isSuperAdmin
-          ? 'Purchase order must be in Pending Audit or Forwarded to Audit Director to audit-approve'
-          : 'Forward the purchase order to the Audit Director first. Only the Audit Director can approve it after it has been forwarded.'
+        message: 'Purchase order must be forwarded to Audit Director for final approval.'
+      });
+    }
+    if (!isAuditDirectorUser(req.user) && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Audit Director can provide final approval after forwarding.'
       });
     }
     const fromAuditStatus = purchaseOrder.status;
@@ -1054,6 +1249,24 @@ router.put('/purchase-orders/:id/audit-approve',
       .populate('vendor', 'name email phone')
       .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
       .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
+
+    const ceoSecretariatRecipients = await getCeoSecretariatRecipients();
+    await notifyDocumentRecipients({
+      recipientIds: ceoSecretariatRecipients,
+      actorId: req.user.id,
+      title: 'PO pending CEO Secretariat',
+      message: `Purchase Order ${purchaseOrder.orderNumber || purchaseOrder.poNumber || ''} is audit-approved and now waiting in CEO Secretariat queue.`,
+      actionUrl: '/general/ceo-secretariat/payments',
+      entityId: purchaseOrder._id,
+      entityType: 'PurchaseOrder',
+      module: 'procurement',
+      metadata: {
+        queueStage: 'send_to_ceo_office',
+        targetModule: 'procurement',
+        targetTab: 'ceo_secretariat'
+      }
+    });
+
     res.json({
       success: true,
       message: 'Purchase order audit-approved successfully and sent to CEO Office',
@@ -1179,6 +1392,24 @@ router.put('/purchase-orders/:id/forward-to-ceo',
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
       .populate('ceoForwardedBy', 'firstName lastName email');
+
+    const ceoRecipients = await getCeoRecipients();
+    await notifyDocumentRecipients({
+      recipientIds: ceoRecipients,
+      actorId: req.user.id,
+      title: 'PO pending CEO approval',
+      message: `Purchase Order ${purchaseOrder.orderNumber || purchaseOrder.poNumber || ''} is forwarded to CEO and awaiting approval action.`,
+      actionUrl: '/general/ceo-secretariat/payments',
+      entityId: purchaseOrder._id,
+      entityType: 'PurchaseOrder',
+      module: 'procurement',
+      metadata: {
+        queueStage: 'forwarded_to_ceo',
+        targetModule: 'procurement',
+        targetTab: 'ceo_approval'
+      }
+    });
+
     res.json({
       success: true,
       message: 'Purchase order forwarded to CEO successfully',
@@ -1192,6 +1423,12 @@ function isAdvanceOrPartialAdvance(paymentTerms) {
   const terms = (paymentTerms || '').toLowerCase().trim();
   if (!terms) return false;
   return terms.includes('advance') || terms.includes('partial advance');
+}
+
+function isFullAdvance(paymentTerms) {
+  const terms = (paymentTerms || '').toLowerCase().trim();
+  if (!terms) return false;
+  return terms.includes('full advance') || (terms.includes('advance') && !terms.includes('partial'));
 }
 
 function buildBillNumber(prefix = 'BILL') {
@@ -1243,6 +1480,43 @@ router.put('/purchase-orders/:id/ceo-approve',
     purchaseOrder.ceoDigitalSignature = digitalSignature || '';
     purchaseOrder.updatedBy = req.user.id;
     await purchaseOrder.save();
+
+    if (sendToFinance) {
+      const isVendorAdvanceFlow = isFullAdvance(purchaseOrder.paymentTerms);
+      const financeRecipients = await getFinanceWorkflowRecipients();
+      await notifyDocumentRecipients({
+        recipientIds: financeRecipients,
+        actorId: req.user.id,
+        title: 'Purchase Order moved to Finance',
+        message: `Purchase Order ${purchaseOrder.orderNumber || purchaseOrder.poNumber || ''} is approved by CEO and now waiting in Finance queue.`,
+        actionUrl: isVendorAdvanceFlow ? '/finance/vendor-advance' : '/finance/accounts-payable',
+        entityId: purchaseOrder._id,
+        entityType: 'PurchaseOrder',
+        module: 'finance',
+        metadata: {
+          queueStage: 'pending_finance',
+          targetModule: 'finance',
+          targetTab: isVendorAdvanceFlow ? 'vendor-advance' : 'accounts-payable'
+        }
+      });
+    } else {
+      const procurementRecipients = await getProcurementWorkflowRecipients();
+      await notifyDocumentRecipients({
+        recipientIds: procurementRecipients,
+        actorId: req.user.id,
+        title: 'Purchase Order approved by CEO',
+        message: `Purchase Order ${purchaseOrder.orderNumber || purchaseOrder.poNumber || ''} is approved by CEO and returned to Procurement flow.`,
+        actionUrl: '/procurement/purchase-orders',
+        entityId: purchaseOrder._id,
+        entityType: 'PurchaseOrder',
+        module: 'procurement',
+        metadata: {
+          queueStage: 'approved',
+          targetModule: 'procurement',
+          targetTab: 'purchase-orders'
+        }
+      });
+    }
 
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
@@ -1339,6 +1613,12 @@ router.put('/purchase-orders/:id/finance-approve',
       return res.status(400).json({
         success: false,
         message: 'Only POs in Pending Finance can be approved by Finance'
+      });
+    }
+    if (isFullAdvance(purchaseOrder.paymentTerms)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full-advance PO is auto-approved after recording vendor advance payment'
       });
     }
     pushPOWorkflowHistory(purchaseOrder, 'Pending Finance', 'Approved', req.user.id, approvalComments || 'Approved by Finance', 'Finance');
@@ -3890,12 +4170,8 @@ router.post('/requisitions/send-email',
 router.get('/requisitions', 
   authMiddleware,
   asyncHandler(async (req, res) => {
-    if (!hasProcurementAccess(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not authorized to view procurement requisitions.'
-      });
-    }
+    const hasFullProcurementRead = hasProcurementAccess(req.user);
+    const requesterId = String(req.user?.id || '');
 
     const { 
       page = 1, 
@@ -3960,6 +4236,21 @@ router.get('/requisitions',
       filter['procurementAssignment.assignedTo'] = req.user.id;
     }
 
+    // Relaxed read-access for Comparative approvers:
+    // users without procurement role can still view only requisitions where
+    // they are configured as comparative approver.
+    if (!hasFullProcurementRead) {
+      if (!requesterId || !mongoose.Types.ObjectId.isValid(requesterId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not authorized to view procurement requisitions.'
+        });
+      }
+      filter['comparativeApproval.approvers.approver'] = new mongoose.Types.ObjectId(requesterId);
+      // Comparative approvers should only see records participating in comparative flow.
+      filter['comparativeApproval.status'] = { $in: ['submitted', 'approved', 'rejected', 'draft'] };
+    }
+
     const skip = (page - 1) * limit;
 
     const sortSpec = isForRequisition
@@ -3973,6 +4264,7 @@ router.get('/requisitions',
       .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
       .populate('procurementAssignment.assignedTo', 'firstName lastName email department position role')
       .populate('procurementAssignment.assignedBy', 'firstName lastName email')
+      .populate('procurementRejection.rejectedBy', 'firstName lastName email')
       .sort(sortSpec)
       .skip(skip)
       .limit(parseInt(limit));
@@ -3982,7 +4274,7 @@ router.get('/requisitions',
     res.json({
       success: true,
       data: {
-        canManageAssignments: isManager,
+        canManageAssignments: hasFullProcurementRead ? isManager : false,
         indents,
         pagination: {
           currentPage: parseInt(page),
@@ -4135,6 +4427,483 @@ router.put('/requisitions/:id/assign',
     res.json({
       success: true,
       message: 'Requisition assigned successfully.',
+      data: updated
+    });
+  })
+);
+
+// @route   PUT /api/procurement/requisitions/:id/comparative-approvers
+// @desc    Configure comparative statement approvers (non-sequential) for a requisition
+// @access  Private (assigned user or assignment manager)
+router.put('/requisitions/:id/comparative-approvers',
+  authMiddleware,
+  [
+    body('approverIds').isArray({ min: 1 }).withMessage('At least one approver is required')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Requisition not found' });
+    }
+    if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assigned procurement user or an assignment manager can configure approvers.'
+      });
+    }
+    if (!canMutateComparativeAuthorityUsers(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'Only Prepared By, Procurement Manager (GM), or Super Admin can change comparative approvers after approval authorities have been set.'
+      });
+    }
+    if (!['Approved', 'Partially Fulfilled', 'Fulfilled'].includes(indent.status) || indent.storeRoutingStatus !== 'moved_to_procurement') {
+      return res.status(400).json({
+        success: false,
+        message: 'Requisition must be in procurement stage to configure comparative approvers.'
+      });
+    }
+
+    const approverIds = [...new Set((req.body.approverIds || []).map((id) => String(id)).filter((id) => mongoose.Types.ObjectId.isValid(id)))];
+    if (approverIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one valid approver is required.' });
+    }
+
+    const activeUsers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');
+    const activeIdSet = new Set(activeUsers.map((u) => String(u._id)));
+    const filteredIds = approverIds.filter((id) => activeIdSet.has(id));
+    if (filteredIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Selected approvers must be active users.' });
+    }
+
+    const ca = ensureComparativeApprovalObject(indent);
+    const previousStatus = ca.status;
+    ca.approvers = filteredIds.map((id) => ({
+      approver: id,
+      status: 'pending',
+      actedAt: null,
+      comment: ''
+    }));
+    ca.status = 'draft';
+    ca.submittedBy = null;
+    ca.submittedAt = null;
+    ca.rejectedBy = null;
+    ca.rejectedAt = null;
+    ca.rejectionObservation = '';
+    indent.updatedBy = req.user.id;
+
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: `Comparative Approval: ${previousStatus}`,
+      toStatus: 'Comparative Approval: draft',
+      changedBy: req.user.id,
+      comments: `Comparative approvers configured (${filteredIds.length} approver${filteredIds.length > 1 ? 's' : ''}).`,
+      module: 'Procurement'
+    });
+
+    await indent.save();
+
+    const updated = await Indent.findById(indent._id)
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Comparative approvers configured successfully.',
+      data: updated
+    });
+  })
+);
+
+// @route   POST /api/procurement/requisitions/:id/comparative-submit
+// @desc    Submit comparative statement for approvals (non-sequential)
+// @access  Private (assigned user or assignment manager)
+router.post('/requisitions/:id/comparative-submit',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Requisition not found' });
+    }
+    if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assigned procurement user or an assignment manager can submit comparative statement.'
+      });
+    }
+
+    const ca = ensureComparativeApprovalObject(indent);
+    if (!Array.isArray(ca.approvers) || ca.approvers.length === 0) {
+      return res.status(400).json({ success: false, message: 'Configure comparative approvers first.' });
+    }
+
+    const previousStatus = ca.status;
+    ca.approvers = ca.approvers.map((s) => ({
+      approver: s.approver,
+      status: 'pending',
+      actedAt: null,
+      comment: ''
+    }));
+    ca.status = 'submitted';
+    if (!ca.submittedAt) ca.submittedAt = new Date();
+    else ca.lastResubmittedAt = new Date();
+    ca.submittedBy = req.user.id;
+    ca.rejectedBy = null;
+    ca.rejectedAt = null;
+    ca.rejectionObservation = '';
+    indent.updatedBy = req.user.id;
+
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: `Comparative Approval: ${previousStatus}`,
+      toStatus: 'Comparative Approval: submitted',
+      changedBy: req.user.id,
+      comments: 'Comparative statement submitted for approvals.',
+      module: 'Procurement'
+    });
+
+    await indent.save();
+
+    const approverIds = ca.approvers.map((s) => s.approver);
+    await notifyDocumentRecipients({
+      recipientIds: approverIds,
+      actorId: req.user.id,
+      title: 'Comparative Statement needs your approval',
+      message: `Requisition ${indent.indentNumber || ''} comparative statement is submitted for approval.`,
+      actionUrl: '/procurement/comparative-statements',
+      entityId: indent._id,
+      entityType: 'Indent',
+      module: 'procurement'
+    });
+
+    const updated = await Indent.findById(indent._id)
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Comparative statement submitted for approvals.',
+      data: updated
+    });
+  })
+);
+
+// @route   POST /api/procurement/requisitions/:id/comparative-approve
+// @desc    Approve comparative statement as one of selected approvers (non-sequential)
+// @access  Private (selected approver)
+router.post('/requisitions/:id/comparative-approve',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Requisition not found' });
+    }
+    const ca = ensureComparativeApprovalObject(indent);
+    if (ca.status !== 'submitted') {
+      return res.status(400).json({ success: false, message: 'Comparative statement is not awaiting approval.' });
+    }
+
+    const uid = String(req.user.id);
+    const idx = ca.approvers.findIndex((s) => String(s.approver) === uid && s.status === 'pending');
+    if (idx === -1) {
+      return res.status(403).json({ success: false, message: 'You are not a pending approver for this comparative statement.' });
+    }
+
+    // Enforce Prepared By first approval (if configured as an approver)
+    const preparedById = indent?.comparativeStatementApprovals?.preparedByUser
+      ? String(indent.comparativeStatementApprovals.preparedByUser)
+      : '';
+    if (preparedById && uid !== preparedById) {
+      const preparedStep = ca.approvers.find((s) => String(s.approver) === preparedById);
+      if (preparedStep && preparedStep.status !== 'approved') {
+        return res.status(400).json({
+          success: false,
+          message: 'Prepared By must approve first before other approvers can act.'
+        });
+      }
+    }
+
+    ca.approvers[idx].status = 'approved';
+    ca.approvers[idx].actedAt = new Date();
+    ca.approvers[idx].comment = '';
+
+    const allApproved = ca.approvers.every((s) => s.status === 'approved');
+    const previousStatus = ca.status;
+    if (allApproved) ca.status = 'approved';
+
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: `Comparative Approval: ${previousStatus}`,
+      toStatus: `Comparative Approval: ${ca.status}`,
+      changedBy: req.user.id,
+      comments: allApproved
+        ? 'Comparative statement fully approved by all selected approvers.'
+        : 'Comparative statement approved by one approver.',
+      module: 'Procurement'
+    });
+
+    indent.updatedBy = req.user.id;
+    await indent.save();
+
+    if (allApproved) {
+      // Backend guarantee: once all approvers approve, finalize vendor quotation(s).
+      // Finalize every Shortlisted quotation for this indent (single winner + split PO).
+      // If none are Shortlisted (e.g. assignments saved but quotes not re-tagged), fall back to splitPOAssignments ids.
+      const alreadyFinalized = await Quotation.findOne({
+        indent: indent._id,
+        status: 'Finalized'
+      })
+        .select('_id')
+        .lean();
+
+      if (!alreadyFinalized) {
+        const shortlistResult = await Quotation.updateMany(
+          { indent: indent._id, status: 'Shortlisted' },
+          { $set: { status: 'Finalized' } }
+        );
+        const shortlistModified =
+          typeof shortlistResult.modifiedCount === 'number'
+            ? shortlistResult.modifiedCount
+            : shortlistResult.nModified;
+
+        if (!shortlistModified && indent.splitPOAssignments && typeof indent.splitPOAssignments === 'object') {
+          const rawIds = [...new Set(Object.values(indent.splitPOAssignments))];
+          const ids = rawIds
+            .map((id) => (mongoose.Types.ObjectId.isValid(String(id)) ? String(id) : null))
+            .filter(Boolean);
+          if (ids.length) {
+            await Quotation.updateMany(
+              { _id: { $in: ids }, indent: indent._id },
+              { $set: { status: 'Finalized' } }
+            );
+          }
+        }
+      }
+
+      const recipients = [indent.requestedBy, procurementAssigneeId(indent)].filter(Boolean);
+      await notifyDocumentRecipients({
+        recipientIds: recipients,
+        actorId: req.user.id,
+        title: 'Comparative Statement approved',
+        message: `Requisition ${indent.indentNumber || ''} comparative statement is fully approved. You can now create PO/Split PO.`,
+        actionUrl: '/procurement/comparative-statements',
+        entityId: indent._id,
+        entityType: 'Indent',
+        module: 'procurement'
+      });
+    }
+
+    const updated = await Indent.findById(indent._id)
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: allApproved ? 'Comparative statement fully approved.' : 'Your approval has been recorded.',
+      data: updated
+    });
+  })
+);
+
+// @route   POST /api/procurement/requisitions/:id/comparative-reject
+// @desc    Reject comparative statement with observation
+// @access  Private (selected approver)
+router.post('/requisitions/:id/comparative-reject',
+  authMiddleware,
+  [
+    body('observation')
+      .trim()
+      .notEmpty()
+      .withMessage('Observation is required')
+      .isLength({ max: 1000 })
+      .withMessage('Observation cannot exceed 1000 characters')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Requisition not found' });
+    }
+
+    const ca = ensureComparativeApprovalObject(indent);
+    if (ca.status !== 'submitted') {
+      return res.status(400).json({ success: false, message: 'Comparative statement is not awaiting approval.' });
+    }
+
+    const uid = String(req.user.id);
+    const idx = ca.approvers.findIndex((s) => String(s.approver) === uid && s.status === 'pending');
+    if (idx === -1) {
+      return res.status(403).json({ success: false, message: 'You are not a pending approver for this comparative statement.' });
+    }
+
+    // Enforce Prepared By first action (if configured as an approver)
+    const preparedById = indent?.comparativeStatementApprovals?.preparedByUser
+      ? String(indent.comparativeStatementApprovals.preparedByUser)
+      : '';
+    if (preparedById && uid !== preparedById) {
+      const preparedStep = ca.approvers.find((s) => String(s.approver) === preparedById);
+      if (preparedStep && preparedStep.status !== 'approved') {
+        return res.status(400).json({
+          success: false,
+          message: 'Prepared By must approve first before other approvers can act.'
+        });
+      }
+    }
+
+    const observation = String(req.body.observation || '').trim();
+    ca.approvers[idx].status = 'rejected';
+    ca.approvers[idx].actedAt = new Date();
+    ca.approvers[idx].comment = observation;
+    const previousStatus = ca.status;
+    ca.status = 'rejected';
+    ca.rejectedBy = req.user.id;
+    ca.rejectedAt = new Date();
+    ca.rejectionObservation = observation;
+
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: `Comparative Approval: ${previousStatus}`,
+      toStatus: 'Comparative Approval: rejected',
+      changedBy: req.user.id,
+      comments: `Comparative statement rejected with observation: ${observation}`,
+      module: 'Procurement'
+    });
+
+    indent.updatedBy = req.user.id;
+    await indent.save();
+
+    const recipients = [indent.requestedBy, procurementAssigneeId(indent)].filter(Boolean);
+    await notifyDocumentRecipients({
+      recipientIds: recipients,
+      actorId: req.user.id,
+      title: 'Comparative Statement rejected',
+      message: `Requisition ${indent.indentNumber || ''} comparative statement was rejected. Observation: ${observation}`,
+      actionUrl: '/procurement/comparative-statements',
+      entityId: indent._id,
+      entityType: 'Indent',
+      module: 'procurement'
+    });
+
+    const updated = await Indent.findById(indent._id)
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Comparative statement rejected. Requester can edit and resubmit with same approvers.',
+      data: updated
+    });
+  })
+);
+
+// @route   PUT /api/procurement/requisitions/:id/reject
+// @desc    Reject requisition in procurement stage with observation
+// @access  Private (Assignment manager only)
+router.put('/requisitions/:id/reject',
+  authMiddleware,
+  [
+    body('observation')
+      .trim()
+      .notEmpty()
+      .withMessage('Observation is required')
+      .isLength({ max: 1000 })
+      .withMessage('Observation cannot exceed 1000 characters')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    if (!canManageProcurementAssignments(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to reject requisitions.'
+      });
+    }
+
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Requisition not found'
+      });
+    }
+
+    if (!['Approved', 'Partially Fulfilled', 'Fulfilled'].includes(indent.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only active procurement requisitions can be rejected.'
+      });
+    }
+
+    if (indent.storeRoutingStatus !== 'moved_to_procurement') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only requisitions moved to procurement can be rejected.'
+      });
+    }
+
+    const observation = String(req.body.observation || '').trim();
+    const previousStatus = indent.status;
+    indent.status = 'Rejected in Procurement';
+    indent.procurementRejection = {
+      rejectedBy: req.user.id,
+      rejectedAt: new Date(),
+      observation
+    };
+    indent.updatedBy = req.user.id;
+
+    // Keep assignment metadata but mark it closed for further operations.
+    indent.procurementAssignment = indent.procurementAssignment || {};
+    indent.procurementAssignment.status = 'unassigned';
+    indent.procurementAssignment.assignedTo = null;
+    indent.procurementAssignment.note = '';
+
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: previousStatus,
+      toStatus: 'Rejected in Procurement',
+      changedBy: req.user.id,
+      comments: `Rejected in Procurement: ${observation}`,
+      module: 'Procurement'
+    });
+
+    await indent.save();
+
+    const updated = await Indent.findById(indent._id)
+      .populate('department', 'name code')
+      .populate('requestedBy', 'firstName lastName email employeeId')
+      .populate('procurementRejection.rejectedBy', 'firstName lastName email')
+      .populate('procurementAssignment.assignedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
+
+    await notifyDocumentRecipients({
+      recipientIds: [indent.requestedBy],
+      actorId: req.user.id,
+      title: 'Requisition rejected in Procurement',
+      message: `Requisition ${indent.indentNumber || ''} was rejected with observation: ${observation}`,
+      actionUrl: `/general/indents/${indent._id}`,
+      entityId: indent._id,
+      entityType: 'Indent',
+      module: 'procurement'
+    });
+
+    res.json({
+      success: true,
+      message: 'Requisition rejected with observation.',
       data: updated
     });
   })
@@ -4427,7 +5196,7 @@ router.get('/quotations/by-indent/:indentId',
   asyncHandler(async (req, res) => {
     const { indentId } = req.params;
 
-    const indent = await Indent.findById(indentId).select('procurementAssignment');
+    const indent = await Indent.findById(indentId).select('procurementAssignment comparativeApproval.approvers');
     if (!indent) {
       return res.status(404).json({ success: false, message: 'Requisition not found' });
     }
@@ -4886,7 +5655,7 @@ router.post('/quotations/:id/create-po',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const quotation = await Quotation.findById(req.params.id)
-      .populate({ path: 'indent', select: 'indentNumber title procurementAssignment' })
+      .populate({ path: 'indent', select: 'indentNumber title procurementAssignment comparativeApproval' })
       .populate('vendor', 'name email phone');
 
     if (!quotation) {
@@ -4907,6 +5676,13 @@ router.post('/quotations/:id/create-po',
       return res.status(400).json({
         success: false,
         message: 'Only finalized quotations can be converted to purchase orders'
+      });
+    }
+
+    if (quotation.indent && !comparativeApprovalIsFullyApproved(quotation.indent)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comparative Statement must be fully approved before creating PO.'
       });
     }
 
@@ -5004,6 +5780,13 @@ router.post('/quotations/by-indent/:indentId/create-split-pos',
       return res.status(403).json({
         success: false,
         message: 'Only the assigned procurement user or an assignment manager can create split POs for this requisition.'
+      });
+    }
+
+    if (!comparativeApprovalIsFullyApproved(indent)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comparative Statement must be fully approved before creating Split POs.'
       });
     }
 
@@ -5108,6 +5891,13 @@ router.post('/quotations/by-indent/:indentId/create-split-pos-from-saved',
       return res.status(403).json({
         success: false,
         message: 'Only the assigned procurement user or an assignment manager can create split POs for this requisition.'
+      });
+    }
+
+    if (!comparativeApprovalIsFullyApproved(indent)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comparative Statement must be fully approved before creating Split POs.'
       });
     }
 

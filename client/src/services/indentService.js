@@ -77,6 +77,12 @@ const indentService = {
   moveToProcurement: async (id, reason) => {
     const response = await api.post(`/indents/${id}/move-to-procurement`, { reason: reason || '' });
     return response.data;
+  },
+
+  // Requester resubmits procurement-rejected requisition to procurement stage
+  resubmitToProcurement: async (id) => {
+    const response = await api.post(`/indents/${id}/resubmit-to-procurement`);
+    return response.data;
   }
 };
 

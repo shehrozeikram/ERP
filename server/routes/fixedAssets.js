@@ -6,6 +6,7 @@ const { authorize } = require('../middleware/auth');
 const FixedAsset = require('../models/finance/FixedAsset');
 const FinanceHelper = require('../utils/financeHelper');
 const Employee = require('../models/hr/Employee');
+const Project = require('../models/hr/Project');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -24,6 +25,7 @@ router.get('/', asyncHandler(async (req, res) => {
     .populate('assetAccount', 'name accountNumber')
     .populate('accumulatedDeprecAccount', 'name accountNumber')
     .populate('depreciationExpenseAccount', 'name accountNumber')
+    .populate('project', 'name code projectId')
     .populate('costCenter', 'name code')
     .sort({ assetNumber: 1 });
 
@@ -66,12 +68,22 @@ router.get('/employees', authorize('super_admin', 'admin', 'finance_manager'), a
   res.json({ success: true, data: employees });
 }));
 
+// GET /api/finance/fixed-assets/projects — active project master
+router.get('/projects', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
+  const projects = await Project.find({ status: 'Active' })
+    .select('name code projectId')
+    .sort({ name: 1 })
+    .lean();
+  res.json({ success: true, data: projects });
+}));
+
 // GET /api/finance/fixed-assets/:id
 router.get('/:id([0-9a-fA-F]{24})', asyncHandler(async (req, res) => {
   const asset = await FixedAsset.findById(req.params.id)
     .populate('assetAccount', 'name accountNumber')
     .populate('accumulatedDeprecAccount', 'name accountNumber')
     .populate('depreciationExpenseAccount', 'name accountNumber')
+    .populate('project', 'name code projectId')
     .populate('costCenter', 'name code')
     .populate('depreciationSchedule.journalEntry', 'entryNumber date');
   if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
@@ -113,7 +125,7 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), asyncHa
 
   const allowed = ['name', 'description', 'category', 'residualValue', 'depreciationMethod',
     'usefulLifeYears', 'depreciationRate', 'assetAccount', 'accumulatedDeprecAccount',
-    'depreciationExpenseAccount', 'location', 'assignedTo', 'costCenter', 'serialNumber'];
+    'depreciationExpenseAccount', 'location', 'assignedTo', 'project', 'costCenter', 'serialNumber'];
   allowed.forEach(f => { if (req.body[f] !== undefined) asset[f] = req.body[f]; });
   asset.updatedBy = req.user.id;
   await asset.save();

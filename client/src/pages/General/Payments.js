@@ -220,8 +220,8 @@ const Payments = () => {
   };
 
   const handleForward = async () => {
-    if (!approvalAgree || !approvalSignature.trim()) {
-      toast.error('Please provide digital signature and agree to terms');
+    if (!approvalAgree) {
+      toast.error('Please agree to terms');
       return;
     }
 
@@ -230,8 +230,7 @@ const Payments = () => {
         setActionLoading(true);
         setError(null);
         await api.put(`/procurement/purchase-orders/${approveDialog.settlement._id}/forward-to-ceo`, {
-          comments: approvalComments,
-          digitalSignature: approvalSignature
+          comments: approvalComments
         });
         toast.success('Purchase order forwarded to CEO successfully');
         setApproveDialog({ open: false, settlement: null });
@@ -255,8 +254,7 @@ const Payments = () => {
       // Forward to CEO by updating workflow status to "Forwarded to CEO"
       await paymentSettlementService.updateWorkflowStatus(approveDialog.settlement._id, {
         workflowStatus: 'Forwarded to CEO',
-        comments: approvalComments || `Forwarded to CEO with digital signature: ${approvalSignature}`,
-        digitalSignature: approvalSignature
+        comments: approvalComments || 'Forwarded to CEO'
       });
       
       toast.success('Payment forwarded to CEO successfully');
@@ -1994,16 +1992,6 @@ const Payments = () => {
             sx={{ mb: 2 }}
           />
           
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={approvalSignature}
-            onChange={(e) => setApprovalSignature(e.target.value)}
-            placeholder="Type your name as digital signature"
-            required
-            sx={{ mb: 2 }}
-          />
-          
           <FormControlLabel
             control={
               <Checkbox
@@ -2029,7 +2017,7 @@ const Payments = () => {
             onClick={handleForward}
             variant="contained"
             color="primary"
-            disabled={actionLoading || !approvalAgree || !approvalSignature.trim()}
+            disabled={actionLoading || !approvalAgree}
             startIcon={<ArrowForwardIcon />}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Forward to CEO'}

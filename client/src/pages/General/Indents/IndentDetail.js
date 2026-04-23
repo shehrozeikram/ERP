@@ -38,13 +38,16 @@ import {
   ArrowBack as ArrowBackIcon,
   Comment as CommentIcon,
   Print as PrintIcon,
-  ShoppingCart as POIcon
+  ShoppingCart as POIcon,
+  History as HistoryIcon,
+  Replay as ReplayIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
+import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
 
 const approverDisplayName = (u) => {
   if (!u) return '';
@@ -68,6 +71,7 @@ const IndentDetail = () => {
   const [submitSlots, setSubmitSlots] = useState([null, null, null]);
   const [approverSearchOptions, setApproverSearchOptions] = useState([]);
   const [approverSearchLoading, setApproverSearchLoading] = useState(false);
+  const [workflowHistoryOpen, setWorkflowHistoryOpen] = useState(false);
 
   // Load indent data
   const loadIndent = useCallback(async () => {
@@ -237,6 +241,24 @@ const IndentDetail = () => {
     }
   };
 
+  const handleResubmitToProcurement = async () => {
+    try {
+      await indentService.resubmitToProcurement(id);
+      setSnackbar({
+        open: true,
+        message: 'Requisition resubmitted to procurement successfully',
+        severity: 'success'
+      });
+      loadIndent();
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error resubmitting requisition',
+        severity: 'error'
+      });
+    }
+  };
+
   // Format currency
   const formatCurrency = (value) =>
     new Intl.NumberFormat('en-PK', {
@@ -259,6 +281,7 @@ const IndentDetail = () => {
       'Under Review': 'warning',
       'Approved': 'success',
       'Rejected': 'error',
+      'Rejected in Procurement': 'error',
       'Partially Fulfilled': 'info',
       'Fulfilled': 'success',
       'Cancelled': 'default'
@@ -267,7 +290,9 @@ const IndentDetail = () => {
   };
 
   // Check permissions
-  const canEdit = indent?.status === 'Draft' && indent?.requestedBy?._id === user?.id;
+  const canEdit =
+    ['Draft', 'Rejected in Procurement'].includes(indent?.status) &&
+    indent?.requestedBy?._id === user?.id;
   const chain = indent?.approvalChain || [];
   const hasChain = chain.length > 0;
   const uid = user?.id ? String(user.id) : '';
@@ -285,6 +310,9 @@ const IndentDetail = () => {
     ['Submitted', 'Under Review'].includes(indent?.status);
   const canApproveReject = canApproveRejectChain || canApproveRejectLegacy;
   const canSubmit = indent?.status === 'Draft' && indent?.requestedBy?._id === user?.id;
+  const canResubmitToProcurement =
+    indent?.status === 'Rejected in Procurement' &&
+    indent?.requestedBy?._id === user?.id;
 
   if (loading) {
     return (
@@ -345,6 +373,16 @@ const IndentDetail = () => {
               Submit for Approval
             </Button>
           )}
+          {canResubmitToProcurement && (
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<ReplayIcon />}
+              onClick={handleResubmitToProcurement}
+            >
+              Resubmit to Procurement
+            </Button>
+          )}
           {canApproveReject && (
             <>
               <Button
@@ -371,6 +409,13 @@ const IndentDetail = () => {
             onClick={() => setCommentDialogOpen(true)}
           >
             Add Comment
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<HistoryIcon />}
+            onClick={() => setWorkflowHistoryOpen(true)}
+          >
+            Workflow History
           </Button>
         </Stack>
       </Stack>
@@ -487,6 +532,18 @@ const IndentDetail = () => {
                       </Typography>
                       <Typography variant="body2">
                         {indent.rejectionReason}
+                      </Typography>
+                    </Alert>
+                  </Grid>
+                )}
+                {indent.procurementRejection?.observation?.trim() && (
+                  <Grid item xs={12}>
+                    <Alert severity="warning" variant="filled">
+                      <Typography variant="body2" fontWeight={700}>
+                        Procurement Observation
+                      </Typography>
+                      <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>
+                        {indent.procurementRejection.observation.trim()}
                       </Typography>
                     </Alert>
                   </Grid>
@@ -827,6 +884,13 @@ const IndentDetail = () => {
         autoHideDuration={6000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         message={snackbar.message}
+      />
+
+      <WorkflowHistoryDialog
+        open={workflowHistoryOpen}
+        onClose={() => setWorkflowHistoryOpen(false)}
+        document={indent}
+        documentType="indent"
       />
     </Box>
   );

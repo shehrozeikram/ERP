@@ -83,6 +83,7 @@ import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
+import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import dayjs from 'dayjs';
 
 const PreAudit = () => {
@@ -122,6 +123,29 @@ const PreAudit = () => {
   const [returnComments, setReturnComments] = useState('');
   const [rejectionComments, setRejectionComments] = useState('');
   const [rejectObservations, setRejectObservations] = useState([{ observation: '', severity: 'medium' }]);
+
+  const normalizeRole = (value) => String(value || '').toLowerCase().replace(/\s+/g, '_');
+  const userHasRoleLabel = (accepted = []) => {
+    const set = accepted.map((r) => normalizeRole(r));
+    const direct = normalizeRole(user?.role);
+    if (set.includes(direct)) return true;
+    const roleRefNames = [user?.roleRef?.name, user?.roleRef?.displayName].map(normalizeRole).filter(Boolean);
+    if (roleRefNames.some((n) => set.includes(n))) return true;
+    const roleNames = Array.isArray(user?.roles)
+      ? user.roles.flatMap((r) => [normalizeRole(r?.name), normalizeRole(r?.displayName)]).filter(Boolean)
+      : [];
+    return roleNames.some((n) => set.includes(n));
+  };
+  const isAuditDirectorUser = () => userHasRoleLabel(['audit_director', 'audit director']) || normalizeRole(user?.role) === 'super_admin';
+  const isAuditReviewerUser = () => userHasRoleLabel(['audit_manager', 'auditor']) || normalizeRole(user?.role) === 'super_admin';
+  const hasInitialApproval = (doc) =>
+    Boolean(
+      doc?.initialAuditApproved ||
+      doc?.initialAuditApprovedAt ||
+      doc?.preAuditInitialApprovedAt ||
+      doc?.reviewedAt ||
+      doc?.status === 'under_review'
+    );
 
   useEffect(() => {
     fetchDocuments();
@@ -439,6 +463,172 @@ const PreAudit = () => {
   const formatNumber = (num) => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
+  };
+
+  const renderComparativeApprovalProgress = (indent, { title = 'Comparative approval progress' } = {}) => {
+    if (!indent) return null;
+    const ca = indent.comparativeApproval || {};
+    const steps = Array.isArray(ca.approvers) ? ca.approvers : [];
+    const authorityUserMap = (() => {
+      const csa = indent?.comparativeStatementApprovals || {};
+      const slots = [
+        { key: 'preparedByUser', label: 'Prepared By' },
+        { key: 'verifiedByUser', label: 'Verified By (Procurement Committee)' },
+        { key: 'authorisedRepUser', label: 'Authorised Rep.' },
+        { key: 'financeRepUser', label: 'Finance Rep.' },
+        { key: 'managerProcurementUser', label: 'Manager Procurement' }
+      ];
+      const map = new Map();
+      slots.forEach((slot) => {
+        const id = csa?.[slot.key]?._id || csa?.[slot.key];
+        if (!id) return;
+        map.set(String(id), slot.label);
+      });
+      return map;
+    })();
+
+    return (
+      <Box sx={{ mt: 3 }}>
+        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+          {title}
+        </Typography>
+        {steps.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No comparative approval chain is recorded for this requisition.
+          </Typography>
+        ) : (
+          <>
+            <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'action.hover' }}>
+                  <TableCell sx={{ fontWeight: 700 }}>Authority / approver</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {steps.map((step, idx) => {
+                  const approver = step.approver;
+                  const aid = approver?._id || approver;
+                  const name =
+                    [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                    approver?.email ||
+                    (aid ? `User ${String(aid).slice(-6)}` : `Approver ${idx + 1}`);
+                  const authorityLabel = authorityUserMap.get(String(aid || ''));
+                  const status = step.status || 'pending';
+                  const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                  const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                  return (
+                    <TableRow key={String(aid || idx)}>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>
+                          {authorityLabel || 'Approver'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {name}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={chipLabel}
+                          color={chipColor}
+                          variant={status === 'pending' ? 'outlined' : 'filled'}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        {step.actedAt ? new Date(step.actedAt).toLocaleString() : '—'}
+                      </TableCell>
+                      <TableCell align="center">
+                        {status === 'approved' && approver?.digitalSignature ? (
+                          <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                        ) : status === 'approved' ? (
+                          <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">—</Typography>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+            {ca?.status === 'rejected' && ca?.rejectionObservation ? (
+              <Typography variant="caption" color="error.main" display="block" sx={{ mt: 1 }}>
+                Observation: {ca.rejectionObservation}
+              </Typography>
+            ) : null}
+          </>
+        )}
+      </Box>
+    );
+  };
+
+  const renderIndentApprovalProgress = (indent, { title = 'Indent approval progress' } = {}) => {
+    if (!indent) return null;
+    const steps = Array.isArray(indent.approvalChain) ? indent.approvalChain : [];
+    return (
+      <Box sx={{ mt: 3 }}>
+        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+          {title}
+        </Typography>
+        {steps.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No indent approval chain is recorded for this requisition.
+          </Typography>
+        ) : (
+          <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
+                <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {steps.map((step, idx) => {
+                const approver = step.approver;
+                const aid = approver?._id || approver;
+                const name =
+                  [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                  approver?.email ||
+                  (aid ? `User ${String(aid).slice(-6)}` : `Approver ${idx + 1}`);
+                const status = step.status || 'pending';
+                const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                return (
+                  <TableRow key={String(aid || idx)}>
+                    <TableCell>{name}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={chipLabel}
+                        color={chipColor}
+                        variant={status === 'pending' ? 'outlined' : 'filled'}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                      {step.actedAt ? new Date(step.actedAt).toLocaleString() : '—'}
+                    </TableCell>
+                    <TableCell align="center">
+                      {status === 'approved' && approver?.digitalSignature ? (
+                        <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                      ) : status === 'approved' ? (
+                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </Box>
+    );
   };
 
   // Purchase Order View Component
@@ -836,78 +1026,7 @@ const PreAudit = () => {
           </Box>
         </Box>
 
-        {/* Approval/Signature Section */}
-        <Box sx={{ mt: 4 }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '0.85rem',
-              fontFamily: 'Arial, sans-serif'
-            }}
-          >
-            <tbody>
-              <tr>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                      {poData.approvalAuthorities?.preparedBy || ''}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                      {poData.approvalAuthorities?.verifiedBy || ''}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Verified By: Procurement Committee</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                      {poData.approvalAuthorities?.authorisedRep || ''}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Authorised Rep.</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                      {poData.approvalAuthorities?.financeRep || ''}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Finance Rep.</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                      {poData.approvalAuthorities?.managerProcurement || ''}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                      {''}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                      {''}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>President</Typography>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </Box>
+        
       </Paper>
     );
   };
@@ -1351,24 +1470,26 @@ const PreAudit = () => {
                                                     ) : (
                                                       <>
                                                         {/* Audit staff: forward to Audit Director (director approves after forward) */}
-                                                        {(user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
-                                                          <Tooltip title="Forward to Audit Director">
+                                                        {isAuditReviewerUser() && (
+                                                          <Tooltip title={hasInitialApproval(doc) ? 'Forward to Audit Director' : 'Initial approval required first'}>
                                                             <IconButton
                                                               size="small"
                                                               color="primary"
                                                               onClick={() => setForwardDialog({ open: true, document: doc })}
+                                                              disabled={!hasInitialApproval(doc)}
                                                             >
                                                               <SendIcon fontSize="small" />
                                                             </IconButton>
                                                           </Tooltip>
                                                         )}
-                                                        {/* Approve from queue without forward: super_admin only (director uses Forwarded tab) */}
-                                                        {user?.role === 'super_admin' && (
-                                                          <Tooltip title="Approve">
+                                                        {/* Initial approval by assistant/auditor (or super admin) */}
+                                                        {isAuditReviewerUser() && (
+                                                          <Tooltip title={hasInitialApproval(doc) ? 'Initial approval already recorded' : 'Initial Approve'}>
                                                             <IconButton
                                                               size="small"
                                                               color="success"
                                                               onClick={() => setApproveDialog({ open: true, document: doc })}
+                                                              disabled={hasInitialApproval(doc)}
                                                             >
                                                               <CheckCircleIcon fontSize="small" />
                                                             </IconButton>
@@ -1408,10 +1529,10 @@ const PreAudit = () => {
                                                   </>
                                                 ) : (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') ? (
                                                   <>
-                                                    {/* Audit Director: Can approve/reject forwarded documents */}
-                                                    {(user?.role === 'Audit Director' || user?.role === 'audit_director' || user?.role === 'super_admin') && (
+                                                    {/* Audit Director: final approval after forwarding */}
+                                                    {isAuditDirectorUser() && (
                                                       <>
-                                                        <Tooltip title="Approve">
+                                                        <Tooltip title="Final Approve">
                                                           <IconButton
                                                             size="small"
                                                             color="success"
@@ -1622,6 +1743,9 @@ const PreAudit = () => {
                               <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>{viewDialog.fullDocument.indent.justification}</Typography>
                             </Box>
                           )}
+                          {renderIndentApprovalProgress(viewDialog.fullDocument.indent, {
+                            title: 'Indent approval progress'
+                          })}
                         </Paper>
                       )}
                     </Box>
@@ -1629,15 +1753,22 @@ const PreAudit = () => {
 
                   {/* Tab 1: Purchase Order */}
                   {viewDialog.poAuditTab === 1 && (
-                    <PurchaseOrderView 
-                      poData={{
-                        ...viewDialog.fullDocument,
-                        auditObservations: viewDialog.fullDocument?.auditObservations || 
-                                          viewDialog.document?.auditObservations || 
-                                          viewDialog.document?.originalDocument?.auditObservations ||
-                                          []
-                      }} 
-                    />
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      <PurchaseOrderView 
+                        poData={{
+                          ...viewDialog.fullDocument,
+                          auditObservations: viewDialog.fullDocument?.auditObservations || 
+                                            viewDialog.document?.auditObservations || 
+                                            viewDialog.document?.originalDocument?.auditObservations ||
+                                            []
+                        }} 
+                      />
+                      <Paper sx={{ p: 3, mt: 2, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                        {renderComparativeApprovalProgress(viewDialog.fullDocument?.indent, {
+                          title: 'Comparative approval progress (Linked Indent)'
+                        })}
+                      </Paper>
+                    </Box>
                   )}
 
                   {/* Tab 2: Comparative Statement */}
@@ -2635,13 +2766,23 @@ const PreAudit = () => {
           setApprovalComments('');
         }}
       >
-        <DialogTitle>Approve Document</DialogTitle>
+        <DialogTitle>
+          {approveDialog.document?.status === 'forwarded_to_director' ||
+          approveDialog.document?.workflowStatus === 'Forwarded to Audit Director'
+            ? 'Final Approve (Audit Director)'
+            : 'Initial Approve (Pre-Audit)'}
+        </DialogTitle>
         <DialogContent>
           <TextField
             fullWidth
             multiline
             rows={4}
-            label="Approval Comments"
+            label={
+              approveDialog.document?.status === 'forwarded_to_director' ||
+              approveDialog.document?.workflowStatus === 'Forwarded to Audit Director'
+                ? 'Final Approval Comments'
+                : 'Initial Approval Comments'
+            }
             value={approvalComments}
             onChange={(e) => setApprovalComments(e.target.value)}
             sx={{ mt: 2, minWidth: 400 }}
@@ -2653,7 +2794,10 @@ const PreAudit = () => {
             setApprovalComments('');
           }}>Cancel</Button>
           <Button onClick={handleApprove} variant="contained" color="success">
-            Approve
+            {approveDialog.document?.status === 'forwarded_to_director' ||
+            approveDialog.document?.workflowStatus === 'Forwarded to Audit Director'
+              ? 'Final Approve'
+              : 'Initial Approve'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -15,13 +15,17 @@ export function DigitalSignatureImage({ userOrPath, alt = 'Signature', sx = {} }
       src={getImageUrl(path)}
       alt={alt}
       sx={{
-        maxHeight: 52,
-        maxWidth: 160,
+        maxHeight: 72,
+        maxWidth: 220,
         objectFit: 'contain',
         objectPosition: 'left bottom',
+        // Make light signature strokes render clearly bolder on screen/print.
+        // Stronger settings to ensure visible change in PO signature rows.
+        filter: 'grayscale(1) contrast(3.2) brightness(0.52) drop-shadow(0 0 0.45px rgba(0,0,0,0.95))',
         display: 'block',
         mx: 'auto',
-        '@media print': { maxHeight: 44, maxWidth: 140 },
+        // Keep print compact so full PO stays on one page.
+        '@media print': { maxHeight: 42, maxWidth: 135 },
         ...sx
       }}
     />

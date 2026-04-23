@@ -54,7 +54,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
-import { ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
+import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
@@ -609,6 +609,20 @@ const PurchaseOrders = () => {
     return colors[status] || 'default';
   };
 
+  const isFullAdvanceOrder = (order) => {
+    const terms = String(order?.paymentTerms || '').toLowerCase().trim();
+    if (!terms) return false;
+    return terms.includes('full advance') || (terms.includes('advance') && !terms.includes('partial'));
+  };
+
+  const getStatusLabel = (order) => {
+    if (!order) return '';
+    if (order.status === 'Approved' && (order.financeApprovedAt || order.financeApprovedBy)) {
+      return 'Finance Approved';
+    }
+    return order.status;
+  };
+
   const getPriorityColor = (priority) => {
     const colors = {
       'Low': 'info',
@@ -831,7 +845,7 @@ const PurchaseOrders = () => {
                     <TableCell>{formatDate(order.expectedDeliveryDate)}</TableCell>
                     <TableCell>
                       <Chip 
-                        label={order.status} 
+                        label={getStatusLabel(order)}
                         color={getStatusColor(order.status)}
                         size="small"
                       />
@@ -871,7 +885,7 @@ const PurchaseOrders = () => {
                           </IconButton>
                         </Tooltip>
                       )}
-                      {order.status === 'Pending Finance' && (
+                      {order.status === 'Pending Finance' && !isFullAdvanceOrder(order) && (
                         <Tooltip title="Finance Approve">
                           <IconButton size="small" color="primary" onClick={() => handleFinanceApprove(order._id)}>
                             <ApproveIcon fontSize="small" />
@@ -1412,6 +1426,7 @@ const PurchaseOrders = () => {
               {viewDialog.poDetailTab === 0 && (
             <Box sx={{ width: '100%' }} className="print-content">
               <Paper
+                className="po-print-page"
                 sx={{
                   p: { xs: 3, sm: 3.5, md: 4 },
                   maxWidth: '210mm',
@@ -1422,7 +1437,7 @@ const PurchaseOrders = () => {
                   fontFamily: 'Arial, sans-serif',
                   '@media print': {
                     boxShadow: 'none',
-                    p: 2.5,
+                    p: 1.25,
                     maxWidth: '100%',
                     backgroundColor: '#fff',
                     mx: 0,
@@ -1711,75 +1726,84 @@ const PurchaseOrders = () => {
 
                 {/* Approval/Signature Section */}
                 <Box sx={{ mt: 4 }}>
-                  <table
-                    style={{
-                      width: '100%',
-                      borderCollapse: 'collapse',
-                      fontSize: '0.85rem',
-                      fontFamily: 'Arial, sans-serif'
-                    }}
-                  >
-                    <tbody>
-                      <tr>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                              {viewDialog.data.approvalAuthorities?.preparedBy || ''}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                              {viewDialog.data.approvalAuthorities?.verifiedBy || ''}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Verified By: Procurement Committee</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                              {viewDialog.data.approvalAuthorities?.authorisedRep || ''}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Authorised Rep.</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                              {viewDialog.data.approvalAuthorities?.financeRep || ''}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Finance Rep.</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                              {viewDialog.data.approvalAuthorities?.managerProcurement || ''}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                              {''}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
-                              {''}
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>President</Typography>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  {(() => {
+                    const indent = viewDialog.data?.indent || {};
+                    const approvals = indent?.comparativeStatementApprovals || {};
+                    const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
+                      ? indent.comparativeApproval.approvers
+                      : [];
+                    const stepByUserId = new Map(
+                      approvalSteps.map((s) => [String(s?.approver?._id || s?.approver || ''), s])
+                    );
+                    const personName = (user, fallback = '') => (
+                      [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
+                      user?.email ||
+                      fallback ||
+                      '—'
+                    );
+                    const rows = [
+                      {
+                        label: 'Prepared By',
+                        user: approvals.preparedByUser,
+                        fallback: viewDialog.data.approvalAuthorities?.preparedBy || approvals.preparedBy || ''
+                      },
+                      {
+                        label: 'Verified By (Procurement Committee)',
+                        user: approvals.verifiedByUser,
+                        fallback: viewDialog.data.approvalAuthorities?.verifiedBy || approvals.verifiedBy || ''
+                      },
+                      {
+                        label: 'Authorised Rep.',
+                        user: approvals.authorisedRepUser,
+                        fallback: viewDialog.data.approvalAuthorities?.authorisedRep || approvals.authorisedRep || ''
+                      },
+                      {
+                        label: 'Finance Rep.',
+                        user: approvals.financeRepUser,
+                        fallback: viewDialog.data.approvalAuthorities?.financeRep || approvals.financeRep || ''
+                      },
+                      {
+                        label: 'Manager Procurement',
+                        user: approvals.managerProcurementUser,
+                        fallback: viewDialog.data.approvalAuthorities?.managerProcurement || approvals.managerProcurement || ''
+                      }
+                    ];
+                    return (
+                      <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'grey.100' }}>
+                              <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>Digital Signature</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>Date & Time</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {rows.map((row) => {
+                              const uid = String(row?.user?._id || row?.user || '');
+                              const step = uid ? stepByUserId.get(uid) : null;
+                              const approvalUser = step?.approver && typeof step.approver === 'object' ? step.approver : row.user;
+                              return (
+                                <TableRow key={row.label}>
+                                  <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
+                                  <TableCell>{personName(approvalUser, row.fallback)}</TableCell>
+                                  <TableCell>
+                                    {approvalUser?.digitalSignature ? (
+                                      <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
+                                    ) : (
+                                      <Typography variant="caption" color="text.secondary">—</Typography>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>{formatDateTime(step?.actedAt)}</TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    );
+                  })()}
                   <ProcurementDigitalSignaturesRow purchaseOrder={viewDialog.data} />
                 </Box>
               </Paper>
@@ -1923,7 +1947,7 @@ const PurchaseOrders = () => {
             @media print {
               @page {
                 size: A4;
-                margin: 15mm;
+                margin: 8mm;
               }
               body * {
                 visibility: hidden;
@@ -1977,6 +2001,14 @@ const PurchaseOrders = () => {
               .MuiPaper-root {
                 box-shadow: none !important;
               }
+              .po-print-page {
+                page-break-inside: avoid !important;
+              }
+              .po-print-page table th,
+              .po-print-page table td {
+                padding-top: 6px !important;
+                padding-bottom: 6px !important;
+              }
             }
           `
         }}
@@ -2007,6 +2039,15 @@ const PurchaseOrders = () => {
       </Dialog>
     </Box>
   );
+};
+
+const formatDateTime = (date) => {
+  if (!date) return '—';
+  try {
+    return new Date(date).toLocaleString();
+  } catch {
+    return '—';
+  }
 };
 
 export default PurchaseOrders;

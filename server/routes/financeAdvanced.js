@@ -22,6 +22,12 @@ const GoodsReceive = require('../models/procurement/GoodsReceive');
 const router = express.Router();
 const { ACCOUNT_TYPES_GROUPED, ACCOUNT_TYPE_TO_SECTION, DETAIL_TYPES_BY_ACCOUNT_TYPE } = require('../config/accountDetailTypes');
 
+const isFullAdvancePaymentTerm = (paymentTerms) => {
+  const terms = String(paymentTerms || '').toLowerCase().trim();
+  if (!terms) return false;
+  return terms.includes('full advance') || (terms.includes('advance') && !terms.includes('partial'));
+};
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -968,7 +974,18 @@ router.get('/accounts-payable/:id',
         let quotations = [];
         let indent = null;
         if (indentId) {
-          indent = await Indent.findById(indentId).populate('requestedBy', 'firstName lastName name email').populate('department', 'name').lean();
+          indent = await Indent.findById(indentId)
+            .populate('requestedBy', 'firstName lastName name email digitalSignature')
+            .populate('department', 'name code')
+            .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+            .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+            .populate('comparativeStatementApprovals.preparedByUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.verifiedByUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.authorisedRepUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.financeRepUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.managerProcurementUser', 'firstName lastName email employeeId digitalSignature')
+            .lean();
           quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
         }
         const grns = await GoodsReceive.find({ purchaseOrder: po._id }).populate('supplier', 'name').lean();
@@ -1088,6 +1105,33 @@ router.post('/accounts-payable/advance-payment',
       referenceId: req.body.referenceId || null,
       createdBy: req.user._id
     });
+
+    // For full-advance PO flow: finance approval is completed by recording advance payment,
+    // so move PO from Pending Finance -> Approved automatically.
+    if (req.body.referenceType === 'purchase_order' && req.body.referenceId) {
+      const po = await PurchaseOrder.findById(req.body.referenceId);
+      if (po && po.status === 'Pending Finance' && isFullAdvancePaymentTerm(po.paymentTerms)) {
+        const paidAmount = Number(req.body.amount) || 0;
+        const poTotal = Number(po.totalAmount) || 0;
+        if (poTotal > 0 && paidAmount >= poTotal) {
+          po.workflowHistory = po.workflowHistory || [];
+          po.workflowHistory.push({
+            fromStatus: 'Pending Finance',
+            toStatus: 'Approved',
+            changedBy: req.user._id,
+            changedAt: new Date(),
+            comments: 'Auto-approved by Finance after recording full vendor advance payment',
+            department: 'Finance'
+          });
+          po.status = 'Approved';
+          po.financeApprovedBy = req.user._id;
+          po.financeApprovedAt = new Date();
+          po.financeRemarks = 'Auto-approved after recording full vendor advance payment';
+          po.updatedBy = req.user._id;
+          await po.save();
+        }
+      }
+    }
 
     res.json({ success: true, message: 'Vendor advance recorded successfully', data: advance });
   })

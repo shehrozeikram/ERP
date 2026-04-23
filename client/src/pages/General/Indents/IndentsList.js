@@ -417,6 +417,7 @@ const IndentsList = () => {
       'Under Review': 'warning',
       'Approved': 'success',
       'Rejected': 'error',
+      'Rejected in Procurement': 'error',
       'Partially Fulfilled': 'info',
       'Fulfilled': 'success',
       'Cancelled': 'default'
@@ -554,6 +555,7 @@ const IndentsList = () => {
                   <MenuItem value="Under Review">Under Review</MenuItem>
                   <MenuItem value="Approved">Approved</MenuItem>
                   <MenuItem value="Rejected">Rejected</MenuItem>
+                  <MenuItem value="Rejected in Procurement">Rejected in Procurement</MenuItem>
                   <MenuItem value="Partially Fulfilled">Partially Fulfilled</MenuItem>
                   <MenuItem value="Fulfilled">Fulfilled</MenuItem>
                   <MenuItem value="Cancelled">Cancelled</MenuItem>

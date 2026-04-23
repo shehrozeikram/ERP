@@ -4,11 +4,118 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PreAudit = require('../models/audit/PreAudit');
+const User = require('../models/User');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 const { authorize } = require('../middleware/auth');
 const { getWorkflowModules, getModuleConfig } = require('../utils/adminWorkflowConfig');
+const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+
+const normalizeRoleLabel = (value) => String(value || '').trim().toLowerCase();
+const AUDIT_DIRECTOR_ROLE_NAMES = ['audit_director', 'audit director'];
+
+const userHasRoleName = (user, acceptedRoleNames = []) => {
+  const accepted = acceptedRoleNames.map(normalizeRoleLabel);
+  if (!user || accepted.length === 0) return false;
+  const directRole = normalizeRoleLabel(user.role);
+  if (accepted.includes(directRole)) return true;
+
+  const collectRoleNames = (roleDoc) => ([
+    normalizeRoleLabel(roleDoc?.name),
+    normalizeRoleLabel(roleDoc?.displayName)
+  ].filter(Boolean));
+
+  const roleRefNames = collectRoleNames(user.roleRef || {});
+  if (roleRefNames.some((name) => accepted.includes(name))) return true;
+
+  if (Array.isArray(user.roles)) {
+    for (const roleDoc of user.roles) {
+      const names = collectRoleNames(roleDoc);
+      if (names.some((name) => accepted.includes(name))) return true;
+    }
+  }
+  return false;
+};
+
+const isAuditDirectorUser = (user) => {
+  if (!user) return false;
+  if (user.role === 'audit_director' || user.role === 'Audit Director') return true;
+  return userHasRoleName(user, AUDIT_DIRECTOR_ROLE_NAMES);
+};
+
+const hasModuleAccess = (roleDoc, moduleKey) => {
+  if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
+  return roleDoc.permissions.some((permission) => permission?.module === moduleKey);
+};
+
+const hasAuditAccess = (user) => {
+  if (!user) return false;
+  if (['super_admin', 'admin', 'audit_manager', 'auditor', 'audit_director'].includes(user.role)) return true;
+  if (hasModuleAccess(user.roleRef, 'audit')) return true;
+  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'audit'))) return true;
+  return false;
+};
+
+const hasWorkflowInitialAuditApproval = (workflowDocument) => {
+  const history = Array.isArray(workflowDocument?.workflowHistory) ? workflowDocument.workflowHistory : [];
+  return history.some((h) => String(h?.toStatus || '').toLowerCase() === 'initial audit approval');
+};
+
+const getUserIdsByRoles = async (roles = []) => {
+  const users = await User.find({
+    isActive: true,
+    role: { $in: roles }
+  }).select('_id');
+  return users.map((u) => String(u._id));
+};
+
+const notifyAuditDirectorQueue = async ({ actorId, title, message, entityId, entityType, metadata = {} }) => {
+  const recipients = await getUserIdsByRoles(['audit_director', 'super_admin', 'admin']);
+  if (!recipients.length) return;
+  await createAndEmitNotification({
+    recipientIds: recipients,
+    title,
+    message,
+    type: 'info',
+    category: 'approval',
+    priority: 'high',
+    actionUrl: '/audit',
+    createdBy: actorId,
+    excludeUserId: actorId,
+    metadata: {
+      module: 'audit',
+      entityId,
+      entityType,
+      queueStage: 'forwarded_to_audit_director',
+      targetModule: 'audit',
+      targetTab: 'director_queue',
+      ...metadata
+    }
+  });
+};
+
+const notifyPreAuditStakeholders = async ({ actorId, title, message, entityId, recipientIds = [], metadata = {} }) => {
+  const ids = [...new Set((recipientIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return;
+  await createAndEmitNotification({
+    recipientIds: ids,
+    title,
+    message,
+    type: 'info',
+    category: 'approval',
+    priority: 'high',
+    actionUrl: '/audit',
+    createdBy: actorId,
+    excludeUserId: actorId,
+    metadata: {
+      module: 'audit',
+      entityId,
+      targetModule: 'audit',
+      ...metadata
+    }
+  });
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -251,7 +358,11 @@ router.get('/',
             updatedAt: doc.updatedAt,
             createdBy: doc.createdBy,
             workflowHistory: doc.workflowHistory || [],
-            workflowStatus: workflowStatus // Keep original workflow status for reference
+            workflowStatus: workflowStatus, // Keep original workflow status for reference
+            initialAuditApproved: hasWorkflowInitialAuditApproval(doc),
+            initialAuditApprovedAt: hasWorkflowInitialAuditApproval(doc)
+              ? (doc.workflowHistory || []).find((h) => String(h?.toStatus || '').toLowerCase() === 'initial audit approval')?.changedAt || null
+              : null
           });
         }
       } catch (error) {
@@ -312,7 +423,9 @@ router.get('/',
           updatedAt: doc.updatedAt,
           createdBy: doc.createdBy,
           workflowHistory: doc.workflowHistory || [],
-          auditObservations: doc.auditObservations || []
+          auditObservations: doc.auditObservations || [],
+          preAuditInitialApprovedAt: doc.preAuditInitialApprovedAt || null,
+          initialAuditApproved: Boolean(doc.preAuditInitialApprovedAt)
         });
       }
     } catch (poErr) {
@@ -530,8 +643,13 @@ router.post('/',
 // @access  Private (Super Admin, Audit Manager, Auditor — not Audit Director; they approve after forward)
 router.put('/:id/forward',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
   asyncHandler(async (req, res) => {
+    if (!hasAuditAccess(req.user) || isAuditDirectorUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only assistant/auditor-level pre-audit users can forward to Audit Director.'
+      });
+    }
     const { forwardComments } = req.body;
 
     // Check if it's a workflow document by trying to find it in workflow modules
@@ -574,6 +692,12 @@ router.put('/:id/forward',
             message: 'Document is already forwarded to Audit Director'
           });
         }
+        if (!po.preAuditInitialApprovedAt) {
+          return res.status(400).json({
+            success: false,
+            message: 'Initial pre-audit approval is required before forwarding to Audit Director.'
+          });
+        }
         po.workflowHistory = po.workflowHistory || [];
         po.workflowHistory.push({
           fromStatus: 'Pending Audit',
@@ -588,6 +712,15 @@ router.put('/:id/forward',
         await po.save();
         const updated = await PurchaseOrderModel.findById(po._id)
           .populate('workflowHistory.changedBy', 'firstName lastName email');
+
+        await notifyAuditDirectorQueue({
+          actorId: req.user.id,
+          title: 'Document forwarded to Audit Director',
+          message: `Purchase Order ${po.orderNumber || po.poNumber || ''} is waiting for your approval.`,
+          entityId: po._id,
+          entityType: 'PurchaseOrder'
+        });
+
         return res.json({
           success: true,
           message: 'Document forwarded to Audit Director successfully',
@@ -617,6 +750,12 @@ router.put('/:id/forward',
           message: 'Document is already approved'
         });
       }
+      if (!hasWorkflowInitialAuditApproval(workflowDocument)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Initial pre-audit approval is required before forwarding to Audit Director.'
+        });
+      }
 
       // Update workflow status
       workflowDocument[workflowConfig.workflowStatusField] = 'Forwarded to Audit Director';
@@ -639,6 +778,14 @@ router.put('/:id/forward',
         { path: 'updatedBy', select: 'firstName lastName email' },
         { path: 'createdBy', select: 'firstName lastName email' }
       ]);
+
+      await notifyAuditDirectorQueue({
+        actorId: req.user.id,
+        title: 'Document forwarded to Audit Director',
+        message: `${workflowConfig.label || 'Workflow document'} is waiting for your approval.`,
+        entityId: workflowDocument._id,
+        entityType: workflowConfig.label || 'WorkflowDocument'
+      });
 
       return res.json({
         success: true,
@@ -675,6 +822,12 @@ router.put('/:id/forward',
         message: 'Document is already forwarded to Audit Director'
       });
     }
+    if (!document.reviewedAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'Initial pre-audit approval is required before forwarding to Audit Director.'
+      });
+    }
 
     document.status = 'forwarded_to_director';
     document.forwardedTo = 'audit_director';
@@ -689,6 +842,14 @@ router.put('/:id/forward',
       { path: 'sourceDepartment', select: 'name' }
     ]);
 
+    await notifyAuditDirectorQueue({
+      actorId: req.user.id,
+      title: 'Document forwarded to Audit Director',
+      message: `${document.documentNumber || document.referenceNumber || 'A pre-audit document'} is waiting for your approval.`,
+      entityId: document._id,
+      entityType: 'PreAudit'
+    });
+
     res.json({
       success: true,
       message: 'Document forwarded to Audit Director successfully',
@@ -702,8 +863,13 @@ router.put('/:id/forward',
 // @access  Private (Super Admin, Audit Manager, Auditor, Audit Director)
 router.put('/:id/approve',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
+    if (!hasAuditAccess(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to perform pre-audit approvals.'
+      });
+    }
     const { approvalComments } = req.body;
 
     // Check if it's a workflow document by trying to find it in workflow modules
@@ -733,19 +899,52 @@ router.put('/:id/approve',
 
     if (isWorkflowDocument) {
       const wfStatus = workflowDocument[workflowConfig.workflowStatusField];
-      // In initial audit queue: only forward; approval happens after Forwarded to Audit Director (super_admin may bypass)
-      if (wfStatus === 'Send to Audit' && req.user.role !== 'super_admin') {
-        return res.status(403).json({
-          success: false,
-          message: 'Forward this document to the Audit Director first. Only the Audit Director can approve after it has been forwarded.'
+      // Step 1: Initial approval by assistant/auditor while still in Send to Audit.
+      if (wfStatus === 'Send to Audit') {
+        if (isAuditDirectorUser(req.user) && req.user.role !== 'super_admin') {
+          return res.status(403).json({
+            success: false,
+            message: 'Initial approval should be completed by assistant/auditor before director final approval.'
+          });
+        }
+        if (!Array.isArray(workflowDocument.workflowHistory)) workflowDocument.workflowHistory = [];
+        workflowDocument.workflowHistory.push({
+          fromStatus: 'Send to Audit',
+          toStatus: 'Initial Audit Approval',
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: approvalComments || 'Initial pre-audit approval recorded'
+        });
+        workflowDocument.updatedBy = req.user.id;
+        await workflowDocument.save();
+        await workflowDocument.populate([
+          { path: 'updatedBy', select: 'firstName lastName email' },
+          { path: 'createdBy', select: 'firstName lastName email' }
+        ]);
+        await notifyAuditDirectorQueue({
+          actorId: req.user.id,
+          title: 'Initial pre-audit approval recorded',
+          message: `${workflowConfig.label || 'Workflow document'} has initial audit approval and is ready for director forwarding.`,
+          entityId: workflowDocument._id,
+          entityType: workflowConfig.label || 'WorkflowDocument',
+          metadata: { queueStage: 'initial_audit_approved', targetTab: 'under_review' }
+        });
+        return res.json({
+          success: true,
+          message: 'Initial pre-audit approval recorded. Forward to Audit Director for final approval.',
+          data: {
+            _id: workflowDocument._id,
+            isWorkflowDocument: true,
+            workflowSubmodule: workflowConfig.submodule,
+            status: 'initial_approved',
+            workflowStatus: workflowDocument[workflowConfig.workflowStatusField]
+          }
         });
       }
 
       // For workflow documents, check if forwarded and only Audit Director can approve
       if (wfStatus === 'Forwarded to Audit Director') {
-        const userRole = req.user.role;
-        const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
-        if (userRole !== 'super_admin' && normalizedRole !== 'audit_director' && userRole !== 'Audit Director') {
+        if (req.user.role !== 'super_admin' && !isAuditDirectorUser(req.user)) {
           return res.status(403).json({
             success: false,
             message: 'Only Audit Director can approve documents forwarded to them'
@@ -786,6 +985,14 @@ router.put('/:id/approve',
         { path: 'updatedBy', select: 'firstName lastName email' },
         { path: 'createdBy', select: 'firstName lastName email' }
       ]);
+      await notifyPreAuditStakeholders({
+        actorId: req.user.id,
+        title: 'Audit Director final approval completed',
+        message: `${workflowConfig.label || 'Workflow document'} has been finally approved by Audit Director.`,
+        entityId: workflowDocument._id,
+        recipientIds: [workflowDocument.createdBy],
+        metadata: { queueStage: 'final_director_approved', targetTab: 'approved' }
+      });
 
       return res.json({
         success: true,
@@ -816,18 +1023,42 @@ router.put('/:id/approve',
       });
     }
 
-    if ((document.status === 'pending' || document.status === 'under_review') && req.user.role !== 'super_admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Forward this document to the Audit Director first. Only the Audit Director can approve after it has been forwarded.'
+    // Step 1: initial approval by assistant/auditor
+    if (document.status === 'pending' || document.status === 'under_review') {
+      if (isAuditDirectorUser(req.user) && req.user.role !== 'super_admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Initial approval should be completed by assistant/auditor before director final approval.'
+        });
+      }
+      document.status = 'under_review';
+      document.reviewedBy = req.user.id;
+      document.reviewedAt = new Date();
+      document.reviewComments = approvalComments || '';
+      document.updatedBy = req.user.id;
+      await document.save();
+      await document.populate([
+        { path: 'reviewedBy', select: 'firstName lastName email' },
+        { path: 'sourceDepartment', select: 'name' }
+      ]);
+      await notifyAuditDirectorQueue({
+        actorId: req.user.id,
+        title: 'Initial pre-audit approval recorded',
+        message: `${document.documentNumber || document.referenceNumber || 'Pre-audit document'} has initial audit approval and is ready for director forwarding.`,
+        entityId: document._id,
+        entityType: 'PreAudit',
+        metadata: { queueStage: 'initial_audit_approved', targetTab: 'under_review' }
+      });
+      return res.json({
+        success: true,
+        message: 'Initial pre-audit approval recorded. Forward to Audit Director for final approval.',
+        data: document
       });
     }
 
     // If document is forwarded to director, only Audit Director can approve
     if (document.status === 'forwarded_to_director') {
-      const userRole = req.user.role;
-      const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
-      if (userRole !== 'super_admin' && normalizedRole !== 'audit_director' && userRole !== 'Audit Director') {
+      if (req.user.role !== 'super_admin' && !isAuditDirectorUser(req.user)) {
         return res.status(403).json({
           success: false,
           message: 'Only Audit Director can approve documents forwarded to them'
@@ -847,6 +1078,14 @@ router.put('/:id/approve',
       { path: 'forwardedBy', select: 'firstName lastName email' },
       { path: 'sourceDepartment', select: 'name' }
     ]);
+    await notifyPreAuditStakeholders({
+      actorId: req.user.id,
+      title: 'Audit Director final approval completed',
+      message: `${document.documentNumber || document.referenceNumber || 'Pre-audit document'} has been finally approved by Audit Director.`,
+      entityId: document._id,
+      recipientIds: [document.submittedBy, document.createdBy],
+      metadata: { queueStage: 'final_director_approved', targetTab: 'approved' }
+    });
 
     res.json({
       success: true,

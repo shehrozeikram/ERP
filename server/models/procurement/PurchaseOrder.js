@@ -43,6 +43,15 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  // Initial pre-audit sign-off (assistant manager / auditor) before forwarding to Audit Director
+  preAuditInitialApprovedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  preAuditInitialApprovedAt: {
+    type: Date
+  },
+  preAuditInitialComments: String,
   auditApprovedAt: {
     type: Date
   },

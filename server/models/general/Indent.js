@@ -88,7 +88,7 @@ const indentSchema = new mongoose.Schema({
   // Status
   status: {
     type: String,
-    enum: ['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'],
+    enum: ['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Rejected in Procurement', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'],
     default: 'Draft'
   },
   // Store routing: when approved, indent goes to Store first. Store checks stock.
@@ -155,6 +155,22 @@ const indentSchema = new mongoose.Schema({
         default: ''
       }
     }]
+  },
+  procurementRejection: {
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    rejectedAt: {
+      type: Date,
+      default: null
+    },
+    observation: {
+      type: String,
+      trim: true,
+      default: ''
+    }
   },
   
   // Dates
@@ -241,10 +257,71 @@ const indentSchema = new mongoose.Schema({
   // Comparative Statement approval authorities (editable names/designations at bottom of comparative statement)
   comparativeStatementApprovals: {
     preparedBy: { type: String, trim: true, default: '' },
+    preparedByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     verifiedBy: { type: String, trim: true, default: '' },
+    verifiedByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     authorisedRep: { type: String, trim: true, default: '' },
+    authorisedRepUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     financeRep: { type: String, trim: true, default: '' },
-    managerProcurement: { type: String, trim: true, default: '' }
+    financeRepUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    managerProcurement: { type: String, trim: true, default: '' },
+    managerProcurementUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
+  },
+  // Comparative Statement approver workflow (non-sequential, all selected approvers must approve)
+  comparativeApproval: {
+    status: {
+      type: String,
+      enum: ['not_configured', 'draft', 'submitted', 'approved', 'rejected'],
+      default: 'not_configured'
+    },
+    approvers: [{
+      approver: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+      },
+      status: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending'
+      },
+      actedAt: {
+        type: Date,
+        default: null
+      },
+      comment: {
+        type: String,
+        trim: true,
+        default: ''
+      }
+    }],
+    submittedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    submittedAt: {
+      type: Date,
+      default: null
+    },
+    lastResubmittedAt: {
+      type: Date,
+      default: null
+    },
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    rejectedAt: {
+      type: Date,
+      default: null
+    },
+    rejectionObservation: {
+      type: String,
+      trim: true,
+      default: ''
+    }
   },
   // Per-item vendor assignments from Comparative Statement (item index -> quotation id). When set, quotations are shortlisted; create split POs from Quotations page.
   splitPOAssignments: {
@@ -348,6 +425,35 @@ const indentSchema = new mongoose.Schema({
     createdAt: {
       type: Date,
       default: Date.now
+    }
+  }],
+
+  // Workflow timeline (similar to PO/Pre-Audit tracking)
+  workflowHistory: [{
+    fromStatus: {
+      type: String,
+      trim: true
+    },
+    toStatus: {
+      type: String,
+      trim: true
+    },
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    changedAt: {
+      type: Date,
+      default: Date.now
+    },
+    comments: {
+      type: String,
+      trim: true
+    },
+    module: {
+      type: String,
+      trim: true,
+      default: 'Indent'
     }
   }],
   
