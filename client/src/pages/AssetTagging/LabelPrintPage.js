@@ -6,27 +6,6 @@ import { Print as PrintIcon, ArrowBack as BackIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 
-const hasProjectDetails = (project) => Boolean(
-  project &&
-  typeof project === 'object' &&
-  (project.name || project.code || project.projectId)
-);
-
-const projectIdFromValue = (project) => {
-  if (!project) return '';
-  if (typeof project === 'string') return project;
-  if (typeof project === 'object') return project._id || project.id || '';
-  return '';
-};
-
-const formatProjectLabel = (project) => {
-  if (!project) return '';
-  if (typeof project === 'string') {
-    return /^[a-f0-9]{24}$/i.test(project) ? '' : project;
-  }
-  return [project.code, project.name].filter(Boolean).join(' - ') || project.projectId || project.name || '';
-};
-
 export default function LabelPrintPage() {
   const TOTAL_SLOTS = 10;
   const { assetId } = useParams();
@@ -46,7 +25,9 @@ export default function LabelPrintPage() {
       const res = await api.get(`/asset-tagging/assets/${assetId}`);
       const { asset: a, currentTag: t } = res.data.data;
       let nextAsset = a;
-      const hasProjectObject = hasProjectDetails(a?.project);
+      const hasProjectObject = Boolean(
+        a?.project && typeof a.project === 'object' && (a.project.name || a.project.code || a.project.projectId)
+      );
       if (!hasProjectObject && assetId) {
         try {
           let fallbackProject = null;
@@ -54,28 +35,31 @@ export default function LabelPrintPage() {
           const financeProject = financeRes?.data?.data?.project || null;
           if (financeProject && typeof financeProject === 'object') {
             fallbackProject = financeProject;
+          } else {
+            const projectId = typeof a?.project === 'string'
+              ? a.project
+              : (typeof financeProject === 'string' ? financeProject : null);
+            if (projectId) {
+              let projects = [];
+              try {
+                const projectsRes = await api.get('/finance/fixed-assets/projects');
+                projects = projectsRes?.data?.data || [];
+              } catch (projectsErr) {
+                if (projectsErr?.response?.status === 404) {
+                  const fallbackProjectsRes = await api.get('/projects');
+                  projects = fallbackProjectsRes?.data?.data || [];
+                } else {
+                  throw projectsErr;
+                }
+              }
+              fallbackProject = projects.find((p) => String(p._id) === String(projectId)) || null;
+            }
           }
           if (fallbackProject) {
             nextAsset = { ...a, project: fallbackProject };
           }
         } catch {
           // Keep label usable even if fallback lookup fails.
-        }
-
-        if (!hasProjectDetails(nextAsset?.project)) {
-          const projectId = projectIdFromValue(nextAsset?.project);
-          if (projectId) {
-            try {
-              const projectsRes = await api.get('/finance/fixed-assets/projects');
-              const projects = Array.isArray(projectsRes?.data?.data) ? projectsRes.data.data : [];
-              const match = projects.find((row) => String(row?._id) === String(projectId));
-              if (match) {
-                nextAsset = { ...nextAsset, project: match };
-              }
-            } catch {
-              // Keep label usable even if project list lookup fails.
-            }
-          }
         }
       }
       setAsset(nextAsset);
@@ -104,7 +88,9 @@ export default function LabelPrintPage() {
     return <Box p={4} textAlign="center"><CircularProgress /></Box>;
   }
 
-  const projectLabel = formatProjectLabel(asset?.project);
+  const projectLabel = asset?.project
+    ? [asset.project.code, asset.project.name].filter(Boolean).join(' - ') || asset.project.projectId || asset.project.name
+    : '';
 
   return (
     <Box className="print-label-root" sx={{ p: 2, minHeight: '100vh', bgcolor: '#fff', '@media print': { bgcolor: '#fff', p: 0, minHeight: 'auto' } }}>

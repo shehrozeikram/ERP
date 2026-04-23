@@ -24,12 +24,6 @@ function normalizeProjectInput(input) {
   return null;
 }
 
-function getProjectInput(body = {}) {
-  if (body.project !== undefined) return body.project;
-  if (body.projectId !== undefined) return body.projectId;
-  return undefined;
-}
-
 // GET /api/finance/fixed-assets
 router.get('/', asyncHandler(async (req, res) => {
   const { status, category } = req.query;
@@ -127,7 +121,7 @@ router.post('/', authorize('super_admin', 'admin', 'finance_manager'),
   validate,
   asyncHandler(async (req, res) => {
     const payload = { ...req.body, createdBy: req.user.id };
-    payload.project = normalizeProjectInput(getProjectInput(req.body));
+    payload.project = normalizeProjectInput(payload.project);
     if (!payload.serialNumber) {
       const assets = await FixedAsset.find({ serialNumber: { $exists: true, $ne: '' } }).select('serialNumber').lean();
       let max = 0;
@@ -142,18 +136,7 @@ router.post('/', authorize('super_admin', 'admin', 'finance_manager'),
     }
 
     const asset = await FixedAsset.create(payload);
-
-    // Defensive compatibility: ensure project is persisted even on older payload shapes.
-    const normalizedProject = normalizeProjectInput(getProjectInput(req.body));
-    if (normalizedProject !== undefined && String(asset.project || '') !== String(normalizedProject || '')) {
-      asset.project = normalizedProject;
-      await asset.save();
-    }
-
-    const populatedAsset = await FixedAsset.findById(asset._id)
-      .populate('project', 'name code projectId')
-      .populate('costCenter', 'name code');
-    res.status(201).json({ success: true, data: populatedAsset || asset });
+    res.status(201).json({ success: true, data: asset });
   })
 );
 
@@ -173,18 +156,10 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), asyncHa
     }
     asset[f] = req.body[f];
   });
-
-  // Accept projectId alias from clients that send a dedicated field.
-  if (req.body.project === undefined && req.body.projectId !== undefined) {
-    asset.project = normalizeProjectInput(req.body.projectId);
-  }
-
   asset.updatedBy = req.user.id;
   await asset.save();
-  const populatedAsset = await FixedAsset.findById(asset._id)
-    .populate('project', 'name code projectId')
-    .populate('costCenter', 'name code');
-  res.json({ success: true, data: populatedAsset || asset });
+
+  res.json({ success: true, data: asset });
 }));
 
 // POST /api/finance/fixed-assets/:id/depreciate — run monthly depreciation for asset
