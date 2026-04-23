@@ -5,6 +5,7 @@ const asyncHandler = require('express-async-handler');
 const QRCode = require('qrcode');
 const { authorize } = require('../middleware/auth');
 const FixedAsset = require('../models/finance/FixedAsset');
+const Project = require('../models/hr/Project');
 const AssetTag = require('../models/assetTagging/AssetTag');
 const AssetTagEvent = require('../models/assetTagging/AssetTagEvent');
 const AssetVerificationSession = require('../models/assetTagging/AssetVerificationSession');
@@ -29,6 +30,24 @@ function clientOrigin() {
 function scanUrlForTag(tagCode) {
   const enc = encodeURIComponent(tagCode);
   return `${clientOrigin().replace(/\/$/, '')}/asset-tagging/scan/${enc}`;
+}
+
+async function ensureAssetProjectObject(assetDoc) {
+  if (!assetDoc) return assetDoc;
+  const project = assetDoc.project;
+  if (!project) return assetDoc;
+
+  // Already populated enough for label rendering.
+  if (typeof project === 'object' && (project.name || project.code || project.projectId)) {
+    return assetDoc;
+  }
+
+  const projectId = typeof project === 'object' ? (project._id || project.id) : project;
+  if (!projectId) return assetDoc;
+
+  const fresh = await Project.findById(projectId).select('name code projectId').lean();
+  if (fresh) assetDoc.project = fresh;
+  return assetDoc;
 }
 
 /** Build unique tag code for an asset */
@@ -118,6 +137,7 @@ router.get('/assets/:assetId', authorize(...TAG_ROLES), asyncHandler(async (req,
     .populate('project', 'name code projectId')
     .populate('costCenter', 'name code');
   if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+  await ensureAssetProjectObject(asset);
   const currentTag = await AssetTag.findOne({ asset: asset._id, status: 'active' });
   res.json({ success: true, data: { asset, currentTag } });
 }));
@@ -145,6 +165,7 @@ router.get('/resolve/:tagCode', authorize(...TAG_ROLES), asyncHandler(async (req
   const asset = await FixedAsset.findById(tag.asset._id || tag.asset)
     .populate('project', 'name code projectId')
     .populate('costCenter', 'name code');
+  await ensureAssetProjectObject(asset);
   const transferHistory = await AssetTagEvent.find({
     asset: asset._id,
     eventType: 'transfer'
