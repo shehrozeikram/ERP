@@ -14,6 +14,16 @@ const validate = (req, res, next) => {
   next();
 };
 
+function normalizeProjectInput(input) {
+  if (input === undefined) return undefined;
+  if (input === null || input === '') return null;
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object') {
+    return input._id || input.id || input.value || null;
+  }
+  return null;
+}
+
 // GET /api/finance/fixed-assets
 router.get('/', asyncHandler(async (req, res) => {
   const { status, category } = req.query;
@@ -111,6 +121,7 @@ router.post('/', authorize('super_admin', 'admin', 'finance_manager'),
   validate,
   asyncHandler(async (req, res) => {
     const payload = { ...req.body, createdBy: req.user.id };
+    payload.project = normalizeProjectInput(payload.project);
     if (!payload.serialNumber) {
       const assets = await FixedAsset.find({ serialNumber: { $exists: true, $ne: '' } }).select('serialNumber').lean();
       let max = 0;
@@ -137,7 +148,14 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), asyncHa
   const allowed = ['name', 'description', 'category', 'residualValue', 'depreciationMethod',
     'usefulLifeYears', 'depreciationRate', 'assetAccount', 'accumulatedDeprecAccount',
     'depreciationExpenseAccount', 'location', 'assignedTo', 'project', 'costCenter', 'serialNumber'];
-  allowed.forEach(f => { if (req.body[f] !== undefined) asset[f] = req.body[f]; });
+  allowed.forEach((f) => {
+    if (req.body[f] === undefined) return;
+    if (f === 'project') {
+      asset[f] = normalizeProjectInput(req.body[f]);
+      return;
+    }
+    asset[f] = req.body[f];
+  });
   asset.updatedBy = req.user.id;
   await asset.save();
 
