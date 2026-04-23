@@ -35,15 +35,6 @@ export default function LabelPrintPage() {
           const financeProject = financeRes?.data?.data?.project || null;
           if (financeProject && typeof financeProject === 'object') {
             fallbackProject = financeProject;
-          } else {
-            const projectId = typeof a?.project === 'string'
-              ? a.project
-              : (typeof financeProject === 'string' ? financeProject : null);
-            if (projectId) {
-              const projectsRes = await api.get('/finance/fixed-assets/projects');
-              const projects = projectsRes?.data?.data || [];
-              fallbackProject = projects.find((p) => String(p._id) === String(projectId)) || null;
-            }
           }
           if (fallbackProject) {
             nextAsset = { ...a, project: fallbackProject };

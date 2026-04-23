@@ -50,16 +50,6 @@ export default function ScanAssetPage() {
 
           if (financeProject && typeof financeProject === 'object') {
             fallbackProject = financeProject;
-          } else {
-            const projectId = typeof nextAsset.project === 'string'
-              ? nextAsset.project
-              : (typeof financeProject === 'string' ? financeProject : null);
-
-            if (projectId) {
-              const projectsRes = await api.get('/finance/fixed-assets/projects');
-              const projects = projectsRes?.data?.data || [];
-              fallbackProject = projects.find((p) => String(p._id) === String(projectId)) || null;
-            }
           }
 
           if (fallbackProject) {

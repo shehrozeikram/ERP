@@ -18,10 +18,7 @@ async function resolveProjectObject(projectValue) {
   if (!projectValue) return null;
   if (typeof projectValue === 'object' && (projectValue.name || projectValue.code || projectValue.projectId)) {
     return {
-      _id: projectValue._id,
-      name: projectValue.name || '',
-      code: projectValue.code || '',
-      projectId: projectValue.projectId || ''
+      name: projectValue.name || ''
     };
   }
 
@@ -30,10 +27,7 @@ async function resolveProjectObject(projectValue) {
   const project = await Project.findById(projectId).select('name code projectId').lean();
   if (!project) return null;
   return {
-    _id: project._id,
-    name: project.name || '',
-    code: project.code || '',
-    projectId: project.projectId || ''
+    name: project.name || ''
   };
 }
 
