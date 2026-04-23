@@ -64,23 +64,52 @@ export default function LabelPrintPage() {
             size: A4 portrait;
             margin: 0;
           }
+          body * {
+            visibility: hidden !important;
+          }
+          .print-label-root,
+          .print-label-root * {
+            visibility: visible !important;
+          }
           html, body, #root {
             background: #fff !important;
             margin: 0 !important;
             padding: 0 !important;
-            min-height: 100% !important;
+            width: 210mm !important;
+            height: 297mm !important;
+            min-height: 297mm !important;
+            overflow: hidden !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .print-hide-toolbar {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           .print-label-root {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
             background: #fff !important;
-            min-height: auto !important;
+            width: 210mm !important;
+            min-height: 297mm !important;
             height: 297mm !important;
             overflow: hidden !important;
             margin: 0 !important;
             padding: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            box-shadow: none !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .print-label-root * {
             box-shadow: none !important;
             text-shadow: none !important;
+            border-color: transparent !important;
           }
           .print-label-root .MuiPaper-root {
             border: 0 !important;
@@ -90,6 +119,22 @@ export default function LabelPrintPage() {
           .print-only-sheet {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            background: #fff !important;
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            justify-content: center !important;
+            align-content: start !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .print-only-sheet > * {
+            border: 0 !important;
+            outline: 0 !important;
+            box-shadow: none !important;
+            background: #fff !important;
           }
         }
       `}</Box>
