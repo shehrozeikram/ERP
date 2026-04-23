@@ -117,10 +117,15 @@ else
 fi
 
 echo "Restarting backend process..."
+mkdir -p logs
 if pm2 describe sgc-erp-backend >/dev/null 2>&1; then
-  pm2 restart sgc-erp-backend --update-env
+  if ! pm2 restart sgc-erp-backend --update-env; then
+    echo "Restart failed; attempting fresh start from ecosystem file..."
+    pm2 delete sgc-erp-backend >/dev/null 2>&1 || true
+    pm2 start ecosystem.config.js --env production --only sgc-erp-backend
+  fi
 else
-  pm2 start ecosystem.config.js --env production --only sgc-erp-backend || pm2 start ecosystem.config.js --env production
+  pm2 start ecosystem.config.js --env production --only sgc-erp-backend
 fi
 pm2 save
 
