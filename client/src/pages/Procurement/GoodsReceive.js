@@ -140,12 +140,35 @@ const GoodsReceive = () => {
 
   const loadProjects = async () => {
     try {
-      const response = await api.get('/hr/projects', { params: { limit: 1000, status: 'Active' } });
-      if (response.data.success) {
-        setProjects(response.data.data.projects || response.data.data || []);
+      const res = await api.get('/finance/fixed-assets/projects');
+      setProjects(res.data?.data || []);
+    } catch (e) {
+      // Same as Finance → Fixed Assets → Add asset: fixed-assets/projects with /projects fallback
+      if (e?.response?.status === 404) {
+        try {
+          const fallbackRes = await api.get('/projects');
+          const rows = fallbackRes.data?.data || [];
+          setProjects(Array.isArray(rows) ? rows : []);
+          return;
+        } catch (fallbackErr) {
+          setProjects([]);
+          const fbMsg = fallbackErr?.response?.data?.message || 'Failed to load projects';
+          if (fallbackErr?.response?.status === 403) {
+            setError('You do not have access to fetch project dropdown data.');
+          } else {
+            setError(fbMsg);
+          }
+          return;
+        }
       }
-    } catch (err) {
-      console.error('Error loading projects:', err);
+
+      setProjects([]);
+      const msg = e?.response?.data?.message || 'Failed to load projects';
+      if (e?.response?.status === 403) {
+        setError('You do not have access to fetch project dropdown data.');
+      } else {
+        setError(msg);
+      }
     }
   };
 
