@@ -21,7 +21,9 @@ const projectIdFromValue = (project) => {
 
 const formatProjectLabel = (project) => {
   if (!project) return '';
-  if (typeof project === 'string') return project;
+  if (typeof project === 'string') {
+    return /^[a-f0-9]{24}$/i.test(project) ? '' : project;
+  }
   return [project.code, project.name].filter(Boolean).join(' - ') || project.projectId || project.name || '';
 };
 
