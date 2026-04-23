@@ -71,6 +71,7 @@ import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
+import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
 
 const Payments = () => {
   const navigate = useNavigate();
@@ -608,6 +609,18 @@ const Payments = () => {
     const hasObservations = Array.isArray(observations) && observations.length > 0;
     const hasChangeSummary = poData?.resubmissionChangeSummary && String(poData.resubmissionChangeSummary).trim().length > 0;
     const auth = poData?.approvalAuthorities || {};
+    const formatDateTime = (date) => {
+      if (!date) return '—';
+      const d = new Date(date);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
 
     return (
       <Paper
@@ -932,54 +945,90 @@ const Payments = () => {
           </Box>
         </Box>
 
-        {/* Approval/Signature Section - show approval authority values when present */}
+        {/* Approval/Signature Section - Procurement style approval progress */}
         <Box sx={{ mt: 4 }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '0.85rem',
-              fontFamily: 'Arial, sans-serif'
-            }}
-          >
-            <tbody>
-              <tr>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
-                  {auth.preparedBy && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.preparedBy}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
-                  {auth.managerProcurement && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.managerProcurement}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Procurement</Typography>
-                  {auth.verifiedBy && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.verifiedBy}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Internal Auditor</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Finance</Typography>
-                  {auth.financeRep && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.financeRep}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
-                  {auth.authorisedRep && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.authorisedRep}</Typography>}
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>President</Typography>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
+            Approval Progress
+          </Typography>
+          {(() => {
+            const indent = poData?.indent || {};
+            const approvals = indent?.comparativeStatementApprovals || {};
+            const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
+              ? indent.comparativeApproval.approvers
+              : [];
+            const stepByUserId = new Map(
+              approvalSteps.map((s) => [String(s?.approver?._id || s?.approver || ''), s])
+            );
+            const personName = (userObj, fallback = '') => (
+              [userObj?.firstName, userObj?.lastName].filter(Boolean).join(' ').trim() ||
+              userObj?.email ||
+              fallback ||
+              '—'
+            );
+            const rows = [
+              {
+                label: 'Prepared By',
+                user: approvals.preparedByUser,
+                fallback: poData.approvalAuthorities?.preparedBy || approvals.preparedBy || auth.preparedBy || ''
+              },
+              {
+                label: 'Verified By (Procurement Committee)',
+                user: approvals.verifiedByUser,
+                fallback: poData.approvalAuthorities?.verifiedBy || approvals.verifiedBy || auth.verifiedBy || ''
+              },
+              {
+                label: 'Authorised Rep.',
+                user: approvals.authorisedRepUser,
+                fallback: poData.approvalAuthorities?.authorisedRep || approvals.authorisedRep || auth.authorisedRep || ''
+              },
+              {
+                label: 'Finance Rep.',
+                user: approvals.financeRepUser,
+                fallback: poData.approvalAuthorities?.financeRep || approvals.financeRep || auth.financeRep || ''
+              },
+              {
+                label: 'Manager Procurement',
+                user: approvals.managerProcurementUser,
+                fallback: poData.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || ''
+              }
+            ];
+            return (
+              <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Digital Signature</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Date & Time</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {rows.map((row) => {
+                      const uid = String(row?.user?._id || row?.user || '');
+                      const step = uid ? stepByUserId.get(uid) : null;
+                      const approvalUser = step?.approver && typeof step.approver === 'object' ? step.approver : row.user;
+                      return (
+                        <TableRow key={row.label}>
+                          <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
+                          <TableCell>{personName(approvalUser, row.fallback)}</TableCell>
+                          <TableCell>
+                            {approvalUser?.digitalSignature ? (
+                              <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">—</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>{formatDateTime(step?.actedAt)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            );
+          })()}
+          <ProcurementDigitalSignaturesRow purchaseOrder={poData} />
         </Box>
       </Paper>
     );
