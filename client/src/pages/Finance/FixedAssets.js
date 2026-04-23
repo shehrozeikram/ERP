@@ -180,8 +180,14 @@ export default function FixedAssets() {
     try {
       const res = await api.get('/finance/fixed-assets/projects');
       setProjects(res.data?.data || []);
-    } catch {
+    } catch (e) {
       setProjects([]);
+      const msg = e?.response?.data?.message || 'Failed to load projects';
+      if (e?.response?.status === 403) {
+        setError('You do not have access to fetch project dropdown data.');
+      } else {
+        setError(msg);
+      }
     }
   }, []);
 

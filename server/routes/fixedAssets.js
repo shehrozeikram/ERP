@@ -49,7 +49,7 @@ router.get('/next-serial', authorize('super_admin', 'admin', 'finance_manager'),
 }));
 
 // GET /api/finance/fixed-assets/employees — HR Employee master (not only User logins)
-router.get('/employees', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
+router.get('/employees', authorize('super_admin', 'admin', 'finance_manager', 'tcm_manager'), asyncHandler(async (req, res) => {
   const rows = await Employee.find({ isDeleted: false })
     .select('firstName lastName employeeId placementDepartment placementDesignation isActive employmentStatus')
     .populate('placementDepartment', 'name')
@@ -69,7 +69,16 @@ router.get('/employees', authorize('super_admin', 'admin', 'finance_manager'), a
 }));
 
 // GET /api/finance/fixed-assets/projects — project master for dropdown
-router.get('/projects', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
+router.get('/projects', authorize(
+  'super_admin',
+  'admin',
+  'finance_manager',
+  'tcm_manager',
+  'procurement_manager',
+  'hr_manager',
+  'audit_manager',
+  'higher_management'
+), asyncHandler(async (req, res) => {
   // Keep dropdown usable in environments where ongoing projects are marked
   // as Planning/On Hold instead of strictly Active.
   const projects = await Project.find({ status: { $nin: ['Completed', 'Cancelled'] } })
