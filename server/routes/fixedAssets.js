@@ -68,9 +68,11 @@ router.get('/employees', authorize('super_admin', 'admin', 'finance_manager'), a
   res.json({ success: true, data: employees });
 }));
 
-// GET /api/finance/fixed-assets/projects — active project master
+// GET /api/finance/fixed-assets/projects — project master for dropdown
 router.get('/projects', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
-  const projects = await Project.find({ status: 'Active' })
+  // Keep dropdown usable in environments where ongoing projects are marked
+  // as Planning/On Hold instead of strictly Active.
+  const projects = await Project.find({ status: { $nin: ['Completed', 'Cancelled'] } })
     .select('name code projectId')
     .sort({ name: 1 })
     .lean();
