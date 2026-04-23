@@ -11,6 +11,24 @@ import { useAuth } from '../../contexts/AuthContext';
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-PK') : '—');
+const hasProjectDetails = (project) => Boolean(
+  project &&
+  typeof project === 'object' &&
+  (project.name || project.code || project.projectId)
+);
+
+const projectIdFromValue = (project) => {
+  if (!project) return '';
+  if (typeof project === 'string') return project;
+  if (typeof project === 'object') return project._id || project.id || '';
+  return '';
+};
+
+const formatProjectLabel = (project) => {
+  if (!project) return '';
+  if (typeof project === 'string') return project;
+  return [project.code, project.name].filter(Boolean).join(' - ') || project.projectId || project.name || '';
+};
 
 export default function ScanAssetPage() {
   const { tagCode: tagCodeParam } = useParams();
@@ -36,11 +54,7 @@ export default function ScanAssetPage() {
       const nextData = { ...(res.data.data || {}) };
       const nextAsset = nextData.asset ? { ...nextData.asset } : null;
 
-      const hasProjectObject = Boolean(
-        nextAsset?.project &&
-        typeof nextAsset.project === 'object' &&
-        (nextAsset.project.name || nextAsset.project.code || nextAsset.project.projectId)
-      );
+      const hasProjectObject = hasProjectDetails(nextAsset?.project);
 
       if (user && nextAsset && !hasProjectObject) {
         try {
@@ -57,6 +71,20 @@ export default function ScanAssetPage() {
           }
         } catch {
           // Keep lookup page functional even if project fallback APIs are unavailable.
+        }
+
+        if (!hasProjectDetails(nextAsset.project)) {
+          const projectId = projectIdFromValue(nextAsset.project);
+          if (projectId) {
+            try {
+              const projectsRes = await api.get('/finance/fixed-assets/projects');
+              const projects = Array.isArray(projectsRes?.data?.data) ? projectsRes.data.data : [];
+              const match = projects.find((row) => String(row?._id) === String(projectId));
+              if (match) nextAsset.project = match;
+            } catch {
+              // Keep lookup page functional even if project list is unavailable.
+            }
+          }
         }
       }
 
@@ -97,9 +125,7 @@ export default function ScanAssetPage() {
   const asset = data?.asset;
   const transferHistory = data?.transferHistory || [];
   const assetLocationRows = asset ? formatAssetLocationLabeledRows(asset.location) : [];
-  const projectLabel = asset?.project
-    ? [asset.project.code, asset.project.name].filter(Boolean).join(' - ') || asset.project.projectId || asset.project.name
-    : '';
+  const projectLabel = formatProjectLabel(asset?.project);
 
   return (
     <Box sx={{ p: { xs: 1.5, sm: 3 }, maxWidth: { xs: '100%', sm: 560 }, mx: 'auto' }}>
