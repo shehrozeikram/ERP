@@ -33,7 +33,55 @@ export default function ScanAssetPage() {
       const res = user
         ? await api.get(`/asset-tagging/resolve/${enc}`)
         : await api.get(`/public/asset-tagging/resolve/${enc}`);
-      setData(res.data.data);
+      const nextData = { ...(res.data.data || {}) };
+      const nextAsset = nextData.asset ? { ...nextData.asset } : null;
+
+      const hasProjectObject = Boolean(
+        nextAsset?.project &&
+        typeof nextAsset.project === 'object' &&
+        (nextAsset.project.name || nextAsset.project.code || nextAsset.project.projectId)
+      );
+
+      if (nextAsset && !hasProjectObject) {
+        try {
+          const financeRes = await api.get(`/finance/fixed-assets/${nextAsset._id}`);
+          const financeProject = financeRes?.data?.data?.project || null;
+          let fallbackProject = null;
+
+          if (financeProject && typeof financeProject === 'object') {
+            fallbackProject = financeProject;
+          } else {
+            const projectId = typeof nextAsset.project === 'string'
+              ? nextAsset.project
+              : (typeof financeProject === 'string' ? financeProject : null);
+
+            if (projectId) {
+              let projects = [];
+              try {
+                const projectsRes = await api.get('/finance/fixed-assets/projects');
+                projects = projectsRes?.data?.data || [];
+              } catch (projectsErr) {
+                if (projectsErr?.response?.status === 404) {
+                  const fallbackProjectsRes = await api.get('/projects');
+                  projects = fallbackProjectsRes?.data?.data || [];
+                } else {
+                  throw projectsErr;
+                }
+              }
+              fallbackProject = projects.find((p) => String(p._id) === String(projectId)) || null;
+            }
+          }
+
+          if (fallbackProject) {
+            nextAsset.project = fallbackProject;
+          }
+        } catch {
+          // Keep lookup page functional even if project fallback APIs are unavailable.
+        }
+      }
+
+      nextData.asset = nextAsset;
+      setData(nextData);
     } catch (e) {
       setError(e.response?.data?.message || 'Tag not found');
       setData(null);
@@ -111,10 +159,12 @@ export default function ScanAssetPage() {
               <Typography variant="body2" color="text.secondary">—</Typography>
             )}
           </Box>
-          <Typography variant="body2" color="text.secondary">Custodian: {asset.assignedTo || '—'}</Typography>
+          <Typography variant="body2" color="text.secondary"><strong>Custodian:</strong> {asset.assignedTo || '—'}</Typography>
           {projectLabel ? (
-            <Typography variant="body2" color="text.secondary">{projectLabel}</Typography>
-          ) : null}
+            <Typography variant="body2" color="text.secondary"><strong>Project:</strong> {projectLabel}</Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary"><strong>Project:</strong> —</Typography>
+          )}
           <Typography variant="body2" color="text.secondary">Serial: {asset.serialNumber || '—'}</Typography>
           {user ? (
             <Typography variant="body2" sx={{ mt: 1 }}>
