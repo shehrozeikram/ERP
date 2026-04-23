@@ -40,8 +40,18 @@ export default function LabelPrintPage() {
               ? a.project
               : (typeof financeProject === 'string' ? financeProject : null);
             if (projectId) {
-              const projectsRes = await api.get('/finance/fixed-assets/projects');
-              const projects = projectsRes?.data?.data || [];
+              let projects = [];
+              try {
+                const projectsRes = await api.get('/finance/fixed-assets/projects');
+                projects = projectsRes?.data?.data || [];
+              } catch (projectsErr) {
+                if (projectsErr?.response?.status === 404) {
+                  const fallbackProjectsRes = await api.get('/projects');
+                  projects = fallbackProjectsRes?.data?.data || [];
+                } else {
+                  throw projectsErr;
+                }
+              }
               fallbackProject = projects.find((p) => String(p._id) === String(projectId)) || null;
             }
           }
