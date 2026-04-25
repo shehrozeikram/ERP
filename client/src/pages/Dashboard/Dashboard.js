@@ -52,6 +52,7 @@ import {
   EmojiEvents
 } from '@mui/icons-material';
 import { io } from 'socket.io-client';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { PERMISSIONS, MODULES } from '../../utils/permissions';
 import api from '../../services/api';
@@ -70,6 +71,7 @@ const logDebug = (...args) => {
 
 const Dashboard = () => {
   const theme = useTheme();
+  const navigate = useNavigate();
 
   // Add CSS animations for enhanced effects
   useEffect(() => {
@@ -149,17 +151,20 @@ const Dashboard = () => {
       const [
         payrollOverviewResponse,
         employeesResponse,
-        attendanceResponse
+        attendanceResponse,
+        indentsResponse
       ] = await Promise.allSettled([
         api.get('/payroll/current-overview'), // Same as Payroll Management page
         api.get('/hr/employees?limit=1000'), // Get all employees for accurate count
-        api.get('/attendance?limit=100') // Reduced limit - only need today's data
+        api.get('/attendance?limit=100'), // Reduced limit - only need today's data
+        indentService.getDashboardStats()
       ]);
 
       // Process data with error handling
       const employees = employeesResponse.status === 'fulfilled' ? employeesResponse.value.data.data : [];
       const payrollOverviewData = payrollOverviewResponse.status === 'fulfilled' ? payrollOverviewResponse.value.data.data : null;
       const attendance = attendanceResponse.status === 'fulfilled' ? attendanceResponse.value.data.data : [];
+      const indentStats = indentsResponse.status === 'fulfilled' ? indentsResponse.value?.data?.stats : null;
 
       // Calculate comprehensive metrics using same data as Payroll Management page
       const totalEmployees = payrollOverviewData?.totalEmployees || employees.length;
@@ -189,6 +194,8 @@ const Dashboard = () => {
       const presentToday = attendance.filter(a => a.status === 'Present').length;
       const absentToday = attendance.filter(a => a.status === 'Absent').length;
       const attendanceRate = totalEmployees > 0 ? (presentToday / totalEmployees) * 100 : 0;
+      const totalIndents = indentStats?.total || 0;
+      const pendingIndents = indentStats?.pendingApproval || 0;
       
       // Present percentage (use WebSocket data if available, same as PresentChart)
       let presentPercentage = 0;
@@ -222,6 +229,8 @@ const Dashboard = () => {
           totalDepartments,
           totalPayrollAmount,
           averageSalary,
+          totalIndents,
+          pendingIndents,
           attendanceRate,
           presentToday,
           absentToday,
@@ -404,10 +413,11 @@ const Dashboard = () => {
   };
 
   // Premium KPI Card Component with Glassmorphism
-  const PremiumKPICard = ({ title, value, change, icon, color, trend, subtitle, delay = 0 }) => (
+  const PremiumKPICard = ({ title, value, change, changeLabel, icon, color, trend, subtitle, delay = 0, onClick }) => (
     <Card
       sx={{
         height: '100%',
+        cursor: onClick ? 'pointer' : 'default',
         background: `linear-gradient(135deg, ${alpha(color, 0.15)} 0%, ${alpha(color, 0.05)} 100%)`,
         backdropFilter: 'blur(20px)',
         border: `1px solid ${alpha(color, 0.2)}`,
@@ -434,6 +444,7 @@ const Dashboard = () => {
             borderRadius: '4px 4px 0 0'
           }
         }}
+        onClick={onClick}
       >
         <Box
           className="card-glow"
@@ -465,7 +476,7 @@ const Dashboard = () => {
               {icon}
             </Box>
             <Chip
-              label={trend === 'up' ? `+${change}%` : `-${change}%`}
+              label={changeLabel || (trend === 'up' ? `+${change}%` : `-${change}%`)}
               size="small"
               color={trend === 'up' ? 'success' : 'error'}
               icon={trend === 'up' ? <TrendingUp /> : <TrendingDown />}
@@ -1041,14 +1052,16 @@ const Dashboard = () => {
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
             <PremiumKPICard
-              title="Efficiency Score"
-              value={`${dashboardData.performance.efficiencyScore.toFixed(1)}%`}
-              change={dashboardData.performance.customerSatisfaction.toFixed(1)}
+              title="Total Indents"
+              value={dashboardData.overview.totalIndents.toLocaleString()}
+              change={dashboardData.overview.pendingIndents.toLocaleString()}
+              changeLabel={`${dashboardData.overview.pendingIndents} pending`}
               trend="up"
-              icon={<Analytics />}
+              icon={<ShoppingCart />}
               color={theme.palette.info.main}
-              subtitle="Overall performance"
+              subtitle={`${dashboardData.overview.pendingIndents} pending approval`}
               delay={300}
+              onClick={() => navigate('/general/indents')}
             />
           </Grid>
         </Grid>
