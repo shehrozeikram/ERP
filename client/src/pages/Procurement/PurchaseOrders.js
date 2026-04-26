@@ -168,13 +168,6 @@ const PurchaseOrders = () => {
     internalNotes: ''
   });
 
-  // Load data on component mount
-  useEffect(() => {
-    loadPurchaseOrders();
-    loadStatistics();
-    loadVendors();
-  }, [page, rowsPerPage, search, statusFilter, priorityFilter]);
-
   // When navigated from Quotations with createFromQuotationId, fetch quotation and open create form prefilled
   useEffect(() => {
     const quotationId = location.state?.createFromQuotationId;
@@ -253,7 +246,7 @@ const PurchaseOrders = () => {
     }
   }, [page, rowsPerPage, search, statusFilter, priorityFilter]);
 
-  const loadStatistics = async () => {
+  const loadStatistics = useCallback(async () => {
     try {
       const response = await api.get('/procurement/purchase-orders/statistics');
       if (response.data.success) {
@@ -262,9 +255,9 @@ const PurchaseOrders = () => {
     } catch (err) {
       console.error('Error loading statistics:', err);
     }
-  };
+  }, []);
 
-  const loadVendors = async () => {
+  const loadVendors = useCallback(async () => {
     try {
       const response = await api.get('/procurement/vendors', { params: { limit: 1000 } });
       if (response.data.success) {
@@ -273,7 +266,16 @@ const PurchaseOrders = () => {
     } catch (err) {
       console.error('Error loading vendors:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadPurchaseOrders();
+  }, [loadPurchaseOrders]);
+
+  useEffect(() => {
+    loadStatistics();
+    loadVendors();
+  }, [loadStatistics, loadVendors]);
 
   const handleCreate = () => {
     setApprovalAuthority({ preparedBy: '', verifiedBy: '', authorisedRep: '', financeRep: '', managerProcurement: '' });
@@ -683,6 +685,7 @@ const PurchaseOrders = () => {
               onClick={() => {
                 loadPurchaseOrders();
                 loadStatistics();
+                loadVendors();
               }}
             >
               Refresh

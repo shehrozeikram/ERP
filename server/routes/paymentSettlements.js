@@ -48,7 +48,7 @@ const paymentSettlementReadGate = asyncHandler(async (req, res, next) => {
     norm === 'auditor' ||
     norm === 'audit_director' ||
     user.role === 'Audit Director';
-  if ((user.role === 'super_admin' || isAuditRole) && isPaymentSettlementInAuditQueue(settlement.workflowStatus)) {
+  if ((user.role === 'super_admin' || user.role === 'developer' || isAuditRole) && isPaymentSettlementInAuditQueue(settlement.workflowStatus)) {
     return next();
   }
   const hasAccess = await checkSubRoleAccess(user.id, 'admin', 'payment_settlement', 'read');
@@ -110,7 +110,7 @@ router.patch('/:id/approve',
         const userRole = req.user.role;
         const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
         // Allow Audit Director or super_admin to approve forwarded documents
-        if (userRole === 'super_admin' || normalizedRole === 'audit_director' || userRole === 'Audit Director') {
+        if (userRole === 'super_admin' || userRole === 'developer' || normalizedRole === 'audit_director' || userRole === 'Audit Director') {
           return next(); // Skip sub-role check
         }
       }

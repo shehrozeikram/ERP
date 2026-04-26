@@ -150,7 +150,7 @@ const AttendanceReports = () => {
   });
   const activeRequestIdRef = useRef(0);
 
-  const privilegedHrRoles = useMemo(() => ['super_admin', 'admin', 'hr_manager'], []);
+  const privilegedHrRoles = useMemo(() => ['super_admin', 'developer', 'admin', 'hr_manager'], []);
 
   useEffect(() => {
     let mounted = true;

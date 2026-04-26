@@ -309,6 +309,7 @@ const RoleBasedRedirect = () => {
   const getRedirectPath = (userRole) => {
     switch (userRole) {
       case 'super_admin':
+      case 'developer':
         return '/dashboard';
       case 'admin':
         return '/admin/staff-management';
@@ -355,6 +356,7 @@ const PublicRoute = ({ children }) => {
     const getRedirectPath = (userRole) => {
       switch (userRole) {
         case 'super_admin':
+        case 'developer':
           return '/dashboard';
         case 'admin':
           return '/admin/staff-management';

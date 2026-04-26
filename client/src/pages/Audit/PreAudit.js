@@ -118,8 +118,14 @@ const PreAudit = () => {
       : [];
     return roleNames.some((n) => set.includes(n));
   };
-  const isAuditDirectorUser = () => userHasRoleLabel(['audit_director', 'audit director']) || normalizeRole(user?.role) === 'super_admin';
-  const isAuditReviewerUser = () => userHasRoleLabel(['audit_manager', 'auditor']) || normalizeRole(user?.role) === 'super_admin';
+  const isAuditDirectorUser = () =>
+    userHasRoleLabel(['audit_director', 'audit director']) ||
+    normalizeRole(user?.role) === 'super_admin' ||
+    normalizeRole(user?.role) === 'developer';
+  const isAuditReviewerUser = () =>
+    userHasRoleLabel(['audit_manager', 'auditor']) ||
+    normalizeRole(user?.role) === 'super_admin' ||
+    normalizeRole(user?.role) === 'developer';
   const hasInitialApproval = (doc) =>
     Boolean(
       doc?.initialAuditApproved ||
@@ -1429,7 +1435,7 @@ const PreAudit = () => {
                                                   <>
                                                     {/* Post-GRN audit POs: Show "Send to Finance" instead of standard audit actions */}
                                                     {doc.isPostGrnAudit ? (
-                                                      (user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
+                                                      (user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'developer' || user?.role === 'auditor') && (
                                                         <Tooltip title="Send to Finance">
                                                           <IconButton
                                                             size="small"

@@ -450,7 +450,7 @@ const IndentsList = () => {
         return aid === uid && s.status === 'pending';
       });
     }
-    return ['super_admin', 'admin', 'hr_manager'].includes(user?.role);
+    return ['super_admin', 'developer', 'admin', 'hr_manager'].includes(user?.role);
   };
 
   const getApprovalGateBadge = (indent) => {
@@ -799,10 +799,10 @@ const IndentsList = () => {
                             </IconButton>
                           </>
                         )}
-                        {(['super_admin', 'admin'].includes(user?.role) ||
+                        {(['super_admin', 'developer', 'admin'].includes(user?.role) ||
                           (item.status === 'Draft' && item.requestedBy?._id === user?.id)) && (
                           <Tooltip title={
-                            ['super_admin', 'admin'].includes(user?.role)
+                            ['super_admin', 'developer', 'admin'].includes(user?.role)
                               ? 'Delete indent'
                               : 'Delete your draft indent'
                           }>

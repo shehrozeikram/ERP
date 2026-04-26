@@ -14,8 +14,6 @@ import {
   Stack,
   alpha,
   useTheme,
-  Fade,
-  CircularProgress,
   Alert,
   List,
   ListItem,
@@ -38,7 +36,6 @@ import {
   Print,
   Security,
   Speed,
-  Analytics,
   Business,
   BarChart,
   ShowChart,
@@ -261,7 +258,7 @@ const Dashboard = () => {
   useEffect(() => {
     fetchDashboardData();
     // Removed auto-refresh polling - now purely real-time via WebSocket
-  }, []);
+  }, [fetchDashboardData]);
 
   // WebSocket connection to get Present Chart data (same as PresentChart component)
   useEffect(() => {
@@ -345,7 +342,7 @@ const Dashboard = () => {
 
   // Update dashboard data when Present Chart data changes
   useEffect(() => {
-    if (presentChartData && dashboardData) {
+    if (presentChartData) {
       logDebug('📊 Dashboard: Updating Present percentage with WebSocket data');
       
       // Recalculate Present percentage with WebSocket data
@@ -360,9 +357,10 @@ const Dashboard = () => {
       
       // Update dashboard data with new Present percentage
       setDashboardData(prevData => ({
+        ...(prevData || {}),
         ...prevData,
         overview: {
-          ...prevData.overview,
+          ...(prevData?.overview || {}),
           presentPercentage
         }
       }));

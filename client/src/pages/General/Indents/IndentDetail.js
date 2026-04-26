@@ -306,7 +306,7 @@ const IndentDetail = () => {
     hasChain && userPendingInChain && ['Submitted', 'Under Review'].includes(indent?.status);
   const canApproveRejectLegacy =
     !hasChain &&
-    ['super_admin', 'admin', 'hr_manager'].includes(user?.role) &&
+    ['super_admin', 'developer', 'admin', 'hr_manager'].includes(user?.role) &&
     ['Submitted', 'Under Review'].includes(indent?.status);
   const canApproveReject = canApproveRejectChain || canApproveRejectLegacy;
   const canSubmit = indent?.status === 'Draft' && indent?.requestedBy?._id === user?.id;

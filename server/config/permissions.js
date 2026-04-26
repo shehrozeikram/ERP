@@ -7,6 +7,8 @@
 const ROLES = {
   SUPER_ADMIN: 'super_admin',
   HIGHER_MANAGEMENT: 'higher_management',
+  /** Full system access for engineering / Tovus development (same API bypass as super_admin). */
+  DEVELOPER: 'developer',
   ADMIN: 'admin',
   HR_MANAGER: 'hr_manager',
   FINANCE_MANAGER: 'finance_manager',
@@ -163,6 +165,12 @@ const ROLE_MODULE_ACCESS = {
     canAccessAll: true,
     modules: Object.values(MODULES),
     description: 'Access to all departments and modules'
+  },
+
+  [ROLES.DEVELOPER]: {
+    canAccessAll: true,
+    modules: Object.values(MODULES),
+    description: 'Full system access (developer / Tovus)'
   },
   
   [ROLES.ADMIN]: {
@@ -467,8 +475,12 @@ const PERMISSION_MAPPINGS = {
 
 // Helper Functions
 const hasPermission = (userRole, permission) => {
-  // Super admin and higher management have all permissions
-  if (userRole === ROLES.SUPER_ADMIN || userRole === ROLES.HIGHER_MANAGEMENT) {
+  // Super admin, higher management, and developer have all permissions
+  if (
+    userRole === ROLES.SUPER_ADMIN ||
+    userRole === ROLES.HIGHER_MANAGEMENT ||
+    userRole === ROLES.DEVELOPER
+  ) {
     return true;
   }
   
@@ -610,8 +622,14 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
   const user = await User.findById(userId).populate('roleRef').populate('roles');
   if (!user) return false;
   
-  // Super admin and higher management have access to everything
-  if (user.role === ROLES.SUPER_ADMIN || user.role === ROLES.HIGHER_MANAGEMENT) return true;
+  // Super admin, higher management, and developer have access to everything
+  if (
+    user.role === ROLES.SUPER_ADMIN ||
+    user.role === ROLES.HIGHER_MANAGEMENT ||
+    user.role === ROLES.DEVELOPER
+  ) {
+    return true;
+  }
   
   // NEW: Check multiple roles first (if assigned)
   if (user.roles && Array.isArray(user.roles) && user.roles.length > 0) {

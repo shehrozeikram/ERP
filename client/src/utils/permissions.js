@@ -5,6 +5,8 @@
 export const ROLES = {
   SUPER_ADMIN: 'super_admin',
   HIGHER_MANAGEMENT: 'higher_management',
+  /** Full access for Tovus / engineering (same behavior as super_admin in UI and API). */
+  DEVELOPER: 'developer',
   ADMIN: 'admin',
   HR_MANAGER: 'hr_manager',
   FINANCE_MANAGER: 'finance_manager',
@@ -50,6 +52,12 @@ export const PERMISSIONS = {
     canAccessAll: true,
     modules: Object.values(MODULE_KEYS),
     description: 'Access to all departments and modules'
+  },
+
+  [ROLES.DEVELOPER]: {
+    canAccessAll: true,
+    modules: Object.values(MODULE_KEYS),
+    description: 'Full system access (developer / Tovus)'
   },
   
   // Admin has access to admin module and general module
@@ -1100,7 +1108,11 @@ export const getModuleMenuItems = (userRole) => {
         } else if (subItem.subItems) {
           // Hide Authorities for non-super_admin users
           filteredSubItems = subItem.subItems.filter(subSubItem => {
-            if (subSubItem.path === '/hr/evaluation-appraisal/authorities' && userRole !== 'super_admin') {
+            if (
+              subSubItem.path === '/hr/evaluation-appraisal/authorities' &&
+              userRole !== 'super_admin' &&
+              userRole !== ROLES.DEVELOPER
+            ) {
               return false;
             }
             return true;
@@ -1133,17 +1145,17 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   // Profile is always accessible
   if (path === '/profile') return true;
   
-  // Super Admin and Higher Management have access to everything
-  if (userRole === 'super_admin' || userRole === 'higher_management') {
-    // Authorities page in Evaluation & Appraisal is only accessible to super_admin
+  // Super Admin, Higher Management, and Developer have access to everything
+  if (userRole === 'super_admin' || userRole === 'higher_management' || userRole === ROLES.DEVELOPER) {
+    // Authorities page is restricted to super_admin and developer
     if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) {
-      return userRole === 'super_admin';
+      return userRole === 'super_admin' || userRole === ROLES.DEVELOPER;
     }
     // All other routes are accessible
     return true;
   }
   
-  // Authorities page in Evaluation & Appraisal is only accessible to super_admin
+  // Authorities page in Evaluation & Appraisal is only accessible to super_admin / developer
   if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) {
     return false;
   }

@@ -10,7 +10,7 @@ const AssetTag = require('../models/assetTagging/AssetTag');
 const AssetTagEvent = require('../models/assetTagging/AssetTagEvent');
 const AssetVerificationSession = require('../models/assetTagging/AssetVerificationSession');
 
-const TAG_ROLES = ['super_admin', 'admin', 'finance_manager', 'procurement_manager', 'audit_manager', 'higher_management'];
+const TAG_ROLES = ['super_admin', 'developer', 'admin', 'finance_manager', 'procurement_manager', 'audit_manager', 'higher_management'];
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);

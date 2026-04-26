@@ -41,7 +41,7 @@ router.get('/tasks',
               { [config.workflowStatusField]: userWorkflowStatus },
               { [config.workflowStatusField]: { $regex: `^(Approved|Rejected) \\(from ${userWorkflowStatus}\\)$` } }
             ];
-          } else if (['super_admin', 'admin', 'higher_management', 'hr_manager'].includes(userRole)) {
+          } else if (['super_admin', 'developer', 'admin', 'higher_management', 'hr_manager'].includes(userRole)) {
             // Admins and hr_manager can see all tasks
             // Optionally filter by workflowStatus if provided
             if (req.query.workflowStatus) {

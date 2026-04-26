@@ -226,7 +226,7 @@ const UserManagement = () => {
     setPage(0);
   };
 
-  if (user?.role !== 'super_admin' && user?.role !== 'admin') {
+  if (user?.role !== 'super_admin' && user?.role !== 'developer' && user?.role !== 'admin') {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">

@@ -369,6 +369,11 @@ const Sidebar = () => {
     // Get ALL menu items first (use a role that has access to all modules)
     // We'll filter based on actual permissions, not the legacy role field
     let baseMenuItems = getMenuItems('super_admin') || [];
+
+    // Legacy full-access roles: always show full menu (ignore RBAC attachments)
+    if (['super_admin', 'higher_management', 'developer'].includes(userRole)) {
+      return baseMenuItems;
+    }
     
     // If that doesn't work, build from MODULES directly
     if (baseMenuItems.length === 0) {

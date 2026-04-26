@@ -14,6 +14,33 @@ function getMongoUri() {
   return { uri: process.env.MONGODB_URI, isLocal: false };
 }
 
+/** Same options the API uses (Atlas vs self-hosted). */
+function getMongooseClientOptions(uri, isLocal = false) {
+  const baseOptions = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    maxPoolSize: 20,
+    minPoolSize: isLocal ? 1 : 2,
+    maxIdleTimeMS: 30000,
+    serverSelectionTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+    connectTimeoutMS: 10000,
+    heartbeatFrequencyMS: 10000,
+    bufferCommands: true,
+    monitorCommands: false
+  };
+
+  const atlasOptions = {
+    tls: true,
+    tlsAllowInvalidCertificates: false,
+    retryWrites: true,
+    w: 'majority'
+  };
+
+  const isAtlas = uri.includes('mongodb.net') || uri.includes('mongodb+srv');
+  return isAtlas ? { ...baseOptions, ...atlasOptions } : baseOptions;
+}
+
 const connectDB = async () => {
   try {
     const { uri, isLocal } = getMongoUri();
@@ -25,29 +52,7 @@ const connectDB = async () => {
       );
     }
 
-    const baseOptions = {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      maxPoolSize: 20,
-      minPoolSize: isLocal ? 1 : 2,
-      maxIdleTimeMS: 30000,
-      serverSelectionTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
-      connectTimeoutMS: 10000,
-      heartbeatFrequencyMS: 10000,
-      bufferCommands: true,
-      monitorCommands: false,
-    };
-
-    const atlasOptions = {
-      tls: true,
-      tlsAllowInvalidCertificates: false,
-      retryWrites: true,
-      w: 'majority',
-    };
-
-    const isAtlas = uri.includes('mongodb.net') || uri.includes('mongodb+srv');
-    const options = isAtlas ? { ...baseOptions, ...atlasOptions } : baseOptions;
+    const options = getMongooseClientOptions(uri, isLocal);
 
     const conn = await mongoose.connect(uri, options);
 
@@ -99,4 +104,4 @@ const disconnectDB = async () => {
   }
 };
 
-module.exports = { connectDB, disconnectDB }; 
+module.exports = { connectDB, disconnectDB, getMongoUri, getMongooseClientOptions }; 

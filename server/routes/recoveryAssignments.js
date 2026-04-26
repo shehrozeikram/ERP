@@ -233,7 +233,7 @@ router.get(
     const dueSortObj = sortByDue ? { currentlyDue: dueDir, sortOrder: 1, orderCode: 1 } : { sortOrder: 1, orderCode: 1 };
 
     // Super admin and admin: only assignments that are assigned to some recovery member (any rule)
-    if (req.user.role === 'super_admin' || req.user.role === 'admin') {
+    if (req.user.role === 'super_admin' || req.user.role === 'developer' || req.user.role === 'admin') {
       const allRules = await RecoveryTaskAssignmentRule.find({ isActive: true })
         .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
         .lean();
@@ -1584,7 +1584,7 @@ router.put(
     const slabRules = rules.filter((r) => r.type === 'slab');
     const assignedToMember = resolveAssignedMember(assignment, sectorRules, slabRules);
 
-    const isAdmin = req.user.role === 'super_admin' || req.user.role === 'admin';
+    const isAdmin = req.user.role === 'super_admin' || req.user.role === 'developer' || req.user.role === 'admin';
     if (!isAdmin && assignedToMember) {
       const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
       const recoveryMember = employee ? await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean() : null;
@@ -1733,7 +1733,7 @@ router.put(
     const slabRules = rules.filter((r) => r.type === 'slab');
     const assignedToMember = resolveAssignedMember(assignment, sectorRules, slabRules);
 
-    const isAdmin = req.user.role === 'super_admin' || req.user.role === 'admin';
+    const isAdmin = req.user.role === 'super_admin' || req.user.role === 'developer' || req.user.role === 'admin';
     if (!isAdmin && assignedToMember) {
       const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
       const recoveryMember = employee ? await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean() : null;

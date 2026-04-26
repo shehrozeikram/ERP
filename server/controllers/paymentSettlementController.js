@@ -575,7 +575,7 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
 
     // Realtime notification on forward-to-CEO transition (CEO Secretariat / CEO queue)
     if (workflowStatus === 'Forwarded to CEO') {
-      const recipientIds = await getUserIdsByRoles(['higher_management', 'admin', 'super_admin']);
+      const recipientIds = await getUserIdsByRoles(['higher_management', 'admin', 'super_admin', 'developer']);
       if (recipientIds.length) {
         await createAndEmitNotification({
           recipientIds,
@@ -642,7 +642,12 @@ const approveDocument = asyncHandler(async (req, res) => {
     
     // If document is forwarded to Audit Director, allow Audit Director to approve
     if (settlement.workflowStatus === 'Forwarded to Audit Director') {
-      if (userRole !== 'super_admin' && normalizedRole !== 'audit_director' && userRole !== 'Audit Director') {
+      if (
+        userRole !== 'super_admin' &&
+        userRole !== 'developer' &&
+        normalizedRole !== 'audit_director' &&
+        userRole !== 'Audit Director'
+      ) {
         return res.status(403).json({
           success: false,
           message: 'Only Audit Director can approve documents forwarded to them'

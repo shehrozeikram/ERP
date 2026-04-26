@@ -66,7 +66,7 @@ const ProcurementTaskAssignment = () => {
 
   const canConfigureAssignmentManagers = useMemo(() => {
     if (!user) return false;
-    if (user.role === 'super_admin' || user.role === 'admin') return true;
+    if (user.role === 'super_admin' || user.role === 'developer' || user.role === 'admin') return true;
     const accepted = ['gm procurement', 'general manager procurement'];
     const roleRefName = String(user?.roleRef?.name || user?.roleRef?.displayName || '').toLowerCase();
     if (accepted.includes(roleRefName)) return true;

@@ -19,7 +19,7 @@ function userMatchesGmProcurement(user) {
 export function canBypassPreparedByAuthorityLock(user) {
   if (!user) return false;
   const r = norm(user.role);
-  if (['super_admin', 'admin', 'procurement_manager'].includes(r)) return true;
+  if (['super_admin', 'developer', 'admin', 'procurement_manager'].includes(r)) return true;
   return userMatchesGmProcurement(user);
 }
 

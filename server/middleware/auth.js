@@ -244,8 +244,8 @@ const authorize = (...roles) => {
 
     const userRole = req.user.role;
     
-    // Super Admin and Higher Management have access to everything
-    if (userRole === 'super_admin' || userRole === 'higher_management') {
+    // Super Admin, Higher Management, and Developer have access to everything
+    if (userRole === 'super_admin' || userRole === 'higher_management' || userRole === 'developer') {
       return next();
     }
 

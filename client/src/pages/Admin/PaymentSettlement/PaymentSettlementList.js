@@ -737,7 +737,7 @@ const PaymentSettlementList = () => {
               placeholder="Search settlements..."
             />
           </Grid>
-          {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
+          {(user?.role === 'super_admin' || user?.role === 'developer' || user?.role === 'admin' || user?.role === 'higher_management') && (
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
                 <InputLabel>Workflow Status</InputLabel>
@@ -894,7 +894,7 @@ const PaymentSettlementList = () => {
                             <ViewIcon />
                           </IconButton>
                         </Tooltip>
-                        {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
+                        {(user?.role === 'super_admin' || user?.role === 'developer' || user?.role === 'admin' || user?.role === 'higher_management') && (
                           <Tooltip title="Change Workflow Status">
                             <IconButton
                               size="small"
