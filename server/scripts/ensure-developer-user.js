@@ -58,6 +58,7 @@ const CONFIG = {
   department: 'Technology',
   position: 'Software Developer',
   phone: '',
+  // Default: sheh + r + oze + @tovus (matches name "Shehroze"; easy to mistype without the "r")
   defaultPassword: process.env.DEVELOPER_PASSWORD || 'shehroze@tovus'
 };
 

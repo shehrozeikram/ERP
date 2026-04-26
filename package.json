@@ -13,9 +13,6 @@
     "start:prod": "NODE_ENV=production node server/index.js",
     "deploy-check": "NODE_ENV=production node scripts/deploy-check.js",
     "setup": "node setup.js",
-    "test:rental-bulk-invoice": "node tests/rental-bulk-invoice-jan2026.test.js",
-    "test:create-open-invoice": "node tests/create-open-invoice-jan2026.js",
-    "test:compare-arrears": "node tests/compare-pr1015-pr1016-arrears.test.js",
     "test:cement-e2e": "node tests/cement-e2e-procurement-finance.test.js",
     "test:indent-grn-sin-e2e": "node tests/indent-grn-sin-finance-e2e.test.js",
     "test:full-indent-grn-sin-finance": "node tests/full-indent-inventory-grn-sin-finance-e2e.test.js",
@@ -26,7 +23,8 @@
     "clean:test-data": "node scripts/clean-procurement-finance-general-store-data.js --yes",
     "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js",
     "import:procurement-vendors": "node server/scripts/import-procurement-vendors-xlsx.js",
-    "ensure:developer-user": "node server/scripts/ensure-developer-user.js"
+    "ensure:developer-user": "node server/scripts/ensure-developer-user.js",
+    "ensure:developer-user:droplet": "bash scripts/ensure-developer-on-droplet.sh"
   },
   "keywords": [
     "erp",

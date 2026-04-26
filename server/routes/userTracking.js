@@ -5,11 +5,6 @@ const UserLoginLog = require('../models/general/UserLoginLog');
 const UserActivityLog = require('../models/general/UserActivityLog');
 const { asyncHandler } = require('../middleware/errorHandler');
 
-// Test route to verify routing works (remove after debugging)
-router.get('/test', (req, res) => {
-  res.json({ success: true, message: 'User tracking routes are working', path: req.path, originalUrl: req.originalUrl });
-});
-
 // @route   GET /api/tracking/logins
 // @desc    Get login history with filters
 // @access  Private (Admin/Higher Management)

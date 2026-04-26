@@ -3,60 +3,6 @@ const router = express.Router();
 const Candidate = require('../models/hr/Candidate');
 const Application = require('../models/hr/Application');
 
-// Health check endpoint for debugging
-router.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Public candidates route is working',
-    timestamp: new Date(),
-    routes: [
-      'GET /:candidateId',
-      'PUT /:candidateId',
-      'GET /:candidateId/applications',
-      'POST /:candidateId/accept-offer',
-      'POST /:candidateId/decline-offer'
-    ]
-  });
-});
-
-// Debug endpoint to check candidate status and applications
-router.get('/debug/:candidateId', async (req, res) => {
-  try {
-    const candidate = await Candidate.findById(req.params.candidateId);
-    if (!candidate) {
-      return res.status(404).json({
-        success: false,
-        message: 'Candidate not found',
-        candidateId: req.params.candidateId
-      });
-    }
-
-    const applications = await Application.find({ candidate: req.params.candidateId });
-    
-    res.json({
-      success: true,
-      candidate: {
-        id: candidate._id,
-        name: candidate.firstName + ' ' + candidate.lastName,
-        status: candidate.status,
-        email: candidate.email
-      },
-      applications: applications.map(app => ({
-        id: app._id,
-        status: app.status,
-        jobPosting: app.jobPosting
-      })),
-      canAcceptOffer: candidate.status === 'offered' && applications.some(app => ['offer_sent', 'shortlisted'].includes(app.status))
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error debugging candidate',
-      error: error.message
-    });
-  }
-});
-
 // Get candidate profile by ID (public)
 router.get('/:candidateId', async (req, res) => {
   try {

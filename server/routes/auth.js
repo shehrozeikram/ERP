@@ -207,14 +207,17 @@ router.post('/login', [
   }
 
   const { email, password } = req.body;
-  console.log('🔐 Login attempt for:', email);
+  const loginEmail = String(email || '')
+    .trim()
+    .toLowerCase();
+  console.log('🔐 Login attempt for:', loginEmail);
 
   try {
-    // Find user by email and include password for comparison
-    const user = await User.findOne({ email }).select('+password');
+    // Match stored users (schema lowercases email on save; normalize avoids lookup mismatches)
+    const user = await User.findOne({ email: loginEmail }).select('+password');
 
     if (!user) {
-      console.log('🔐 Login failed: User not found:', email);
+      console.log('🔐 Login failed: User not found:', loginEmail);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -223,7 +226,7 @@ router.post('/login', [
 
     // Check if user is active
     if (!user.isActive) {
-      console.log('🔐 Login failed: User deactivated:', email);
+      console.log('🔐 Login failed: User deactivated:', loginEmail);
       return res.status(401).json({
         success: false,
         message: 'Account is deactivated. Please contact administrator.'
@@ -233,7 +236,7 @@ router.post('/login', [
     // Check password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      console.log('🔐 Login failed: Invalid password for:', email);
+      console.log('🔐 Login failed: Invalid password for:', loginEmail);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'

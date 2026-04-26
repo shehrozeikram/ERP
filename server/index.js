@@ -400,17 +400,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Public test route for tracking (before auth middleware)
-app.get('/api/tracking/test', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'User tracking routes are working', 
-    path: req.path, 
-    originalUrl: req.originalUrl,
-    timestamp: new Date().toISOString()
-  });
-});
-
 // WhatsApp webhook (public - Meta calls this, no auth)
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes);

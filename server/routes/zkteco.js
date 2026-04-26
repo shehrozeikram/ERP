@@ -3,11 +3,6 @@ const router = express.Router();
 const https = require('https');
 const http = require('http');
 
-// Test endpoint to verify route is working
-router.get('/test', (req, res) => {
-  res.json({ message: 'ZKTeco route is working!', timestamp: new Date() });
-});
-
 // Echo endpoint to see what's being received
 router.post('/echo', (req, res) => {
   console.log('🔄 Echo endpoint called');

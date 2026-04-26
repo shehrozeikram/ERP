@@ -5,64 +5,6 @@ const Candidate = require('../models/hr/Candidate');
 const JobPosting = require('../models/hr/JobPosting');
 const EmailService = require('../services/emailService');
 
-// Health check endpoint for debugging
-router.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Public approvals route is working',
-    timestamp: new Date(),
-    routes: [
-      'GET /:approvalId',
-      'POST /:approvalId/respond',
-      'POST /:approvalId/approve',
-      'POST /:approvalId/reject',
-      'GET /candidate/:candidateId'
-    ]
-  });
-});
-
-// Debug endpoint to check approval status
-router.get('/debug/:approvalId', async (req, res) => {
-  try {
-    const approval = await CandidateApproval.findById(req.params.approvalId)
-      .populate('candidate', 'firstName lastName email');
-
-    if (!approval) {
-      return res.status(404).json({
-        success: false,
-        message: 'Approval not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        approvalId: approval._id,
-        status: approval.status,
-        currentLevel: approval.currentLevel,
-        candidate: approval.candidate,
-        approvalLevels: approval.approvalLevels.map(l => ({
-          level: l.level,
-          title: l.title,
-          status: l.status,
-          approverEmail: l.approverEmail,
-          isPending: l.status === 'pending'
-        })),
-        pendingLevels: approval.approvalLevels.filter(l => l.status === 'pending'),
-        approvedLevels: approval.approvalLevels.filter(l => l.status === 'approved'),
-        totalLevels: approval.approvalLevels.length
-      }
-    });
-  } catch (error) {
-    console.error('Error in debug endpoint:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error getting debug info',
-      error: error.message
-    });
-  }
-});
-
 // Get approval details by approval ID (public)
 router.get('/:approvalId', async (req, res) => {
   try {
@@ -81,36 +23,6 @@ router.get('/:approvalId', async (req, res) => {
         success: false,
         message: 'Approval not found'
       });
-    }
-
-    // Debug logging
-    console.log('🔍 Public approval route - data being returned:');
-    console.log('  - Approval ID:', approval._id);
-    console.log('  - Candidate field:', approval.candidate);
-    console.log('  - Candidate firstName:', approval.candidate?.firstName);
-    console.log('  - Candidate lastName:', approval.candidate?.lastName);
-    console.log('  - Candidate email:', approval.candidate?.email);
-    console.log('  - Candidate phone:', approval.candidate?.phone);
-    console.log('  - All candidate fields:', Object.keys(approval.candidate || {}));
-    console.log('  - Full candidate object:', JSON.stringify(approval.candidate, null, 2));
-    console.log('  - Job posting field:', approval.jobPosting);
-    console.log('  - Department field:', approval.jobPosting?.department);
-
-    // Check if candidate exists in database
-    if (approval.candidate) {
-      const Candidate = require('../models/hr/Candidate');
-      const candidateExists = await Candidate.findById(approval.candidate._id);
-      console.log('  - Candidate exists in DB:', !!candidateExists);
-      if (candidateExists) {
-        console.log('  - Database candidate data:', {
-          firstName: candidateExists.firstName,
-          lastName: candidateExists.lastName,
-          email: candidateExists.email,
-          phone: candidateExists.phone
-        });
-        console.log('  - Database has phone field:', candidateExists.hasOwnProperty('phone'));
-        console.log('  - Database phone value:', candidateExists.phone);
-      }
     }
 
     res.json({
