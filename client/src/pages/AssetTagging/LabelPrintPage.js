@@ -92,6 +92,46 @@ export default function LabelPrintPage() {
     ? [asset.project.code, asset.project.name].filter(Boolean).join(' - ') || asset.project.projectId || asset.project.name
     : '';
 
+  const labelContainerSx = {
+    width: '98mm',
+    height: '56mm',
+    boxSizing: 'border-box',
+    p: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    bgcolor: '#fff'
+  };
+
+  const qrFrameSx = {
+    width: '30mm',
+    height: '30mm',
+    p: 0.45,
+    mb: 0.35,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    bgcolor: '#fff',
+    border: '1px solid',
+    borderColor: 'grey.400'
+  };
+
+  const qrImageSx = {
+    width: '27mm',
+    height: '27mm',
+    display: 'block'
+  };
+
+  const textWithinQrWidthSx = {
+    width: '30mm',
+    maxWidth: '30mm',
+    textAlign: 'center',
+    overflowWrap: 'anywhere',
+    wordBreak: 'break-word',
+    lineHeight: 1.05
+  };
+
   return (
     <Box className="print-label-root" sx={{ p: 2, minHeight: '100vh', bgcolor: '#fff', '@media print': { bgcolor: '#fff', p: 0, minHeight: 'auto' } }}>
       <Box
@@ -217,31 +257,35 @@ export default function LabelPrintPage() {
           <Paper
             className="print-preview-label"
             sx={{
-              width: '98mm',
-              height: '56mm',
-              p: 1,
+              ...labelContainerSx,
               textAlign: 'center',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              boxSizing: 'border-box',
-              bgcolor: '#fff',
+              border: '1px solid',
+              borderColor: 'grey.400',
               '@media print': {
                 display: 'none'
               }
             }}
           >
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
-              Sardar Group Of Companies
+            <Typography
+              variant="caption"
+              color="#000"
+              sx={{ ...textWithinQrWidthSx, mb: 0.35, fontSize: '0.7rem', fontWeight: 700, letterSpacing: 0.4 }}
+            >
+              SGC
             </Typography>
             {projectLabel ? (
-              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ ...textWithinQrWidthSx, mb: 0.45, fontSize: '0.58rem' }}
+              >
                 {projectLabel}
               </Typography>
             ) : null}
-            <Box component="img" src={qr.dataUrl} alt="QR" sx={{ width: '34mm', height: '34mm', display: 'block' }} />
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5, fontSize: '0.75rem' }}>
+            <Box sx={qrFrameSx}>
+              <Box component="img" src={qr.dataUrl} alt="QR" sx={qrImageSx} />
+            </Box>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.2, fontSize: '0.73rem', fontWeight: 600 }}>
               {tag.tagCode}
             </Typography>
           </Paper>
@@ -265,29 +309,31 @@ export default function LabelPrintPage() {
                 <Box
                   key={`sheet-slot-${idx + 1}`}
                   sx={{
-                    width: '98mm',
-                    height: '56mm',
-                    boxSizing: 'border-box',
-                    p: 1,
-                    bgcolor: '#fff',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    alignItems: 'center'
+                    ...labelContainerSx
                   }}
                 >
                   {isSelected ? (
                     <>
-                      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
-                        Sardar Group Of Companies
+                      <Typography
+                        variant="caption"
+                        color="#000"
+                        sx={{ ...textWithinQrWidthSx, mb: 0.35, fontSize: '0.7rem', fontWeight: 700, letterSpacing: 0.4 }}
+                      >
+                        SGC
                       </Typography>
                       {projectLabel ? (
-                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ ...textWithinQrWidthSx, mb: 0.45, fontSize: '0.58rem' }}
+                        >
                           {projectLabel}
                         </Typography>
                       ) : null}
-                      <Box component="img" src={qr.dataUrl} alt="QR" sx={{ width: '34mm', height: '34mm', display: 'block' }} />
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5, fontSize: '0.75rem' }}>
+                      <Box sx={qrFrameSx}>
+                        <Box component="img" src={qr.dataUrl} alt="QR" sx={qrImageSx} />
+                      </Box>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.2, fontSize: '0.73rem', fontWeight: 600 }}>
                         {tag.tagCode}
                       </Typography>
                     </>
