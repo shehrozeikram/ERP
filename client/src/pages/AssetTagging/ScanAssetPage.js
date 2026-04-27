@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Box, Typography, Paper, Button, CircularProgress, Alert, Stack, Chip, Divider, TextField
+  Box, Typography, Paper, Button, CircularProgress, Alert, Stack, Chip, Divider
 } from '@mui/material';
-import { QrCode2 as QrIcon, Sensors as ScanIcon } from '@mui/icons-material';
+import { Sensors as ScanIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import {
@@ -23,8 +23,6 @@ export default function ScanAssetPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [note, setNote] = useState('');
-  const [scanning, setScanning] = useState(false);
 
   const tagCode = tagCodeParam ? decodeURIComponent(tagCodeParam) : '';
 
@@ -54,22 +52,6 @@ export default function ScanAssetPage() {
     if (authLoading) return;
     load();
   }, [tagCode, user, authLoading, load]);
-
-  const logScan = async () => {
-    setScanning(true);
-    try {
-      if (user) {
-        await api.post('/asset-tagging/scan', { tagCode, note });
-      } else {
-        await api.post('/public/asset-tagging/scan', { tagCode, note });
-      }
-      await load();
-    } catch (e) {
-      setError(e.response?.data?.message || 'Failed to log scan');
-    } finally {
-      setScanning(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -136,11 +118,6 @@ export default function ScanAssetPage() {
               Book value: PKR {fmt(asset.currentBookValue)} · Purchased {fmtDate(asset.purchaseDate)}
             </Typography>
           ) : null}
-
-          <TextField fullWidth size="small" label="Scan note (optional)" value={note} onChange={(e) => setNote(e.target.value)} sx={{ mt: 2 }} />
-          <Button fullWidth variant="contained" sx={{ mt: 2 }} startIcon={<QrIcon />} onClick={logScan} disabled={scanning}>
-            {scanning ? 'Saving…' : 'Log scan event'}
-          </Button>
 
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
