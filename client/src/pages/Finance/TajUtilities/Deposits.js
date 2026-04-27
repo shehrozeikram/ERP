@@ -83,6 +83,7 @@ const Deposits = () => {
     loadingResidents,
     suspenseAccountTotals,
     PAYMENT_METHODS,
+    bankOptions,
     formatCurrency,
     renderBankField,
     exportingMonthKey,
@@ -402,7 +403,20 @@ const Deposits = () => {
             </Grid>
             {bankFieldConfig && (
               <Grid item xs={12} md={6}>
-                <TextField {...bankFieldConfig.props} />
+                <FormControl fullWidth required>
+                  <InputLabel>Bank</InputLabel>
+                  <Select
+                    value={editForm.bank || ''}
+                    label="Bank"
+                    onChange={(e) => setEditForm({ ...editForm, bank: e.target.value })}
+                  >
+                    {bankOptions.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
             )}
             <Grid item xs={12} md={6}>
@@ -518,13 +532,20 @@ const Deposits = () => {
             </Grid>
             {createForm.paymentMethod !== 'Cash' && (
               <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Bank Name"
-                  value={createForm.bank || ''}
-                  onChange={(e) => setCreateForm({ ...createForm, bank: e.target.value })}
-                  required={createForm.paymentMethod !== 'Cash'}
-                />
+                <FormControl fullWidth required>
+                  <InputLabel>Bank</InputLabel>
+                  <Select
+                    value={createForm.bank || ''}
+                    label="Bank"
+                    onChange={(e) => setCreateForm({ ...createForm, bank: e.target.value })}
+                  >
+                    {bankOptions.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
             )}
             <Grid item xs={12}>

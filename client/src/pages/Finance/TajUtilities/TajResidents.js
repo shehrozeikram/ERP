@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -63,7 +63,8 @@ import {
   assignProperties,
   unassignProperties,
   autoMatchProperties,
-  getUnassignedProperties
+  getUnassignedProperties,
+  fetchTajBanks
 } from '../../../services/tajResidentsService';
 import { fetchInvoicesForProperty } from '../../../services/propertyReceiptService';
 import { fetchAllInvoices } from '../../../services/propertyInvoiceService';
@@ -152,11 +153,12 @@ const TajResidents = () => {
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   const [accountTypeFilter, setAccountTypeFilter] = useState('');
+  const [bankFilter, setBankFilter] = useState('');
   
   // Pagination
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [search, accountTypeFilter]
+    resetDependencies: [search, accountTypeFilter, bankFilter]
   });
   
   // Dialogs
@@ -206,23 +208,14 @@ const TajResidents = () => {
   const [selectedPropertyIds, setSelectedPropertyIds] = useState([]);
   const [propertySearch, setPropertySearch] = useState('');
   
-  // Bank management state
-  const [customBanks, setCustomBanks] = useState(() => {
-    const stored = localStorage.getItem('tajCustomBanks');
-    return stored ? JSON.parse(stored) : [];
-  });
-  const [addBankDialog, setAddBankDialog] = useState(false);
-  const [newBankName, setNewBankName] = useState('');
+  // Bank list loaded from the central TajBank collection (shared across all users)
+  const [bankOptions, setBankOptions] = useState([]);
+  const bankOptionsLoadedRef = useRef(false);
 
   // Computed values
   const filteredResidents = useMemo(
     () => residents.filter(r => r.isActive !== false),
     [residents]
-  );
-
-  const availableResidents = useMemo(
-    () => filteredResidents.filter(r => r._id !== selectedResident?._id),
-    [filteredResidents, selectedResident]
   );
 
   const totals = useMemo(() => {
@@ -283,6 +276,7 @@ const TajResidents = () => {
       };
       if (search) params.search = search;
       if (accountTypeFilter) params.accountType = accountTypeFilter;
+      if (bankFilter) params.bank = bankFilter;
       const response = await fetchResidents(params);
       const residentsList = response.data.data || [];
       setResidents(residentsList);
@@ -300,7 +294,7 @@ const TajResidents = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, accountTypeFilter, pagination.page, pagination.rowsPerPage]);
+  }, [search, accountTypeFilter, bankFilter, pagination]);
 
   const loadUnassignedProperties = useCallback(async (searchTerm = '') => {
     try {
@@ -324,7 +318,15 @@ const TajResidents = () => {
   useEffect(() => {
     loadResidents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.rowsPerPage, search, accountTypeFilter]);
+  }, [pagination.page, pagination.rowsPerPage, search, accountTypeFilter, bankFilter]);
+
+  useEffect(() => {
+    if (bankOptionsLoadedRef.current) return;
+    bankOptionsLoadedRef.current = true;
+    fetchTajBanks()
+      .then((res) => setBankOptions((res?.data?.data || []).map((b) => b.name)))
+      .catch(() => setBankOptions([]));
+  }, []);
 
   useEffect(() => {
     if (propertiesDialog && propertySearch) {
@@ -700,35 +702,6 @@ const TajResidents = () => {
     setDepositPaymentDialog(true);
   }, [selectedResident, loadResidents, loadUnassignedProperties]);
 
-  // Helper function to calculate subtotal from invoice (excluding arrears)
-  const calculateInvoiceSubtotal = useCallback((inv) => {
-    if (!inv) return 0;
-    
-    // First try: use subtotal field if available and > 0
-    let subtotal = Number(inv.subtotal) || 0;
-    if (subtotal > 0) return subtotal;
-    
-    // Second try: calculate from charges array (sum of charge.amount, not charge.arrears)
-    if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
-      subtotal = inv.charges.reduce((sum, charge) => {
-        const chargeAmount = Number(charge?.amount) || 0;
-        return sum + chargeAmount;
-      }, 0);
-      if (subtotal > 0) return subtotal;
-    }
-    
-    // Third try: use grandTotal - totalArrears
-    const grandTotal = Number(inv.grandTotal) || 0;
-    const totalArrears = Number(inv.totalArrears) || 0;
-    if (grandTotal > 0) {
-      subtotal = grandTotal - totalArrears;
-      if (subtotal > 0) return subtotal;
-    }
-    
-    // Final fallback: use grandTotal if nothing else works
-    return grandTotal;
-  }, []);
-
   // Helper for "Pay Invoices from Deposit" dialog:
   // Matches Invoices page logic: surcharge applies ONLY after 6-day grace period ends.
   // Within grace: show payable within due date (base). After grace: show payable after due date (base + 10%).
@@ -829,7 +802,7 @@ const TajResidents = () => {
     } finally {
       setLoadingInvoices(false);
     }
-  }, [handleError, selectedResident]);
+  }, [handleError, selectedResident, getDepositInvoiceDisplayAmount]);
 
   const handleDepositPaymentAllocationChange = useCallback((index, value) => {
     const numValue = Number(value) || 0;
@@ -1049,7 +1022,7 @@ const TajResidents = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedProperty, selectedDeposits, depositPaymentAllocations, depositPaymentTotals, selectedResident, invoices, depositPaymentForm, loadResidents, showSuccess, handleError]);
+  }, [selectedProperty, selectedDeposits, depositUsage, depositPaymentAllocations, depositPaymentTotals, selectedResident, invoices, depositPaymentForm, loadResidents, showSuccess, handleError, getDepositInvoiceDisplayAmount]);
 
   const handleAutoMatch = useCallback(async () => {
     try {
@@ -1189,7 +1162,7 @@ const TajResidents = () => {
       // Create new deposit
       submitTransaction('Deposit', depositForm, depositMoney);
     }
-  }, [editingDeposit, depositForm, selectedResident, updateDeposit, submitTransaction, depositMoney, loadResidents, depositsDialog, fetchResidentTransactions, showSuccess, handleError]);
+  }, [editingDeposit, depositForm, selectedResident, submitTransaction, loadResidents, depositsDialog, showSuccess, handleError]);
 
   const submitPay = useCallback(async () => {
     // Check if this is TAJ MANAGEMENT (TCM) - property selection not required for open invoices
@@ -1320,7 +1293,7 @@ const TajResidents = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedProperty, payForm, allocations, totals, selectedResident, invoices, resetPayForm, loadResidents, showSuccess, handleError]);
+  }, [selectedProperty, payForm, allocations, totals, selectedResident, invoices, resetPayForm, loadResidents, showSuccess]);
 
   // Payment method change handler
   const handlePaymentMethodChange = useCallback((form, setForm, newMethod) => {
@@ -1331,121 +1304,36 @@ const TajResidents = () => {
     });
   }, []);
 
-  // Bank management handlers
-  const handleAddBank = useCallback(() => {
-    if (!newBankName.trim()) return;
-    const trimmedName = newBankName.trim();
-    if (customBanks.includes(trimmedName)) {
-      setError('Bank already exists');
-      return;
-    }
-    const updated = [...customBanks, trimmedName];
-    setCustomBanks(updated);
-    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
-    // Auto-select the newly added bank in the active form
-    if (depositDialog) {
-      setDepositForm((prev) => ({ ...prev, bank: trimmedName }));
-    }
-    if (payDialog) {
-      setPayForm((prev) => ({ ...prev, bankName: trimmedName }));
-    }
-    if (depositPaymentDialog) {
-      setDepositPaymentForm((prev) => ({ ...prev, bankName: trimmedName }));
-    }
-    setNewBankName('');
-    setAddBankDialog(false);
-    setError('');
-  }, [newBankName, customBanks, depositDialog, payDialog, depositPaymentDialog]);
-
-  const handleRemoveBank = useCallback((bankName, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!window.confirm(`Remove "${bankName}" from the bank list?`)) return;
-    const updated = customBanks.filter(b => b !== bankName);
-    setCustomBanks(updated);
-    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
-    // Clear bank field if it was the removed bank
-    if (depositForm.bank === bankName) {
-      setDepositForm((prev) => ({ ...prev, bank: '' }));
-    }
-    showSuccess('Bank removed successfully');
-  }, [customBanks, depositForm.bank, showSuccess]);
-
   // Render helpers
   const renderBankField = useCallback((form, setForm, show = true) => {
     if (!show || !BANK_REQUIRED_METHODS.includes(form.paymentMethod)) return null;
     return (
       <Grid item xs={12} md={6}>
-        <FormControl fullWidth>
+        <FormControl fullWidth required>
           <InputLabel>Bank</InputLabel>
           <Select
-            value={form.bank}
+            value={form.bank || ''}
             label="Bank"
-            onChange={(e) => {
-              if (e.target.value === 'add_new') {
-                setAddBankDialog(true);
-                setNewBankName('');
-              } else {
-                setForm({ ...form, bank: e.target.value });
-              }
-            }}
+            onChange={(e) => setForm({ ...form, bank: e.target.value })}
           >
-            {customBanks.length === 0 ? (
+            {bankOptions.length === 0 ? (
               <MenuItem disabled value="">
                 <Typography variant="body2" color="text.secondary">
-                  No banks available. Add a new bank.
+                  No banks available. Add banks from the Banks page.
                 </Typography>
               </MenuItem>
             ) : (
-              customBanks.map((bank) => (
-                <MenuItem 
-                  key={bank} 
-                  value={bank}
-                  sx={{ 
-                    '&:hover .delete-bank-btn': { 
-                      visibility: 'visible' 
-                    } 
-                  }}
-                >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                    <span style={{ flex: 1 }}>{bank}</span>
-                    <IconButton
-                      className="delete-bank-btn"
-                      size="small"
-                      onClick={(e) => handleRemoveBank(bank, e)}
-                      sx={{ 
-                        ml: 1, 
-                        p: 0.5,
-                        visibility: 'hidden'
-                      }}
-                      color="error"
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
+              bankOptions.map((bank) => (
+                <MenuItem key={bank} value={bank}>
+                  {bank}
                 </MenuItem>
               ))
             )}
-            <MenuItem 
-              value="add_new" 
-              sx={{ 
-                borderTop: customBanks.length > 0 ? '1px solid #e0e0e0' : 'none',
-                backgroundColor: '#f5f5f5',
-                '&:hover': {
-                  backgroundColor: '#e3f2fd'
-                }
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <AddIcon fontSize="small" />
-                Add New Bank
-              </Box>
-            </MenuItem>
           </Select>
         </FormControl>
       </Grid>
     );
-  }, [customBanks, handleRemoveBank]);
+  }, [bankOptions]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -1476,7 +1364,7 @@ const TajResidents = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 label="Search"
@@ -1503,6 +1391,23 @@ const TajResidents = () => {
               </FormControl>
             </Grid>
             <Grid item xs={12} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Bank</InputLabel>
+                <Select
+                  value={bankFilter}
+                  label="Bank"
+                  onChange={(e) => setBankFilter(e.target.value)}
+                >
+                  <MenuItem value="">All</MenuItem>
+                  {bankOptions.map((bank) => (
+                    <MenuItem key={bank} value={bank}>
+                      {bank}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={2}>
               <Button
                 fullWidth
                 variant="outlined"
@@ -1936,48 +1841,26 @@ const TajResidents = () => {
               />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth size="small">
+              <FormControl fullWidth size="small" required>
                 <InputLabel>Bank</InputLabel>
                 <Select
-                  value={payForm.bankName}
+                  value={payForm.bankName || ''}
                   label="Bank"
-                  onChange={(e) => {
-                    if (e.target.value === 'add_new') {
-                      setAddBankDialog(true);
-                      setNewBankName('');
-                    } else {
-                      setPayForm({ ...payForm, bankName: e.target.value });
-                    }
-                  }}
+                  onChange={(e) => setPayForm({ ...payForm, bankName: e.target.value })}
                 >
-                  {customBanks.length === 0 ? (
+                  {bankOptions.length === 0 ? (
                     <MenuItem disabled value="">
                       <Typography variant="body2" color="text.secondary">
-                        No banks available. Add a new bank.
+                        No banks available. Add banks from the Banks page.
                       </Typography>
                     </MenuItem>
                   ) : (
-                    customBanks.map((bank) => (
+                    bankOptions.map((bank) => (
                       <MenuItem key={bank} value={bank}>
                         {bank}
                       </MenuItem>
                     ))
                   )}
-                  <MenuItem 
-                    value="add_new" 
-                    sx={{ 
-                      borderTop: customBanks.length > 0 ? '1px solid #e0e0e0' : 'none',
-                      backgroundColor: '#f5f5f5',
-                      '&:hover': {
-                        backgroundColor: '#e3f2fd'
-                      }
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <AddIcon fontSize="small" />
-                      Add New Bank
-                    </Box>
-                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -2887,35 +2770,6 @@ const TajResidents = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Add Bank Dialog */}
-      <Dialog open={addBankDialog} onClose={() => setAddBankDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Bank</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            label="Bank Name"
-            value={newBankName}
-            onChange={(e) => setNewBankName(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                handleAddBank();
-              }
-            }}
-            sx={{ mt: 2 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAddBankDialog(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            onClick={handleAddBank}
-            disabled={!newBankName.trim()}
-          >
-            Add Bank
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };

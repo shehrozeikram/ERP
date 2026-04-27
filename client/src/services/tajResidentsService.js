@@ -55,3 +55,9 @@ export const fetchAllDeposits = (params = {}) =>
 
 export const transferDeposit = (transactionId, data) =>
   api.post(`${base}/deposits/${transactionId}/transfer`, data);
+
+// Taj Banks
+const banksBase = '/taj-utilities/banks';
+export const fetchTajBanks = () => api.get(banksBase);
+export const createTajBank = (name) => api.post(banksBase, { name });
+export const deleteTajBank = (id) => api.delete(`${banksBase}/${id}`);

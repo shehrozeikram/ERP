@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePagination } from './usePagination';
-import { fetchAllDeposits, updateDeposit, deleteDeposit, depositMoney, createResident, fetchResidents, transferDeposit } from '../services/tajResidentsService';
+import { fetchAllDeposits, updateDeposit, deleteDeposit, depositMoney, createResident, fetchResidents, transferDeposit, fetchTajBanks } from '../services/tajResidentsService';
 import dayjs from 'dayjs';
 
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Other'];
@@ -30,6 +30,7 @@ export const useDeposits = (options = {}) => {
     totalRemaining: 0,
     totalUsed: 0
   });
+  const [bankOptions, setBankOptions] = useState([]);
 
   // Pagination
   const pagination = usePagination({
@@ -179,9 +180,25 @@ export const useDeposits = (options = {}) => {
     }
   }, [search, startDate, endDate, page, rowsPerPage, suspenseAccount, setTotal]);
 
+  // Load banks from the central TajBank collection (shared across all users).
+  const loadBankOptions = useCallback(async () => {
+    try {
+      const res = await fetchTajBanks();
+      const banks = res?.data?.data || [];
+      setBankOptions(banks.map((b) => b.name));
+    } catch (err) {
+      console.error('Failed to load bank options:', err);
+      setBankOptions([]);
+    }
+  }, []);
+
   useEffect(() => {
     loadDeposits();
   }, [loadDeposits]);
+
+  useEffect(() => {
+    loadBankOptions();
+  }, [loadBankOptions]);
 
   // Handle edit
   const handleEdit = useCallback((deposit) => {
@@ -220,13 +237,14 @@ export const useDeposits = (options = {}) => {
         depositDate: ''
       });
       loadDeposits();
+      loadBankOptions();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update deposit');
     } finally {
       setLoading(false);
     }
-  }, [editingDeposit, editForm, loadDeposits]);
+  }, [editingDeposit, editForm, loadDeposits, loadBankOptions]);
 
   // Handle delete
   const handleDelete = useCallback(async (deposit) => {
@@ -250,13 +268,14 @@ export const useDeposits = (options = {}) => {
       const message = response?.data?.message || 'Deposit deleted successfully';
       setSuccess(message);
       loadDeposits();
+      loadBankOptions();
       setTimeout(() => setSuccess(''), 5000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete deposit');
     } finally {
       setLoading(false);
     }
-  }, [loadDeposits]);
+  }, [loadDeposits, loadBankOptions]);
 
   // Load residents for deposit creation
   const loadUnknownResidents = useCallback(async () => {
@@ -357,13 +376,14 @@ export const useDeposits = (options = {}) => {
         residentId: ''
       });
       loadDeposits();
+      loadBankOptions();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create deposit');
     } finally {
       setLoading(false);
     }
-  }, [createForm, suspenseAccount, loadDeposits]);
+  }, [createForm, suspenseAccount, loadDeposits, loadBankOptions]);
 
   // Load residents for transfer (known residents only) - load all at once
   const loadTransferResidents = useCallback(async (searchTerm = '') => {
@@ -658,6 +678,7 @@ export const useDeposits = (options = {}) => {
     handleTransferDeposit,
     handleTransferDepositSubmit,
     suspenseAccountTotals,
+    bankOptions,
     // Export Excel
     exportingMonthKey,
     exportMonthToExcel,

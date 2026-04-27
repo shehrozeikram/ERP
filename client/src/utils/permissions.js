@@ -274,6 +274,7 @@ export const SUBMODULES = {
     'taj_residents',
     'taj_properties',
     'taj_deposits',
+    'taj_banks',
     'taj_suspense_account',
     'taj_invoices',
     'taj_open_invoices',
@@ -712,6 +713,10 @@ export const MODULES = {
             path: '/finance/taj-utilities-charges/deposits'
           },
           {
+            name: 'Banks',
+            path: '/finance/taj-utilities-charges/banks'
+          },
+          {
             name: 'Suspense Account',
             path: '/finance/taj-utilities-charges/suspense-account'
           },
@@ -1065,6 +1070,7 @@ export const getModuleMenuItems = (userRole) => {
       '/finance/taj-utilities-charges/invoices',
       '/finance/taj-utilities-charges/open-invoices',
       '/finance/taj-utilities-charges/deposits',
+      '/finance/taj-utilities-charges/banks',
       '/finance/taj-utilities-charges/suspense-account',
       '/finance/taj-utilities-charges/reports',
       '/finance/taj-utilities-charges/reconciliation'
@@ -1280,6 +1286,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
       '/finance/taj-utilities-charges/open-invoices': 'taj_open_invoices',
+      '/finance/taj-utilities-charges/banks': 'taj_deposits',
       '/finance/taj-utilities-charges/reports': 'taj_utilities_reports',
       '/finance/taj-utilities-charges/reconciliation': 'taj_utilities_reports',
       '/finance/recovery': 'recovery',
@@ -1540,6 +1547,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
           '/finance/taj-utilities-charges/invoices',
           '/finance/taj-utilities-charges/open-invoices',
           '/finance/taj-utilities-charges/deposits',
+          '/finance/taj-utilities-charges/banks',
           '/finance/taj-utilities-charges/suspense-account'
         ];
         

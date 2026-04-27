@@ -100,7 +100,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
   
   // OPTIMIZATION: Check cache first (only if no filters/search and default pagination)
-  const hasFilters = req.query.search || req.query.accountType || req.query.isActive !== undefined;
+  const hasFilters = req.query.search || req.query.accountType || req.query.bank || req.query.isActive !== undefined;
   const isDefaultPagination = page === 1 && limit === 50;
   const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.RESIDENTS_LIST;
   
@@ -112,7 +112,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     }
   }
   
-  const { search, accountType, isActive } = req.query;
+  const { search, accountType, bank, isActive } = req.query;
   const query = {};
 
   // Exclude suspense account residents (those without name or residentId)
@@ -138,6 +138,14 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   }
 
   if (accountType) query.accountType = accountType;
+  if (bank) {
+    const bankRegex = new RegExp(`^${String(bank).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const residentIdsForBank = await TajTransaction.distinct('resident', {
+      transactionType: 'deposit',
+      bank: bankRegex
+    });
+    query._id = { $in: residentIdsForBank };
+  }
   if (isActive !== undefined) query.isActive = isActive === 'true';
 
   // Get total count for pagination

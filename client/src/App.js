@@ -55,6 +55,7 @@ import Invoices from './pages/Finance/TajUtilities/Invoices';
 import OpenInvoices from './pages/Finance/TajUtilities/OpenInvoices';
 import TajResidents from './pages/Finance/TajUtilities/TajResidents';
 import Deposits from './pages/Finance/TajUtilities/Deposits';
+import TajUtilityBanks from './pages/Finance/TajUtilities/Banks';
 import SuspenseAccount from './pages/Finance/TajUtilities/SuspenseAccount';
 import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
@@ -1156,6 +1157,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <Deposits />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/banks"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                  <TajUtilityBanks />
                 </ProtectedRoute>
               }
             />

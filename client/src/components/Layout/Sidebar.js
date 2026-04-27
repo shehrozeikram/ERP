@@ -212,6 +212,7 @@ const Sidebar = () => {
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
       '/finance/taj-utilities-charges/open-invoices': 'taj_open_invoices',
       '/finance/taj-utilities-charges/deposits': 'taj_deposits',
+      '/finance/taj-utilities-charges/banks': 'taj_deposits',
       '/finance/taj-utilities-charges/suspense-account': 'taj_suspense_account',
       '/finance/taj-utilities-charges/reports': 'taj_utilities_reports',
       '/finance/recovery': 'recovery',

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import {
   Box,
   Button,
@@ -40,8 +40,7 @@ import {
   ExpandLess as ExpandLessIcon,
   Add as AddIcon,
   GetApp as GetAppIcon,
-  SwapHoriz as TransferIcon,
-  Close as CloseIcon
+  SwapHoriz as TransferIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -101,59 +100,12 @@ const SuspenseAccount = () => {
     suspenseAccountTotals,
     exportingMonthKey,
     exportMonthToExcel,
+    bankOptions,
     PAYMENT_METHODS,
     formatCurrency
   } = useDeposits({ suspenseAccount: true });
 
-  // Bank management state (same as Taj Residents)
-  const [customBanks, setCustomBanks] = useState(() => {
-    const stored = localStorage.getItem('tajCustomBanks');
-    return stored ? JSON.parse(stored) : [];
-  });
-  const [addBankDialog, setAddBankDialog] = useState(false);
-  const [newBankName, setNewBankName] = useState('');
-
-  // Bank management handlers
-  const handleAddBank = useCallback(() => {
-    if (!newBankName.trim()) return;
-    const trimmedName = newBankName.trim();
-    if (customBanks.includes(trimmedName)) {
-      setError('Bank already exists');
-      return;
-    }
-    const updated = [...customBanks, trimmedName];
-    setCustomBanks(updated);
-    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
-    // Auto-select the newly added bank in the active form
-    if (createDialog) {
-      setCreateForm((prev) => ({ ...prev, bank: trimmedName }));
-    }
-    if (editDialog) {
-      setEditForm((prev) => ({ ...prev, bank: trimmedName }));
-    }
-    setNewBankName('');
-    setAddBankDialog(false);
-    setError('');
-  }, [newBankName, customBanks, createDialog, editDialog, setCreateForm, setEditForm, setError]);
-
-  const handleRemoveBank = useCallback((bankName, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!window.confirm(`Remove "${bankName}" from the bank list?`)) return;
-    const updated = customBanks.filter(b => b !== bankName);
-    setCustomBanks(updated);
-    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
-    // Clear bank field if it was the removed bank
-    if (createForm.bank === bankName) {
-      setCreateForm((prev) => ({ ...prev, bank: '' }));
-    }
-    if (editForm.bank === bankName) {
-      setEditForm((prev) => ({ ...prev, bank: '' }));
-    }
-    setSuccess('Bank removed successfully');
-  }, [customBanks, createForm.bank, editForm.bank, setCreateForm, setEditForm, setSuccess]);
-
-  // Payment method change handler (same as Taj Residents)
+  // Payment method change handler
   const handlePaymentMethodChange = useCallback((form, setForm, newMethod) => {
     setForm({
       ...form,
@@ -162,81 +114,36 @@ const SuspenseAccount = () => {
     });
   }, []);
 
-  // Render bank field (same as Taj Residents)
+  // Render bank field using centrally managed bankOptions
   const renderBankField = useCallback((form, setForm, show = true) => {
     if (!show || !BANK_REQUIRED_METHODS.includes(form.paymentMethod)) return null;
     return (
       <Grid item xs={12} md={6}>
-        <FormControl fullWidth>
+        <FormControl fullWidth required>
           <InputLabel>Bank</InputLabel>
           <Select
             value={form.bank || ''}
             label="Bank"
-            onChange={(e) => {
-              if (e.target.value === 'add_new') {
-                setAddBankDialog(true);
-                setNewBankName('');
-              } else {
-                setForm({ ...form, bank: e.target.value });
-              }
-            }}
+            onChange={(e) => setForm({ ...form, bank: e.target.value })}
           >
-            {customBanks.length === 0 ? (
+            {bankOptions.length === 0 ? (
               <MenuItem disabled value="">
                 <Typography variant="body2" color="text.secondary">
-                  No banks available. Add a new bank.
+                  No banks available. Add banks from the Banks page.
                 </Typography>
               </MenuItem>
             ) : (
-              customBanks.map((bank) => (
-                <MenuItem 
-                  key={bank} 
-                  value={bank}
-                  sx={{ 
-                    '&:hover .delete-bank-btn': { 
-                      visibility: 'visible' 
-                    } 
-                  }}
-                >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                    <span style={{ flex: 1 }}>{bank}</span>
-                    <IconButton
-                      className="delete-bank-btn"
-                      size="small"
-                      onClick={(e) => handleRemoveBank(bank, e)}
-                      sx={{ 
-                        ml: 1, 
-                        p: 0.5,
-                        visibility: 'hidden'
-                      }}
-                      color="error"
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
+              bankOptions.map((bank) => (
+                <MenuItem key={bank} value={bank}>
+                  {bank}
                 </MenuItem>
               ))
             )}
-            <MenuItem 
-              value="add_new" 
-              sx={{ 
-                borderTop: customBanks.length > 0 ? '1px solid #e0e0e0' : 'none',
-                backgroundColor: '#f5f5f5',
-                '&:hover': {
-                  backgroundColor: '#e3f2fd'
-                }
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <AddIcon fontSize="small" />
-                Add New Bank
-              </Box>
-            </MenuItem>
           </Select>
         </FormControl>
       </Grid>
     );
-  }, [customBanks, handleRemoveBank]);
+  }, [bankOptions]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -867,42 +774,6 @@ const SuspenseAccount = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Add Bank Dialog */}
-      <Dialog open={addBankDialog} onClose={() => setAddBankDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Add New Bank</span>
-            <IconButton onClick={() => setAddBankDialog(false)} size="small">
-              <CloseIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            label="Bank Name"
-            value={newBankName}
-            onChange={(e) => setNewBankName(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                handleAddBank();
-              }
-            }}
-            sx={{ mt: 2 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAddBankDialog(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            onClick={handleAddBank}
-            disabled={!newBankName.trim()}
-          >
-            Add Bank
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };

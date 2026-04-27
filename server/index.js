@@ -107,6 +107,7 @@ const propertyReceiptsRoutes = require('./routes/propertyReceipts');
 const chargesSlabsRoutes = require('./routes/chargesSlabs');
 const waterUtilitySlabsRoutes = require('./routes/waterUtilitySlabs');
 const tajResidentsRoutes = require('./routes/tajResidents');
+const tajBanksRoutes = require('./routes/tajBanks');
 const tajSectorsRoutes = require('./routes/tajSectors');
 const recoveryMembersRoutes = require('./routes/recoveryMembers');
 const recoveryAssignmentsRoutes = require('./routes/recoveryAssignments');
@@ -619,6 +620,7 @@ app.use('/api/taj-utilities/receipts', authMiddleware, activityLogger, propertyR
 app.use('/api/taj-utilities/charges-slabs', authMiddleware, activityLogger, chargesSlabsRoutes);
 app.use('/api/taj-utilities/water-utility-slabs', authMiddleware, activityLogger, waterUtilitySlabsRoutes);
 app.use('/api/taj-utilities/residents', authMiddleware, activityLogger, tajResidentsRoutes);
+app.use('/api/taj-utilities/banks', authMiddleware, activityLogger, tajBanksRoutes);
 app.use('/api/taj-utilities/sectors', authMiddleware, activityLogger, tajSectorsRoutes);
 app.use('/api/taj-utilities/charge-types', authMiddleware, activityLogger, chargeTypesRoutes);
 app.use('/api/document-tracking', authMiddleware, activityLogger, documentTrackingRoutes);
