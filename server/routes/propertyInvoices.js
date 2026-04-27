@@ -654,8 +654,6 @@ async function createPropertyInvoiceForProperty(req, res) {
     }
 
     const { periodFrom, periodTo, dueDate, invoiceDate, includeCAM, includeWater, includeElectricity, includeRent, charges: requestCharges, calculationData } = req.body;
-    // For CAM arrears carry-forward, anchor to this invoice cycle (not server "now").
-    const arrearsAsOfDate = dueDate || periodTo || invoiceDate || new Date();
 
     // Find latest charges/bills
     const propertyKey = property.address || property.plotNumber || property.ownerName;
@@ -703,7 +701,7 @@ async function createPropertyInvoiceForProperty(req, res) {
         // (no cumulative sum of all historical unpaid invoices).
         let carryForwardArrears = 0;
         try {
-          carryForwardArrears = await calculateOverdueArrears(property._id, arrearsAsOfDate, ['CAM']);
+          carryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
         } catch (err) {
           console.error(`[CAM-INVOICE] calculateOverdueArrears failed for ${property._id}:`, err.message);
           carryForwardArrears = 0;
@@ -1838,13 +1836,13 @@ function invoiceOverlapsBulkMonth(invoice, chargeType, monthStartMs, monthEndMs)
   return startMs <= monthEndMs && endMs >= monthStartMs;
 }
 
-async function buildCamChargesArray(property, asOfDate = new Date()) {
+async function buildCamChargesArray(property) {
   const propertySize = property.areaValue ?? 0;
   const areaUnit = property.areaUnit || 'Marla';
   const zoneType = property.zoneType || 'Residential';
   const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
   const amount = camChargeInfo?.amount ?? 0;
-  const arrears = await calculateOverdueArrears(property._id, asOfDate, ['CAM']);
+  const arrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
   let description = 'CAM Charges';
   if (zoneType && String(zoneType).toLowerCase() === 'commercial') {
     description = 'Commercial CAM Charges';
@@ -1971,8 +1969,7 @@ router.post('/bulk-create-cam-invoices', authMiddleware, asyncHandler(async (req
         continue;
       }
 
-      const arrearsAsOfDate = dueDateD || periodToD || invoiceDateD || new Date();
-      const charges = await buildCamChargesArray(property, arrearsAsOfDate);
+      const charges = await buildCamChargesArray(property);
       const mockReq = {
         params: { propertyId },
         body: {

@@ -190,7 +190,7 @@ const CAMCharges = () => {
   
   // Pagination
   const pagination = usePagination({
-    defaultRowsPerPage: 50,
+    defaultRowsPerPage: 10,
     resetDependencies: [search, statusFilter, sectorFilter, categoryFilter]
   });
   
