@@ -9,6 +9,10 @@ const Project = require('../models/hr/Project');
 const AssetTag = require('../models/assetTagging/AssetTag');
 const AssetTagEvent = require('../models/assetTagging/AssetTagEvent');
 const AssetVerificationSession = require('../models/assetTagging/AssetVerificationSession');
+const {
+  normalizeLookupString,
+  applyRawFixedAssetLookupFallback
+} = require('../utils/fixedAssetLookupResolve');
 
 const TAG_ROLES = ['super_admin', 'developer', 'admin', 'finance_manager', 'procurement_manager', 'audit_manager', 'higher_management'];
 
@@ -164,8 +168,15 @@ router.get('/resolve/:tagCode', authorize(...TAG_ROLES), asyncHandler(async (req
 
   const asset = await FixedAsset.findById(tag.asset._id || tag.asset)
     .populate('project', 'name code projectId')
-    .populate('costCenter', 'name code');
+    .populate('costCenter', 'name code')
+    .lean();
+  if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+
   await ensureAssetProjectObject(asset);
+  await applyRawFixedAssetLookupFallback(FixedAsset, asset);
+  asset.serialNumber = normalizeLookupString(asset.serialNumber);
+  asset.assignedTo = normalizeLookupString(asset.assignedTo);
+
   const transferHistory = await AssetTagEvent.find({
     asset: asset._id,
     eventType: 'transfer'
@@ -264,6 +275,33 @@ router.post('/assets/:assetId/issue-tag', authorize(...TAG_ROLES), asyncHandler(
     data: { tag, scanUrl: scanUrlForTag(tagCode) }
   });
 }));
+
+// ── DELETE /api/asset-tagging/assets/:assetId — remove fixed asset (tags + events); blocked if posted depreciation
+router.delete(
+  '/assets/:assetId',
+  authorize(...TAG_ROLES),
+  asyncHandler(async (req, res) => {
+    const asset = await FixedAsset.findById(req.params.assetId);
+    if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+
+    const posted = (asset.depreciationSchedule || []).some((d) => d.status === 'posted');
+    if (posted) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Cannot delete this asset because it has posted depreciation. Dispose it from Finance → Fixed Assets instead.'
+      });
+    }
+
+    await Promise.all([
+      AssetTag.deleteMany({ asset: asset._id }),
+      AssetTagEvent.deleteMany({ asset: asset._id })
+    ]);
+    await FixedAsset.deleteOne({ _id: asset._id });
+
+    res.json({ success: true, message: 'Asset deleted' });
+  })
+);
 
 // ── POST /api/asset-tagging/assets/:assetId/void-tag
 router.post(

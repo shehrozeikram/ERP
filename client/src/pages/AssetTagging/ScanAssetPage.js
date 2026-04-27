@@ -5,7 +5,11 @@ import {
 import { QrCode2 as QrIcon, Sensors as ScanIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import { formatAssetLocationLabeledRows } from '../../utils/assetLocationDisplay';
+import {
+  formatAssetLocationLabeledRows,
+  formatCustodianForDisplay,
+  formatSerialForDisplay
+} from '../../utils/assetLocationDisplay';
 import { useAuth } from '../../contexts/AuthContext';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,7 +19,7 @@ const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-PK') : '—');
 export default function ScanAssetPage() {
   const { tagCode: tagCodeParam } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -42,7 +46,14 @@ export default function ScanAssetPage() {
     }
   }, [tagCode, user]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!tagCode) {
+      setLoading(false);
+      return;
+    }
+    if (authLoading) return;
+    load();
+  }, [tagCode, user, authLoading, load]);
 
   const logScan = async () => {
     setScanning(true);
@@ -111,11 +122,15 @@ export default function ScanAssetPage() {
               <Typography variant="body2" color="text.secondary">—</Typography>
             )}
           </Box>
-          <Typography variant="body2" color="text.secondary">Custodian: {asset.assignedTo || '—'}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Custodian: {formatCustodianForDisplay(asset.assignedTo) || '—'}
+          </Typography>
           {projectLabel ? (
             <Typography variant="body2" color="text.secondary">{projectLabel}</Typography>
           ) : null}
-          <Typography variant="body2" color="text.secondary">Serial: {asset.serialNumber || '—'}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Serial: {formatSerialForDisplay(asset.serialNumber) || '—'}
+          </Typography>
           {user ? (
             <Typography variant="body2" sx={{ mt: 1 }}>
               Book value: PKR {fmt(asset.currentBookValue)} · Purchased {fmtDate(asset.purchaseDate)}

@@ -6,6 +6,10 @@ const router = express.Router();
 const FixedAsset = require('../models/finance/FixedAsset');
 const AssetTag = require('../models/assetTagging/AssetTag');
 const AssetTagEvent = require('../models/assetTagging/AssetTagEvent');
+const {
+  normalizeLookupString,
+  applyRawFixedAssetLookupFallback
+} = require('../utils/fixedAssetLookupResolve');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -24,6 +28,8 @@ router.get('/resolve/:tagCode', asyncHandler(async (req, res) => {
     .lean();
   if (!assetDoc) return res.status(404).json({ success: false, message: 'Asset not found' });
 
+  await applyRawFixedAssetLookupFallback(FixedAsset, assetDoc);
+
   // Keep public payload intentionally minimal for unauthenticated access.
   const asset = {
     _id: assetDoc._id,
@@ -31,6 +37,8 @@ router.get('/resolve/:tagCode', asyncHandler(async (req, res) => {
     name: assetDoc.name,
     category: assetDoc.category,
     location: assetDoc.location,
+    assignedTo: normalizeLookupString(assetDoc.assignedTo),
+    serialNumber: normalizeLookupString(assetDoc.serialNumber),
     project: assetDoc.project
       ? {
           _id: assetDoc.project._id,
@@ -39,7 +47,6 @@ router.get('/resolve/:tagCode', asyncHandler(async (req, res) => {
           projectId: assetDoc.project.projectId || ''
         }
       : null,
-    serialNumber: assetDoc.serialNumber,
     status: assetDoc.status
   };
 

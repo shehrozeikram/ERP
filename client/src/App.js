@@ -33,7 +33,6 @@ import AttendanceDetail from './pages/HR/AttendanceDetail';
 import AttendanceForm from './pages/HR/AttendanceForm';
 import AttendanceReport from './pages/HR/AttendanceReport';
 import BiometricIntegration from './pages/HR/BiometricIntegration';
-import AdvancedFinanceDashboard from './pages/Finance/AdvancedFinanceDashboard';
 import FinanceDashboard from './pages/Finance/FinanceDashboard';
 import ChartOfAccounts from './pages/Finance/ChartOfAccounts';
 import GeneralLedger from './pages/Finance/GeneralLedger';

@@ -39,6 +39,28 @@ export function formatAssetLocationForDisplay(location, hqBuilding = ASSET_TAGGI
   return applyHqRoomDisplayNormalization(location, hqBuilding);
 }
 
+/** Serial from API (string, number, or rare legacy types). */
+export function formatSerialForDisplay(serial) {
+  if (serial == null || serial === '') return '';
+  if (typeof serial === 'number' && !Number.isNaN(serial)) return String(serial);
+  if (typeof serial === 'string') return serial.trim();
+  return String(serial).trim();
+}
+
+/** Custodian / assignedTo from API (string or rare legacy object). */
+export function formatCustodianForDisplay(assignedTo) {
+  if (assignedTo == null || assignedTo === '') return '';
+  if (typeof assignedTo === 'string') return assignedTo.trim();
+  if (typeof assignedTo === 'object') {
+    const fn = assignedTo.firstName != null ? String(assignedTo.firstName) : '';
+    const ln = assignedTo.lastName != null ? String(assignedTo.lastName) : '';
+    const name = [fn, ln].filter(Boolean).join(' ').trim();
+    if (name) return name;
+    if (assignedTo.name) return String(assignedTo.name).trim();
+  }
+  return String(assignedTo).trim();
+}
+
 const STORE_SEGMENT_LABELS = ['Store', 'Sub-store', 'Rack', 'Shelf', 'Bin'];
 
 /**

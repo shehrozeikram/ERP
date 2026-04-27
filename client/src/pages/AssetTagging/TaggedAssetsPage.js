@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
   QrCode2 as QrIcon, Print as PrintIcon, SwapHoriz as TransferIcon, Block as VoidIcon,
-  OpenInNew as OpenIcon, Refresh as RefreshIcon
+  OpenInNew as OpenIcon, Refresh as RefreshIcon, DeleteOutline as DeleteIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -15,7 +15,8 @@ import LocationSelector from '../../components/Procurement/Store/LocationSelecto
 import {
   ASSET_TAGGING_HQ_BUILDING as HQ_LOCATION,
   normalizeHqRoomSegment,
-  formatAssetLocationForDisplay
+  formatAssetLocationForDisplay,
+  formatCustodianForDisplay
 } from '../../utils/assetLocationDisplay';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -31,7 +32,6 @@ export default function TaggedAssetsPage() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
   const [sel, setSel] = useState(null);
-  const [location, setLocation] = useState('');
   const [locationBuilding, setLocationBuilding] = useState(HQ_LOCATION);
   const [locationFloor, setLocationFloor] = useState('Ground Floor');
   const [locationRoom, setLocationRoom] = useState('');
@@ -44,6 +44,8 @@ export default function TaggedAssetsPage() {
   const [selectedSubStores, setSelectedSubStores] = useState([]);
   const [assignedTo, setAssignedTo] = useState('');
   const [voidReason, setVoidReason] = useState('');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -105,7 +107,6 @@ export default function TaggedAssetsPage() {
 
   const openTransfer = (asset) => {
     setSel(asset);
-    setLocation(asset.location || '');
     const parts = String(asset.location || '').split(',').map((p) => p.trim()).filter(Boolean);
     const inferredBuilding = parts[0] || HQ_LOCATION;
     const isStore = inferredBuilding !== HQ_LOCATION;
@@ -131,7 +132,6 @@ export default function TaggedAssetsPage() {
         ? [locationBuilding, subStoreLabel, locationRack, locationShelf, locationBin]
         : [locationBuilding, locationFloor, normalizeHqRoomSegment(locationRoom)];
       const normalizedLocation = locationParts.map((part) => String(part || '').trim()).filter(Boolean).join(', ');
-      setLocation(normalizedLocation);
       await api.put(`/asset-tagging/assets/${sel._id}/custody`, { location: normalizedLocation, assignedTo });
       setTransferOpen(false);
       await load();
@@ -152,6 +152,21 @@ export default function TaggedAssetsPage() {
       await load();
     } catch (e) {
       setError(e.response?.data?.message || 'Void failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDeleteAsset = async () => {
+    if (!deleteTarget) return;
+    setBusy(true);
+    try {
+      await api.delete(`/asset-tagging/assets/${deleteTarget._id}`);
+      setDeleteOpen(false);
+      setDeleteTarget(null);
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.message || 'Delete failed');
     } finally {
       setBusy(false);
     }
@@ -188,6 +203,7 @@ export default function TaggedAssetsPage() {
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
+                  <TableCell padding="checkbox" sx={{ width: 52 }} />
                   <TableCell><b>Asset #</b></TableCell>
                   <TableCell><b>Name</b></TableCell>
                   <TableCell><b>Location</b></TableCell>
@@ -199,14 +215,29 @@ export default function TaggedAssetsPage() {
               </TableHead>
               <TableBody>
                 {rows.length === 0 && (
-                  <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>No assets — add fixed assets in Finance first.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: 'text.secondary' }}>No assets — add fixed assets in Finance first.</TableCell></TableRow>
                 )}
                 {paginatedRows.map((a) => (
                   <TableRow key={a._id} hover>
+                    <TableCell padding="checkbox">
+                      <Tooltip title="Delete asset">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          disabled={busy}
+                          onClick={() => {
+                            setDeleteTarget(a);
+                            setDeleteOpen(true);
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
                     <TableCell>{a.name}</TableCell>
                     <TableCell>{formatAssetLocationForDisplay(a.location) || '—'}</TableCell>
-                    <TableCell>{a.assignedTo || '—'}</TableCell>
+                    <TableCell>{formatCustodianForDisplay(a.assignedTo) || '—'}</TableCell>
                     <TableCell align="right">{fmt(a.currentBookValue)}</TableCell>
                     <TableCell>
                       {a.currentTag ? (
@@ -340,6 +371,29 @@ export default function TaggedAssetsPage() {
         <DialogActions>
           <Button onClick={() => setTransferOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={saveTransfer} disabled={busy}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onClose={() => {
+        if (busy) return;
+        setDeleteOpen(false);
+        setDeleteTarget(null);
+      }} maxWidth="sm" fullWidth>
+        <DialogTitle>Delete asset</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            Permanently remove <strong>{deleteTarget?.assetNumber}</strong> — {deleteTarget?.name} from the register.
+            Active tags and scan history for this asset will be removed.
+          </Typography>
+          <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+            You cannot delete an asset that already has posted depreciation (use Finance → dispose instead).
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)} disabled={busy}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={confirmDeleteAsset} disabled={busy}>
+            Delete
+          </Button>
         </DialogActions>
       </Dialog>
 
