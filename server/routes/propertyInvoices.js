@@ -106,10 +106,13 @@ const calculateOverdueArrears = async (propertyId, currentDate = new Date(), cha
       query.chargeTypes = { $in: filterTypes };
     }
 
-    // Fetch only the single most-recent unpaid invoice (by dueDate descending).
+    // Fetch only the single most-recent unpaid invoice, ordered by billing period end date
+    // (most recent periodTo first). Using dueDate here would pick invoices with far-future
+    // due dates over more recently billed ones, producing wrong carry-forward arrears.
+    // createdAt is a secondary tie-breaker for invoices without a periodTo.
     const lastInvoice = await PropertyInvoice.findOne(query)
-      .select('charges chargeTypes subtotal totalArrears grandTotal balance dueDate')
-      .sort({ dueDate: -1 })
+      .select('charges chargeTypes subtotal totalArrears grandTotal balance dueDate periodTo createdAt')
+      .sort({ periodTo: -1, createdAt: -1 })
       .lean();
 
     if (!lastInvoice) return 0;
