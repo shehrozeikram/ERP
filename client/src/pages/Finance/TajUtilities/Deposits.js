@@ -37,7 +37,6 @@ import {
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Add as AddIcon,
   GetApp as GetAppIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
@@ -47,7 +46,6 @@ import { useDeposits } from '../../../hooks/useDeposits';
 const Deposits = () => {
   const {
     loading,
-    deposits,
     error,
     success,
     search,
@@ -61,7 +59,6 @@ const Deposits = () => {
     editingDeposit,
     editForm,
     setEditForm,
-    filteredDeposits,
     depositsByMonth,
     pagination,
     loadDeposits,
@@ -77,11 +74,9 @@ const Deposits = () => {
     setCreateDialog,
     createForm,
     setCreateForm,
-    handleCreateDeposit,
     handleCreateDepositSubmit,
     unknownResidents,
     loadingResidents,
-    suspenseAccountTotals,
     PAYMENT_METHODS,
     bankOptions,
     formatCurrency,

@@ -51,7 +51,6 @@ const BANK_REQUIRED_METHODS = ['Bank Transfer', 'Cheque', 'Online'];
 const SuspenseAccount = () => {
   const {
     loading,
-    deposits,
     error,
     success,
     search,
@@ -65,7 +64,6 @@ const SuspenseAccount = () => {
     editingDeposit,
     editForm,
     setEditForm,
-    filteredDeposits,
     depositsByMonth,
     pagination,
     loadDeposits,
@@ -89,7 +87,6 @@ const SuspenseAccount = () => {
     setTransferDialog,
     transferringDeposit,
     setTransferringDeposit,
-    transferResidentSearch,
     setTransferResidentSearch,
     transferResidentId,
     setTransferResidentId,

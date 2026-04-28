@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -185,7 +185,7 @@ const Electricity = () => {
   
   // Payment state
   const [paymentDialog, setPaymentDialog] = useState(false);
-  const [selectedProperty, setSelectedProperty] = useState(null);
+  const [selectedProperty] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
     arrears: 0,
@@ -201,7 +201,7 @@ const Electricity = () => {
   const [paymentAttachment, setPaymentAttachment] = useState(null);
   
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
-  const [invoiceWasSaved, setInvoiceWasSaved] = useState(false);
+  const [, setInvoiceWasSaved] = useState(false);
   const [invoiceProperty, setInvoiceProperty] = useState(null);
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -337,10 +337,6 @@ const Electricity = () => {
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete invoice');
     }
-  };
-
-  const totalPayments = (payments) => {
-    return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
   const handleEditInvoice = async (property, invoice) => {
@@ -805,6 +801,7 @@ const Electricity = () => {
     return () => {
       clearTimeout(timeoutId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- readingData.previousReading read inside timeout; omitting avoids extra debounce cycles
   }, [pendingReading, invoiceProperty?._id, invoiceData?.periodFrom]);
 
   // Debounced calculation effect for multiple meters
@@ -892,6 +889,7 @@ const Electricity = () => {
     return () => {
       clearTimeout(timeoutId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- invoiceProperty.meters / meterReadings read inside timeout
   }, [pendingMeterCalculations, invoiceProperty?._id, invoiceData?.periodFrom]);
 
   const handleInvoiceFieldChange = (field, value) => {
@@ -1535,24 +1533,6 @@ const Electricity = () => {
       default:
         return { color: 'error', label: 'Unpaid', iconColor: 'error.main' };
     }
-  };
-
-  const handleOpenPaymentDialog = (property) => {
-    setSelectedProperty(property);
-    setPaymentForm({
-      amount: property.electricityAmount || 0,
-      arrears: property.electricityArrears || 0,
-      paymentDate: dayjs().format('YYYY-MM-DD'),
-      periodFrom: dayjs().format('YYYY-MM-DD'),
-      periodTo: dayjs().format('YYYY-MM-DD'),
-      invoiceNumber: '',
-      paymentMethod: 'Bank Transfer',
-      bankName: '',
-      reference: '',
-      notes: ''
-    });
-    setPaymentAttachment(null);
-    setPaymentDialog(true);
   };
 
   const handleElectricityPaymentMethodChange = (value) => {

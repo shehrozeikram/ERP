@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -55,8 +55,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   createWaterCharge,
   updateWaterCharge,
-  addPaymentToPropertyWater,
-  deletePaymentFromWaterCharge
+  addPaymentToPropertyWater
 } from '../../../services/waterChargesService';
 import {
   createInvoice,
@@ -67,7 +66,6 @@ import {
   getWaterCalculation,
   bulkCreateWaterInvoices
 } from '../../../services/propertyInvoiceService';
-import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import { generateWaterInvoicePDF as generateWaterInvoicePDFUtil } from '../../../utils/invoicePDFGenerators';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
@@ -150,7 +148,6 @@ const months = [
 
 const WaterBills = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingCharge, setViewingCharge] = useState(null);
@@ -166,8 +163,6 @@ const WaterBills = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   
   // Bulk create state
-  const [bulkCreateMonth, setBulkCreateMonth] = useState(dayjs().format('MM'));
-  const [bulkCreateYear, setBulkCreateYear] = useState(dayjs().format('YYYY'));
   const [bulkCreating, setBulkCreating] = useState(false);
   const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
   const [bulkCreateInvoiceData, setBulkCreateInvoiceData] = useState({
@@ -195,8 +190,8 @@ const WaterBills = () => {
   
   // Payment state
   const [paymentDialog, setPaymentDialog] = useState(false);
-  const [selectedProperty, setSelectedProperty] = useState(null);
-  const [paymentContext, setPaymentContext] = useState({ baseCharge: 0, baseArrears: 0 });
+  const [selectedProperty] = useState(null);
+  const [paymentContext] = useState({ baseCharge: 0, baseArrears: 0 });
   const [selectedPaymentMonth, setSelectedPaymentMonth] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
@@ -217,7 +212,7 @@ const WaterBills = () => {
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [invoiceError, setInvoiceError] = useState('');
-  const [invoiceWasSaved, setInvoiceWasSaved] = useState(false);
+  const [, setInvoiceWasSaved] = useState(false);
   const [propertyInvoices, setPropertyInvoices] = useState({});
   const [loadingInvoices, setLoadingInvoices] = useState({});
 
@@ -297,11 +292,6 @@ const WaterBills = () => {
     }
     setExpandedInvoices(newExpanded);
   };
-
-  const totalPayments = (payments) => {
-    return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
-  };
-
 
   const handleEditInvoice = async (property, invoice) => {
     setInvoiceProperty(property);
@@ -707,8 +697,6 @@ const WaterBills = () => {
       return <Typography color="text.secondary">Creating invoice...</Typography>;
     }
 
-    const formatDisplayDate = (value) => (value ? dayjs(value).format('DD MMM YYYY') : '—');
-    
     // Calculate total amount from charges + arrears
     const waterLines = invoiceData.charges?.filter(c => c.type === 'WATER') || [];
     const chargesTotal = waterLines.reduce((sum, charge) => sum + (charge.amount || 0), 0);
@@ -909,31 +897,6 @@ const WaterBills = () => {
     return originalGrandTotal + latePaymentSurcharge;
   };
 
-  const handleOpenPaymentDialog = (property) => {
-    setSelectedProperty(property);
-    const baseCharge = Number(property.waterAmount || 0);
-    const baseArrears = Number(property.waterArrears || 0);
-    const currentDate = dayjs();
-    const currentMonthKey = currentDate.format('YYYY-MM');
-    
-    setPaymentForm({
-      amount: baseCharge > 0 ? baseCharge : '',
-      arrears: 0,
-      paymentDate: currentDate.format('YYYY-MM-DD'),
-      month: currentDate.format('MM'),
-      year: currentDate.format('YYYY'),
-      invoiceNumber: '',
-      paymentMethod: 'Bank Transfer',
-      bankName: '',
-      reference: '',
-      notes: ''
-    });
-    setPaymentContext({ baseCharge, baseArrears });
-    setSelectedPaymentMonth(currentMonthKey);
-    setPaymentAttachment(null);
-    setPaymentDialog(true);
-  };
-
   const handlePaymentDateChange = (dateValue) => {
     setPaymentForm((prev) => ({ ...prev, paymentDate: dateValue }));
   };
@@ -1029,31 +992,6 @@ const WaterBills = () => {
       setError(err.response?.data?.message || 'Failed to record payment');
     }
   };
-
-  const handleDeletePayment = async (property, payment) => {
-    if (!window.confirm('Are you sure you want to delete this payment?')) {
-      return;
-    }
-
-    try {
-      setError('');
-      // Find the charge ID from the payment
-      const chargeId = payment.chargeId;
-      const paymentId = payment._id;
-
-      if (!chargeId || !paymentId) {
-        setError('Payment information is incomplete');
-        return;
-      }
-
-      await deletePaymentFromWaterCharge(chargeId, paymentId);
-      setSuccess('Payment deleted successfully');
-      loadProperties();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete payment');
-    }
-  };
-
 
   const handleCloseDialog = () => {
     setDialogOpen(false);

@@ -6,14 +6,50 @@ import { Print as PrintIcon, ArrowBack as BackIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 
+const CENTER_LOGO_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="tovusBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1db4ef"/>
+      <stop offset="100%" stop-color="#0f86cc"/>
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="60" fill="url(#tovusBlue)"/>
+  <circle cx="60" cy="60" r="45" fill="none" stroke="#ffffff" stroke-width="3.2" opacity="0.92"/>
+  <path d="M38 40h44v10H65v33H55V50H38z" fill="#ffffff"/>
+  <text
+    x="60"
+    y="98"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="11"
+    font-weight="700"
+    letter-spacing="1.4"
+    fill="#ffffff"
+  >TOVUS</text>
+</svg>
+`)}`;
+
+const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(blob);
+});
+
 export default function LabelPrintPage() {
-  const TOTAL_SLOTS = 10;
+  const TOTAL_SLOTS = 4;
   const { assetId } = useParams();
   const navigate = useNavigate();
   const [asset, setAsset] = useState(null);
   const [tag, setTag] = useState(null);
   const [qr, setQr] = useState(null);
-  const [slot, setSlot] = useState(() => Number(localStorage.getItem('assetTagLabelSlot') || 1));
+  const [styledQrDataUrl, setStyledQrDataUrl] = useState('');
+  const [slot, setSlot] = useState(() => {
+    const savedSlot = Number(localStorage.getItem('assetTagLabelSlot') || 1);
+    if (!Number.isFinite(savedSlot)) return 1;
+    return Math.min(Math.max(savedSlot, 1), TOTAL_SLOTS);
+  });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -84,6 +120,77 @@ export default function LabelPrintPage() {
     localStorage.setItem('assetTagLabelSlot', String(slot));
   }, [slot]);
 
+  useEffect(() => {
+    if (slot > TOTAL_SLOTS || slot < 1) {
+      setSlot(1);
+    }
+  }, [slot, TOTAL_SLOTS]);
+
+  useEffect(() => {
+    let active = true;
+
+    const makeStyledQr = async () => {
+      if (!qr?.url) {
+        setStyledQrDataUrl('');
+        return;
+      }
+
+      try {
+        const module = await import('qr-code-styling');
+        const QRCodeStyling = module.default;
+        const qrCode = new QRCodeStyling({
+          width: 320,
+          height: 320,
+          type: 'canvas',
+          data: qr.url,
+          image: CENTER_LOGO_DATA_URI,
+          margin: 6,
+          qrOptions: {
+            errorCorrectionLevel: 'H'
+          },
+          dotsOptions: {
+            color: '#179cde',
+            type: 'dots'
+          },
+          cornersSquareOptions: {
+            color: '#179cde',
+            type: 'extra-rounded'
+          },
+          cornersDotOptions: {
+            color: '#179cde',
+            type: 'dot'
+          },
+          backgroundOptions: {
+            color: '#ffffff'
+          },
+          imageOptions: {
+            hideBackgroundDots: true,
+            imageSize: 0.28,
+            margin: 0
+          }
+        });
+
+        const rawData = await qrCode.getRawData('png');
+        if (!active || !rawData) return;
+
+        const blob = rawData instanceof Blob ? rawData : new Blob([rawData], { type: 'image/png' });
+        const dataUrl = await blobToDataUrl(blob);
+        if (active) {
+          setStyledQrDataUrl(typeof dataUrl === 'string' ? dataUrl : '');
+        }
+      } catch {
+        if (active) {
+          setStyledQrDataUrl('');
+        }
+      }
+    };
+
+    makeStyledQr();
+    return () => {
+      active = false;
+    };
+  }, [qr?.url]);
+
   if (loading) {
     return <Box p={4} textAlign="center"><CircularProgress /></Box>;
   }
@@ -106,15 +213,13 @@ export default function LabelPrintPage() {
 
   const qrFrameSx = {
     width: '30mm',
-    height: '30mm',
-    p: 0.45,
-    mb: 0.35,
+    height: 'auto',
+    p: 0,
+    mb: 0.1,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    bgcolor: '#fff',
-    border: '1px solid',
-    borderColor: 'grey.400'
+    bgcolor: '#fff'
   };
 
   const qrImageSx = {
@@ -129,7 +234,7 @@ export default function LabelPrintPage() {
     textAlign: 'center',
     overflowWrap: 'anywhere',
     wordBreak: 'break-word',
-    lineHeight: 1.05
+    lineHeight: 1
   };
 
   return (
@@ -269,7 +374,7 @@ export default function LabelPrintPage() {
             <Typography
               variant="caption"
               color="#000"
-              sx={{ ...textWithinQrWidthSx, mb: 0.35, fontSize: '0.7rem', fontWeight: 700, letterSpacing: 0.4 }}
+              sx={{ ...textWithinQrWidthSx, mb: 0.05, fontSize: '0.7rem', fontWeight: 700, letterSpacing: 0.4 }}
             >
               SGC
             </Typography>
@@ -277,15 +382,15 @@ export default function LabelPrintPage() {
               <Typography
                 variant="caption"
                 color="text.secondary"
-                sx={{ ...textWithinQrWidthSx, mb: 0.45, fontSize: '0.58rem' }}
+                sx={{ ...textWithinQrWidthSx, mb: 0.08, fontSize: '0.58rem' }}
               >
                 {projectLabel}
               </Typography>
             ) : null}
             <Box sx={qrFrameSx}>
-              <Box component="img" src={qr.dataUrl} alt="QR" sx={qrImageSx} />
+              <Box component="img" src={styledQrDataUrl || qr.dataUrl} alt="QR" sx={qrImageSx} />
             </Box>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.2, fontSize: '0.73rem', fontWeight: 600 }}>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0, fontSize: '0.73rem', fontWeight: 600, lineHeight: 1.1 }}>
               {tag.tagCode}
             </Typography>
           </Paper>
@@ -297,7 +402,7 @@ export default function LabelPrintPage() {
               '@media print': {
                 display: 'grid',
                 gridTemplateColumns: 'repeat(2, 98mm)',
-                gridTemplateRows: 'repeat(5, 56mm)',
+                gridTemplateRows: 'repeat(2, 56mm)',
                 gap: '2mm',
                 justifyContent: 'start'
               }
@@ -317,7 +422,7 @@ export default function LabelPrintPage() {
                       <Typography
                         variant="caption"
                         color="#000"
-                        sx={{ ...textWithinQrWidthSx, mb: 0.35, fontSize: '0.7rem', fontWeight: 700, letterSpacing: 0.4 }}
+                        sx={{ ...textWithinQrWidthSx, mb: 0.05, fontSize: '0.7rem', fontWeight: 700, letterSpacing: 0.4 }}
                       >
                         SGC
                       </Typography>
@@ -325,15 +430,15 @@ export default function LabelPrintPage() {
                         <Typography
                           variant="caption"
                           color="text.secondary"
-                          sx={{ ...textWithinQrWidthSx, mb: 0.45, fontSize: '0.58rem' }}
+                          sx={{ ...textWithinQrWidthSx, mb: 0.08, fontSize: '0.58rem' }}
                         >
                           {projectLabel}
                         </Typography>
                       ) : null}
                       <Box sx={qrFrameSx}>
-                        <Box component="img" src={qr.dataUrl} alt="QR" sx={qrImageSx} />
+                        <Box component="img" src={styledQrDataUrl || qr.dataUrl} alt="QR" sx={qrImageSx} />
                       </Box>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.2, fontSize: '0.73rem', fontWeight: 600 }}>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0, fontSize: '0.73rem', fontWeight: 600, lineHeight: 1.1 }}>
                         {tag.tagCode}
                       </Typography>
                     </>

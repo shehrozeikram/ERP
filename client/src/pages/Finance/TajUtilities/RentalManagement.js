@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Box,
   Button,
@@ -61,8 +61,7 @@ import {
   fetchPropertyById,
   addPayment,
   fetchInvoice,
-  updatePaymentStatus,
-  deletePayment
+  updatePaymentStatus
 } from '../../../services/tajRentalManagementService';
 import {
   createInvoice,
@@ -158,17 +157,16 @@ const RentalManagement = () => {
   const [sectorFilter, setSectorFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [search, setSearch] = useState('');
-  const [paymentInvoiceData, setPaymentInvoiceData] = useState(null);
+  const [paymentInvoiceData] = useState(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState(null);
   const [statusMenuContext, setStatusMenuContext] = useState(null);
   const unpaidPayments =
     selectedProperty?.payments?.filter((payment) => payment.status === 'Unpaid') || [];
-  const [rentalSummary] = useState(defaultSummary);
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
   const [invoiceProperty, setInvoiceProperty] = useState(null);
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
-  const [invoiceWasSaved, setInvoiceWasSaved] = useState(false);
+  const [, setInvoiceWasSaved] = useState(false);
   const [invoiceError, setInvoiceError] = useState('');
   const [propertyInvoices, setPropertyInvoices] = useState({});
   const [loadingInvoices, setLoadingInvoices] = useState({});
@@ -201,10 +199,6 @@ const RentalManagement = () => {
     notes: ''
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const loadData = async () => {
     try {
       setLoading(true);
@@ -227,6 +221,11 @@ const RentalManagement = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only initial load; filters applied when user refreshes or after mutations
+  }, []);
 
   const handlePaymentSave = async () => {
     try {
@@ -266,28 +265,6 @@ const RentalManagement = () => {
     }
   };
 
-  const openPaymentDialog = (property) => {
-    setSelectedProperty(property);
-    const baseCharge = Number(property.rentAmount ?? property.expectedRent ?? 0);
-    const baseArrears = Number(property.rentArrears ?? 0);
-    const currentDate = dayjs();
-    setPaymentForm({
-      amount: baseCharge > 0 ? baseCharge : '',
-      arrears: 0,
-      paymentDate: currentDate.format('YYYY-MM-DD'),
-      month: currentDate.format('MM'),
-      year: currentDate.format('YYYY'),
-      invoiceNumber: '',
-      paymentMethod: 'Bank Transfer',
-      bankName: '',
-      reference: '',
-      notes: ''
-    });
-    setRentPaymentContext({ baseCharge, baseArrears });
-    setPaymentAttachment(null);
-    setPaymentDialog(true);
-  };
-
   const handleViewInvoice = async (property, payment) => {
     try {
       const res = await fetchInvoice(property._id, payment._id);
@@ -299,27 +276,6 @@ const RentalManagement = () => {
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load invoice');
-    }
-  };
-
-  const handleViewPaymentDetails = (property, payment) => {
-    setSelectedProperty(property);
-    setSelectedPayment(payment);
-    setPaymentDetailsDialog(true);
-  };
-
-  const handleDeletePayment = async (property, payment) => {
-    if (!window.confirm('Are you sure you want to delete this payment record?')) {
-      return;
-    }
-
-    try {
-      setError('');
-      await deletePayment(property._id, payment._id);
-      setSuccess('Payment deleted successfully');
-      loadData();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete payment');
     }
   };
 
@@ -1527,10 +1483,6 @@ const RentalManagement = () => {
       newExpanded.add(invoiceId);
     }
     setExpandedInvoices(newExpanded);
-  };
-
-  const totalPayments = (payments) => {
-    return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
   const handleRentAmountChange = (value) => {

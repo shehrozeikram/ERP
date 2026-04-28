@@ -120,6 +120,7 @@ const evaluationDocumentsRoutes = require('./routes/evaluationDocuments');
 const evaluationLevel0AuthoritiesRoutes = require('./routes/evaluationLevel0Authorities');
 const indentsRoutes = require('./routes/indents');
 const storesRoutes = require('./routes/stores');
+const projectManagementRoutes = require('./routes/projectManagement');
 const userTrackingRoutes = require('./routes/userTracking');
 const activityLogger = require('./middleware/activityLogger');
 // Finance integration — new modules
@@ -627,6 +628,7 @@ app.use('/api/document-tracking', authMiddleware, activityLogger, documentTracki
 app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationDocumentsRoutes);
 app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);
 app.use('/api/stores', authMiddleware, activityLogger, storesRoutes);
+app.use('/api/project-management', authMiddleware, activityLogger, projectManagementRoutes);
 app.use('/api/items', authMiddleware, activityLogger, require('./routes/items'));
 app.use('/api/evaluation-level0-authorities', authMiddleware, activityLogger, evaluationLevel0AuthoritiesRoutes);
 app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activityLogger to tracking routes to avoid recursion

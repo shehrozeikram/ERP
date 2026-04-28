@@ -233,6 +233,7 @@ import IndentDetail from './pages/General/Indents/IndentDetail';
 import IndentPrintView from './pages/General/Indents/IndentPrintView';
 import Payments from './pages/General/Payments';
 import ProjectManagement from './pages/General/ProjectManagement';
+import ProjectDetail from './pages/General/ProjectDetail';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
@@ -680,6 +681,10 @@ function App() {
             <Route
               path="/general/project-management"
               element={<ProtectedRoute><ProjectManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/project-management/:id"
+              element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>}
             />
 
             {/* Loan Management Routes */}

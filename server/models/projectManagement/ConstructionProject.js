@@ -1,0 +1,144 @@
+const mongoose = require('mongoose');
+
+const BUDGET_CATEGORIES = [
+  'Civil Works', 'Finishes', 'Electrical', 'Plumbing',
+  'Labor', 'Consultancy', 'Materials', 'Contingency', 'Miscellaneous'
+];
+
+const milestoneSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  description: { type: String, trim: true },
+  plannedDate: { type: Date },
+  actualDate: { type: Date },
+  status: {
+    type: String,
+    enum: ['Pending', 'In Progress', 'Completed', 'Delayed'],
+    default: 'Pending'
+  },
+  completionPercentage: { type: Number, default: 0, min: 0, max: 100 },
+  billingTrigger: { type: Boolean, default: false },
+  billingPercentage: { type: Number, default: 0, min: 0, max: 100 },
+  notes: { type: String, trim: true }
+}, { _id: true });
+
+const budgetCategorySchema = new mongoose.Schema({
+  category: { type: String, enum: BUDGET_CATEGORIES, required: true },
+  estimatedAmount: { type: Number, default: 0, min: 0 },
+  approvedAmount: { type: Number, default: 0, min: 0 }
+}, { _id: true });
+
+const documentSchema = new mongoose.Schema({
+  filename: { type: String, trim: true },
+  originalName: { type: String, trim: true },
+  url: { type: String, trim: true },
+  category: { type: String, trim: true, default: 'General' },
+  uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  uploadedAt: { type: Date, default: Date.now }
+}, { _id: true });
+
+const constructionProjectSchema = new mongoose.Schema({
+  projectNumber: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true
+  },
+  name: { type: String, required: true, trim: true },
+  description: { type: String, trim: true },
+  projectType: {
+    type: String,
+    enum: ['Villa', 'Apartment', 'Commercial Building', 'Infrastructure', 'Renovation', 'Other'],
+    default: 'Villa'
+  },
+  status: {
+    type: String,
+    enum: ['Draft', 'Planning', 'Active', 'On Hold', 'Completed', 'Cancelled'],
+    default: 'Draft'
+  },
+
+  // Location — optionally linked to existing Taj property
+  linkedProperty: { type: mongoose.Schema.Types.ObjectId, ref: 'TajProperty', default: null },
+  society: { type: String, trim: true },
+  sector: { type: String, trim: true },
+  plotNumber: { type: String, trim: true },
+  address: { type: String, trim: true },
+
+  // Client
+  clientName: { type: String, trim: true },
+  clientContact: { type: String, trim: true },
+
+  // Team
+  projectManager: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
+  // Timeline
+  startDate: { type: Date },
+  expectedEndDate: { type: Date },
+  actualEndDate: { type: Date },
+
+  // Budget breakdown by category
+  budgetCategories: { type: [budgetCategorySchema], default: () => BUDGET_CATEGORIES.map(c => ({ category: c, estimatedAmount: 0, approvedAmount: 0 })) },
+
+  // Aggregated totals (auto-computed on save)
+  totalEstimatedCost: { type: Number, default: 0, min: 0 },
+  totalApprovedBudget: { type: Number, default: 0, min: 0 },
+
+  // Budget approval workflow
+  budgetStatus: {
+    type: String,
+    enum: ['Draft', 'Submitted', 'Approved'],
+    default: 'Draft'
+  },
+  budgetSubmittedAt: { type: Date },
+  budgetApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  budgetApprovedAt: { type: Date },
+  budgetNotes: { type: String, trim: true },
+
+  // Contract value (the amount the client pays — used for milestone billing)
+  contractValue: { type: Number, default: 0, min: 0 },
+
+  // Financial actuals (updated as expenses/POs are recorded)
+  totalCommitted: { type: Number, default: 0, min: 0 },
+  totalActualSpent: { type: Number, default: 0, min: 0 },
+  totalInvoiced: { type: Number, default: 0, min: 0 },
+
+  // Milestones
+  milestones: { type: [milestoneSchema], default: [] },
+
+  // Overall progress (0–100)
+  overallProgress: { type: Number, default: 0, min: 0, max: 100 },
+
+  // Documents
+  documents: { type: [documentSchema], default: [] },
+
+  notes: { type: String, trim: true },
+  tags: [{ type: String, trim: true }],
+
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+}, { timestamps: true });
+
+// Auto-generate project number and recompute totals before save
+constructionProjectSchema.pre('save', async function (next) {
+  if (this.isNew && !this.projectNumber) {
+    const year = new Date().getFullYear();
+    const count = await this.constructor.countDocuments();
+    this.projectNumber = `CP-${year}-${String(count + 1).padStart(4, '0')}`;
+  }
+
+  // Recompute totals from budgetCategories
+  if (this.budgetCategories && this.budgetCategories.length) {
+    this.totalEstimatedCost = this.budgetCategories.reduce((s, c) => s + (c.estimatedAmount || 0), 0);
+    this.totalApprovedBudget = this.budgetCategories.reduce((s, c) => s + (c.approvedAmount || 0), 0);
+  }
+
+  next();
+});
+
+constructionProjectSchema.index({ projectNumber: 1 });
+constructionProjectSchema.index({ status: 1 });
+constructionProjectSchema.index({ projectType: 1 });
+constructionProjectSchema.index({ createdAt: -1 });
+constructionProjectSchema.index({ projectManager: 1 });
+
+module.exports = mongoose.model('ConstructionProject', constructionProjectSchema);
+module.exports.BUDGET_CATEGORIES = BUDGET_CATEGORIES;
