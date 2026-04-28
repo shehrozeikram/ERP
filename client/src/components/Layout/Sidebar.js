@@ -145,6 +145,9 @@ const Sidebar = () => {
       '/general/indents/dashboard': 'indents',
       '/general/indents/create': 'indents',
       '/general/project-management': 'project_management',
+      '/general/project-management/overview': 'project_management',
+      '/general/project-management/projects': 'project_management',
+      '/general/project-management/workspace': 'project_management',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
 

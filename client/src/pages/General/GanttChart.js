@@ -1,14 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box, Button, ButtonGroup, Card, CardContent, Chip, Skeleton,
-  Stack, Tooltip, Typography
+  Stack, Tooltip, Typography, Paper
 } from '@mui/material';
-import {
-  ChevronLeft, ChevronRight, FiberManualRecord as DotIcon,
-  Flag as FlagIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon
-} from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, FiberManualRecord as DotIcon } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Legend,
+  Tooltip as ChartTooltip,
+  ComposedChart
+} from 'recharts';
 import { getTasks } from '../../services/projectManagementService';
 
 dayjs.extend(isBetween);
@@ -17,7 +28,6 @@ dayjs.extend(isBetween);
 const LEFT_W = 260;        // task name column width (px)
 const ROW_H = 36;          // row height (px)
 const HEADER_H = 52;       // date header height (px)
-const CORNER_H = HEADER_H; // top-left corner block height
 
 // ─── Pixels-per-day for each zoom level ──────────────────────────────────────
 const PX_PER_DAY = { day: 30, week: 9, month: 4 };
@@ -36,6 +46,13 @@ const MILESTONE_COLOR = '#7b1fa2';
 const GRID_COLOR = '#e0e0e0';
 const WEEKEND_COLOR = 'rgba(0,0,0,0.03)';
 const PHASE_BG  = 'rgba(69,90,100,0.06)';
+const CHART_COLORS = ['#1976d2', '#ef6c00', '#2e7d32', '#6a1b9a', '#00838f', '#d81b60', '#5d4037'];
+const moneyCompact = (v) => {
+  const n = Number(v || 0);
+  if (Math.abs(n) >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(0)}K`;
+  return `${Math.round(n)}`;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -240,6 +257,75 @@ const GanttChart = ({ project }) => {
       })),
     [project, range.start, pxDay]
   );
+
+  const taskOnlyRows = useMemo(() => rows.filter((r) => !r._isPhase), [rows]);
+
+  const statusPieData = useMemo(() => {
+    const counts = taskOnlyRows.reduce((acc, row) => {
+      const key = row.status || 'Not Started';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [taskOnlyRows]);
+
+  const phaseProgressData = useMemo(() => {
+    const phaseMap = {};
+    taskOnlyRows.forEach((row) => {
+      const phaseKey = row._phaseId || 'misc';
+      if (!phaseMap[phaseKey]) {
+        const phaseName = (taskData?.tree || []).find((p) => p._id === phaseKey)?.title || 'General';
+        phaseMap[phaseKey] = { name: phaseName, total: 0, progressSum: 0 };
+      }
+      phaseMap[phaseKey].total += 1;
+      phaseMap[phaseKey].progressSum += Number(row.progressPercent || 0);
+    });
+    return Object.values(phaseMap).map((p) => ({
+      name: trunc(p.name, 16),
+      progress: p.total ? Math.round(p.progressSum / p.total) : 0
+    }));
+  }, [taskData?.tree, taskOnlyRows]);
+
+  const phaseBudgetData = useMemo(() => {
+    const phaseMap = {};
+    taskOnlyRows.forEach((row) => {
+      const phaseKey = row._phaseId || 'misc';
+      if (!phaseMap[phaseKey]) {
+        const phaseName = (taskData?.tree || []).find((p) => p._id === phaseKey)?.title || 'General';
+        phaseMap[phaseKey] = { name: phaseName, budget: 0, actual: 0 };
+      }
+      const taskBudget =
+        Number(row.estimatedCost || row.budget || row.plannedCost || row.estimatedAmount || 0);
+      const taskActual =
+        Number(row.actualCost || row.spent || row.actualAmount || 0);
+      phaseMap[phaseKey].budget += Number.isFinite(taskBudget) ? taskBudget : 0;
+      phaseMap[phaseKey].actual += Number.isFinite(taskActual) ? taskActual : 0;
+    });
+
+    const rowsOut = Object.values(phaseMap)
+      .map((r) => ({ ...r, name: trunc(r.name, 14) }))
+      .filter((r) => r.budget > 0 || r.actual > 0);
+
+    if (rowsOut.length) return rowsOut;
+
+    return [{
+      name: 'Project Total',
+      budget: Number(project?.totalApprovedBudget || project?.totalEstimatedCost || 0),
+      actual: Number(project?.totalActualSpent || 0)
+    }];
+  }, [project?.totalActualSpent, project?.totalApprovedBudget, project?.totalEstimatedCost, taskData?.tree, taskOnlyRows]);
+
+  const budgetKpi = useMemo(() => {
+    const totalBudget = phaseBudgetData.reduce((sum, r) => sum + Number(r.budget || 0), 0);
+    const totalActual = phaseBudgetData.reduce((sum, r) => sum + Number(r.actual || 0), 0);
+    const pct = totalBudget > 0 ? Math.round((totalActual / totalBudget) * 100) : 0;
+    return {
+      totalBudget,
+      totalActual,
+      usedPct: Math.max(0, Math.min(pct, 999)),
+      remaining: Math.max(0, totalBudget - totalActual)
+    };
+  }, [phaseBudgetData]);
 
   // Auto-scroll to today on mount / zoom change
   useEffect(() => {
@@ -606,7 +692,6 @@ const GanttChart = ({ project }) => {
 
               {/* ── Milestone diamonds ─────────────────────────────── */}
               {milestones.map((ms, i) => {
-                const yCenter = HEADER_H + rows.length * ROW_H + 6; // below all rows
                 // Find if any row y overlaps (place diamond on first matching phase if possible)
                 const size = 8;
                 // Draw at the bottom of the chart as a legend strip
@@ -692,6 +777,185 @@ const GanttChart = ({ project }) => {
             </Typography>
           )}
         </Stack>
+
+        {/* ── Graphical charts ─────────────────────────────────────────── */}
+        <Stack direction={{ xs: 'column', lg: 'row' }} gap={2} sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+          <Card
+            variant="outlined"
+            sx={{
+              flex: 1,
+              borderRadius: 2,
+              background: 'linear-gradient(180deg, rgba(25,118,210,0.06) 0%, rgba(25,118,210,0.01) 100%)'
+            }}
+          >
+            <CardContent>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                Task Status Distribution
+              </Typography>
+              {statusPieData.length ? (
+                <Box sx={{ width: '100%', height: 280 }}>
+                  <ResponsiveContainer>
+                    <PieChart>
+                      <Pie
+                        data={statusPieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={95}
+                        innerRadius={35}
+                        paddingAngle={4}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        labelLine
+                      >
+                        {statusPieData.map((entry, idx) => (
+                          <Cell key={`status-pie-${entry.name}`} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Legend />
+                      <ChartTooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </Box>
+              ) : (
+                <Typography variant="body2" color="text.secondary">No task data for pie chart yet.</Typography>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card
+            variant="outlined"
+            sx={{
+              flex: 1,
+              borderRadius: 2,
+              background: 'linear-gradient(180deg, rgba(67,160,71,0.06) 0%, rgba(67,160,71,0.01) 100%)'
+            }}
+          >
+            <CardContent>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                Phase Progress (%)
+              </Typography>
+              {phaseProgressData.length ? (
+                <Box sx={{ width: '100%', height: 280 }}>
+                  <ResponsiveContainer>
+                    <BarChart data={phaseProgressData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" interval={0} angle={-15} textAnchor="end" height={52} />
+                      <YAxis domain={[0, 100]} />
+                      <ChartTooltip />
+                      <Bar dataKey="progress" radius={[6, 6, 0, 0]} fill="#1976d2" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Box>
+              ) : (
+                <Typography variant="body2" color="text.secondary">No phase progress data yet.</Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Stack>
+
+        <Box sx={{ px: 2, pb: 2 }}>
+          <Card
+            variant="outlined"
+            sx={{
+              borderRadius: 2,
+              background: 'linear-gradient(180deg, rgba(255,152,0,0.08) 0%, rgba(255,152,0,0.01) 100%)'
+            }}
+          >
+            <CardContent>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  Budget vs Actual by Phase
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Currency: PKR
+                </Typography>
+              </Stack>
+              <Stack direction={{ xs: 'column', lg: 'row' }} gap={2}>
+                {phaseBudgetData.length ? (
+                  <Box sx={{ flex: 1, minWidth: 0, height: 300 }}>
+                    <ResponsiveContainer>
+                      <ComposedChart data={phaseBudgetData} margin={{ top: 8, right: 12, left: -10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis tickFormatter={moneyCompact} />
+                        <ChartTooltip
+                          formatter={(value, key) => [
+                            `PKR ${Number(value || 0).toLocaleString('en-PK')}`,
+                            key === 'budget' ? 'Budget' : 'Actual'
+                          ]}
+                        />
+                        <Legend />
+                        <Bar dataKey="budget" name="Budget" fill="#42a5f5" radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="actual" name="Actual" fill="#fb8c00" radius={[8, 8, 0, 0]} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No budget data available yet.</Typography>
+                )}
+
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    width: { xs: '100%', lg: 280 },
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: 'rgba(255,255,255,0.75)'
+                  }}
+                >
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                    Budget Utilization KPI
+                  </Typography>
+                  <Box sx={{ width: '100%', height: 180, position: 'relative' }}>
+                    <ResponsiveContainer>
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Used', value: Math.max(0, budgetKpi.usedPct) },
+                            { name: 'Remaining', value: Math.max(0, 100 - Math.min(100, budgetKpi.usedPct)) }
+                          ]}
+                          dataKey="value"
+                          innerRadius={54}
+                          outerRadius={74}
+                          startAngle={90}
+                          endAngle={-270}
+                          stroke="none"
+                        >
+                          <Cell fill="#fb8c00" />
+                          <Cell fill="#e3f2fd" />
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexDirection: 'column',
+                        pointerEvents: 'none'
+                      }}
+                    >
+                      <Typography variant="h5" fontWeight={800} color={budgetKpi.usedPct > 100 ? 'error.main' : 'text.primary'}>
+                        {budgetKpi.usedPct}%
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Utilized
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Stack spacing={0.4}>
+                    <Typography variant="body2"><strong>Budget:</strong> PKR {Number(budgetKpi.totalBudget || 0).toLocaleString('en-PK')}</Typography>
+                    <Typography variant="body2"><strong>Spent:</strong> PKR {Number(budgetKpi.totalActual || 0).toLocaleString('en-PK')}</Typography>
+                    <Typography variant="body2"><strong>Remaining:</strong> PKR {Number(budgetKpi.remaining || 0).toLocaleString('en-PK')}</Typography>
+                  </Stack>
+                </Paper>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Box>
 
       </CardContent>
     </Card>

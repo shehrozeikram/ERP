@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import GanttChart from './GanttChart';
 import ProjectInvoicesTab from './ProjectInvoicesTab';
 import {
@@ -15,7 +15,7 @@ import {
   Construction as ConstructionIcon, Delete as DeleteIcon, Edit as EditIcon,
   ExpandLess, ExpandMore, FiberManualRecord as DotIcon, Flag as FlagIcon,
   PhotoCamera as PhotoIcon, Refresh as RefreshIcon, Warning as WarnIcon,
-  ShoppingCart as POIcon, Receipt as InvoiceIcon
+  ShoppingCart as POIcon, Receipt as InvoiceIcon, Visibility as ViewIcon
 } from '@mui/icons-material';
 import { Checkbox } from '@mui/material';
 import dayjs from 'dayjs';
@@ -51,6 +51,16 @@ const TASK_STATUS_COLOR = {
 const MS_STATUS_COLOR = {
   Pending: 'default', 'In Progress': 'info', Completed: 'success', Delayed: 'error'
 };
+
+const TAB_META = [
+  { label: 'Overview', icon: <ViewIcon fontSize="small" /> },
+  { label: 'Bill of Quantities', icon: <POIcon fontSize="small" /> },
+  { label: 'Tasks / WBS', icon: <TaskIcon fontSize="small" /> },
+  { label: 'Expenses', icon: <MoneyIcon fontSize="small" /> },
+  { label: 'Daily Reports', icon: <PhotoIcon fontSize="small" /> },
+  { label: 'Gantt Chart', icon: <ChartIcon fontSize="small" /> },
+  { label: 'Invoices', icon: <InvoiceIcon fontSize="small" /> }
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v) =>
@@ -1737,11 +1747,24 @@ const OverviewTab = ({ project, onRefresh }) => {
 const ProjectDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState(0);
+
+  useEffect(() => {
+    const tabParam = Number(searchParams.get('tab') || 0);
+    const normalized = Number.isFinite(tabParam) ? Math.max(0, Math.min(6, tabParam)) : 0;
+    setTab(normalized);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (id) {
+      localStorage.setItem('pmLastProjectId', id);
+    }
+  }, [id]);
 
   const loadProject = useCallback(async () => {
     try {
@@ -1776,43 +1799,55 @@ const ProjectDetail = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1.5, sm: 3 }, bgcolor: 'grey.50', minHeight: '100%' }}>
       {/* Breadcrumb + Header */}
-      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Box>
-          <Button
-            startIcon={<BackIcon />}
-            onClick={() => navigate('/general/project-management')}
-            size="small"
-            sx={{ mb: 1, color: 'text.secondary' }}
-          >
-            Project Management
-          </Button>
-          <Stack direction="row" alignItems="center" gap={1.5}>
-            <ConstructionIcon sx={{ color: 'primary.main', fontSize: 32 }} />
-            <Box>
-              <Stack direction="row" alignItems="center" gap={1}>
-                <Typography variant="h5" fontWeight={700}>{project.name}</Typography>
-                <Chip label={project.status} size="small" color={STATUS_COLOR[project.status] || 'default'} />
-              </Stack>
-              <Typography variant="body2" color="text.secondary">
-                {project.projectNumber} · {project.projectType}
-                {project.society && ` · ${project.society}`}
-                {project.sector && `, ${project.sector}`}
-              </Typography>
-            </Box>
-          </Stack>
-        </Box>
+      <Paper
+        elevation={0}
+        sx={{
+          mb: 3,
+          p: { xs: 1.5, sm: 2 },
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor: 'divider',
+          background: 'linear-gradient(135deg, rgba(25,118,210,0.08) 0%, rgba(25,118,210,0.02) 100%)'
+        }}
+      >
+        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" flexWrap="wrap" gap={1.5}>
+          <Box>
+            <Button
+              startIcon={<BackIcon />}
+              onClick={() => navigate('/general/project-management')}
+              size="small"
+              sx={{ mb: 1, color: 'text.secondary' }}
+            >
+              Project Management
+            </Button>
+            <Stack direction="row" alignItems="center" gap={1.5}>
+              <ConstructionIcon sx={{ color: 'primary.main', fontSize: 32 }} />
+              <Box>
+                <Stack direction="row" alignItems="center" gap={1}>
+                  <Typography variant="h5" fontWeight={700}>{project.name}</Typography>
+                  <Chip label={project.status} size="small" color={STATUS_COLOR[project.status] || 'default'} />
+                </Stack>
+                <Typography variant="body2" color="text.secondary">
+                  {project.projectNumber} · {project.projectType}
+                  {project.society && ` · ${project.society}`}
+                  {project.sector && `, ${project.sector}`}
+                </Typography>
+              </Box>
+            </Stack>
+          </Box>
 
-        <Stack direction="row" gap={1}>
-          <Tooltip title="Refresh">
-            <IconButton onClick={loadProject}><RefreshIcon /></IconButton>
-          </Tooltip>
+          <Stack direction="row" gap={1}>
+            <Tooltip title="Refresh">
+              <IconButton onClick={loadProject}><RefreshIcon /></IconButton>
+            </Tooltip>
+          </Stack>
         </Stack>
-      </Stack>
+      </Paper>
 
       {/* Progress bar */}
-      <Card sx={{ mb: 2 }}>
+      <Card variant="outlined" sx={{ mb: 2, borderRadius: 2 }}>
         <CardContent sx={{ py: 1.5 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="body2" color="text.secondary">Overall Progress</Typography>
@@ -1827,28 +1862,82 @@ const ProjectDetail = () => {
         </CardContent>
       </Card>
 
+      {/* Quick project context */}
+      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: '#fff' }}>
+            <Typography variant="caption" color="text.secondary">Budget</Typography>
+            <Typography variant="body2" fontWeight={700}>
+              {fmt(project.totalApprovedBudget || project.totalEstimatedCost)}
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: '#fff' }}>
+            <Typography variant="caption" color="text.secondary">Spent</Typography>
+            <Typography variant="body2" fontWeight={700}>
+              {fmt(project.totalActualSpent || 0)}
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: '#fff' }}>
+            <Typography variant="caption" color="text.secondary">Timeline</Typography>
+            <Typography variant="body2" fontWeight={700}>
+              {project.startDate ? dayjs(project.startDate).format('DD MMM YYYY') : '—'}
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: '#fff' }}>
+            <Typography variant="caption" color="text.secondary">Expected End</Typography>
+            <Typography variant="body2" fontWeight={700}>
+              {project.expectedEndDate ? dayjs(project.expectedEndDate).format('DD MMM YYYY') : '—'}
+            </Typography>
+          </Paper>
+        </Grid>
+      </Grid>
+
       {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
-          <Tab label="Overview" />
-          <Tab label="Bill of Quantities" />
-          <Tab label="Tasks / WBS" />
-          <Tab label="Expenses" />
-          <Tab label="Daily Reports" />
-          <Tab label="Gantt Chart" />
-          <Tab label="Invoices" />
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, bgcolor: '#fff', borderRadius: 2, px: 1 }}>
+        <Tabs
+          value={tab}
+          onChange={(_, v) => {
+            setTab(v);
+            setSearchParams({ tab: String(v) }, { replace: true });
+          }}
+          variant="scrollable"
+          scrollButtons="auto"
+        >
+          <Tab label="Overview" icon={<ViewIcon fontSize="small" />} iconPosition="start" />
+          <Tab label="Bill of Quantities" icon={<POIcon fontSize="small" />} iconPosition="start" />
+          <Tab label="Tasks / WBS" icon={<TaskIcon fontSize="small" />} iconPosition="start" />
+          <Tab label="Expenses" icon={<MoneyIcon fontSize="small" />} iconPosition="start" />
+          <Tab label="Daily Reports" icon={<PhotoIcon fontSize="small" />} iconPosition="start" />
+          <Tab label="Gantt Chart" icon={<ChartIcon fontSize="small" />} iconPosition="start" />
+          <Tab label="Invoices" icon={<InvoiceIcon fontSize="small" />} iconPosition="start" />
         </Tabs>
       </Box>
 
-      <Box>
-        {tab === 0 && <OverviewTab project={project} onRefresh={loadProject} />}
-        {tab === 1 && <BOQTab projectId={id} />}
-        {tab === 2 && <TasksTab projectId={id} />}
-        {tab === 3 && <ExpensesTab projectId={id} project={project} />}
-        {tab === 4 && <DPRTab projectId={id} />}
-        {tab === 5 && <GanttChart project={project} />}
-        {tab === 6 && <ProjectInvoicesTab project={project} />}
-      </Box>
+      <Paper variant="outlined" sx={{ borderRadius: 2, bgcolor: '#fff' }}>
+        <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Stack direction="row" alignItems="center" gap={1}>
+            {TAB_META[tab]?.icon}
+            <Typography variant="subtitle1" fontWeight={700}>
+              {TAB_META[tab]?.label}
+            </Typography>
+          </Stack>
+        </Box>
+        <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
+          {tab === 0 && <OverviewTab project={project} onRefresh={loadProject} />}
+          {tab === 1 && <BOQTab projectId={id} />}
+          {tab === 2 && <TasksTab projectId={id} />}
+          {tab === 3 && <ExpensesTab projectId={id} project={project} />}
+          {tab === 4 && <DPRTab projectId={id} />}
+          {tab === 5 && <GanttChart project={project} />}
+          {tab === 6 && <ProjectInvoicesTab project={project} />}
+        </Box>
+      </Paper>
     </Box>
   );
 };

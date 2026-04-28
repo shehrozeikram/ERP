@@ -235,6 +235,7 @@ import IndentPrintView from './pages/General/Indents/IndentPrintView';
 import Payments from './pages/General/Payments';
 import ProjectManagement from './pages/General/ProjectManagement';
 import ProjectDetail from './pages/General/ProjectDetail';
+import ProjectWorkspaceRedirect from './pages/General/ProjectWorkspaceRedirect';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
@@ -682,6 +683,18 @@ function App() {
             <Route
               path="/general/project-management"
               element={<ProtectedRoute><ProjectManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/project-management/overview"
+              element={<ProtectedRoute><ProjectManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/project-management/projects"
+              element={<ProtectedRoute><ProjectManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/project-management/workspace/:section"
+              element={<ProtectedRoute><ProjectWorkspaceRedirect /></ProtectedRoute>}
             />
             <Route
               path="/general/project-management/:id"

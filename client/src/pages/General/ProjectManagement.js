@@ -10,7 +10,7 @@ import {
 import {
   Add as AddIcon, Cancel as CancelIcon, CheckCircle as CheckIcon,
   Construction as ConstructionIcon, Delete as DeleteIcon,
-  Edit as EditIcon, OpenInNew as OpenIcon, Refresh as RefreshIcon,
+  Edit as EditIcon, Refresh as RefreshIcon,
   TrendingUp as TrendingIcon, Visibility as ViewIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
@@ -50,7 +50,7 @@ const fmt = (v) =>
   new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(Number(v || 0));
 
 const StatCard = ({ label, value, color = 'primary.main', subtitle }) => (
-  <Card sx={{ height: '100%' }}>
+  <Card variant="outlined" sx={{ height: '100%', borderRadius: 2 }}>
     <CardContent>
       <Typography variant="body2" color="text.secondary" gutterBottom>{label}</Typography>
       <Typography variant="h5" fontWeight={700} color={color}>{value}</Typography>
@@ -349,29 +349,41 @@ const ProjectManagement = () => {
   const progressColor = (pct) => pct >= 80 ? 'success' : pct >= 40 ? 'warning' : 'error';
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1.5, sm: 3 }, bgcolor: 'grey.50', minHeight: '100%' }}>
       {/* Header */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Stack direction="row" alignItems="center" gap={1.5}>
-          <ConstructionIcon sx={{ fontSize: 36, color: 'primary.main' }} />
-          <Box>
-            <Typography variant="h4" fontWeight={700}>Project Management</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Plan, track and manage construction projects end-to-end
-            </Typography>
-          </Box>
+      <Paper
+        elevation={0}
+        sx={{
+          mb: 3,
+          p: { xs: 1.5, sm: 2 },
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor: 'divider',
+          background: 'linear-gradient(135deg, rgba(25,118,210,0.08) 0%, rgba(25,118,210,0.02) 100%)'
+        }}
+      >
+        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1.5}>
+          <Stack direction="row" alignItems="center" gap={1.5}>
+            <ConstructionIcon sx={{ fontSize: 36, color: 'primary.main' }} />
+            <Box>
+              <Typography variant="h4" fontWeight={700}>Project Management</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Plan, track and manage construction projects end-to-end
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" gap={1}>
+            <Tooltip title="Refresh">
+              <IconButton onClick={() => { loadProjects(); loadStats(); }} disabled={loading}>
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingProject(null); setDialogOpen(true); }}>
+              New Project
+            </Button>
+          </Stack>
         </Stack>
-        <Stack direction="row" gap={1}>
-          <Tooltip title="Refresh">
-            <IconButton onClick={() => { loadProjects(); loadStats(); }} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingProject(null); setDialogOpen(true); }}>
-            New Project
-          </Button>
-        </Stack>
-      </Stack>
+      </Paper>
 
       {/* Alerts */}
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
@@ -382,7 +394,7 @@ const ProjectManagement = () => {
         {statsLoading ? (
           [0, 1, 2, 3].map(i => (
             <Grid item xs={12} sm={6} md={3} key={i}>
-              <Card><CardContent><Skeleton height={80} /></CardContent></Card>
+              <Card variant="outlined" sx={{ borderRadius: 2 }}><CardContent><Skeleton height={80} /></CardContent></Card>
             </Grid>
           ))
         ) : stats && (
@@ -408,7 +420,7 @@ const ProjectManagement = () => {
       </Grid>
 
       {/* Filters */}
-      <Card sx={{ mb: 3 }}>
+      <Card variant="outlined" sx={{ mb: 3, borderRadius: 2 }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={5}>
@@ -444,10 +456,10 @@ const ProjectManagement = () => {
       </Card>
 
       {/* Projects Table */}
-      <Card>
+      <Card variant="outlined" sx={{ borderRadius: 2 }}>
         <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-          <TableContainer>
-            <Table size="small">
+          <TableContainer sx={{ borderRadius: 2 }}>
+            <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell><strong>#</strong></TableCell>
@@ -489,7 +501,7 @@ const ProjectManagement = () => {
                       : 0;
 
                     return (
-                      <TableRow key={project._id} hover>
+                      <TableRow key={project._id} hover sx={{ '& td': { py: 1.1 } }}>
                         <TableCell>
                           <Typography variant="caption" color="text.secondary" fontFamily="monospace">
                             {project.projectNumber}
@@ -567,7 +579,10 @@ const ProjectManagement = () => {
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                             <Tooltip title="View Detail">
                               <IconButton size="small" color="primary"
-                                onClick={() => navigate(`/general/project-management/${project._id}`)}>
+                                onClick={() => {
+                                  localStorage.setItem('pmLastProjectId', project._id);
+                                  navigate(`/general/project-management/${project._id}`);
+                                }}>
                                 <ViewIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>

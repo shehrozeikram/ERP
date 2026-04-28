@@ -971,7 +971,17 @@ export const MODULES = {
       },
       {
         name: 'Project Management',
-        path: '/general/project-management'
+        path: '/general/project-management',
+        subItems: [
+          { name: 'Overview', path: '/general/project-management/overview' },
+          { name: 'Projects', path: '/general/project-management/projects' },
+          { name: 'BOQ', path: '/general/project-management/workspace/boq' },
+          { name: 'Tasks / WBS', path: '/general/project-management/workspace/tasks' },
+          { name: 'Expenses', path: '/general/project-management/workspace/expenses' },
+          { name: 'Daily Reports', path: '/general/project-management/workspace/dpr' },
+          { name: 'Gantt Chart', path: '/general/project-management/workspace/gantt' },
+          { name: 'Invoices', path: '/general/project-management/workspace/invoices' }
+        ]
       },
       {
         name: 'Ceo Secretariat',
@@ -1232,6 +1242,9 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/general/indents/create': 'indents',
       '/general/user-tracking': 'user_tracking',
       '/general/project-management': 'project_management',
+      '/general/project-management/overview': 'project_management',
+      '/general/project-management/projects': 'project_management',
+      '/general/project-management/workspace': 'project_management',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
 
