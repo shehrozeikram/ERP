@@ -6,6 +6,7 @@ import {
 import { ChevronLeft, ChevronRight, FiberManualRecord as DotIcon } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
+import weekOfYear from 'dayjs/plugin/weekOfYear';
 import {
   ResponsiveContainer,
   PieChart,
@@ -23,6 +24,7 @@ import {
 import { getTasks } from '../../services/projectManagementService';
 
 dayjs.extend(isBetween);
+dayjs.extend(weekOfYear);
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 const LEFT_W = 260;        // task name column width (px)
