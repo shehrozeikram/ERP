@@ -104,6 +104,7 @@ const electricityRoutes = require('./routes/electricity');
 const tajPropertiesRoutes = require('./routes/tajProperties');
 const propertyInvoicesRoutes = require('./routes/propertyInvoices');
 const propertyReceiptsRoutes = require('./routes/propertyReceipts');
+const bankIslamicIntegrationRoutes = require('./routes/bankIslamicIntegration');
 const chargesSlabsRoutes = require('./routes/chargesSlabs');
 const waterUtilitySlabsRoutes = require('./routes/waterUtilitySlabs');
 const tajResidentsRoutes = require('./routes/tajResidents');
@@ -624,6 +625,7 @@ app.use('/api/taj-utilities/residents', authMiddleware, activityLogger, tajResid
 app.use('/api/taj-utilities/banks', authMiddleware, activityLogger, tajBanksRoutes);
 app.use('/api/taj-utilities/sectors', authMiddleware, activityLogger, tajSectorsRoutes);
 app.use('/api/taj-utilities/charge-types', authMiddleware, activityLogger, chargeTypesRoutes);
+app.use('/api/bank-islamic', bankIslamicIntegrationRoutes);
 app.use('/api/document-tracking', authMiddleware, activityLogger, documentTrackingRoutes);
 app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationDocumentsRoutes);
 app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);
