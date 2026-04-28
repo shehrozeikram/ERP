@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, TextField, MenuItem, CircularProgress, Alert, Stack, Chip, Dialog, DialogTitle,
-  DialogContent, DialogActions, IconButton, Tooltip
+  DialogContent, DialogActions, IconButton, Tooltip, Checkbox
 } from '@mui/material';
 import {
   QrCode2 as QrIcon, Print as PrintIcon, SwapHoriz as TransferIcon, Block as VoidIcon,
@@ -49,6 +49,7 @@ export default function TaggedAssetsPage() {
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [selectedAssetIds, setSelectedAssetIds] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,12 +68,19 @@ export default function TaggedAssetsPage() {
   }, [search, tagStatus]);
 
   const paginatedRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const taggedRows = rows.filter((a) => Boolean(a.currentTag));
+  const isAllTaggedSelected = taggedRows.length > 0 && taggedRows.every((a) => selectedAssetIds.includes(a._id));
+  const isSomeTaggedSelected = taggedRows.some((a) => selectedAssetIds.includes(a._id)) && !isAllTaggedSelected;
 
   useEffect(() => {
     setPage(0);
   }, [rows.length, rowsPerPage]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    setSelectedAssetIds((prev) => prev.filter((id) => rows.some((r) => r._id === id && r.currentTag)));
+  }, [rows]);
 
   useEffect(() => {
     storeService.getStores({ type: 'main', activeOnly: 'true' })
@@ -172,6 +180,28 @@ export default function TaggedAssetsPage() {
     }
   };
 
+  const toggleAssetSelection = (asset) => {
+    if (!asset?.currentTag) return;
+    setSelectedAssetIds((prev) => (
+      prev.includes(asset._id)
+        ? prev.filter((id) => id !== asset._id)
+        : [...prev, asset._id]
+    ));
+  };
+
+  const toggleSelectAllTagged = () => {
+    if (isAllTaggedSelected) {
+      setSelectedAssetIds([]);
+      return;
+    }
+    setSelectedAssetIds(taggedRows.map((a) => a._id));
+  };
+
+  const printSelectedLabels = () => {
+    if (!selectedAssetIds.length) return;
+    navigate('/asset-tagging/labels/print', { state: { assetIds: selectedAssetIds } });
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
@@ -191,6 +221,14 @@ export default function TaggedAssetsPage() {
           <MenuItem value="untagged">Untagged only</MenuItem>
         </TextField>
         <Button variant="contained" onClick={load} disabled={loading}>Apply</Button>
+        <Button
+          variant="outlined"
+          startIcon={<PrintIcon />}
+          disabled={selectedAssetIds.length === 0}
+          onClick={printSelectedLabels}
+        >
+          Print selected ({selectedAssetIds.length})
+        </Button>
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
@@ -203,7 +241,19 @@ export default function TaggedAssetsPage() {
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell padding="checkbox" sx={{ width: 52 }} />
+                  <TableCell padding="checkbox" sx={{ width: 52 }}>
+                    <Tooltip title="Select all tagged assets">
+                      <span>
+                        <Checkbox
+                          size="small"
+                          checked={isAllTaggedSelected}
+                          indeterminate={isSomeTaggedSelected}
+                          onChange={toggleSelectAllTagged}
+                          disabled={taggedRows.length === 0}
+                        />
+                      </span>
+                    </Tooltip>
+                  </TableCell>
                   <TableCell><b>Asset #</b></TableCell>
                   <TableCell><b>Name</b></TableCell>
                   <TableCell><b>Location</b></TableCell>
@@ -220,19 +270,12 @@ export default function TaggedAssetsPage() {
                 {paginatedRows.map((a) => (
                   <TableRow key={a._id} hover>
                     <TableCell padding="checkbox">
-                      <Tooltip title="Delete asset">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          disabled={busy}
-                          onClick={() => {
-                            setDeleteTarget(a);
-                            setDeleteOpen(true);
-                          }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                      <Checkbox
+                        size="small"
+                        checked={selectedAssetIds.includes(a._id)}
+                        disabled={!a.currentTag}
+                        onChange={() => toggleAssetSelection(a)}
+                      />
                     </TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
                     <TableCell>{a.name}</TableCell>
@@ -264,6 +307,19 @@ export default function TaggedAssetsPage() {
                           </Tooltip>
                           <Tooltip title="Transfer location / custodian">
                             <IconButton size="small" onClick={() => openTransfer(a)}><TransferIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete asset">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              disabled={busy}
+                              onClick={() => {
+                                setDeleteTarget(a);
+                                setDeleteOpen(true);
+                              }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
                           </Tooltip>
                           <Tooltip title="Void tag">
                             <IconButton size="small" color="error" onClick={() => { setSel(a); setVoidOpen(true); }}>

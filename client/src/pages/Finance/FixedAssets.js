@@ -45,7 +45,13 @@ const emptyForm = {
   locationBin: '',
   assignedTo: '',
   project: '',
-  serialNumber: ''
+  serialNumber: '',
+  brand: '',
+  model: '',
+  manufacturer: '',
+  condition: '',
+  warrantyExpiryDate: '',
+  characteristics: ''
 };
 
 function DepreciationScheduleRow({ asset }) {
@@ -536,6 +542,43 @@ export default function FixedAssets() {
                 helperText="Auto-generated with +1 sequence; you can still edit if required."
               />
             </Stack>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Asset Characteristics
+            </Typography>
+            <Stack direction="row" gap={2}>
+              <TextField label="Brand" value={form.brand || ''} onChange={e => setForm({ ...form, brand: e.target.value })} fullWidth size="small" />
+              <TextField label="Model" value={form.model || ''} onChange={e => setForm({ ...form, model: e.target.value })} fullWidth size="small" />
+            </Stack>
+            <Stack direction="row" gap={2}>
+              <TextField label="Manufacturer" value={form.manufacturer || ''} onChange={e => setForm({ ...form, manufacturer: e.target.value })} fullWidth size="small" />
+              <TextField
+                label="Condition"
+                value={form.condition || ''}
+                onChange={e => setForm({ ...form, condition: e.target.value })}
+                fullWidth
+                size="small"
+                placeholder="e.g. New / Good / Refurbished"
+              />
+            </Stack>
+            <TextField
+              label="Warranty Expiry"
+              type="date"
+              value={form.warrantyExpiryDate ? String(form.warrantyExpiryDate).split('T')[0] : ''}
+              onChange={e => setForm({ ...form, warrantyExpiryDate: e.target.value })}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Characteristics / Specifications"
+              value={form.characteristics || ''}
+              onChange={e => setForm({ ...form, characteristics: e.target.value })}
+              multiline
+              rows={2}
+              fullWidth
+              size="small"
+              placeholder="Key specs, configuration, distinguishing details"
+            />
             <Stack direction="row" gap={2}>
               <TextField label="Purchase Date *" type="date" value={form.purchaseDate} onChange={e => setForm({ ...form, purchaseDate: e.target.value })} fullWidth size="small" InputLabelProps={{ shrink: true }} />
               <TextField label="Purchase Cost *" type="number" value={form.purchaseCost} onChange={e => setForm({ ...form, purchaseCost: e.target.value })} fullWidth size="small" inputProps={{ min: 0 }} />

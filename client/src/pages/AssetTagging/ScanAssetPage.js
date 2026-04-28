@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Box, Typography, Paper, Button, CircularProgress, Alert, Stack, Chip, Divider
+  Box, Typography, Paper, Button, CircularProgress, Alert, Stack, Chip, Divider, Grid
 } from '@mui/material';
 import { Sensors as ScanIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -15,6 +15,12 @@ import { useAuth } from '../../contexts/AuthContext';
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-PK') : '—');
+const statusColor = (status) => {
+  if (status === 'active') return 'success';
+  if (status === 'disposed') return 'error';
+  if (status === 'fully_depreciated') return 'default';
+  return 'default';
+};
 
 export default function ScanAssetPage() {
   const { tagCode: tagCodeParam } = useParams();
@@ -62,6 +68,13 @@ export default function ScanAssetPage() {
   const asset = data?.asset;
   const transferHistory = data?.transferHistory || [];
   const assetLocationRows = asset ? formatAssetLocationLabeledRows(asset.location) : [];
+  const characteristicRows = [
+    { label: 'Brand', value: asset?.brand },
+    { label: 'Model', value: asset?.model },
+    { label: 'Manufacturer', value: asset?.manufacturer },
+    { label: 'Condition', value: asset?.condition },
+    { label: 'Warranty Expiry', value: fmtDate(asset?.warrantyExpiryDate) !== '—' ? fmtDate(asset?.warrantyExpiryDate) : '' }
+  ].filter((row) => String(row.value || '').trim());
   const projectLabel = asset?.project
     ? [asset.project.code, asset.project.name].filter(Boolean).join(' - ') || asset.project.projectId || asset.project.name
     : '';
@@ -76,20 +89,71 @@ export default function ScanAssetPage() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {asset && (
-        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1}>
             <Box>
-              <Typography variant="overline" color="text.secondary">Tag</Typography>
-              <Typography variant="h6" sx={{ fontFamily: 'monospace' }}>{data.tag?.tagCode}</Typography>
+              <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0.8 }}>Tag code</Typography>
+              <Typography variant="h6" sx={{ fontFamily: 'monospace', lineHeight: 1.2 }}>{data.tag?.tagCode}</Typography>
             </Box>
-            <Chip label={asset.status?.replace(/_/g, ' ')} size="small" />
+            <Chip
+              label={asset.status?.replace(/_/g, ' ')}
+              color={statusColor(asset.status)}
+              size="small"
+              sx={{ textTransform: 'capitalize' }}
+            />
           </Stack>
-          <Divider sx={{ my: 1 }} />
-          <Typography variant="h6" fontWeight={800}>{asset.assetNumber}</Typography>
-          <Typography variant="body1" gutterBottom>{asset.name}</Typography>
-          <Typography variant="body2" color="text.secondary">Category: {asset.category}</Typography>
+          <Divider sx={{ my: 1.2 }} />
+
+          <Box sx={{ mb: 1.2 }}>
+            <Typography variant="caption" color="text.secondary">Asset #</Typography>
+            <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>{asset.assetNumber}</Typography>
+            <Typography variant="body1" fontWeight={600}>{asset.name}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
+              Category: {asset.category}
+            </Typography>
+          </Box>
+
+          <Grid container spacing={1.2} sx={{ mb: 1.2 }}>
+            <Grid item xs={12} sm={6}>
+              <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 1.5, bgcolor: 'grey.50' }}>
+                <Typography variant="caption" color="text.secondary">Custodian</Typography>
+                <Typography variant="body2" fontWeight={600}>{formatCustodianForDisplay(asset.assignedTo) || '—'}</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 1.5, bgcolor: 'grey.50' }}>
+                <Typography variant="caption" color="text.secondary">Serial</Typography>
+                <Typography variant="body2" fontWeight={600}>{formatSerialForDisplay(asset.serialNumber) || '—'}</Typography>
+              </Paper>
+            </Grid>
+            {projectLabel ? (
+              <Grid item xs={12}>
+                <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 1.5, bgcolor: 'grey.50' }}>
+                  <Typography variant="caption" color="text.secondary">Project</Typography>
+                  <Typography variant="body2" fontWeight={600}>{projectLabel}</Typography>
+                </Paper>
+              </Grid>
+            ) : null}
+            {user ? (
+              <>
+                <Grid item xs={12} sm={6}>
+                  <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 1.5, bgcolor: 'grey.50' }}>
+                    <Typography variant="caption" color="text.secondary">Book value</Typography>
+                    <Typography variant="body2" fontWeight={700}>PKR {fmt(asset.currentBookValue)}</Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 1.5, bgcolor: 'grey.50' }}>
+                    <Typography variant="caption" color="text.secondary">Purchase date</Typography>
+                    <Typography variant="body2" fontWeight={600}>{fmtDate(asset.purchaseDate)}</Typography>
+                  </Paper>
+                </Grid>
+              </>
+            ) : null}
+          </Grid>
+
           <Box sx={{ color: 'text.secondary', mb: 1 }}>
-            <Typography variant="body2" color="text.secondary" fontWeight={600} gutterBottom>
+            <Typography variant="subtitle2" color="text.primary" fontWeight={700} gutterBottom>
               Location
             </Typography>
             {assetLocationRows.length ? (
@@ -104,20 +168,28 @@ export default function ScanAssetPage() {
               <Typography variant="body2" color="text.secondary">—</Typography>
             )}
           </Box>
-          <Typography variant="body2" color="text.secondary">
-            Custodian: {formatCustodianForDisplay(asset.assignedTo) || '—'}
-          </Typography>
-          {projectLabel ? (
-            <Typography variant="body2" color="text.secondary">{projectLabel}</Typography>
-          ) : null}
-          <Typography variant="body2" color="text.secondary">
-            Serial: {formatSerialForDisplay(asset.serialNumber) || '—'}
-          </Typography>
-          {user ? (
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              Book value: PKR {fmt(asset.currentBookValue)} · Purchased {fmtDate(asset.purchaseDate)}
-            </Typography>
-          ) : null}
+
+          {(characteristicRows.length > 0 || String(asset?.characteristics || '').trim()) && (
+            <Box sx={{ color: 'text.secondary', mb: 1 }}>
+              <Typography variant="subtitle2" color="text.primary" fontWeight={700} gutterBottom>
+                Asset Characteristics
+              </Typography>
+              {characteristicRows.length ? (
+                <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2.5, typography: 'body2' }}>
+                  {characteristicRows.map((row, idx) => (
+                    <Typography key={`char-${idx}-${row.label}`} component="li" variant="body2" color="text.secondary">
+                      <strong>{row.label}:</strong> {row.value}
+                    </Typography>
+                  ))}
+                </Stack>
+              ) : null}
+              {String(asset?.characteristics || '').trim() ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: characteristicRows.length ? 0.75 : 0 }}>
+                  <strong>Specifications:</strong> {asset.characteristics}
+                </Typography>
+              ) : null}
+            </Box>
+          )}
 
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>

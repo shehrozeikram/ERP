@@ -56,6 +56,13 @@ const fixedAssetSchema = new mongoose.Schema(
     project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
     costCenter: { type: mongoose.Schema.Types.ObjectId, ref: 'CostCenter' },
     serialNumber: { type: String, trim: true },
+    // Asset characteristics
+    brand: { type: String, trim: true },
+    model: { type: String, trim: true },
+    condition: { type: String, trim: true },
+    manufacturer: { type: String, trim: true },
+    warrantyExpiryDate: Date,
+    characteristics: { type: String, trim: true },
     // Status
     status: {
       type: String,

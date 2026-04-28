@@ -75,6 +75,7 @@ import VerificationPage from './pages/AssetTagging/VerificationPage';
 import TagEventsPage from './pages/AssetTagging/TagEventsPage';
 import ScanAssetPage from './pages/AssetTagging/ScanAssetPage';
 import LabelPrintPage from './pages/AssetTagging/LabelPrintPage';
+import BulkLabelPrintPage from './pages/AssetTagging/BulkLabelPrintPage';
 import BankReconciliation from './pages/Finance/BankReconciliation';
 import VendorStatement from './pages/Finance/VendorStatement';
 import BudgetVsActual from './pages/Finance/BudgetVsActual';
@@ -999,6 +1000,7 @@ function App() {
             <Route path="/asset-tagging/events" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><TagEventsPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/scan/:tagCode" element={<ScanAssetPage />} />
             <Route path="/asset-tagging/label/:assetId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><LabelPrintPage /></ProtectedRoute>} />
+            <Route path="/asset-tagging/labels/print" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><BulkLabelPrintPage /></ProtectedRoute>} />
             <Route path="/finance/bank-reconciliation" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankReconciliation /></ProtectedRoute>} />
             <Route path="/finance/vendor-statement" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "procurement_manager"]}><VendorStatement /></ProtectedRoute>} />
             <Route path="/finance/budget-vs-actual" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetVsActual /></ProtectedRoute>} />

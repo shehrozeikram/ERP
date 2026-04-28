@@ -147,7 +147,8 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), asyncHa
 
   const allowed = ['name', 'description', 'category', 'residualValue', 'depreciationMethod',
     'usefulLifeYears', 'depreciationRate', 'assetAccount', 'accumulatedDeprecAccount',
-    'depreciationExpenseAccount', 'location', 'assignedTo', 'project', 'costCenter', 'serialNumber'];
+    'depreciationExpenseAccount', 'location', 'assignedTo', 'project', 'costCenter', 'serialNumber',
+    'brand', 'model', 'condition', 'manufacturer', 'warrantyExpiryDate', 'characteristics'];
   allowed.forEach((f) => {
     if (req.body[f] === undefined) return;
     if (f === 'project') {
