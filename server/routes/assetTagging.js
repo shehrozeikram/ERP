@@ -203,9 +203,11 @@ router.get('/label-qr/:tagCode', authorize(...TAG_ROLES), asyncHandler(async (re
   const tag = await AssetTag.findOne({ tagCode, status: 'active' });
   if (!tag) return res.status(404).json({ success: false, message: 'Active tag not found' });
 
-  const url = scanUrlForTag(tagCode);
-  const dataUrl = await QRCode.toDataURL(url, { width: 256, margin: 1, errorCorrectionLevel: 'M' });
-  res.json({ success: true, data: { dataUrl, url, tagCode } });
+  // Encode plain tag code instead of route URL so generic mobile scanners
+  // do not show/open a web link preview.
+  const encodedValue = tagCode;
+  const dataUrl = await QRCode.toDataURL(encodedValue, { width: 256, margin: 1, errorCorrectionLevel: 'M' });
+  res.json({ success: true, data: { dataUrl, url: encodedValue, tagCode } });
 }));
 
 // ── POST /api/asset-tagging/scan — log a scan event

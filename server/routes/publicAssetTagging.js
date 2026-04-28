@@ -39,6 +39,12 @@ router.get('/resolve/:tagCode', asyncHandler(async (req, res) => {
     location: assetDoc.location,
     assignedTo: normalizeLookupString(assetDoc.assignedTo),
     serialNumber: normalizeLookupString(assetDoc.serialNumber),
+    brand: normalizeLookupString(assetDoc.brand),
+    model: normalizeLookupString(assetDoc.model),
+    manufacturer: normalizeLookupString(assetDoc.manufacturer),
+    condition: normalizeLookupString(assetDoc.condition),
+    warrantyExpiryDate: assetDoc.warrantyExpiryDate || null,
+    characteristics: normalizeLookupString(assetDoc.characteristics),
     project: assetDoc.project
       ? {
           _id: assetDoc.project._id,
