@@ -13,11 +13,8 @@
  *  purchaseAccount        – Expense for direct (non-GRN) purchases
  *
  * Usage:
- *   node server/scripts/attach-finance-accounts.js           # local  (uses MONGODB_URI_LOCAL)
- *   node server/scripts/attach-finance-accounts.js prod      # droplet (uses MONGODB_URI — requires SSH tunnel)
- *
- * Before running "prod", open the SSH tunnel in a separate terminal:
- *   ssh -L 27019:127.0.0.1:27017 root@68.183.215.177
+ *   node server/scripts/attach-finance-accounts.js           # local
+ *   node server/scripts/attach-finance-accounts.js prod      # production (reads MONGODB_URI from .env)
  */
 
 require('dotenv').config();

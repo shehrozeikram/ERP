@@ -15,6 +15,7 @@ class ChangeStreamService {
     try {
       console.log('🚀 Starting Change Stream Service...');
       
+      // Start change streams for different collections
       await this.startAttendanceChangeStream();
       await this.startEmployeeChangeStream();
       await this.startPayrollChangeStream();
@@ -23,11 +24,6 @@ class ChangeStreamService {
       console.log('✅ Change Stream Service started successfully');
       
     } catch (error) {
-      // Code 40573 = standalone MongoDB (no replica set). Safe to ignore locally.
-      if (error.code === 40573) {
-        console.warn('⚠️  Change Stream Service disabled: MongoDB is not a replica set (local dev). This is expected on localhost.');
-        return;
-      }
       console.error('❌ Error starting Change Stream Service:', error);
       throw error;
     }
@@ -85,11 +81,6 @@ class ChangeStreamService {
       });
 
       changeStream.on('error', (error) => {
-        if (error.code === 40573) {
-          console.warn('⚠️  Attendance change stream unavailable: MongoDB is not a replica set (local dev only).');
-          changeStream.close();
-          return;
-        }
         console.error('❌ Attendance change stream error:', error);
       });
 
@@ -126,11 +117,6 @@ class ChangeStreamService {
       });
 
       changeStream.on('error', (error) => {
-        if (error.code === 40573) {
-          console.warn('⚠️  Employee change stream unavailable: MongoDB is not a replica set (local dev only).');
-          changeStream.close();
-          return;
-        }
         console.error('❌ Employee change stream error:', error);
       });
 
@@ -168,11 +154,6 @@ class ChangeStreamService {
       });
 
       changeStream.on('error', (error) => {
-        if (error.code === 40573) {
-          console.warn('⚠️  Payroll change stream unavailable: MongoDB is not a replica set (local dev only).');
-          changeStream.close();
-          return;
-        }
         console.error('❌ Payroll change stream error:', error);
       });
 
