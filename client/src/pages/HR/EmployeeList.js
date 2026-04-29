@@ -29,7 +29,12 @@ import {
   CardContent,
   Alert,
   Snackbar,
-  CircularProgress
+  CircularProgress,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemAvatar,
+  ListItemText
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -42,12 +47,29 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { hasModuleAccess, MODULE_KEYS } from '../../utils/permissions';
 import { PageLoading } from '../../components/LoadingSpinner';
 import api from '../../services/api';
 import { getImageUrl } from '../../utils/imageService';
 
+function getProbationEndDate(employee) {
+  const baseDate = employee?.appointmentDate || employee?.hireDate || employee?.joiningDate;
+  if (!baseDate) return null;
+  const startDate = new Date(baseDate);
+  if (Number.isNaN(startDate.getTime())) return null;
+
+  const months = Number(employee?.probationPeriodMonths ?? employee?.probationPeriod ?? 0);
+  if (!Number.isFinite(months) || months <= 0) return null;
+
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + months);
+  return Number.isNaN(endDate.getTime()) ? null : endDate;
+}
+
 const EmployeeList = () => {
   const { employees, departments, projects, loading: dataLoading, fetchEmployees, fetchDepartments, fetchProjects, errors } = useData();
+  const { user } = useAuth();
   const [paginationLoading, setPaginationLoading] = useState(false);
   const fetchAttemptedRef = useRef(false);
   const departmentsFetchAttemptedRef = useRef(false);
@@ -62,6 +84,8 @@ const EmployeeList = () => {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportPages, setExportPages] = useState(1);
   const [exporting, setExporting] = useState(false);
+  const [probationCompletedEmployees, setProbationCompletedEmployees] = useState([]);
+  const [probationDialogOpen, setProbationDialogOpen] = useState(false);
   
   // Pagination state
   const location = useLocation();
@@ -74,6 +98,7 @@ const EmployeeList = () => {
   const [paginatedEmployees, setPaginatedEmployees] = useState([]);
   
   const navigate = useNavigate();
+  const canAccessHRModule = hasModuleAccess(user?.role, MODULE_KEYS.HR);
   
   // Update page when location state changes (e.g., returning from edit)
   useEffect(() => {
@@ -257,6 +282,28 @@ const EmployeeList = () => {
       newThisMonth
     };
   }, [employees, departments]);
+
+  useEffect(() => {
+    if (!canAccessHRModule) {
+      setProbationCompletedEmployees([]);
+      setProbationDialogOpen(false);
+      return;
+    }
+
+    const today = new Date();
+    const completedProbation = employees
+      .filter((emp) => {
+        const probationEnd = getProbationEndDate(emp);
+        if (!probationEnd) return false;
+        if (emp.confirmationDate) return false;
+        if (['Draft', 'Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)) return false;
+        return probationEnd <= today;
+      })
+      .sort((a, b) => getProbationEndDate(b) - getProbationEndDate(a));
+
+    setProbationCompletedEmployees(completedProbation);
+    setProbationDialogOpen(completedProbation.length > 0);
+  }, [employees, canAccessHRModule]);
 
   // Scroll to specific employee after create/edit (must be after sortedEmployees is defined)
   useEffect(() => {
@@ -1002,6 +1049,60 @@ const EmployeeList = () => {
           <Button onClick={handleExportToExcel} variant="contained" disabled={exporting} startIcon={exporting ? <CircularProgress size={18} /> : <GetAppIcon />}>
             {exporting ? 'Exporting...' : 'Export'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={probationDialogOpen} onClose={() => setProbationDialogOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Probation Completed - Great Progress!</DialogTitle>
+        <DialogContent>
+          <Alert severity="success" sx={{ mb: 2 }}>
+            Congratulations! These employees have successfully completed their probation period.
+          </Alert>
+          {probationCompletedEmployees.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No completed probation records found right now.
+            </Typography>
+          ) : (
+            <List disablePadding>
+              {probationCompletedEmployees.map((emp) => {
+                const probationEndDate = getProbationEndDate(emp);
+                const probationEndLabel = probationEndDate
+                  ? probationEndDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                  : '—';
+                return (
+                  <ListItem key={emp._id} disablePadding sx={{ mb: 0.5 }}>
+                    <ListItemButton
+                      onClick={() => {
+                        setProbationDialogOpen(false);
+                        navigate(`/hr/employees/${emp._id}`, { state: { page } });
+                      }}
+                      sx={{ borderRadius: 1 }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar src={getImageUrl(emp.profileImage)}>
+                          {(emp.firstName || '?')[0]}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee'}
+                        secondary={
+                          <>
+                            {emp.placementDepartment?.name || emp.department?.name || '—'}
+                            {' · '}
+                            <Chip component="span" size="small" label={`Probation ended: ${probationEndLabel}`} sx={{ height: 20, ml: 0.5 }} />
+                          </>
+                        }
+                        secondaryTypographyProps={{ component: 'div' }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setProbationDialogOpen(false)} variant="contained">Close</Button>
         </DialogActions>
       </Dialog>
 

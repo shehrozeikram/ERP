@@ -14,7 +14,15 @@ import {
   Paper,
   Divider,
   Alert,
-  CircularProgress
+  CircularProgress,
+  ListItemButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  IconButton,
+  FormControl,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   BarChart,
@@ -48,24 +56,38 @@ import {
   RadialBar
 } from 'recharts';
 import {
-  People as PeopleIcon,
-  Business as BusinessIcon,
   TrendingUp as TrendingUpIcon,
-  AttachMoney as MoneyIcon,
-  PersonAdd as PersonAddIcon,
-  Work as WorkIcon,
-  AccountBalance as LoanIcon,
-  Payment as PaymentIcon,
-  Schedule as AttendanceIcon,
   Biometric as BiometricIcon,
-  ExitToApp as SettlementIcon,
   Receipt,
-  Assessment
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { hasModuleAccess, MODULE_KEYS } from '../../utils/permissions';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/authService';
 import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
+
+/** Hire date used for HR reporting (new hires, tenure charts). */
+function getEmployeeHireDate(employee) {
+  if (!employee?.hireDate) return null;
+  const d = new Date(employee.hireDate);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function getProbationEndDate(employee) {
+  const baseDate = employee?.appointmentDate || employee?.hireDate || employee?.joiningDate;
+  if (!baseDate) return null;
+  const startDate = new Date(baseDate);
+  if (Number.isNaN(startDate.getTime())) return null;
+
+  const months = Number(employee?.probationPeriodMonths ?? employee?.probationPeriod ?? 0);
+  if (!Number.isFinite(months) || months <= 0) return null;
+
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + months);
+  return Number.isNaN(endDate.getTime()) ? null : endDate;
+}
 
 const HRDashboard = () => {
   const [stats, setStats] = useState({
@@ -73,6 +95,10 @@ const HRDashboard = () => {
     activeEmployees: 0,
     totalDepartments: 0,
     newThisMonth: 0,
+    newThisYear: 0,
+    resignations: 0,
+    disciplinaryCases: 0,
+    turnoverRate: 0,
     avgSalary: 0,
     totalSalary: 0,
     avgBasicSalary: 0,
@@ -98,7 +124,21 @@ const HRDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [hireListDialogOpen, setHireListDialogOpen] = useState(false);
+  const [statusListDialog, setStatusListDialog] = useState({ open: false, type: 'resignations' });
+  const [newHireFilter, setNewHireFilter] = useState('month');
+  const [employeesWithHireDate, setEmployeesWithHireDate] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [probationCompletedEmployees, setProbationCompletedEmployees] = useState([]);
+  const [probationDialogOpen, setProbationDialogOpen] = useState(false);
+  const { user } = useAuth();
   const navigate = useNavigate();
+
+  const isDisciplinaryTermination = (employee) => {
+    const reason = (employee?.terminationReason || '').toLowerCase();
+    return ['disciplin', 'misconduct', 'violation', 'warning', 'show cause', 'fraud', 'policy']
+      .some(keyword => reason.includes(keyword));
+  };
 
   const getRandomColor = () => {
     const colors = [
@@ -150,11 +190,12 @@ const HRDashboard = () => {
       const range = salaryRanges.find(r => grossSalary >= r.min && grossSalary < r.max);
       if (range) {
         range.count++;
-        // Calculate years of service from hire date
-        const hireDate = new Date(emp.hireDate);
-        const today = new Date();
-        const yearsOfService = today.getFullYear() - hireDate.getFullYear();
-        range.avgYearsOfService += yearsOfService;
+        const hireDate = getEmployeeHireDate(emp);
+        if (hireDate) {
+          const today = new Date();
+          const yearsOfService = today.getFullYear() - hireDate.getFullYear();
+          range.avgYearsOfService += yearsOfService;
+        }
       }
     });
 
@@ -198,16 +239,17 @@ const HRDashboard = () => {
     const now = new Date();
     for (let i = 5; i >= 0; i--) {
       const month = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthName = month.toLocaleDateString('en-US', { month: 'short' });
+      const monthName = month.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
       const hires = employees.filter(emp => {
-        const hireDate = new Date(emp.hireDate);
-        return hireDate.getMonth() === month.getMonth() && 
+        const hireDate = getEmployeeHireDate(emp);
+        if (!hireDate) return false;
+        return hireDate.getMonth() === month.getMonth() &&
                hireDate.getFullYear() === month.getFullYear();
       }).length;
-      
+
       monthlyHires.push({
         month: monthName,
-        hires: hires,
+        hires,
         fill: getRandomColor()
       });
     }
@@ -249,17 +291,18 @@ const HRDashboard = () => {
     ];
 
     employees.forEach(emp => {
-      const hireDate = new Date(emp.hireDate);
+      const hireDate = getEmployeeHireDate(emp);
+      if (!hireDate) return;
       const today = new Date();
       const yearsOfService = today.getFullYear() - hireDate.getFullYear();
-      
+
       let level;
       if (yearsOfService <= 2) level = experienceLevels[0];
       else if (yearsOfService <= 5) level = experienceLevels[1];
       else if (yearsOfService <= 10) level = experienceLevels[2];
       else if (yearsOfService <= 15) level = experienceLevels[3];
       else level = experienceLevels[4];
-      
+
       level.count++;
       level.avgSalary += emp.salary || 0;
     });
@@ -298,18 +341,20 @@ const HRDashboard = () => {
     }));
 
     // Real Salary vs Years of Service scatter plot
-    const salaryVsExperience = employees.map(emp => {
-      const hireDate = new Date(emp.hireDate);
-      const today = new Date();
-      const yearsOfService = today.getFullYear() - hireDate.getFullYear();
-      
-      return {
-        experience: yearsOfService,
-        salary: emp.salary || 0,
-        department: emp.placementDepartment?.name || 'General',
-        performance: emp.performance?.rating || 3.5
-      };
-    });
+    const salaryVsExperience = employees
+      .map(emp => {
+        const hireDate = getEmployeeHireDate(emp);
+        if (!hireDate) return null;
+        const today = new Date();
+        const yearsOfService = today.getFullYear() - hireDate.getFullYear();
+        return {
+          experience: yearsOfService,
+          salary: emp.salary || 0,
+          department: emp.placementDepartment?.name || 'General',
+          performance: emp.performance?.rating || 3.5
+        };
+      })
+      .filter(Boolean);
 
     // Real Department salary analysis
     const departmentSalaryData = deptStats.map(dept => {
@@ -375,7 +420,7 @@ const HRDashboard = () => {
   // Initial data fetch - only run once on mount
   useEffect(() => {
     fetchDashboardData();
-  }, []); // Empty dependency array - only run once
+  }, [user?.role]); // Re-evaluate when user role context loads
 
   const fetchDashboardData = async () => {
     try {
@@ -393,6 +438,7 @@ const HRDashboard = () => {
             activeEmployees: statsData.overall.activeEmployees || 0,
             totalDepartments: statsData.overall.totalDepartments || 0,
             newThisMonth: statsData.overall.newThisMonth || 0,
+            newThisYear: statsData.overall.newThisYear || 0,
             avgSalary: statsData.overall.avgSalary || 0,
             totalSalary: statsData.overall.totalSalary || 0
           });
@@ -404,6 +450,26 @@ const HRDashboard = () => {
       // Fetch employees
       const employeesResponse = await api.get('/hr/employees?limit=1000');
       const employees = employeesResponse.data.data || [];
+      setAllEmployees(employees);
+      const canAccessHRModule = hasModuleAccess(user?.role, MODULE_KEYS.HR);
+      if (canAccessHRModule) {
+        const today = new Date();
+        const completedProbation = employees
+          .filter((emp) => {
+            const probationEnd = getProbationEndDate(emp);
+            if (!probationEnd) return false;
+            if (emp.confirmationDate) return false;
+            if (['Draft', 'Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)) return false;
+            return probationEnd <= today;
+          })
+          .sort((a, b) => getProbationEndDate(b) - getProbationEndDate(a));
+
+        setProbationCompletedEmployees(completedProbation);
+        setProbationDialogOpen(completedProbation.length > 0);
+      } else {
+        setProbationCompletedEmployees([]);
+        setProbationDialogOpen(false);
+      }
       
       // Fetch departments
       const departmentsResponse = await api.get('/hr/departments');
@@ -412,13 +478,23 @@ const HRDashboard = () => {
       // If we don't have stats from the statistics endpoint, calculate them
       if (!stats.totalEmployees) {
         const activeEmployees = employees.filter(emp => emp.isActive);
-        const newThisMonth = employees.filter(emp => {
-          const hireDate = new Date(emp.hireDate);
-          const now = new Date();
-          return hireDate.getMonth() === now.getMonth() && 
-                 hireDate.getFullYear() === now.getFullYear();
+        const now = new Date();
+        const resignationsCount = employees.filter(emp => emp.employmentStatus === 'Resigned').length;
+        const disciplinaryCasesCount = employees.filter(emp => isDisciplinaryTermination(emp)).length;
+        const employeesLeftCount = employees.filter(emp =>
+          ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)
+        ).length;
+        const averageTotalEmployees = (employees.length + activeEmployees.length) / 2;
+        const turnoverRate = averageTotalEmployees > 0
+          ? Number(((employeesLeftCount / averageTotalEmployees) * 100).toFixed(2))
+          : 0;
+        const newThisMonthList = employees.filter(emp => {
+          const hireDate = getEmployeeHireDate(emp);
+          return hireDate &&
+            hireDate.getMonth() === now.getMonth() &&
+            hireDate.getFullYear() === now.getFullYear();
         });
-        
+
         const totalBasicSalary = employees.reduce((sum, emp) => sum + (emp.salary?.basic || 0), 0);
         const totalGrossSalary = employees.reduce((sum, emp) => {
           const gross = (emp.salary?.basic || 0) + 
@@ -432,25 +508,79 @@ const HRDashboard = () => {
         const avgBasicSalary = employees.length > 0 ? totalBasicSalary / employees.length : 0;
         const avgGrossSalary = employees.length > 0 ? totalGrossSalary / employees.length : 0;
         
+        const newThisYearCount = employees.filter(emp => {
+          const hireDate = getEmployeeHireDate(emp);
+          return hireDate && hireDate.getFullYear() === now.getFullYear();
+        }).length;
+
         setStats({
           totalEmployees: employees.length,
           activeEmployees: activeEmployees.length,
           totalDepartments: departments.length,
-          newThisMonth: newThisMonth.length,
+          newThisMonth: newThisMonthList.length,
+          newThisYear: newThisYearCount,
+          resignations: resignationsCount,
+          disciplinaryCases: disciplinaryCasesCount,
+          turnoverRate,
           avgBasicSalary: avgBasicSalary,
           avgGrossSalary: avgGrossSalary,
           totalBasicSalary: totalBasicSalary,
           totalGrossSalary: totalGrossSalary
         });
       }
-      
+
+      // Hire-date metrics from loaded employees (authoritative; /hr/statistics does not return these)
+      const nowHire = new Date();
+      const newThisMonthListData = employees.filter(emp => {
+        const hireDate = getEmployeeHireDate(emp);
+        return hireDate &&
+          hireDate.getMonth() === nowHire.getMonth() &&
+          hireDate.getFullYear() === nowHire.getFullYear();
+      });
+      const newThisYearListData = employees.filter(emp => {
+        const hireDate = getEmployeeHireDate(emp);
+        return hireDate && hireDate.getFullYear() === nowHire.getFullYear();
+      });
+      const newThisMonthHires = newThisMonthListData.length;
+      const newThisYearHires = newThisYearListData.length;
+      const resignationsCount = employees.filter(emp => emp.employmentStatus === 'Resigned').length;
+      const disciplinaryCasesCount = employees.filter(emp => isDisciplinaryTermination(emp)).length;
+      const activeEmployeesCount = employees.filter(emp => emp.isActive).length;
+      const employeesLeftCount = employees.filter(emp =>
+        ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)
+      ).length;
+      const averageTotalEmployees = (employees.length + activeEmployeesCount) / 2;
+      const turnoverRate = averageTotalEmployees > 0
+        ? Number(((employeesLeftCount / averageTotalEmployees) * 100).toFixed(2))
+        : 0;
+      setStats(prev => ({
+        ...prev,
+        newThisMonth: newThisMonthHires,
+        newThisYear: newThisYearHires,
+        resignations: resignationsCount,
+        disciplinaryCases: disciplinaryCasesCount,
+        turnoverRate
+      }));
+      setEmployeesWithHireDate(
+        [...employees]
+          .filter(emp => getEmployeeHireDate(emp))
+          .sort((a, b) => getEmployeeHireDate(b) - getEmployeeHireDate(a))
+      );
+
+      const recentHiresSorted = [...employees]
+        .map(emp => ({ emp, hireDate: getEmployeeHireDate(emp) }))
+        .filter(({ hireDate }) => hireDate)
+        .sort((a, b) => b.hireDate - a.hireDate)
+        .slice(0, 8)
+        .map(({ emp }) => emp);
+      setRecentEmployees(recentHiresSorted);
+
       // Department statistics
       const deptStats = departments.map(dept => ({
         ...dept,
         employeeCount: employees.filter(emp => emp.placementDepartment?.name === dept.name).length
       }));
-      
-      setRecentEmployees(employees.slice(0, 5)); // Get 5 most recent
+
       setDepartments(deptStats);
       
       // Process chart data
@@ -530,6 +660,39 @@ const HRDashboard = () => {
     );
   }
 
+  const nowForFilter = new Date();
+  const filteredNewHires = employeesWithHireDate.filter(emp => {
+    const hireDate = getEmployeeHireDate(emp);
+    if (!hireDate) return false;
+    if (newHireFilter === 'year') {
+      return hireDate.getFullYear() === nowForFilter.getFullYear();
+    }
+    return (
+      hireDate.getMonth() === nowForFilter.getMonth() &&
+      hireDate.getFullYear() === nowForFilter.getFullYear()
+    );
+  });
+
+  const filteredStatusEmployees = allEmployees
+    .filter(emp => (
+      statusListDialog.type === 'disciplinary'
+        ? isDisciplinaryTermination(emp)
+        : emp.employmentStatus === 'Resigned'
+    ))
+    .sort((a, b) => {
+      const aDate = getEmployeeHireDate(a) || new Date(0);
+      const bDate = getEmployeeHireDate(b) || new Date(0);
+      return bDate - aDate;
+    });
+
+  const employeesLeftList = allEmployees
+    .filter(emp => ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus))
+    .sort((a, b) => {
+      const aDate = getEmployeeHireDate(a) || new Date(0);
+      const bDate = getEmployeeHireDate(b) || new Date(0);
+      return bDate - aDate;
+    });
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
@@ -537,255 +700,373 @@ const HRDashboard = () => {
       </Typography>
       
       {/* Statistics Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ 
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            color: 'white'
-          }}>
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => navigate('/hr/employees')}
+          >
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <PeopleIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
-                <Box>
-                  <Typography color="white" gutterBottom>
-                    Total Employees
-                  </Typography>
-                  <Typography variant="h4" sx={{ color: 'white' }}>
-                    {stats.totalEmployees ?? 0}
-                  </Typography>
-                </Box>
-              </Box>
+              <Typography color="textSecondary" gutterBottom>
+                Total Employees
+              </Typography>
+              <Typography variant="h4">
+                {stats.totalEmployees ?? 0}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
         
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ 
-            background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-            color: 'white'
-          }}>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => navigate('/hr/employees')}
+          >
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <WorkIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
-                <Box>
-                  <Typography color="white" gutterBottom>
-                    Active Employees
-                  </Typography>
-                  <Typography variant="h4" sx={{ color: 'white' }}>
-                    {stats.activeEmployees ?? 0}
-                  </Typography>
-                </Box>
-              </Box>
+              <Typography color="textSecondary" gutterBottom>
+                Active Employees
+              </Typography>
+              <Typography variant="h4">
+                {stats.activeEmployees ?? 0}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
         
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ 
-            background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-            color: 'white'
-          }}>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => navigate('/hr/departments')}
+          >
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <BusinessIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
-                <Box>
-                  <Typography color="white" gutterBottom>
-                    Departments
-                  </Typography>
-                  <Typography variant="h4" sx={{ color: 'white' }}>
-                    {stats.totalDepartments ?? 0}
-                  </Typography>
-                </Box>
-              </Box>
+              <Typography color="textSecondary" gutterBottom>
+                Departments
+              </Typography>
+              <Typography variant="h4">
+                {stats.totalDepartments ?? 0}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
         
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ 
-            background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-            color: 'white'
-          }}>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => setStatusListDialog({ open: true, type: 'resignations' })}
+          >
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <MoneyIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
-                <Box>
-                  <Typography color="white" gutterBottom>
-                    Avg Salary
-                  </Typography>
-                  <Typography variant="h4" sx={{ color: 'white' }}>
-                    {formatPKR(stats.avgGrossSalary || stats.avgBasicSalary || 0)}
-                  </Typography>
-                </Box>
-              </Box>
+              <Typography color="textSecondary" gutterBottom>
+                Resignations
+              </Typography>
+              <Typography variant="h4">
+                {stats.resignations ?? 0}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => setStatusListDialog({ open: true, type: 'disciplinary' })}
+          >
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Disciplinary Cases
+              </Typography>
+              <Typography variant="h4">
+                {stats.disciplinaryCases ?? 0}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                (From termination reason)
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => setStatusListDialog({ open: true, type: 'left' })}
+          >
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Turnover Rate
+              </Typography>
+              <Typography variant="h4">
+                {stats.turnoverRate ?? 0}%
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      {/* Quick Navigation */}
+      {/* New hires (by employee hire date) */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12}>
-          <Typography variant="h5" gutterBottom sx={{ mb: 2 }}>
-            Quick Navigation
-          </Typography>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card 
-            sx={{ 
+        <Grid item xs={12} md={8}>
+          <Card
+            sx={{
               cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
-              },
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white'
+              transition: 'all 0.2s ease',
+              '&:hover': { boxShadow: 4 }
             }}
-            onClick={() => navigate('/hr/employees')}
+            onClick={() => setHireListDialogOpen(true)}
           >
-            <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <PeopleIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                Employee Management
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
-                Manage employees, view profiles, and handle employee data
-              </Typography>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                <Box>
+                  <Typography color="textSecondary" gutterBottom>
+                    New Hires
+                  </Typography>
+                  <Typography variant="h4">
+                    {filteredNewHires.length}
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    {newHireFilter === 'year'
+                      ? `${new Date().getFullYear()} (hire-date based)`
+                      : 'This month (hire-date based)'}
+                  </Typography>
+                </Box>
+                <Box>
+                  <FormControl
+                    size="small"
+                    onClick={(e) => e.stopPropagation()}
+                    sx={{ minWidth: 150 }}
+                  >
+                    <Select
+                      value={newHireFilter}
+                      onChange={(e) => setNewHireFilter(e.target.value)}
+                    >
+                      <MenuItem value="month">This Month</MenuItem>
+                      <MenuItem value="year">This Year</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
+              </Box>
             </CardContent>
           </Card>
         </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card 
-            sx={{ 
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
-              },
-              background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-              color: 'white'
-            }}
-            onClick={() => navigate('/hr/payroll')}
-          >
-            <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <PaymentIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                Payroll Management
+        <Grid item xs={12} md={4}>
+          <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+              Recent hires (by hire date)
+            </Typography>
+            {recentEmployees.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No employees with a hire date yet.
               </Typography>
-              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
-                Process payroll, manage salaries, and handle deductions
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card 
-            sx={{ 
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
-              },
-              background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-              color: 'white'
-            }}
-            onClick={() => navigate('/hr/loans')}
-          >
-            <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <LoanIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                Loan Management
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
-                Manage employee loans, applications, and repayments
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card 
-            sx={{ 
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
-              },
-              background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-              color: 'white'
-            }}
-            onClick={() => navigate('/hr/settlements')}
-          >
-            <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <SettlementIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                Final Settlement
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
-                Process employee exits, settlements, and final payments
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card 
-            sx={{ 
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
-              },
-              background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
-              color: 'white'
-            }}
-            onClick={() => navigate('/hr/reports')}
-          >
-            <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <Assessment sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                HR Reports
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
-                Comprehensive reports and analytics for HR insights
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card 
-            sx={{ 
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
-              },
-              background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-              color: 'white'
-            }}
-            onClick={() => navigate('/hr/attendance')}
-          >
-            <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <AttendanceIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
-              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                Attendance Management
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
-                Track attendance, manage time, and handle leave requests
-              </Typography>
-            </CardContent>
-          </Card>
+            ) : (
+              <List dense disablePadding>
+                {recentEmployees.map((emp) => {
+                  const hd = getEmployeeHireDate(emp);
+                  const label = hd
+                    ? hd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                    : '—';
+                  return (
+                    <ListItem key={emp._id} disablePadding sx={{ mb: 0.5 }}>
+                      <ListItemButton
+                        onClick={() => navigate(`/hr/employees/${emp._id}`)}
+                        sx={{ borderRadius: 1 }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar src={emp.profileImage} sx={{ width: 36, height: 36 }}>
+                            {(emp.firstName || '?')[0]}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee'}
+                          secondary={
+                            <>
+                              {emp.placementDepartment?.name || emp.department?.name || '—'}
+                              {' · '}
+                              <Chip component="span" size="small" label={label} sx={{ height: 20, ml: 0.5 }} />
+                            </>
+                          }
+                          secondaryTypographyProps={{ component: 'div' }}
+                        />
+                      </ListItemButton>
+                    </ListItem>
+                  );
+                })}
+              </List>
+            )}
+          </Paper>
         </Grid>
       </Grid>
+
+      <Dialog
+        open={hireListDialogOpen}
+        onClose={() => setHireListDialogOpen(false)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle sx={{ pr: 6 }}>
+          {`New Hires - ${newHireFilter === 'year' ? 'This Year' : 'This Month'} (${filteredNewHires.length})`}
+          <IconButton
+            onClick={() => setHireListDialogOpen(false)}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {filteredNewHires.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No employees found for this hire-date filter.
+            </Typography>
+          ) : (
+            <List disablePadding>
+              {filteredNewHires.map((emp) => {
+                const hd = getEmployeeHireDate(emp);
+                const label = hd
+                  ? hd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                  : '—';
+                return (
+                  <ListItem key={emp._id} disablePadding sx={{ mb: 0.5 }}>
+                    <ListItemButton onClick={() => navigate(`/hr/employees/${emp._id}`)} sx={{ borderRadius: 1 }}>
+                      <ListItemAvatar>
+                        <Avatar src={emp.profileImage}>
+                          {(emp.firstName || '?')[0]}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee'}
+                        secondary={
+                          <>
+                            {emp.placementDepartment?.name || emp.department?.name || '—'}
+                            {' · '}
+                            <Chip component="span" size="small" label={label} sx={{ height: 20, ml: 0.5 }} />
+                          </>
+                        }
+                        secondaryTypographyProps={{ component: 'div' }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={statusListDialog.open}
+        onClose={() => setStatusListDialog(prev => ({ ...prev, open: false }))}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle sx={{ pr: 6 }}>
+          {statusListDialog.type === 'disciplinary'
+            ? `Disciplinary Cases (${filteredStatusEmployees.length})`
+            : statusListDialog.type === 'left'
+              ? `Employees Left (${employeesLeftList.length})`
+              : `Resignations (${filteredStatusEmployees.length})`}
+          <IconButton
+            onClick={() => setStatusListDialog(prev => ({ ...prev, open: false }))}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {(statusListDialog.type === 'left' ? employeesLeftList : filteredStatusEmployees).length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No employees found for this card.
+            </Typography>
+          ) : (
+            <List disablePadding>
+              {(statusListDialog.type === 'left' ? employeesLeftList : filteredStatusEmployees).map((emp) => {
+                const hd = getEmployeeHireDate(emp);
+                const hireLabel = hd
+                  ? hd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                  : '—';
+                const reason = (emp.terminationReason || '').trim();
+                return (
+                  <ListItem key={emp._id} disablePadding sx={{ mb: 0.5 }}>
+                    <ListItemButton onClick={() => navigate(`/hr/employees/${emp._id}`)} sx={{ borderRadius: 1 }}>
+                      <ListItemAvatar>
+                        <Avatar src={emp.profileImage}>
+                          {(emp.firstName || '?')[0]}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee'}
+                        secondary={
+                          <>
+                            {emp.placementDepartment?.name || emp.department?.name || '—'}
+                            {' · '}
+                            <Chip component="span" size="small" label={`Hire: ${hireLabel}`} sx={{ height: 20, ml: 0.5 }} />
+                            {reason ? (
+                              <Chip component="span" size="small" label={reason} sx={{ height: 20, ml: 0.5 }} />
+                            ) : null}
+                          </>
+                        }
+                        secondaryTypographyProps={{ component: 'div' }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={probationDialogOpen}
+        onClose={() => setProbationDialogOpen(false)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle sx={{ pr: 6 }}>
+          Probation Completed - Great Progress!
+          <IconButton
+            onClick={() => setProbationDialogOpen(false)}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="success" sx={{ mb: 2 }}>
+            Congratulations to the team! The following employees have successfully completed their probation period.
+          </Alert>
+          {probationCompletedEmployees.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No completed probation records found right now.
+            </Typography>
+          ) : (
+            <List disablePadding>
+              {probationCompletedEmployees.map((emp) => {
+                const probationEndDate = getProbationEndDate(emp);
+                const probationEndLabel = probationEndDate
+                  ? probationEndDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                  : '—';
+                return (
+                  <ListItem key={emp._id} disablePadding sx={{ mb: 0.5 }}>
+                    <ListItemButton onClick={() => navigate(`/hr/employees/${emp._id}`)} sx={{ borderRadius: 1 }}>
+                      <ListItemAvatar>
+                        <Avatar src={emp.profileImage}>
+                          {(emp.firstName || '?')[0]}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee'}
+                        secondary={
+                          <>
+                            {emp.placementDepartment?.name || emp.department?.name || '—'}
+                            {' · '}
+                            <Chip component="span" size="small" label={`Probation ended: ${probationEndLabel}`} sx={{ height: 20, ml: 0.5 }} />
+                          </>
+                        }
+                        secondaryTypographyProps={{ component: 'div' }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Charts Grid */}
       <Grid container spacing={3}>
@@ -1334,7 +1615,7 @@ const HRDashboard = () => {
           }}>
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ color: 'white' }}>
-                📅 Monthly Hiring Trends
+                📅 Monthly hiring trends (by hire date)
               </Typography>
               <ResponsiveContainer width="100%" height={350}>
                 <AreaChart data={chartData.monthlyHires}>
