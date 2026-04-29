@@ -146,9 +146,11 @@ const Dashboard = () => {
   const presentChartDataRef = useRef(null);
   const [presentEmployees, setPresentEmployees] = useState([]);
   const [presentUsersDialogOpen, setPresentUsersDialogOpen] = useState(false);
+  const [usersDialogStatus, setUsersDialogStatus] = useState('Present'); // 'Present' | 'Absent'
   const [presentEmployeesLoading, setPresentEmployeesLoading] = useState(false);
   const [presentEmployeesError, setPresentEmployeesError] = useState('');
   const [presentUsersCount, setPresentUsersCount] = useState(0);
+  const [absentUsersCount, setAbsentUsersCount] = useState(0);
   const [presentEmployeesPage, setPresentEmployeesPage] = useState(1);
   const [presentEmployeesRowsPerPage, setPresentEmployeesRowsPerPage] = useState(20);
   const [presentEmployeesTotalCount, setPresentEmployeesTotalCount] = useState(0);
@@ -162,11 +164,12 @@ const Dashboard = () => {
       punch_set: row.punch_set || row.punch_time || row.time || row.last_punch || '-'
     }));
 
-  const fetchPresentUsersByPunch = useCallback(async (page = 1, pageSize = 20) => {
+  const fetchUsersByPunch = useCallback(async (status = 'Present', page = 1, pageSize = 20) => {
     setPresentEmployeesLoading(true);
     setPresentEmployeesError('');
     try {
-      const { data } = await api.get('/zkbio/zkbio/present-by-punch', {
+      const endpoint = status === 'Absent' ? '/zkbio/zkbio/absent-by-punch' : '/zkbio/zkbio/present-by-punch';
+      const { data } = await api.get(endpoint, {
         params: { departments: '', areas: '', page, page_size: pageSize }
       });
       const list = Array.isArray(data?.data) ? data.data : [];
@@ -245,6 +248,8 @@ const Dashboard = () => {
       
       // Present percentage (use WebSocket data if available, same as PresentChart)
       let presentPercentage = 0;
+      let presentUsersCountLive = Number(presentToday || 0);
+      let absentUsersCountLive = Number(absentToday || 0);
       
       if (presentChartDataRef.current && presentChartDataRef.current.length > 0) {
         // Use WebSocket data (same as PresentChart)
@@ -254,11 +259,15 @@ const Dashboard = () => {
         const absentCount = absentItem ? absentItem.value : 0;
         const totalCount = presentCount + absentCount;
         presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
+        presentUsersCountLive = Number(presentCount || 0);
+        absentUsersCountLive = Number(absentCount || 0);
       } else {
         // Fallback to API data
         const totalAttendance = presentToday + absentToday;
         presentPercentage = totalAttendance > 0 ? (presentToday / totalAttendance) * 100 : 0;
       }
+      setPresentUsersCount(presentUsersCountLive);
+      setAbsentUsersCount(absentUsersCountLive);
       
       // Performance indicators
       const performanceMetrics = {
@@ -281,7 +290,8 @@ const Dashboard = () => {
           presentToday,
           absentToday,
           presentPercentage,
-          presentUsersCount: Number(presentToday || 0)
+          presentUsersCount: presentUsersCountLive,
+          absentUsersCount: absentUsersCountLive
         },
         performance: performanceMetrics,
         recentActivity: [
@@ -403,6 +413,7 @@ const Dashboard = () => {
       const totalCount = presentCount + absentCount;
       const presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
       setPresentUsersCount(presentCount);
+      setAbsentUsersCount(absentCount);
       
       logDebug('📊 Dashboard: Updating dashboard with Present percentage:', presentPercentage.toFixed(2) + '%');
       
@@ -413,7 +424,8 @@ const Dashboard = () => {
         overview: {
           ...(prevData?.overview || {}),
           presentPercentage,
-          presentUsersCount: presentCount
+          presentUsersCount: presentCount,
+          absentUsersCount: absentCount
         }
       }));
       
@@ -542,6 +554,9 @@ const Dashboard = () => {
           <Typography variant="h3" sx={{ 
             fontWeight: 'bold', 
             mb: 1, 
+            fontSize: { xs: '1.5rem', sm: '1.6rem', md: '1.4rem', lg: '1.6rem' },
+            lineHeight: 1.2,
+            wordBreak: 'break-word',
             color: theme.palette.text.primary,
             background: `linear-gradient(135deg, ${theme.palette.text.primary} 0%, ${alpha(theme.palette.text.primary, 0.7)} 100%)`,
             backgroundClip: 'text',
@@ -553,14 +568,16 @@ const Dashboard = () => {
           <Typography variant="h6" sx={{ 
             color: theme.palette.text.secondary, 
             mb: 1,
-            fontWeight: 600
+            fontWeight: 600,
+            fontSize: { xs: '0.92rem', md: '0.85rem', lg: '0.92rem' }
           }}>
             {title}
           </Typography>
           {subtitle && (
             <Typography variant="body2" sx={{ 
               color: theme.palette.text.secondary,
-              opacity: 0.8
+              opacity: 0.8,
+              fontSize: { xs: '0.75rem', md: '0.7rem', lg: '0.75rem' }
             }}>
               {subtitle}
             </Typography>
@@ -1065,7 +1082,7 @@ const Dashboard = () => {
 
         {/* Premium KPI Cards */}
         <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
             <PremiumKPICard
               title="Total Employees"
               value={dashboardData.overview.totalEmployees.toLocaleString()}
@@ -1078,7 +1095,7 @@ const Dashboard = () => {
               onClick={() => navigate('/hr/employees')}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
             <PremiumKPICard
               title="Monthly Payroll"
               value={formatPKR(dashboardData.overview.totalPayrollAmount)}
@@ -1091,7 +1108,7 @@ const Dashboard = () => {
               onClick={() => navigate('/hr/payroll')}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
             <PremiumKPICard
               title="Present Percentage"
               value={`${dashboardData.overview.presentPercentage.toFixed(1)}%`}
@@ -1102,13 +1119,32 @@ const Dashboard = () => {
               subtitle={`${dashboardData.overview.presentUsersCount || presentUsersCount} present users`}
               delay={200}
               onClick={() => {
+                setUsersDialogStatus('Present');
                 setPresentUsersDialogOpen(true);
                 setPresentEmployeesPage(1);
-                fetchPresentUsersByPunch(1, presentEmployeesRowsPerPage);
+                fetchUsersByPunch('Present', 1, presentEmployeesRowsPerPage);
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
+            <PremiumKPICard
+              title="Absent Users"
+              value={`${dashboardData.overview.absentUsersCount ?? absentUsersCount}`}
+              change="1.2"
+              trend="down"
+              icon={<TrendingDown />}
+              color={theme.palette.error.main}
+              subtitle="Click to view absent list"
+              delay={250}
+              onClick={() => {
+                setUsersDialogStatus('Absent');
+                setPresentUsersDialogOpen(true);
+                setPresentEmployeesPage(1);
+                fetchUsersByPunch('Absent', 1, presentEmployeesRowsPerPage);
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
             <PremiumKPICard
               title="Total Indents"
               value={dashboardData.overview.totalIndents.toLocaleString()}
@@ -1130,10 +1166,12 @@ const Dashboard = () => {
           fullWidth
           maxWidth="md"
         >
-          <DialogTitle>Present Employees</DialogTitle>
+          <DialogTitle>{usersDialogStatus} Employees</DialogTitle>
           <DialogContent dividers>
             {presentEmployeesLoading && (
-              <Typography variant="body2" color="text.secondary">Loading present users...</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Loading {usersDialogStatus.toLowerCase()} users...
+              </Typography>
             )}
             {!!presentEmployeesError && <Alert severity="error">{presentEmployeesError}</Alert>}
             {!presentEmployeesLoading && !presentEmployeesError && (
@@ -1147,7 +1185,9 @@ const Dashboard = () => {
                     const checkIn = record.punch_set || '--';
                     return (
                       <ListItem key={`${employeeId}-${index}`} divider>
-                        <ListItemIcon><CheckCircle color="success" /></ListItemIcon>
+                        <ListItemIcon>
+                          <CheckCircle color={usersDialogStatus === 'Absent' ? 'error' : 'success'} />
+                        </ListItemIcon>
                         <ListItemText
                           primary={fullName}
                           secondary={`ID: ${employeeId} · Dept: ${record.dept_name || '-'} · Check-in: ${checkIn}`}
@@ -1167,14 +1207,14 @@ const Dashboard = () => {
               onPageChange={(_event, newPage) => {
                 const nextPage = newPage + 1;
                 setPresentEmployeesPage(nextPage);
-                fetchPresentUsersByPunch(nextPage, presentEmployeesRowsPerPage);
+                fetchUsersByPunch(usersDialogStatus, nextPage, presentEmployeesRowsPerPage);
               }}
               rowsPerPage={presentEmployeesRowsPerPage}
               onRowsPerPageChange={(event) => {
                 const nextRows = parseInt(event.target.value, 10);
                 setPresentEmployeesRowsPerPage(nextRows);
                 setPresentEmployeesPage(1);
-                fetchPresentUsersByPunch(1, nextRows);
+                fetchUsersByPunch(usersDialogStatus, 1, nextRows);
               }}
               rowsPerPageOptions={[10, 20, 50, 100]}
             />
