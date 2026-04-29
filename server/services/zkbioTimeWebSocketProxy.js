@@ -2,6 +2,8 @@ const WebSocket = require('ws');
 const axios = require('axios');
 const { Server } = require('socket.io');
 const http = require('http');
+// Lazy-require to avoid circular dep issues at module load time
+const getApiService = () => require('./zkbioTimeApiService');
 
 class ZKBioTimeWebSocketProxy {
   constructor() {
@@ -210,6 +212,9 @@ class ZKBioTimeWebSocketProxy {
         if (cookies && cookies.length > 0) {
           this.sessionCookies = cookies.join('; ');
           console.log('✅ Authentication successful, cookies obtained');
+          // Share this session with the API service so it never logs in separately
+          // (ZKBio only allows one active session — a second login kills the first)
+          try { getApiService().updateExternalSession(this.sessionCookies); } catch (_) {}
           return true;
         }
       }

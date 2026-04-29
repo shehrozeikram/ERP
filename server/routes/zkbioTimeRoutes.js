@@ -104,15 +104,30 @@ const resolveEmployeeProfile = async (employeeId) => {
  * Get today's attendance from ZKBio Time API
  */
 router.get('/zkbio/today', authMiddleware, safeRouteHandler(async (req, res) => {
-    const apiResult = await zkbioTimeApiService.getTodayAttendance();
-    
-  if (apiResult.success && apiResult.data?.length > 0) {
-      const employeeResult = await zkbioTimeApiService.getEmployees();
-    const processedData = zkbioTimeApiService.processAttendanceData(apiResult.data, employeeResult.success ? employeeResult.data : []);
-    res.json({ success: true, data: processedData, count: processedData.length, source: apiResult.source });
-    } else {
-    res.json({ success: false, data: [], count: 0, source: 'None' });
+  const dateStr = getDateString();
+  const apiResult = await zkbioTimeApiService.getAttendanceForDate(dateStr);
+  const employeeResult = await zkbioTimeApiService.getEmployees();
+
+  if (apiResult.success) {
+    const processedData = zkbioTimeApiService.processAttendanceData(
+      Array.isArray(apiResult.data) ? apiResult.data : [],
+      employeeResult.success ? employeeResult.data : []
+    );
+    return res.json({
+      success: true,
+      data: processedData,
+      count: processedData.length,
+      source: apiResult.source || dateStr
+    });
   }
+
+  return res.json({
+    success: false,
+    data: [],
+    count: 0,
+    source: 'None',
+    message: apiResult.error || 'Unable to fetch attendance data'
+  });
 }));
 
 /**
@@ -121,66 +136,68 @@ router.get('/zkbio/today', authMiddleware, safeRouteHandler(async (req, res) => 
  * Optional query: departments (comma-separated names), areas (comma-separated names)
  */
 router.get('/zkbio/present-by-punch', authMiddleware, safeRouteHandler(async (req, res) => {
-    const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
+  const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
   const dateStr = getDateString();
+  const { pageNum, pageSizeNum } = validatePagination(page, page_size);
+
   const { employeeResult, attendanceResult } = await fetchEmployeesAndAttendance(dateStr);
-
-  if (!employeeResult?.success) {
-    return res.status(500).json({ success: false, message: 'Failed to fetch employees', error: employeeResult?.error });
-    }
-
-  const employees = Array.isArray(employeeResult.data) ? employeeResult.data : [];
+  const employees = Array.isArray(employeeResult?.data) ? employeeResult.data : [];
   const attendance = attendanceResult?.success && Array.isArray(attendanceResult.data) ? attendanceResult.data : [];
 
+  if (!employeeResult?.success && !attendanceResult?.success) {
+    return res.json(formatPaginatedResponse([], pageNum, pageSizeNum, {
+      date: dateStr,
+      warning: 'Attendance service temporarily unavailable. Please try again in a moment.'
+    }));
+  }
+
   // Build present map
-    const presentMap = new Map();
+  const presentMap = new Map();
   attendance.forEach(rec => {
     const empCode = (rec?.emp_code || rec?.originalRecord?.emp_code || '').trim();
-      if (!empCode) return;
-
-      if (!presentMap.has(empCode)) {
-        presentMap.set(empCode, {
-          emp_code: empCode,
+    if (!empCode) return;
+    if (!presentMap.has(empCode)) {
+      presentMap.set(empCode, {
+        emp_code: empCode,
         first_name: rec?.first_name || rec?.originalRecord?.first_name || '',
         last_name: rec?.last_name || rec?.originalRecord?.last_name || '',
         dept_name: rec?.department || rec?.department_name || rec?.originalRecord?.department || '',
         area: rec?.area_alias || rec?.area || rec?.originalRecord?.area_alias || '',
         punches: []
-        });
-      }
+      });
+    }
     const punch = rec?.punch_time || rec?.originalRecord?.punch_time;
     if (punch) presentMap.get(empCode).punches.push(punch);
-    });
+  });
 
-  // Apply filters
   const deptFilter = createFilterSet(departments);
   const areaFilter = createFilterSet(areas);
-    let presentList = Array.from(presentMap.values());
+  let presentList = Array.from(presentMap.values());
   if (deptFilter?.size) presentList = presentList.filter(p => p.dept_name && deptFilter.has(p.dept_name));
   if (areaFilter?.size) presentList = presentList.filter(p => p.area && areaFilter.has(p.area));
 
-  // Enrich with employee data
-    const empByCode = new Map(employees.map(e => [String(e.emp_code || '').trim(), e]));
-    presentList.forEach(p => {
-        const emp = empByCode.get(p.emp_code);
-        if (emp) {
-          p.first_name = p.first_name || emp.first_name || '';
-          p.last_name = p.last_name || emp.last_name || '';
-          p.dept_name = p.dept_name || emp.department?.dept_name || '';
-      }
-    });
+  const empByCode = new Map(employees.map(e => [String(e.emp_code || '').trim(), e]));
+  presentList.forEach(p => {
+    const emp = empByCode.get(p.emp_code);
+    if (emp) {
+      p.first_name = p.first_name || emp.first_name || '';
+      p.last_name = p.last_name || emp.last_name || '';
+      p.dept_name = p.dept_name || emp.department?.dept_name || '';
+    }
+  });
 
-  // Format response
-    const fullData = presentList.map(p => ({
-      emp_code: p.emp_code,
-      first_name: p.first_name,
-      last_name: p.last_name,
-      dept_name: p.dept_name,
-      att_date: dateStr,
-    punch_set: p.punches.sort((a, b) => new Date(a) - new Date(b)).map(ts => new Date(ts).toTimeString().slice(0, 8)).join(',')
-    }));
+  const fullData = presentList.map(p => ({
+    emp_code: p.emp_code,
+    first_name: p.first_name,
+    last_name: p.last_name,
+    dept_name: p.dept_name,
+    att_date: dateStr,
+    punch_set: p.punches
+      .sort((a, b) => new Date(a) - new Date(b))
+      .map(ts => { try { return new Date(ts).toTimeString().slice(0, 8); } catch { return ts; } })
+      .join(',')
+  }));
 
-  const { pageNum, pageSizeNum } = validatePagination(page, page_size);
   return res.json(formatPaginatedResponse(fullData, pageNum, pageSizeNum, { date: dateStr }));
 }));
 
@@ -190,16 +207,21 @@ router.get('/zkbio/present-by-punch', authMiddleware, safeRouteHandler(async (re
  * Optional query: departments (comma-separated names), areas (comma-separated names), page, page_size
  */
 router.get('/zkbio/absent-by-punch', authMiddleware, safeRouteHandler(async (req, res) => {
-    const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
+  const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
   const dateStr = getDateString();
   const { employeeResult, attendanceResult } = await fetchEmployeesAndAttendance(dateStr);
 
-  if (!employeeResult?.success) {
-    return res.status(500).json({ success: false, message: 'Failed to fetch employees', error: employeeResult?.error });
-    }
-
-  const employees = Array.isArray(employeeResult.data) ? employeeResult.data : [];
+  const employees = Array.isArray(employeeResult?.data) ? employeeResult.data : [];
   const attendance = attendanceResult?.success && Array.isArray(attendanceResult.data) ? attendanceResult.data : [];
+
+  if (!employeeResult?.success) {
+    const { pageNum, pageSizeNum } = validatePagination(page, page_size);
+    return res.json(formatPaginatedResponse([], pageNum, pageSizeNum, {
+      date: dateStr,
+      warning: 'Attendance system temporarily unavailable',
+      error: employeeResult?.error || 'ZKBio service unavailable'
+    }));
+  }
 
   // Build present set
     const presentSet = new Set();

@@ -68,6 +68,7 @@ const AttendanceList = () => {
   const [attendance, setAttendance] = useState([]);
   const [absentEmployees, setAbsentEmployees] = useState([]);
   const [absentSummary, setAbsentSummary] = useState({});
+  const [todayAbsentSummary, setTodayAbsentSummary] = useState({});
   const [activeTab, setActiveTab] = useState(0);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [absentLoading, setAbsentLoading] = useState(false);
@@ -110,6 +111,23 @@ const AttendanceList = () => {
       setTotalRecords(0);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTodayAbsentSummary = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const result = await getAbsentEmployees(today, {
+        excludeWeekends: true,
+        excludeHolidays: true,
+        onlyActiveEmployees: true
+      });
+      if (result?.success) {
+        setTodayAbsentSummary(result.summary || {});
+      }
+    } catch (error) {
+      console.error('❌ Error fetching today absent summary:', error);
+      setTodayAbsentSummary({});
     }
   };
 
@@ -165,6 +183,7 @@ const AttendanceList = () => {
   useEffect(() => {
     // Force fresh data fetch every time component mounts
     fetchTodayAttendance();
+    fetchTodayAbsentSummary();
     fetchDepartments();
   }, []);
 
@@ -416,7 +435,7 @@ const AttendanceList = () => {
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
                     {activeTab === 0 ? 
-                      (getFilteredData(attendance).filter(a => getStatusDisplay(a) === 'Present').length) : 
+                      (todayAbsentSummary.presentEmployees || 0) : 
                       (absentSummary.presentEmployees || 0)
                     }
                   </Typography>
@@ -436,7 +455,7 @@ const AttendanceList = () => {
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
                     {activeTab === 0 ? 
-                      (getFilteredData(attendance).filter(a => getStatusDisplay(a) === 'Absent').length) : 
+                      (todayAbsentSummary.totalAbsent || 0) : 
                       (absentSummary.totalAbsent || 0)
                     }
                   </Typography>
@@ -456,7 +475,7 @@ const AttendanceList = () => {
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
                     {activeTab === 0 ? 
-                      (getFilteredData(attendance).length > 0 ? Math.round((getFilteredData(attendance).filter(a => getStatusDisplay(a) === 'Absent').length / getFilteredData(attendance).length) * 100) : 0) : 
+                      (todayAbsentSummary.absentPercentage || 0) : 
                       (absentSummary.absentPercentage || 0)
                     }%
                   </Typography>
@@ -481,7 +500,10 @@ const AttendanceList = () => {
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
-              onClick={fetchTodayAttendance}
+              onClick={() => {
+                fetchTodayAttendance();
+                fetchTodayAbsentSummary();
+              }}
               disabled={loading}
               size="small"
             >
@@ -644,7 +666,12 @@ const AttendanceList = () => {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Box>
                           <Typography variant="body2" fontWeight="bold">
-                            {record.employee?.firstName || record.employee?.lastName || record.name || record.userName || record.fullName || `User ${typeof record.deviceUserId === 'object' ? record.deviceUserId.id || record.deviceUserId.toString() : record.deviceUserId || typeof record.userId === 'object' ? record.userId.id || record.userId.toString() : record.userId || typeof record.uid === 'object' ? record.uid.id || record.uid.toString() : record.uid || 'Unknown'}`}
+                            {record.employee?.fullName ||
+                              `${record.employee?.firstName || ''} ${record.employee?.lastName || ''}`.trim() ||
+                              record.name ||
+                              record.userName ||
+                              record.fullName ||
+                              `User ${typeof record.deviceUserId === 'object' ? record.deviceUserId.id || record.deviceUserId.toString() : record.deviceUserId || typeof record.userId === 'object' ? record.userId.id || record.userId.toString() : record.userId || typeof record.uid === 'object' ? record.uid.id || record.uid.toString() : record.uid || 'Unknown'}`}
                           </Typography>
                           <Typography variant="caption" color="textSecondary">
                             {record.employee?.employeeId || (typeof record.deviceUserId === 'object' ? record.deviceUserId.id || record.deviceUserId.toString() : record.deviceUserId) || (typeof record.userId === 'object' ? record.userId.id || record.userId.toString() : record.userId) || (typeof record.uid === 'object' ? record.uid.id || record.uid.toString() : record.uid) || 'N/A'}
@@ -659,13 +686,13 @@ const AttendanceList = () => {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" color="primary" fontWeight="bold">
-                        {record.originalRecord?.punch_state_display || 'Unknown'}
+                        {record.originalRecord?.punch_state_display || record.status || 'Unknown'}
                       </Typography>
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
-                        {record.originalRecord?.punch_time ? 
-                          new Date(record.originalRecord.punch_time).toLocaleTimeString('en-US', { 
+                        {(record.originalRecord?.punch_time || record.checkIn?.time) ? 
+                          new Date(record.originalRecord?.punch_time || record.checkIn?.time).toLocaleTimeString('en-US', { 
                             hour12: false, 
                             hour: '2-digit', 
                             minute: '2-digit', 

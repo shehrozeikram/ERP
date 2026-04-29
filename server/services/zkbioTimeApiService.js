@@ -32,9 +32,10 @@ class ZKBioTimeApiService {
     
     // Load persisted session on startup
     this.loadSession();
-    
-    // Start proactive refresh (every 15 minutes)
-    this.startProactiveRefresh();
+    // Note: proactive self-refresh is intentionally NOT started here.
+    // The WebSocket proxy owns authentication and calls updateExternalSession()
+    // after every successful login, so this service never logs in independently.
+    // An independent login would invalidate the proxy's ZKBio session.
   }
 
   /**
@@ -320,6 +321,21 @@ class ZKBioTimeApiService {
    */
   isLoggedIn() {
     return this.isAuthenticated && this.sessionCookies;
+  }
+
+  /**
+   * Accept a session from an external source (e.g. WebSocket proxy).
+   * This prevents a second login that would invalidate the shared ZKBio session.
+   */
+  updateExternalSession(cookieString) {
+    if (!cookieString) return;
+    this.sessionCookies = cookieString;
+    this.isAuthenticated = true;
+    this.lastAuthFailureTime = 0;
+    // Grant a 50-minute window (ZKBio session lasts ~60 min)
+    this.sessionExpiryTime = Date.now() + 50 * 60 * 1000;
+    this.saveSession();
+    console.log('🔗 API service session updated from WebSocket proxy');
   }
 
   /**

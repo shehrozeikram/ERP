@@ -21,7 +21,13 @@ import {
   ListItemText,
   Badge,
   Container,
-  Skeleton
+  Skeleton,
+  TablePagination,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button
 } from '@mui/material';
 import {
   TrendingUp,
@@ -138,6 +144,49 @@ const Dashboard = () => {
   const [animateCards, setAnimateCards] = useState(false);
   const [presentChartData, setPresentChartData] = useState(null);
   const presentChartDataRef = useRef(null);
+  const [presentEmployees, setPresentEmployees] = useState([]);
+  const [presentUsersDialogOpen, setPresentUsersDialogOpen] = useState(false);
+  const [presentEmployeesLoading, setPresentEmployeesLoading] = useState(false);
+  const [presentEmployeesError, setPresentEmployeesError] = useState('');
+  const [presentUsersCount, setPresentUsersCount] = useState(0);
+  const [presentEmployeesPage, setPresentEmployeesPage] = useState(1);
+  const [presentEmployeesRowsPerPage, setPresentEmployeesRowsPerPage] = useState(20);
+  const [presentEmployeesTotalCount, setPresentEmployeesTotalCount] = useState(0);
+  const normalizePresentPunchRows = (rows = []) =>
+    rows.map((row) => ({
+      emp_code: row.emp_code || row.employee_id || row.empId || '-',
+      first_name: row.first_name || row.firstName || '',
+      last_name: row.last_name || row.lastName || '',
+      dept_name: row.dept_name || row.department || '-',
+      att_date: row.att_date || row.date || '',
+      punch_set: row.punch_set || row.punch_time || row.time || row.last_punch || '-'
+    }));
+
+  const fetchPresentUsersByPunch = useCallback(async (page = 1, pageSize = 20) => {
+    setPresentEmployeesLoading(true);
+    setPresentEmployeesError('');
+    try {
+      const { data } = await api.get('/zkbio/zkbio/present-by-punch', {
+        params: { departments: '', areas: '', page, page_size: pageSize }
+      });
+      const list = Array.isArray(data?.data) ? data.data : [];
+      const normalized = normalizePresentPunchRows(list);
+      setPresentEmployees(normalized);
+      const totalCount = Number(data?.totalCount || normalized.length || 0);
+      setPresentUsersCount(totalCount);
+      setPresentEmployeesTotalCount(totalCount);
+      if (data?.warning) {
+        setPresentEmployeesError(data.warning);
+      }
+    } catch (error) {
+      setPresentEmployees([]);
+      setPresentEmployeesTotalCount(0);
+      setPresentUsersCount(0);
+      setPresentEmployeesError('Attendance system is temporarily unavailable. Please try again in a moment.');
+    } finally {
+      setPresentEmployeesLoading(false);
+    }
+  }, []);
 
   // Fetch comprehensive dashboard data
   const fetchDashboardData = useCallback(async () => {
@@ -231,7 +280,8 @@ const Dashboard = () => {
           attendanceRate,
           presentToday,
           absentToday,
-          presentPercentage
+          presentPercentage,
+          presentUsersCount: Number(presentToday || 0)
         },
         performance: performanceMetrics,
         recentActivity: [
@@ -352,6 +402,7 @@ const Dashboard = () => {
       const absentCount = absentItem ? absentItem.value : 0;
       const totalCount = presentCount + absentCount;
       const presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
+      setPresentUsersCount(presentCount);
       
       logDebug('📊 Dashboard: Updating dashboard with Present percentage:', presentPercentage.toFixed(2) + '%');
       
@@ -361,7 +412,8 @@ const Dashboard = () => {
         ...prevData,
         overview: {
           ...(prevData?.overview || {}),
-          presentPercentage
+          presentPercentage,
+          presentUsersCount: presentCount
         }
       }));
       
@@ -1023,6 +1075,7 @@ const Dashboard = () => {
               color={theme.palette.primary.main}
               subtitle={`${dashboardData.overview.activeEmployees} active`}
               delay={0}
+              onClick={() => navigate('/hr/employees')}
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -1035,6 +1088,7 @@ const Dashboard = () => {
               color={theme.palette.success.main}
               subtitle={`Avg: ${formatPKR(dashboardData.overview.averageSalary)}`}
               delay={100}
+              onClick={() => navigate('/hr/payroll')}
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -1045,7 +1099,13 @@ const Dashboard = () => {
               trend="up"
               icon={<Schedule />}
               color={theme.palette.success.main}
+              subtitle={`${dashboardData.overview.presentUsersCount || presentUsersCount} present users`}
               delay={200}
+              onClick={() => {
+                setPresentUsersDialogOpen(true);
+                setPresentEmployeesPage(1);
+                fetchPresentUsersByPunch(1, presentEmployeesRowsPerPage);
+              }}
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -1063,6 +1123,64 @@ const Dashboard = () => {
             />
           </Grid>
         </Grid>
+
+        <Dialog
+          open={presentUsersDialogOpen}
+          onClose={() => setPresentUsersDialogOpen(false)}
+          fullWidth
+          maxWidth="md"
+        >
+          <DialogTitle>Present Employees</DialogTitle>
+          <DialogContent dividers>
+            {presentEmployeesLoading && (
+              <Typography variant="body2" color="text.secondary">Loading present users...</Typography>
+            )}
+            {!!presentEmployeesError && <Alert severity="error">{presentEmployeesError}</Alert>}
+            {!presentEmployeesLoading && !presentEmployeesError && (
+              presentEmployees.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No records found</Typography>
+              ) : (
+                <List dense>
+                  {presentEmployees.map((record, index) => {
+                    const fullName = `${record.first_name || ''} ${record.last_name || ''}`.trim() || 'Unknown';
+                    const employeeId = record.emp_code || 'N/A';
+                    const checkIn = record.punch_set || '--';
+                    return (
+                      <ListItem key={`${employeeId}-${index}`} divider>
+                        <ListItemIcon><CheckCircle color="success" /></ListItemIcon>
+                        <ListItemText
+                          primary={fullName}
+                          secondary={`ID: ${employeeId} · Dept: ${record.dept_name || '-'} · Check-in: ${checkIn}`}
+                        />
+                      </ListItem>
+                    );
+                  })}
+                </List>
+              )
+            )}
+          </DialogContent>
+          <DialogActions sx={{ alignItems: 'center' }}>
+            <TablePagination
+              component="div"
+              count={presentEmployeesTotalCount}
+              page={Math.max(0, presentEmployeesPage - 1)}
+              onPageChange={(_event, newPage) => {
+                const nextPage = newPage + 1;
+                setPresentEmployeesPage(nextPage);
+                fetchPresentUsersByPunch(nextPage, presentEmployeesRowsPerPage);
+              }}
+              rowsPerPage={presentEmployeesRowsPerPage}
+              onRowsPerPageChange={(event) => {
+                const nextRows = parseInt(event.target.value, 10);
+                setPresentEmployeesRowsPerPage(nextRows);
+                setPresentEmployeesPage(1);
+                fetchPresentUsersByPunch(1, nextRows);
+              }}
+              rowsPerPageOptions={[10, 20, 50, 100]}
+            />
+            <Button onClick={() => setPresentUsersDialogOpen(false)} variant="contained">Close</Button>
+          </DialogActions>
+        </Dialog>
 
         {/* User Profile and Modules */}
         <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>

@@ -1,0 +1,10 @@
+{
+  "watch": ["server"],
+  "ext": "js,json",
+  "ignore": [
+    "server/zkbio-session.json",
+    "server/logs/*",
+    "client/*",
+    "node_modules/*"
+  ]
+}
