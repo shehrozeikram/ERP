@@ -189,6 +189,21 @@ const EmployeeList = () => {
     setPage(0); // Reset to first page when clearing filters
   }, []);
 
+  const handleNewThisMonthCardClick = useCallback(() => {
+    const now = new Date();
+    const monthLabel = now.toLocaleString('default', { month: 'long' });
+    setSearchTerm('');
+    setDepartmentFilter('');
+    setProjectFilter('');
+    setStatusFilter('');
+    setPage(0);
+    setSnackbar({
+      open: true,
+      message: `Showing employees hired in ${monthLabel} ${now.getFullYear()} in the table below`,
+      severity: 'info'
+    });
+  }, []);
+
   // Handle manual refresh
   const handleRefresh = useCallback(async () => {
     try {
@@ -536,7 +551,10 @@ const EmployeeList = () => {
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={2}>
-          <Card>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={clearAllFilters}
+          >
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Total Employees
@@ -551,7 +569,10 @@ const EmployeeList = () => {
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <Card>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => handleStatusFilterChange('active')}
+          >
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Active Employees
@@ -566,7 +587,10 @@ const EmployeeList = () => {
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <Card>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => handleStatusFilterChange('draft')}
+          >
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Draft Employees
@@ -581,7 +605,10 @@ const EmployeeList = () => {
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <Card>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => handleStatusFilterChange('inactive')}
+          >
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Inactive Employees
@@ -596,7 +623,10 @@ const EmployeeList = () => {
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <Card>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={() => navigate('/hr/departments')}
+          >
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Departments
@@ -608,7 +638,10 @@ const EmployeeList = () => {
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <Card>
+          <Card
+            sx={{ cursor: 'pointer', transition: 'all 0.2s ease', '&:hover': { boxShadow: 4 } }}
+            onClick={handleNewThisMonthCardClick}
+          >
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 New This Month
