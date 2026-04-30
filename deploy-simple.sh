@@ -66,7 +66,8 @@ log_info "Uploading client build artifacts..."
 rsync -avz --delete "client/build/" "${SERVER_USER}@${SERVER_IP}:${SERVER_PATH}/client/build/"
 
 log_info "Uploading production environment..."
-scp "$ENV_FILE" "${SERVER_USER}@${SERVER_IP}:${SERVER_PATH}/.env.deploy"
+# Stage env file in /tmp (outside the git repo) so git stash -u cannot swallow it.
+scp "$ENV_FILE" "${SERVER_USER}@${SERVER_IP}:/tmp/.sgc-erp-env-deploy"
 
 log_info "Deploying on server..."
 ssh "${SERVER_USER}@${SERVER_IP}" "SERVER_PATH='${SERVER_PATH}' AUTO_STASH_SERVER_CHANGES='${AUTO_STASH_SERVER_CHANGES}' bash -s" <<'ENDSSH'
@@ -96,9 +97,11 @@ git pull --ff-only origin main
 NEW_COMMIT="$(git rev-parse --short HEAD)"
 echo "Updated commit: ${NEW_COMMIT}"
 
-if [ -f ".env.deploy" ]; then
-  mv ".env.deploy" ".env"
-  echo "Environment file updated from .env.deploy"
+if [ -f "/tmp/.sgc-erp-env-deploy" ]; then
+  mv "/tmp/.sgc-erp-env-deploy" ".env"
+  echo "Environment file updated from staging."
+else
+  echo "WARNING: /tmp/.sgc-erp-env-deploy not found — .env NOT updated."
 fi
 
 echo "Installing production dependencies..."
