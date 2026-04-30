@@ -55,9 +55,9 @@ export const PERMISSIONS = {
   },
 
   [ROLES.DEVELOPER]: {
-    canAccessAll: true,
-    modules: Object.values(MODULE_KEYS),
-    description: 'Full system access (developer / Tovus)'
+    canAccessAll: false,
+    modules: Object.values(MODULE_KEYS).filter(m => m !== MODULE_KEYS.FINANCE),
+    description: 'Full system access except Finance and CEO Secretariat (developer / Tovus)'
   },
   
   // Admin has access to admin module and general module
@@ -1161,13 +1161,19 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   // Profile is always accessible
   if (path === '/profile') return true;
   
-  // Super Admin, Higher Management, and Developer have access to everything
-  if (userRole === 'super_admin' || userRole === 'higher_management' || userRole === ROLES.DEVELOPER) {
-    // Authorities page is restricted to super_admin and developer
+  // Developer: full access except Finance and CEO Secretariat dashboards
+  if (userRole === ROLES.DEVELOPER) {
+    if (path === '/finance' || path.startsWith('/finance/')) return false;
+    if (path === '/general/ceo-secretariat' || path.startsWith('/general/ceo-secretariat/')) return false;
+    if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) return true;
+    return true;
+  }
+
+  // Super Admin and Higher Management have access to everything
+  if (userRole === 'super_admin' || userRole === 'higher_management') {
     if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) {
-      return userRole === 'super_admin' || userRole === ROLES.DEVELOPER;
+      return userRole === 'super_admin';
     }
-    // All other routes are accessible
     return true;
   }
   

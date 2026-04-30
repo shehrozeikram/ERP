@@ -374,9 +374,26 @@ const Sidebar = () => {
     // We'll filter based on actual permissions, not the legacy role field
     let baseMenuItems = getMenuItems('super_admin') || [];
 
-    // Legacy full-access roles: always show full menu (ignore RBAC attachments)
-    if (['super_admin', 'higher_management', 'developer'].includes(userRole)) {
+    // Super admin and higher management: full menu
+    if (['super_admin', 'higher_management'].includes(userRole)) {
       return baseMenuItems;
+    }
+
+    // Developer: full menu except Finance module and CEO Secretariat
+    if (userRole === 'developer') {
+      return baseMenuItems
+        .filter(item => item.path !== '/finance' && !item.path?.startsWith('/finance/'))
+        .map(item => {
+          if (!item.subItems) return item;
+          const filteredSubs = item.subItems.filter(
+            sub =>
+              sub.path !== '/finance' &&
+              !sub.path?.startsWith('/finance/') &&
+              sub.path !== '/general/ceo-secretariat' &&
+              !sub.path?.startsWith('/general/ceo-secretariat/')
+          );
+          return { ...item, subItems: filteredSubs };
+        });
     }
     
     // If that doesn't work, build from MODULES directly

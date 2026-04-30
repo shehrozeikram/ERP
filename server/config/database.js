@@ -30,15 +30,18 @@ function getMongooseClientOptions(uri, isLocal = false) {
     monitorCommands: false
   };
 
-  const atlasOptions = {
-    tls: true,
-    tlsAllowInvalidCertificates: false,
-    retryWrites: true,
-    w: 'majority'
-  };
+  // Atlas-specific TLS options — kept for rollback if production is ever moved back to Atlas.
+  // Currently production uses Droplet local MongoDB (127.0.0.1:27017), so atlasOptions are NOT applied.
+  // const atlasOptions = {
+  //   tls: true,
+  //   tlsAllowInvalidCertificates: false,
+  //   retryWrites: true,
+  //   w: 'majority'
+  // };
+  // const isAtlas = uri.includes('mongodb.net') || uri.includes('mongodb+srv');
+  // return isAtlas ? { ...baseOptions, ...atlasOptions } : baseOptions;
 
-  const isAtlas = uri.includes('mongodb.net') || uri.includes('mongodb+srv');
-  return isAtlas ? { ...baseOptions, ...atlasOptions } : baseOptions;
+  return baseOptions;
 }
 
 const connectDB = async () => {

@@ -24,7 +24,10 @@
     "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js",
     "import:procurement-vendors": "node server/scripts/import-procurement-vendors-xlsx.js",
     "ensure:developer-user": "node server/scripts/ensure-developer-user.js",
-    "ensure:developer-user:droplet": "bash scripts/ensure-developer-on-droplet.sh"
+    "ensure:developer-user:droplet": "bash scripts/ensure-developer-on-droplet.sh",
+    "mongo:show-target": "node scripts/show-mongodb-target.js",
+    "mongo:show-target:prod": "NODE_ENV=production node scripts/show-mongodb-target.js",
+    "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect"
   },
   "keywords": [
     "erp",

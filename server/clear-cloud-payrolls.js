@@ -5,12 +5,15 @@ async function clearCloudPayrolls() {
     console.log('☁️ Clearing Payrolls from MongoDB Atlas (Cloud Database)');
     console.log('---');
     
-    // Connect to the cloud database that the frontend is using
-    const MONGODB_URI = 'mongodb+srv://shehroze:Cricket%23007@erp.fss65hf.mongodb.net/sgc_erp?retryWrites=true&w=majority';
+    // NOTE: Production is now on Droplet local MongoDB — no longer on Atlas.
+    // Atlas URI kept below (commented) for rollback reference only.
+    // const MONGODB_URI = 'mongodb+srv://shehroze:Cricket%23007@erp.fss65hf.mongodb.net/sgc_erp?retryWrites=true&w=majority';
+    const MONGODB_URI = process.env.MONGODB_URI;
+    if (!MONGODB_URI) throw new Error('MONGODB_URI not set — check .env');
     
-    console.log('🔗 Connecting to MongoDB Atlas...');
+    console.log('🔗 Connecting to MongoDB...');
     await mongoose.connect(MONGODB_URI);
-    console.log('✅ Connected to MongoDB Atlas');
+    console.log('✅ Connected to MongoDB');
     
     const db = mongoose.connection.db;
     

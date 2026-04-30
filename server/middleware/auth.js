@@ -244,8 +244,22 @@ const authorize = (...roles) => {
 
     const userRole = req.user.role;
     
-    // Super Admin, Higher Management, and Developer have access to everything
-    if (userRole === 'super_admin' || userRole === 'higher_management' || userRole === 'developer') {
+    // Super Admin and Higher Management have access to everything
+    if (userRole === 'super_admin' || userRole === 'higher_management') {
+      return next();
+    }
+
+    // Developer: full access except Finance API and CEO Secretariat API
+    if (userRole === 'developer') {
+      const url = req.originalUrl || '';
+      const isFinanceRoute = url.startsWith('/api/finance');
+      const isCeoRoute = url.includes('/ceo-secretariat');
+      if (isFinanceRoute || isCeoRoute) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Developer role does not have access to Finance or CEO Secretariat.'
+        });
+      }
       return next();
     }
 
