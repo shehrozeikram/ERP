@@ -12,6 +12,7 @@ backups/mongodump-atlas-*/
 .env.test.local
 .env.production
 .env.production.local
+scripts/.mongodb-prod-sync.env
 
 # Logs
 npm-debug.log*

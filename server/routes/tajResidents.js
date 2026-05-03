@@ -92,6 +92,64 @@ const recalculateFutureCamInvoices = async (propertyId, anchorDate) => {
   }
 };
 
+// Generic version of recalculateFutureCamInvoices that works for any charge type
+// (ELECTRICITY, RENT, etc.). Recalculates arrears on unpaid/partial invoices that
+// come after the paid one so their grandTotal stays accurate.
+const recalculateFutureInvoicesByChargeType = async (propertyId, chargeType, anchorDate) => {
+  if (!propertyId || !chargeType || !anchorDate) return;
+  const upperType = String(chargeType).toUpperCase();
+
+  const allInvoices = await PropertyInvoice.find({
+    property: propertyId,
+    chargeTypes: { $in: [chargeType] },
+    status: { $ne: 'Cancelled' }
+  })
+    .sort({ invoiceDate: 1, createdAt: 1 })
+    .select('invoiceDate createdAt paymentStatus charges subtotal totalArrears grandTotal totalPaid dueDate')
+    .lean();
+
+  if (!allInvoices.length) return;
+
+  const anchorMs = new Date(anchorDate).getTime();
+  for (let i = 1; i < allInvoices.length; i++) {
+    const previous = allInvoices[i - 1];
+    const current = allInvoices[i];
+    const currentMs = new Date(current.invoiceDate || current.createdAt || 0).getTime();
+    if (!(currentMs > anchorMs)) continue;
+    if (!['unpaid', 'partial_paid'].includes(current.paymentStatus)) continue;
+
+    const carryForward = getInvoicePayableForCarryForward(previous);
+    const updatedCharges = (current.charges || []).map((ch) => {
+      if (String(ch.type || '').toUpperCase() !== upperType) return ch;
+      const amount = Number(ch.amount) || 0;
+      return { ...ch, arrears: carryForward, total: Math.round((amount + carryForward) * 100) / 100 };
+    });
+
+    const subtotal = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.amount) || 0), 0) * 100) / 100;
+    const totalArrears = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.arrears) || 0), 0) * 100) / 100;
+    const grandTotal = Math.round((subtotal + totalArrears) * 100) / 100;
+
+    const currentDoc = await PropertyInvoice.findById(current._id);
+    if (!currentDoc) continue;
+    currentDoc.charges = updatedCharges;
+    currentDoc.subtotal = subtotal;
+    currentDoc.totalArrears = totalArrears;
+    currentDoc.grandTotal = grandTotal;
+    await currentDoc.save();
+
+    allInvoices[i] = {
+      ...current,
+      charges: updatedCharges,
+      subtotal,
+      totalArrears,
+      grandTotal,
+      totalPaid: currentDoc.totalPaid,
+      paymentStatus: currentDoc.paymentStatus,
+      dueDate: currentDoc.dueDate
+    };
+  }
+};
+
 // Get all residents
 router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   // Extract pagination parameters
@@ -1744,9 +1802,13 @@ router.post(
           invoice.markModified('payments'); // Ensure Mongoose detects the array change (fixes TCM open invoice balance not updating)
           await invoice.save(); // This will trigger pre-save hook to update totalPaid, balance, and status
 
-          // CAM-only: when an older CAM invoice is paid, refresh carry-forward arrears on future CAM invoices.
-          if (invoice.property && Array.isArray(invoice.chargeTypes) && invoice.chargeTypes.includes('CAM')) {
-            await recalculateFutureCamInvoices(invoice.property, invoice.invoiceDate || invoice.createdAt || new Date());
+          // When an invoice is paid, refresh carry-forward arrears on future invoices of the same
+          // charge type(s) so their grandTotal/balance stays accurate (covers ELC, RENT, CAM, etc.).
+          if (invoice.property && Array.isArray(invoice.chargeTypes) && invoice.chargeTypes.length > 0) {
+            const anchorDate = invoice.invoiceDate || invoice.createdAt || new Date();
+            for (const chargeType of invoice.chargeTypes) {
+              await recalculateFutureInvoicesByChargeType(invoice.property, chargeType, anchorDate);
+            }
           }
 
           // Invalidate invoice caches so Resident Details and Invoices pages show updated status

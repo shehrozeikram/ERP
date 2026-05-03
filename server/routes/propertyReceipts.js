@@ -93,6 +93,66 @@ const recalculateFutureCamInvoices = async (propertyId, anchorDate) => {
   }
 };
 
+// Generic version that works for any charge type (ELECTRICITY, RENT, CAM, etc.).
+const recalculateFutureInvoicesByChargeType = async (propertyId, chargeType, anchorDate) => {
+  if (!propertyId || !chargeType || !anchorDate) return;
+  const upperType = String(chargeType).toUpperCase();
+
+  const allInvoices = await PropertyInvoice.find({
+    property: propertyId,
+    chargeTypes: { $in: [chargeType] },
+    status: { $ne: 'Cancelled' }
+  })
+    .sort({ invoiceDate: 1, createdAt: 1 })
+    .select('invoiceDate createdAt chargeTypes charges subtotal totalArrears grandTotal totalPaid balance dueDate paymentStatus status')
+    .lean();
+
+  if (!allInvoices.length) return;
+
+  const anchorMs = new Date(anchorDate).getTime();
+  for (let i = 1; i < allInvoices.length; i++) {
+    const previous = allInvoices[i - 1];
+    const current = allInvoices[i];
+    const currentMs = new Date(current.invoiceDate || current.createdAt || 0).getTime();
+    if (!(currentMs > anchorMs)) continue;
+    if (!['unpaid', 'partial_paid'].includes(current.paymentStatus)) continue;
+
+    const carryForward = getInvoicePayableForCarryForward(previous);
+    const updatedCharges = (current.charges || []).map((ch) => {
+      if (String(ch.type || '').toUpperCase() !== upperType) return ch;
+      const amount = Number(ch.amount) || 0;
+      return {
+        ...ch,
+        arrears: carryForward,
+        total: Math.round((amount + carryForward) * 100) / 100
+      };
+    });
+
+    const subtotal = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.amount) || 0), 0) * 100) / 100;
+    const totalArrears = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.arrears) || 0), 0) * 100) / 100;
+    const grandTotal = Math.round((subtotal + totalArrears) * 100) / 100;
+
+    const invoiceDoc = await PropertyInvoice.findById(current._id);
+    if (!invoiceDoc) continue;
+    invoiceDoc.charges = updatedCharges;
+    invoiceDoc.subtotal = subtotal;
+    invoiceDoc.totalArrears = totalArrears;
+    invoiceDoc.grandTotal = grandTotal;
+    await invoiceDoc.save();
+
+    allInvoices[i] = {
+      ...current,
+      charges: updatedCharges,
+      subtotal,
+      totalArrears,
+      grandTotal,
+      totalPaid: invoiceDoc.totalPaid,
+      paymentStatus: invoiceDoc.paymentStatus,
+      dueDate: invoiceDoc.dueDate
+    };
+  }
+};
+
 // Generate receipt number
 const generateReceiptNumber = () => {
   const year = dayjs().year();
@@ -183,7 +243,7 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
     await receipt.save();
 
     // Update invoices with payments
-    const camRecalcAnchors = [];
+    const recalcAnchorsByType = {}; // chargeType -> earliest anchor ms
     for (const alloc of receipt.allocations) {
       const invoice = await PropertyInvoice.findById(alloc.invoice);
       if (invoice) {
@@ -197,19 +257,19 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
           recordedBy: req.user.id
         });
         await invoice.save(); // Pre-save hook handles calculations
-        if (Array.isArray(invoice.chargeTypes) && invoice.chargeTypes.includes('CAM')) {
-          camRecalcAnchors.push(invoice.invoiceDate || invoice.createdAt || new Date());
+        // Track earliest anchor per charge type for post-payment arrears recalculation
+        const anchorMs = new Date(invoice.invoiceDate || invoice.createdAt || new Date()).getTime();
+        for (const ct of (invoice.chargeTypes || [])) {
+          if (!recalcAnchorsByType[ct] || anchorMs < recalcAnchorsByType[ct]) {
+            recalcAnchorsByType[ct] = anchorMs;
+          }
         }
       }
     }
 
-    if (camRecalcAnchors.length > 0) {
-      const earliestCamAnchor = camRecalcAnchors.reduce((min, d) => {
-        const ms = new Date(d).getTime();
-        return Number.isFinite(ms) && ms < min ? ms : min;
-      }, Number.MAX_SAFE_INTEGER);
-      if (Number.isFinite(earliestCamAnchor)) {
-        await recalculateFutureCamInvoices(property, new Date(earliestCamAnchor));
+    for (const [chargeType, anchorMs] of Object.entries(recalcAnchorsByType)) {
+      if (Number.isFinite(anchorMs)) {
+        await recalculateFutureInvoicesByChargeType(property, chargeType, new Date(anchorMs));
       }
     }
 
@@ -278,8 +338,8 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
     }
 
     if (receipt.status === 'Posted') {
-      // Remove payments from invoices
-      const camRecalcAnchors = [];
+      // Remove payments from invoices and recalculate arrears for all affected charge types
+      const recalcAnchorsByType = {};
       for (const alloc of receipt.allocations) {
         const invoice = await PropertyInvoice.findById(alloc.invoice);
         if (invoice) {
@@ -287,18 +347,17 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
             p => p.receiptId?.toString() !== receipt._id.toString()
           );
           await invoice.save();
-          if (Array.isArray(invoice.chargeTypes) && invoice.chargeTypes.includes('CAM')) {
-            camRecalcAnchors.push(invoice.invoiceDate || invoice.createdAt || new Date());
+          const anchorMs = new Date(invoice.invoiceDate || invoice.createdAt || new Date()).getTime();
+          for (const ct of (invoice.chargeTypes || [])) {
+            if (!recalcAnchorsByType[ct] || anchorMs < recalcAnchorsByType[ct]) {
+              recalcAnchorsByType[ct] = anchorMs;
+            }
           }
         }
       }
-      if (camRecalcAnchors.length > 0) {
-        const earliestCamAnchor = camRecalcAnchors.reduce((min, d) => {
-          const ms = new Date(d).getTime();
-          return Number.isFinite(ms) && ms < min ? ms : min;
-        }, Number.MAX_SAFE_INTEGER);
-        if (Number.isFinite(earliestCamAnchor)) {
-          await recalculateFutureCamInvoices(receipt.property, new Date(earliestCamAnchor));
+      for (const [chargeType, anchorMs] of Object.entries(recalcAnchorsByType)) {
+        if (Number.isFinite(anchorMs)) {
+          await recalculateFutureInvoicesByChargeType(receipt.property, chargeType, new Date(anchorMs));
         }
       }
     }

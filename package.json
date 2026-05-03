@@ -27,7 +27,8 @@
     "ensure:developer-user:droplet": "bash scripts/ensure-developer-on-droplet.sh",
     "mongo:show-target": "node scripts/show-mongodb-target.js",
     "mongo:show-target:prod": "NODE_ENV=production node scripts/show-mongodb-target.js",
-    "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect"
+    "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect",
+    "sync:taj-invoices-prod-to-local": "node scripts/sync-taj-property-invoices-prod-to-local.js"
   },
   "keywords": [
     "erp",
