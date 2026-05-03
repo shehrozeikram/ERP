@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ChatService from '../../services/chatService';
 import {
   Drawer,
   List,
@@ -37,7 +38,8 @@ import {
   LocationCity,
   Description,
   Folder,
-  QrCode2 as QrCodeIcon
+  QrCode2 as QrCodeIcon,
+  Chat as ChatIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -88,11 +90,34 @@ const Sidebar = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const { getModuleCount, markModuleAsRead } = useNotifications();
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadChatUnread = () => {
+      ChatService.getUnreadSummary()
+        .then((n) => {
+          if (!cancelled) setChatUnread(typeof n === 'number' ? n : 0);
+        })
+        .catch(() => {
+          if (!cancelled) setChatUnread(0);
+        });
+    };
+    loadChatUnread();
+    const interval = setInterval(loadChatUnread, 120000);
+    const onChatRead = () => loadChatUnread();
+    window.addEventListener('sgc:chat-unread-changed', onChatRead);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('sgc:chat-unread-changed', onChatRead);
+    };
+  }, [location.pathname]);
   const [openSubmenu, setOpenSubmenu] = useState({});
   const [candidateHiredCount, setCandidateHiredCount] = useState(0);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [lastClearedCount, setLastClearedCount] = useState(0);
+  const [chatUnread, setChatUnread] = useState(0);
 
   // Helper function to get allowed submodules from sub-role
   const getAllowedSubmodules = (subRole) => {
@@ -379,21 +404,29 @@ const Sidebar = () => {
       return baseMenuItems;
     }
 
-    // Developer: full menu except Finance module and CEO Secretariat
+    // Developer: full menu except core Finance (allow Taj Utilities & Charges + Recovery only) and CEO Secretariat
     if (userRole === 'developer') {
-      return baseMenuItems
-        .filter(item => item.path !== '/finance' && !item.path?.startsWith('/finance/'))
-        .map(item => {
-          if (!item.subItems) return item;
-          const filteredSubs = item.subItems.filter(
-            sub =>
-              sub.path !== '/finance' &&
-              !sub.path?.startsWith('/finance/') &&
-              sub.path !== '/general/ceo-secretariat' &&
-              !sub.path?.startsWith('/general/ceo-secretariat/')
+      return baseMenuItems.map((item) => {
+        if (item.path === '/finance') {
+          const allowedFinanceRoots = new Set([
+            '/finance/taj-utilities-charges',
+            '/finance/recovery'
+          ]);
+          const filteredSubs = (item.subItems || []).filter((sub) =>
+            allowedFinanceRoots.has(sub.path)
           );
           return { ...item, subItems: filteredSubs };
-        });
+        }
+        if (!item.subItems) return item;
+        const filteredSubs = item.subItems.filter(
+          (sub) =>
+            sub.path !== '/finance' &&
+            !sub.path?.startsWith('/finance/') &&
+            sub.path !== '/general/ceo-secretariat' &&
+            !sub.path?.startsWith('/general/ceo-secretariat/')
+        );
+        return { ...item, subItems: filteredSubs };
+      });
     }
     
     // If that doesn't work, build from MODULES directly
@@ -1130,6 +1163,16 @@ const Sidebar = () => {
         bgcolor: 'background.paper'
       }}>
         <List>
+          <ListItem disablePadding>
+            <ListItemButton onClick={() => navigate('/chat')}>
+              <ListItemIcon>
+                <Badge badgeContent={chatUnread > 0 ? chatUnread : 0} color="primary" max={99} invisible={!chatUnread}>
+                  <ChatIcon />
+                </Badge>
+              </ListItemIcon>
+              <ListItemText primary="Chat" />
+            </ListItemButton>
+          </ListItem>
           <ListItem disablePadding>
             <ListItemButton onClick={() => navigate('/profile')}>
               <ListItemIcon>

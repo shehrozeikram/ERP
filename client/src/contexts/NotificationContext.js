@@ -195,6 +195,16 @@ export const NotificationProvider = ({ children }) => {
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchNotifications, clearAll]);
 
+  // Chat page marks conversation + push notifications read — refresh bell counts
+  React.useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    const onRefresh = () => {
+      fetchNotifications(true);
+    };
+    window.addEventListener('sgc:app-notifications-refresh', onRefresh);
+    return () => window.removeEventListener('sgc:app-notifications-refresh', onRefresh);
+  }, [isAuthenticated, fetchNotifications]);
+
   // Real-time socket updates for new notifications
   React.useEffect(() => {
     if (!isAuthenticated) return undefined;

@@ -62,6 +62,9 @@ const candidateApprovalRoutes = require('./routes/candidateApprovals');
 const publicApprovalRoutes = require('./routes/publicApprovals');
 const applicationRoutes = require('./routes/applications');
 const notificationRoutes = require('./routes/notifications');
+const chatRoutes = require('./routes/chat');
+const chatAdminRoutes = require('./routes/chatAdmin');
+const { attachSocketRedisAdapter } = require('./services/socketRedisAdapter');
 const settingsRoutes = require('./routes/settings');
 // const publicApplicationRoutes = require('./routes/publicApplications');
 const easyApplyRoutes = require('./routes/easyApply');
@@ -144,6 +147,8 @@ require('./models/assetTagging/AssetVerificationSession');
 require('./models/finance/PaymentTerm');
 require('./models/procurement/PurchaseReturn');
 require('./models/procurement/InventoryCategory');
+require('./models/chat/ChatConversation');
+require('./models/chat/ChatMessage');
 
 
 // Import services
@@ -565,6 +570,8 @@ app.use('/api/public/candidates', require('./routes/publicCandidates')); // Publ
 app.use('/api/candidate-approvals', authMiddleware, activityLogger, candidateApprovalRoutes);
 app.use('/api/applications', authMiddleware, activityLogger, applicationRoutes);
 app.use('/api/notifications', authMiddleware, activityLogger, notificationRoutes);
+app.use('/api/chat/admin', authMiddleware, activityLogger, chatAdminRoutes);
+app.use('/api/chat', authMiddleware, activityLogger, chatRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/courses', authMiddleware, activityLogger, courseRoutes);
 app.use('/api/enrollments', authMiddleware, activityLogger, enrollmentRoutes);
@@ -676,6 +683,9 @@ const PORT = process.env.PORT || 5001;
 
 // Initialize user-targeted notification socket gateway
 realtimeNotificationGateway.initialize(server);
+attachSocketRedisAdapter(realtimeNotificationGateway.getIO()).catch((e) => {
+  console.warn('Socket.IO Redis adapter:', e.message || e);
+});
 
 // Initialize Change Stream service after MongoDB connection
 mongoose.connection.once('open', async () => {

@@ -56,8 +56,12 @@ export const PERMISSIONS = {
 
   [ROLES.DEVELOPER]: {
     canAccessAll: false,
-    modules: Object.values(MODULE_KEYS).filter(m => m !== MODULE_KEYS.FINANCE),
-    description: 'Full system access except Finance and CEO Secretariat (developer / Tovus)'
+    modules: [
+      ...Object.values(MODULE_KEYS).filter((m) => m !== MODULE_KEYS.FINANCE),
+      MODULE_KEYS.FINANCE
+    ],
+    description:
+      'Full system access except core Finance, CEO Secretariat, and Finance API; includes Taj Utilities & Charges and Recovery (developer / Tovus)'
   },
   
   // Admin has access to admin module and general module
@@ -565,7 +569,7 @@ export const MODULES = {
     path: '/finance',
     icon: 'AccountBalance',
     description: 'Comprehensive financial management and accounting',
-    roles: ['super_admin', 'admin', 'finance_manager', 'tcm_manager'],
+    roles: ['super_admin', 'admin', 'finance_manager', 'tcm_manager', 'developer'],
     subItems: [
       { name: 'Finance Dashboard', path: '/finance' },
 
@@ -1103,6 +1107,12 @@ export const getModuleMenuItems = (userRole) => {
       filteredSubItems = module.subItems.filter(subItem => 
         subItem.path === '/finance/taj-utilities-charges'
       );
+    } else if (userRole === ROLES.DEVELOPER && moduleKey === MODULE_KEYS.FINANCE && module.subItems) {
+      filteredSubItems = module.subItems.filter(
+        (subItem) =>
+          subItem.path === '/finance/taj-utilities-charges' ||
+          subItem.path === '/finance/recovery'
+      );
     }
     
     return {
@@ -1160,12 +1170,19 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   
   // Profile is always accessible
   if (path === '/profile') return true;
+
+  // Chat (1:1, groups, moderation UI) — any authenticated user; moderation page enforces admin API
+  if (path === '/chat' || path.startsWith('/chat/')) return true;
   
-  // Developer: full access except Finance and CEO Secretariat dashboards
+  // Developer: full access except core Finance and CEO Secretariat; allow Taj Utilities & Charges + Recovery
   if (userRole === ROLES.DEVELOPER) {
-    if (path === '/finance' || path.startsWith('/finance/')) return false;
     if (path === '/general/ceo-secretariat' || path.startsWith('/general/ceo-secretariat/')) return false;
     if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) return true;
+    if (path === '/finance' || path.startsWith('/finance/')) {
+      if (path.startsWith('/finance/taj-utilities-charges')) return true;
+      if (path.startsWith('/finance/recovery')) return true;
+      return false;
+    }
     return true;
   }
 

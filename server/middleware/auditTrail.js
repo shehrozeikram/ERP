@@ -12,7 +12,8 @@ const logRequest = (req, res, next) => {
     '/api/audit/trail',
     '/api/health',
     '/api/ping',
-    '/socket.io/'
+    '/socket.io/',
+    '/api/chat'
   ];
 
   if (skipPaths.some(path => req.path.startsWith(path))) {

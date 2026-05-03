@@ -141,6 +141,9 @@ import Campaigns from './pages/CRM/Campaigns';
 import Opportunities from './pages/CRM/Opportunities';
 import Reports from './pages/CRM/Reports';
 import Profile from './pages/Profile/Profile';
+import ChatPage from './pages/Chat/ChatPage';
+import ChatModerationPage from './pages/Chat/ChatModerationPage';
+import ChatFloatingButton from './components/ChatFloatingButton';
 import UserManagement from './pages/Admin/UserManagement';
 import VehicleList from './pages/Admin/VehicleManagement/VehicleList';
 import VehicleForm from './pages/Admin/VehicleManagement/VehicleForm';
@@ -490,6 +493,7 @@ function App() {
         <Sidebar />
         <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
           <Header />
+          <ChatFloatingButton />
           <Box component="main" className="app-main-print" sx={{ flexGrow: 1, p: 3 }}>
             <Routes>
             {/* Dashboard */}
@@ -1055,7 +1059,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/dashboard"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajUtilitiesDashboard />
                 </ProtectedRoute>
               }
@@ -1063,7 +1067,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/cam-charges"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <CAMCharges />
                 </ProtectedRoute>
               }
@@ -1071,7 +1075,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/water-bills"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <WaterBills />
                 </ProtectedRoute>
               }
@@ -1079,7 +1083,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/electricity-bills"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <Electricity />
                 </ProtectedRoute>
               }
@@ -1087,7 +1091,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-agreements"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <RentalAgreementsFinance />
                 </ProtectedRoute>
               }
@@ -1095,7 +1099,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-agreements/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <RentalAgreementDetailFinance />
                 </ProtectedRoute>
               }
@@ -1103,7 +1107,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-management"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <RentalManagementFinance />
                 </ProtectedRoute>
               }
@@ -1111,7 +1115,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-management/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <RentalManagementDetailFinance />
                 </ProtectedRoute>
               }
@@ -1119,7 +1123,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-residents"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajResidents />
                 </ProtectedRoute>
               }
@@ -1127,7 +1131,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-residents/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajResidentDetail />
                 </ProtectedRoute>
               }
@@ -1135,7 +1139,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-properties"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajProperties />
                 </ProtectedRoute>
               }
@@ -1143,7 +1147,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-properties/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajPropertyDetail />
                 </ProtectedRoute>
               }
@@ -1151,7 +1155,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/charges-slabs"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <ChargesSlabs />
                 </ProtectedRoute>
               }
@@ -1159,7 +1163,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/invoices"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <Invoices />
                 </ProtectedRoute>
               }
@@ -1167,7 +1171,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/open-invoices"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <OpenInvoices />
                 </ProtectedRoute>
               }
@@ -1175,7 +1179,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/deposits"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <Deposits />
                 </ProtectedRoute>
               }
@@ -1183,7 +1187,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/banks"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajUtilityBanks />
                 </ProtectedRoute>
               }
@@ -1191,7 +1195,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/suspense-account"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <SuspenseAccount />
                 </ProtectedRoute>
               }
@@ -1199,7 +1203,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/reports"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajUtilitiesReports />
                 </ProtectedRoute>
               }
@@ -1207,7 +1211,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/reconciliation"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager", "developer"]}>
                   <TajUtilitiesReconciliation />
                 </ProtectedRoute>
               }
@@ -1490,6 +1494,9 @@ function App() {
               path="/profile" 
               element={<ProtectedRoute><Profile /></ProtectedRoute>} 
             />
+            <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+            <Route path="/chat/moderation" element={<ProtectedRoute><ChatModerationPage /></ProtectedRoute>} />
+            <Route path="/chat/:conversationId" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
 
             {/* Admin Module */}
             <Route 

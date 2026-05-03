@@ -17,7 +17,7 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['info', 'success', 'warning', 'error', 'system', 'candidate_hired', 'employee_status_change', 'attendance_update', 'payroll_generated', 'loan_approved', 'leave_request', 'performance_review', 'training_assigned'],
+    enum: ['info', 'success', 'warning', 'error', 'system', 'candidate_hired', 'employee_status_change', 'attendance_update', 'payroll_generated', 'loan_approved', 'leave_request', 'performance_review', 'training_assigned', 'chat_message'],
     default: 'info'
   },
   category: {

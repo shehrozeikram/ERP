@@ -237,7 +237,8 @@ const activityLogger = async (req, res, next) => {
     '/api/auth/logout',
     '/socket.io',
     '/uploads',
-    '/api/tracking' // Skip tracking endpoints to avoid recursion
+    '/api/tracking', // Skip tracking endpoints to avoid recursion
+    '/api/chat' // High-volume messaging; audit via chat export / retention if needed
   ];
   
   const shouldSkip = skipEndpoints.some(endpoint => checkPath.startsWith(endpoint));
