@@ -63,6 +63,7 @@ import RealtimeAttendanceMonitor from '../../components/RealtimeAttendanceMonito
 import PresentChart from '../../components/PresentChart';
 import DeviceStatusChart from '../../components/DeviceStatusChart';
 import DepartmentChart from '../../components/DepartmentChart';
+import LocationWiseAttendanceCard from '../../components/LocationWiseAttendanceCard';
 import indentService from '../../services/indentService';
 
 const DASHBOARD_DEBUG = process.env.REACT_APP_DASHBOARD_DEBUG === 'true';
@@ -1627,6 +1628,9 @@ const Dashboard = () => {
           {/* Right Column: Real-Time Monitor */}
           <Grid item xs={12} md={6}>
             <RealtimeAttendanceMonitor />
+          </Grid>
+          <Grid item xs={12}>
+            <LocationWiseAttendanceCard />
           </Grid>
         </Grid>
 

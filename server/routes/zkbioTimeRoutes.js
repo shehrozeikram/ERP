@@ -10,6 +10,10 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const log = IS_PROD ? () => {} : console.log;
 const logError = console.error;
 
+/** In-memory cache for full location summary (no device_sn) — avoids repeated ZKBio round-trips on dashboard refresh. */
+const LOCATION_SUMMARY_CACHE_TTL_MS = parseInt(process.env.ZKBIO_LOCATION_SUMMARY_CACHE_MS || '90000', 10);
+let locationSummaryCache = { dateKey: '', payload: null, expiresAt: 0 };
+
 // Safe route handler wrapper
 const safeRouteHandler = (handler) => async (req, res, next) => {
   try {
@@ -62,6 +66,36 @@ const fetchEmployeesAndAttendance = async (dateStr) => {
     attendanceResult: results[1].status === 'fulfilled'
       ? results[1].value
       : { success: false, data: [], error: results[1].reason?.message }
+  };
+};
+
+/**
+ * Employees first (deduped in service), then attendance + devices in parallel —
+ * avoids three simultaneous ZKBio calls that overload the remote API.
+ */
+const fetchLocationWiseInputs = async (dateStr) => {
+  let employeeResult;
+  try {
+    employeeResult = await zkbioTimeApiService.getEmployees();
+  } catch (e) {
+    employeeResult = { success: false, data: [], error: String(e?.message || e) };
+  }
+
+  const results = await Promise.allSettled([
+    zkbioTimeApiService.getAttendanceForDate(dateStr),
+    zkbioTimeApiService.getDevices()
+  ]);
+
+  return {
+    employeeResult,
+    attendanceResult:
+      results[0].status === 'fulfilled'
+        ? results[0].value
+        : { success: false, data: [], error: String(results[0].reason?.message || '') },
+    deviceResult:
+      results[1].status === 'fulfilled'
+        ? results[1].value
+        : { success: false, data: [], error: String(results[1].reason?.message || '') }
   };
 };
 
@@ -278,6 +312,290 @@ const normalizeDevice = (row) => {
     online_state: row?.online_state || row?.state || row?.status || null
   };
 };
+
+const findTerminalMapKey = (sn, map) => {
+  const s = String(sn || '').trim();
+  if (!s || s === '-') return null;
+  if (map.has(s)) return s;
+  const lower = s.toLowerCase();
+  for (const k of map.keys()) {
+    if (String(k).toLowerCase() === lower) return k;
+  }
+  return null;
+};
+
+/** Same employee key as present-by-punch / absent-by-punch (string trim). */
+const getEmpCodeFromPunch = (rec) =>
+  String(rec?.emp_code || rec?.originalRecord?.emp_code || '').trim();
+
+/**
+ * ZKBio transaction payloads vary; match terminals to iclock/devices list.
+ */
+const getTerminalSnFromPunch = (rec) => {
+  const r = rec?.originalRecord || rec;
+  const termObj = r?.terminal;
+  if (termObj && typeof termObj === 'object') {
+    const nested = String(
+      termObj.sn || termObj.serial || termObj.serial_number || termObj.id || termObj.pk || ''
+    ).trim();
+    if (nested) return nested;
+  }
+  const candidates = [
+    r?.terminal_sn,
+    r?.terminalSn,
+    r?.TerminalSN,
+    r?.terminal_id,
+    r?.terminalId,
+    r?.device_sn,
+    r?.deviceSn,
+    r?.sn,
+    r?.iclock_sn,
+    rec?.terminal_sn,
+    rec?.terminalSn
+  ];
+  for (const c of candidates) {
+    const s = String(c ?? '').trim();
+    if (s) return s;
+  }
+  return 'Unknown';
+};
+
+/** presentSet + absent roster — same denominator as Present % / Absent cards (ZKBio API view). */
+const buildPresentSetAndAbsent = (attendance, employees) => {
+  const presentSet = new Set();
+  (attendance || []).forEach((rec) => {
+    const empCode = getEmpCodeFromPunch(rec);
+    if (empCode) presentSet.add(empCode);
+  });
+  const absentEmployees = (employees || []).filter((e) => {
+    const empCode = String(e?.emp_code || '').trim();
+    return empCode && !presentSet.has(empCode);
+  });
+  const workforceTotal = presentSet.size + absentEmployees.length;
+  return { presentSet, absentEmployees, workforceTotal };
+};
+
+/**
+ * GET /api/zkbio/zkbio/location-attendance-summary
+ * Per biometric device: unique employees who punched today vs total ZKBio employees → present % / absent %.
+ * Query: date=YYYY-MM-DD (optional, default Pakistan today), device_sn (optional) — when set, returns punch rows for that device only.
+ */
+router.get('/zkbio/location-attendance-summary', authMiddleware, safeRouteHandler(async (req, res) => {
+  const dateStr = validateDate(req.query.date) ? req.query.date : getDateString();
+  const deviceSnFilter = String(req.query.device_sn || '').trim();
+  const skipSummaryCache =
+    String(req.query.skip_cache || '') === '1' || String(req.query.skip_cache || '').toLowerCase() === 'true';
+
+  if (!deviceSnFilter && !skipSummaryCache) {
+    const now = Date.now();
+    if (
+      locationSummaryCache.payload &&
+      locationSummaryCache.dateKey === dateStr &&
+      locationSummaryCache.expiresAt > now
+    ) {
+      return res.json({ ...locationSummaryCache.payload, _cached: true });
+    }
+  }
+
+  const { employeeResult, attendanceResult, deviceResult } = await fetchLocationWiseInputs(dateStr);
+  const employees = Array.isArray(employeeResult?.data) ? employeeResult.data : [];
+  const attendance =
+    attendanceResult?.success && Array.isArray(attendanceResult.data) ? attendanceResult.data : [];
+
+  const { presentSet, absentEmployees, workforceTotal } = buildPresentSetAndAbsent(attendance, employees);
+
+  const terminalToEmps = new Map();
+  attendance.forEach((rec) => {
+    const emp = getEmpCodeFromPunch(rec);
+    if (!emp) return;
+    const term = getTerminalSnFromPunch(rec);
+    if (!terminalToEmps.has(term)) terminalToEmps.set(term, new Set());
+    terminalToEmps.get(term).add(emp);
+  });
+
+  if (deviceSnFilter) {
+    const matchKey = findTerminalMapKey(deviceSnFilter, terminalToEmps) || deviceSnFilter;
+    const rawDetail =
+      deviceResult?.success && Array.isArray(deviceResult.data) ? deviceResult.data : [];
+    const meta = rawDetail
+      .map(normalizeDevice)
+      .find((d) => {
+        const ds = String(d.sn || '').trim();
+        return (
+          ds &&
+          (ds === matchKey ||
+            ds.toLowerCase() === String(matchKey).toLowerCase() ||
+            ds === deviceSnFilter ||
+            ds.toLowerCase() === deviceSnFilter.toLowerCase())
+        );
+      });
+    const aliasLowerForDevice =
+      meta?.alias && String(meta.alias).trim() !== '-'
+        ? String(meta.alias).trim().toLowerCase()
+        : '';
+
+    const empRows = new Map();
+    attendance.forEach((rec) => {
+      const t = getTerminalSnFromPunch(rec);
+      const r = rec?.originalRecord || rec;
+      const ta = String(r?.terminal_alias || r?.terminalAlias || '').trim().toLowerCase();
+      const snMatch =
+        t === matchKey ||
+        String(t).toLowerCase() === String(matchKey).toLowerCase() ||
+        t === deviceSnFilter ||
+        String(t).toLowerCase() === deviceSnFilter.toLowerCase();
+      const aliasMatch = aliasLowerForDevice && ta === aliasLowerForDevice;
+      if (!snMatch && !aliasMatch) return;
+      const code = getEmpCodeFromPunch(rec);
+      if (!code) return;
+      const punch = rec?.punch_time || rec?.originalRecord?.punch_time;
+      if (!empRows.has(code)) {
+        empRows.set(code, {
+          emp_code: code,
+          first_name: rec?.first_name || rec?.originalRecord?.first_name || '',
+          last_name: rec?.last_name || rec?.originalRecord?.last_name || '',
+          dept_name: rec?.department || rec?.department_name || rec?.originalRecord?.department || '',
+          area_alias: rec?.area_alias || rec?.originalRecord?.area_alias || '',
+          punches: []
+        });
+      }
+      if (punch) empRows.get(code).punches.push(punch);
+    });
+
+    const empByCode = new Map(employees.map((e) => [String(e.emp_code || '').trim(), e]));
+    const rows = Array.from(empRows.values()).map((row) => {
+      const emp = empByCode.get(row.emp_code);
+      if (emp) {
+        row.first_name = row.first_name || emp.first_name || '';
+        row.last_name = row.last_name || emp.last_name || '';
+        row.dept_name = row.dept_name || emp.department?.dept_name || '';
+      }
+      row.punches = [...new Set(row.punches)]
+        .sort((a, b) => new Date(a) - new Date(b))
+        .map((ts) => {
+          try {
+            return new Date(ts).toLocaleString('en-PK', { hour12: false });
+          } catch {
+            return ts;
+          }
+        });
+      return row;
+    });
+
+    return res.json({
+      success: true,
+      date: dateStr,
+      device_sn: matchKey,
+      device: meta || { sn: matchKey, alias: matchKey, area_alias: '-' },
+      total_employees: workforceTotal,
+      rows
+    });
+  }
+
+  const rawDevices = deviceResult?.success && Array.isArray(deviceResult.data) ? deviceResult.data : [];
+  const devicesNormalized = rawDevices.map(normalizeDevice);
+
+  /** Punch terminal keys already rolled into a registered device's row (by SN and/or terminal_alias). */
+  const terminalsAttributedToADevice = new Set();
+
+  const collectEmpsForRegisteredDevice = (d) => {
+    const emps = new Set();
+    const sn = String(d.sn || '').trim();
+    const mapKey = findTerminalMapKey(sn, terminalToEmps);
+    if (mapKey && terminalToEmps.has(mapKey)) {
+      terminalsAttributedToADevice.add(mapKey);
+      terminalToEmps.get(mapKey).forEach((e) => emps.add(e));
+    }
+    const aliasLower = String(d.alias || '').trim().toLowerCase();
+    if (aliasLower && aliasLower !== '-') {
+      attendance.forEach((rec) => {
+        const r = rec?.originalRecord || rec;
+        const ta = String(r?.terminal_alias || r?.terminalAlias || '').trim().toLowerCase();
+        if (ta === aliasLower) {
+          terminalsAttributedToADevice.add(getTerminalSnFromPunch(rec));
+          const emp = getEmpCodeFromPunch(rec);
+          if (emp) emps.add(emp);
+        }
+      });
+    }
+    return emps;
+  };
+
+  const summary = devicesNormalized.map((d) => {
+    const sn = String(d.sn || '').trim() || '-';
+    const emps = collectEmpsForRegisteredDevice(d);
+    const uniquePresent = emps.size;
+    const presentPercent = workforceTotal ? Math.round((uniquePresent / workforceTotal) * 1000) / 10 : 0;
+    const absentPercent = Math.round((100 - presentPercent) * 10) / 10;
+    return {
+      sn,
+      alias: d.alias,
+      area_alias: d.area_alias,
+      unique_present: uniquePresent,
+      punch_employee_slots: uniquePresent,
+      total_tracked: workforceTotal,
+      total_employees: workforceTotal,
+      present_percent: presentPercent,
+      absent_percent: absentPercent
+    };
+  });
+
+  const registeredSnLower = new Set(
+    devicesNormalized.map((d) => String(d.sn || '').trim().toLowerCase()).filter(Boolean)
+  );
+  const orphans = [];
+  for (const term of terminalToEmps.keys()) {
+    if (term === 'Unknown' || terminalsAttributedToADevice.has(term)) continue;
+    if (registeredSnLower.has(String(term).toLowerCase())) continue;
+    const set = terminalToEmps.get(term);
+    const uniquePresent = set ? set.size : 0;
+    const presentPercent = workforceTotal ? Math.round((uniquePresent / workforceTotal) * 1000) / 10 : 0;
+    orphans.push({
+      sn: term,
+      alias: `Terminal ${term}`,
+      area_alias: '-',
+      unique_present: uniquePresent,
+      punch_employee_slots: uniquePresent,
+      total_tracked: workforceTotal,
+      total_employees: workforceTotal,
+      present_percent: presentPercent,
+      absent_percent: Math.round((100 - presentPercent) * 10) / 10
+    });
+  }
+
+  const companyPresentPercent = workforceTotal
+    ? Math.round((presentSet.size / workforceTotal) * 1000) / 10
+    : 0;
+
+  const summaryPayload = {
+    success: true,
+    date: dateStr,
+    total_employees: workforceTotal,
+    company_summary: {
+      present: presentSet.size,
+      absent: absentEmployees.length,
+      total_tracked: workforceTotal,
+      present_percent: companyPresentPercent,
+      absent_percent: Math.round((100 - companyPresentPercent) * 10) / 10
+    },
+    total_devices: summary.length + orphans.length,
+    devices: [...summary, ...orphans],
+    warning:
+      !employeeResult?.success && !attendanceResult?.success
+        ? 'Attendance service temporarily unavailable.'
+        : undefined
+  };
+
+  if (!deviceSnFilter && !skipSummaryCache) {
+    locationSummaryCache = {
+      dateKey: dateStr,
+      payload: summaryPayload,
+      expiresAt: Date.now() + LOCATION_SUMMARY_CACHE_TTL_MS
+    };
+  }
+
+  return res.json(summaryPayload);
+}));
 
 router.get('/zkbio/devices', authMiddleware, safeRouteHandler(async (req, res) => {
     const { status = 'online', areas = '', page = '1', page_size = '20' } = req.query;

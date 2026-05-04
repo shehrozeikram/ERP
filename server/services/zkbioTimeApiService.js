@@ -26,9 +26,12 @@ class ZKBioTimeApiService {
     
     // Cache
     this.cache = {
-      employees: { data: null, timestamp: null, ttl: 5 * 60 * 1000 },
+      employees: { data: null, timestamp: null, ttl: 12 * 60 * 1000 },
       attendance: { data: {}, timestamp: {}, ttl: 2 * 60 * 1000 }
     };
+
+    /** One shared in-flight employees fetch — prevents concurrent routes from hammering ZKBio. */
+    this._employeesFetchPromise = null;
     
     // Load persisted session on startup
     this.loadSession();
@@ -412,14 +415,81 @@ class ZKBioTimeApiService {
 
 
   /**
-   * Get all employees (with pagination to get all employees) - ROBUST VERSION
+   * Paginated employee download (internal retries only).
    */
-  async getEmployees(retryCount = 0, maxRetries = 2) {
+  async _downloadEmployeesFromZkbio(retryAttempt = 0, maxRetries = 2) {
+    console.log('👥 Fetching all employees from ZKBio Time...');
+
+    let allEmployees = [];
+    let page = 1;
+    let hasMore = true;
+    const pageSize = 200;
+    const maxPages = 100;
+    const pageTimeout = 45000;
+
+    while (hasMore && page <= maxPages) {
+      try {
+        const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
+          headers: this.getAuthHeaders(),
+          params: {
+            page_size: pageSize,
+            page,
+            ordering: 'emp_code'
+          },
+          timeout: pageTimeout
+        });
+
+        if (response.data && response.data.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
+          allEmployees = allEmployees.concat(response.data.data);
+          console.log(`📄 Fetched page ${page}: ${response.data.data.length} employees`);
+          hasMore = response.data.next !== null && response.data.data.length === pageSize;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      } catch (pageError) {
+        console.error(`❌ Error fetching page ${page}:`, pageError.message);
+        if (allEmployees.length > 0) {
+          console.log(`⚠️ Returning partial employee data (${allEmployees.length} employees)`);
+          this.setCachedData(allEmployees, 'employees', 'employees');
+          return {
+            success: true,
+            data: allEmployees,
+            count: allEmployees.length,
+            source: 'ZKBio Time API (Partial)',
+            warning: `Fetched ${allEmployees.length} employees before error occurred`
+          };
+        }
+        if (retryAttempt < maxRetries && page === 1) {
+          const backoffMs = 2500 * (retryAttempt + 1);
+          console.log(`🔄 Retrying employee fetch (${retryAttempt + 1}/${maxRetries}) after ${backoffMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          return this._downloadEmployeesFromZkbio(retryAttempt + 1, maxRetries);
+        }
+        throw pageError;
+      }
+    }
+
+    console.log(`✅ Total employees fetched: ${allEmployees.length}`);
+    if (allEmployees.length > 0) {
+      this.setCachedData(allEmployees, 'employees', 'employees');
+    }
+    return {
+      success: true,
+      data: allEmployees,
+      count: allEmployees.length,
+      source: 'ZKBio Time API'
+    };
+  }
+
+  /**
+   * Get all employees — concurrent callers await a single in-flight ZKBio download.
+   */
+  async getEmployees() {
     try {
-      // Check cache first - use stale cache if available even if expired (graceful degradation)
       const cachedData = this.getCachedData('employees', 'employees');
       const isCacheValid = this.isCacheValid('employees', 'employees');
-      
+
       if (isCacheValid && cachedData) {
         console.log('👥 Returning cached employees data');
         return {
@@ -430,7 +500,6 @@ class ZKBioTimeApiService {
         };
       }
 
-      // Use stale cache if available (graceful degradation)
       if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
         console.log('⚠️ Using stale cache for employees (API may be unavailable)');
         return {
@@ -443,7 +512,6 @@ class ZKBioTimeApiService {
       }
 
       if (!(await this.ensureAuth())) {
-        // If auth fails but we have stale cache, return it
         if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
           console.log('⚠️ Auth failed, using stale cache');
           return {
@@ -457,78 +525,18 @@ class ZKBioTimeApiService {
         throw new Error('Authentication failed');
       }
 
-      console.log('👥 Fetching all employees from ZKBio Time...');
-      
-      let allEmployees = [];
-      let page = 1;
-      let hasMore = true;
-      const pageSize = 200;
-      const maxPages = 100; // Safety limit to prevent infinite loops
-      
-      while (hasMore && page <= maxPages) {
-        try {
-        const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
-          headers: this.getAuthHeaders(),
-          params: {
-            page_size: pageSize,
-            page: page,
-            ordering: 'emp_code'
-            },
-            timeout: 15000 // 15 second timeout per page
-        });
-
-          if (response.data && response.data.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
-          allEmployees = allEmployees.concat(response.data.data);
-          console.log(`📄 Fetched page ${page}: ${response.data.data.length} employees`);
-          
-          // Check if there are more pages
-          hasMore = response.data.next !== null && response.data.data.length === pageSize;
-          page++;
-        } else {
-          hasMore = false;
-          }
-        } catch (pageError) {
-          console.error(`❌ Error fetching page ${page}:`, pageError.message);
-          // If we have some data, return it (partial success)
-          if (allEmployees.length > 0) {
-            console.log(`⚠️ Returning partial employee data (${allEmployees.length} employees)`);
-            this.setCachedData(allEmployees, 'employees', 'employees');
-            return {
-              success: true,
-              data: allEmployees,
-              count: allEmployees.length,
-              source: 'ZKBio Time API (Partial)',
-              warning: `Fetched ${allEmployees.length} employees before error occurred`
-            };
-          }
-          // If first page fails and we have retries, retry
-          if (retryCount < maxRetries && page === 1) {
-            console.log(`🔄 Retrying employee fetch (${retryCount + 1}/${maxRetries})...`);
-            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-            return await this.getEmployees(retryCount + 1, maxRetries);
-          }
-          throw pageError;
-        }
+      if (this._employeesFetchPromise) {
+        console.log('👥 Joining in-flight employees fetch (dedupe concurrent requests)');
+        return this._employeesFetchPromise;
       }
 
-      console.log(`✅ Total employees fetched: ${allEmployees.length}`);
-      
-      // Cache the result
-      if (allEmployees.length > 0) {
-      this.setCachedData(allEmployees, 'employees', 'employees');
-      }
-      
-      return {
-        success: true,
-        data: allEmployees,
-        count: allEmployees.length,
-        source: 'ZKBio Time API'
-      };
+      this._employeesFetchPromise = this._downloadEmployeesFromZkbio(0, 2).finally(() => {
+        this._employeesFetchPromise = null;
+      });
 
+      return await this._employeesFetchPromise;
     } catch (error) {
       console.error('❌ Failed to fetch employees:', error.message);
-      
-      // Return stale cache if available
       const cachedData = this.getCachedData('employees', 'employees');
       if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
         console.log('⚠️ Returning stale cache due to error');
@@ -540,12 +548,11 @@ class ZKBioTimeApiService {
           warning: `Error occurred: ${error.message} - using cached data`
         };
       }
-      
-      return { 
-        success: false, 
-        data: [], 
-        count: 0, 
-        error: error.message 
+      return {
+        success: false,
+        data: [],
+        count: 0,
+        error: error.message
       };
     }
   }
@@ -1002,7 +1009,7 @@ class ZKBioTimeApiService {
           page: 1,
           ordering: 'sn'
         },
-        timeout: 15000
+        timeout: 25000
       });
 
       if (response.data && (response.data.data || Array.isArray(response.data))) {
