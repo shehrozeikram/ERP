@@ -40,7 +40,8 @@ import {
   Refresh as RefreshIcon,
   Cancel as RejectIcon,
   Email as EmailIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  ArticleOutlined as ArticleOutlinedIcon
 } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -49,21 +50,8 @@ import { formatDate } from '../../utils/dateUtils';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import dayjs from 'dayjs';
 
-/** Indent lines store catalog name in itemName and free-text/spec in description; do not hide description when itemName is set. */
-function renderIndentItemDescriptionCell(item) {
-  const name = String(item?.itemName || '').trim();
-  const desc = String(item?.description || '').trim();
-  if (!name && !desc) return '___________';
-  if (name && desc && name !== desc) {
-    return (
-      <>
-        <div style={{ fontWeight: 600 }}>{name}</div>
-        <div style={{ marginTop: 4, fontSize: '0.92em', lineHeight: 1.45, color: '#333' }}>{desc}</div>
-      </>
-    );
-  }
-  return name || desc;
-}
+const ITEM_DESC_PREVIEW_CHARS = 96;
+const ITEM_DESC_COMBINED_PREVIEW_CHARS = 140;
 
 const Requisitions = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -102,6 +90,10 @@ const Requisitions = () => {
     requisition: null,
     observation: '',
     submitting: false
+  });
+  const [fullItemTextDialog, setFullItemTextDialog] = useState({
+    open: false,
+    sections: [] // { label: string, text: string }[]
   });
   const [quotations, setQuotations] = useState([]);
   const [loadingQuotations, setLoadingQuotations] = useState(false);
@@ -312,6 +304,92 @@ const Requisitions = () => {
   };
 
   const indentChainStep = (ind, index) => ind?.approvalChain?.[index];
+
+  const openFullItemTextDialog = (item) => {
+    const name = String(item?.itemName || '').trim();
+    const desc = String(item?.description || '').trim();
+    if (!name && !desc) return;
+    if (name && desc && name === desc) {
+      setFullItemTextDialog({ open: true, sections: [{ label: 'Details', text: name }] });
+      return;
+    }
+    const sections = [];
+    if (name) sections.push({ label: 'Item name', text: name });
+    if (desc && (!name || desc !== name)) {
+      sections.push({ label: 'Description', text: desc });
+    }
+    setFullItemTextDialog({ open: true, sections });
+  };
+
+  const renderIndentItemDescriptionCell = (item) => {
+    const name = String(item?.itemName || '').trim();
+    const desc = String(item?.description || '').trim();
+    if (!name && !desc) return '___________';
+
+    const truncate = (s, n) => (s.length <= n ? s : `${s.slice(0, n).trimEnd()}…`);
+
+    const expandBtn = (
+      <Tooltip title="View full text">
+        <IconButton
+          type="button"
+          size="small"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openFullItemTextDialog(item);
+          }}
+          className="requisition-item-expand-btn"
+          sx={{ flexShrink: 0, p: '2px', ml: 0.25, alignSelf: 'flex-start' }}
+          aria-label="View full item description"
+        >
+          <ArticleOutlinedIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      </Tooltip>
+    );
+
+    if (name && desc && name !== desc) {
+      const descLong =
+        desc.length > ITEM_DESC_PREVIEW_CHARS ||
+        name.length + desc.length > ITEM_DESC_COMBINED_PREVIEW_CHARS;
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.25 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="body2" fontWeight={600} component="div">
+              {name}
+            </Typography>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+            >
+              {descLong ? truncate(desc, ITEM_DESC_PREVIEW_CHARS) : desc}
+            </Typography>
+          </Box>
+          {descLong ? expandBtn : null}
+        </Box>
+      );
+    }
+
+    const single = name || desc;
+    if (single.length > ITEM_DESC_COMBINED_PREVIEW_CHARS) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.25 }}>
+          <Typography
+            variant="body2"
+            sx={{ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+          >
+            {truncate(single, ITEM_DESC_COMBINED_PREVIEW_CHARS)}
+          </Typography>
+          {expandBtn}
+        </Box>
+      );
+    }
+
+    if (name && desc && name === desc) {
+      return single;
+    }
+    return single;
+  };
 
   const handleTabChange = (event, newValue) => {
     setViewDialog({ ...viewDialog, tab: newValue });
@@ -1262,6 +1340,31 @@ const Requisitions = () => {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={fullItemTextDialog.open}
+        onClose={() => setFullItemTextDialog({ open: false, sections: [] })}
+        maxWidth="sm"
+        fullWidth
+        sx={{ '@media print': { display: 'none' } }}
+      >
+        <DialogTitle>Item line — full text</DialogTitle>
+        <DialogContent dividers>
+          {fullItemTextDialog.sections.map((s, i) => (
+            <Box key={`${s.label}-${i}`} sx={{ mb: i < fullItemTextDialog.sections.length - 1 ? 2.5 : 0 }}>
+              <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0.5 }}>
+                {s.label}
+              </Typography>
+              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', mt: 0.5 }}>
+                {s.text}
+              </Typography>
+            </Box>
+          ))}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFullItemTextDialog({ open: false, sections: [] })}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* ASSIGN TASK DIALOG */}
       <Dialog
         open={assignDialog.open}
@@ -1367,6 +1470,9 @@ const Requisitions = () => {
                 height: auto !important;
                 max-height: none !important;
                 margin: 0 !important;
+              }
+              button.requisition-item-expand-btn {
+                display: none !important;
               }
               .MuiDialogTitle-root {
                 display: none !important;
