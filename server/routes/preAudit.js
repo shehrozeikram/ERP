@@ -431,7 +431,67 @@ router.get('/',
     } catch (poErr) {
       console.error('Error fetching purchase orders for pre-audit:', poErr);
     }
-    
+
+    // Cash Approvals in audit queue (same lifecycle as PO pre-audit / director forward)
+    try {
+      const CashApproval = require('../models/procurement/CashApproval');
+      const caAuditStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'];
+      const caQuery = { status: { $in: caAuditStatuses } };
+      if (search) {
+        caQuery.$and = [
+          { status: { $in: caAuditStatuses } },
+          {
+            $or: [
+              { caNumber: { $regex: search, $options: 'i' } },
+              { notes: { $regex: search, $options: 'i' } }
+            ]
+          }
+        ];
+        delete caQuery.status;
+      }
+      const caDocs = await CashApproval.find(caQuery)
+        .populate('vendor', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('auditObservations.addedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email')
+        .sort({ createdAt: -1 })
+        .lean();
+      for (const doc of caDocs) {
+        let preAuditStatus = 'pending';
+        if (doc.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        else if (doc.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
+        workflowDocs.push({
+          _id: doc._id,
+          documentNumber: doc.caNumber || doc._id.toString(),
+          title: `Cash Approval: ${doc.caNumber || 'CA'}`,
+          description: doc.notes || (doc.vendor ? `CA from ${doc.vendor.name}` : 'Cash Approval'),
+          sourceModule: 'procurement',
+          sourceDepartmentName: 'Procurement',
+          sourceDepartment: null,
+          documentType: 'other',
+          documentDate: doc.approvalDate || doc.createdAt,
+          amount: doc.totalAmount || 0,
+          referenceNumber: doc.caNumber || '',
+          status: preAuditStatus,
+          workflowStatus: doc.status,
+          priority: (doc.priority || 'Urgent').toLowerCase(),
+          isWorkflowDocument: false,
+          isPurchaseOrder: false,
+          isCashApproval: true,
+          originalDocument: doc,
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt,
+          createdBy: doc.createdBy,
+          workflowHistory: doc.workflowHistory || [],
+          auditObservations: doc.auditObservations || [],
+          preAuditInitialApprovedAt: doc.preAuditInitialApprovedAt || null,
+          initialAuditApproved: Boolean(doc.preAuditInitialApprovedAt)
+        });
+      }
+    } catch (caErr) {
+      console.error('Error fetching cash approvals for pre-audit:', caErr);
+    }
+
     // Combine Pre Audit and workflow documents
     const allDocuments = [
       ...preAuditDocs.map(doc => ({ ...doc, isWorkflowDocument: false })), 
@@ -542,6 +602,45 @@ router.get('/:id',
             isPostGrnAudit: po.status === 'Sent to Audit',
             originalDocument: po,
             auditObservations: po.auditObservations || []
+          }
+        });
+      }
+      const CashApproval = require('../models/procurement/CashApproval');
+      const ca = await CashApproval.findById(req.params.id)
+        .populate('vendor', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('indent', 'title indentNumber erpRef')
+        .populate('auditObservations.addedBy', 'firstName lastName email')
+        .populate('auditObservations.answeredBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email')
+        .lean();
+      const caAuditVisible = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'];
+      if (ca && caAuditVisible.includes(ca.status)) {
+        let preAuditStatus = 'pending';
+        if (ca.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        else if (ca.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
+        return res.json({
+          success: true,
+          data: {
+            _id: ca._id,
+            documentNumber: ca.caNumber,
+            title: `Cash Approval: ${ca.caNumber || 'CA'}`,
+            description: ca.notes || (ca.vendor ? `CA from ${ca.vendor.name}` : 'Cash Approval'),
+            sourceModule: 'procurement',
+            sourceDepartmentName: 'Procurement',
+            documentType: 'other',
+            documentDate: ca.approvalDate,
+            amount: ca.totalAmount,
+            referenceNumber: ca.caNumber,
+            status: preAuditStatus,
+            workflowStatus: ca.status,
+            isWorkflowDocument: false,
+            isPurchaseOrder: false,
+            isCashApproval: true,
+            originalDocument: ca,
+            auditObservations: ca.auditObservations || [],
+            preAuditInitialApprovedAt: ca.preAuditInitialApprovedAt || null,
+            initialAuditApproved: Boolean(ca.preAuditInitialApprovedAt)
           }
         });
       }
@@ -730,6 +829,57 @@ router.put('/:id/forward',
             isPurchaseOrder: true,
             status: 'Forwarded to Audit Director',
             workflowStatus: updated.status
+          }
+        });
+      }
+
+      const CashApprovalForward = require('../models/procurement/CashApproval');
+      const caFwd = await CashApprovalForward.findById(req.params.id);
+      if (caFwd && ['Pending Audit', 'Forwarded to Audit Director'].includes(caFwd.status)) {
+        if (caFwd.status === 'Forwarded to Audit Director') {
+          return res.status(400).json({
+            success: false,
+            message: 'Document is already forwarded to Audit Director'
+          });
+        }
+        if (!caFwd.preAuditInitialApprovedAt) {
+          return res.status(400).json({
+            success: false,
+            message: 'Initial pre-audit approval is required before forwarding to Audit Director.'
+          });
+        }
+        caFwd.workflowHistory = caFwd.workflowHistory || [];
+        caFwd.workflowHistory.push({
+          fromStatus: 'Pending Audit',
+          toStatus: 'Forwarded to Audit Director',
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: forwardComments || 'Forwarded to Audit Director for approval',
+          module: 'Pre-Audit'
+        });
+        caFwd.status = 'Forwarded to Audit Director';
+        caFwd.updatedBy = req.user.id;
+        await caFwd.save();
+        const updatedCa = await CashApprovalForward.findById(caFwd._id)
+          .populate('workflowHistory.changedBy', 'firstName lastName email');
+
+        await notifyAuditDirectorQueue({
+          actorId: req.user.id,
+          title: 'Document forwarded to Audit Director',
+          message: `Cash Approval ${caFwd.caNumber || ''} is waiting for your approval.`,
+          entityId: caFwd._id,
+          entityType: 'CashApproval'
+        });
+
+        return res.json({
+          success: true,
+          message: 'Document forwarded to Audit Director successfully',
+          data: {
+            _id: caFwd._id,
+            isWorkflowDocument: false,
+            isCashApproval: true,
+            status: 'Forwarded to Audit Director',
+            workflowStatus: updatedCa.status
           }
         });
       }
@@ -1205,6 +1355,29 @@ router.put('/:id/add-observation',
       });
     }
 
+    const CashApprovalObs = require('../models/procurement/CashApproval');
+    const caObs = await CashApprovalObs.findById(req.params.id);
+    if (caObs && ['Pending Audit', 'Forwarded to Audit Director'].includes(caObs.status)) {
+      caObs.auditObservations = caObs.auditObservations || [];
+      caObs.auditObservations.push({
+        observation,
+        severity: (severity || 'medium').toLowerCase(),
+        addedBy: req.user.id,
+        addedAt: new Date()
+      });
+      caObs.updatedBy = req.user.id;
+      await caObs.save();
+      return res.json({
+        success: true,
+        message: 'Observation added successfully',
+        data: {
+          _id: caObs._id,
+          isCashApproval: true,
+          observation: { observation, severity: severity || 'medium', addedBy: req.user, addedAt: new Date() }
+        }
+      });
+    }
+
     // Handle regular Pre Audit documents
     const document = await PreAudit.findById(req.params.id);
     if (!document) {
@@ -1365,6 +1538,49 @@ router.put('/:id/return',
         success: true,
         message: 'Purchase order returned to procurement successfully. They can correct and resend to Pre Audit.',
         data: { _id: poForReturn._id, isPurchaseOrder: true, status: 'Returned from Audit' }
+      });
+    }
+
+    const CashApprovalReturn = require('../models/procurement/CashApproval');
+    const caForReturn = await CashApprovalReturn.findById(req.params.id);
+    if (caForReturn && ['Pending Audit', 'Forwarded to Audit Director'].includes(caForReturn.status)) {
+      const fromCaStatus = caForReturn.status;
+      caForReturn.workflowHistory = caForReturn.workflowHistory || [];
+      caForReturn.workflowHistory.push({
+        fromStatus: fromCaStatus,
+        toStatus: 'Returned from Audit',
+        changedBy: req.user.id,
+        changedAt: new Date(),
+        comments: returnComments || 'Returned from Pre-Audit with observations',
+        module: 'Pre-Audit'
+      });
+      caForReturn.status = 'Returned from Audit';
+      caForReturn.auditReturnedBy = req.user.id;
+      caForReturn.auditReturnedAt = new Date();
+      caForReturn.auditReturnComments = returnComments || '';
+      caForReturn.auditSnapshotAtReturn = {
+        items: JSON.parse(JSON.stringify(caForReturn.items || [])),
+        totalAmount: caForReturn.totalAmount,
+        subtotal: caForReturn.subtotal
+      };
+      if (observations && Array.isArray(observations) && observations.length > 0) {
+        caForReturn.auditObservations = caForReturn.auditObservations || [];
+        observations.forEach((obs) => {
+          caForReturn.auditObservations.push({
+            observation: obs.observation || obs.text || obs,
+            severity: (obs.severity || 'medium').toLowerCase(),
+            addedBy: req.user.id,
+            addedAt: new Date(),
+            resolved: false
+          });
+        });
+      }
+      caForReturn.updatedBy = req.user.id;
+      await caForReturn.save();
+      return res.json({
+        success: true,
+        message: 'Cash approval returned to procurement successfully. They can correct and resend to Pre Audit.',
+        data: { _id: caForReturn._id, isCashApproval: true, status: 'Returned from Audit' }
       });
     }
 

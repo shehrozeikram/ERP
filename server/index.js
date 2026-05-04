@@ -136,6 +136,7 @@ const fixedAssetsRoutes = require('./routes/fixedAssets');
 const assetTaggingRoutes = require('./routes/assetTagging');
 const paymentTermsRoutes = require('./routes/paymentTerms');
 const purchaseReturnsRoutes = require('./routes/purchaseReturns');
+const cashApprovalsRoutes = require('./routes/cashApprovals');
 // Pre-load new models so Mongoose registers them before any route uses them
 require('./models/finance/FinanceJournal');
 require('./models/finance/FiscalPeriod');
@@ -147,6 +148,7 @@ require('./models/assetTagging/AssetVerificationSession');
 require('./models/finance/PaymentTerm');
 require('./models/procurement/PurchaseReturn');
 require('./models/procurement/InventoryCategory');
+require('./models/procurement/CashApproval');
 require('./models/chat/ChatConversation');
 require('./models/chat/ChatMessage');
 
@@ -531,6 +533,7 @@ app.use('/api/asset-tagging', authMiddleware, activityLogger, assetTaggingRoutes
 app.use('/api/finance/payment-terms', authMiddleware, activityLogger, paymentTermsRoutes);
 app.use('/api/inventory-categories', authMiddleware, activityLogger, inventoryCategoriesRoutes);
 app.use('/api/procurement/purchase-returns', authMiddleware, activityLogger, purchaseReturnsRoutes);
+app.use('/api/cash-approvals', authMiddleware, activityLogger, cashApprovalsRoutes);
 app.use('/api/procurement', authMiddleware, activityLogger, procurementRoutes);
 app.use('/api/sales', authMiddleware, activityLogger, salesRoutes);
 app.use('/api/crm', authMiddleware, activityLogger, crmRoutes);

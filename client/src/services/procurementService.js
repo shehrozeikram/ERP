@@ -119,6 +119,101 @@ const procurementService = {
   updateVendor: async (id, data) => {
     const response = await api.put(`/procurement/vendors/${id}`, data);
     return response.data;
+  },
+
+  // Cash Approvals
+  getCashApprovals: async (params = {}) => {
+    const response = await api.get('/cash-approvals', { params });
+    return response.data;
+  },
+  getCashApprovalById: async (id) => {
+    const response = await api.get(`/cash-approvals/${id}`);
+    return response.data;
+  },
+  getCashApprovalStats: async () => {
+    const response = await api.get('/cash-approvals/statistics');
+    return response.data;
+  },
+  getCashApprovalsPendingFinance: async () => {
+    const response = await api.get('/cash-approvals/pending-finance');
+    return response.data;
+  },
+  createCashApproval: async (data) => {
+    const response = await api.post('/cash-approvals', data);
+    return response.data;
+  },
+  updateCashApproval: async (id, data) => {
+    const response = await api.put(`/cash-approvals/${id}`, data);
+    return response.data;
+  },
+  deleteCashApproval: async (id) => {
+    const response = await api.delete(`/cash-approvals/${id}`);
+    return response.data;
+  },
+  // Workflow actions
+  caSendToAudit: async (id, body) => {
+    const payload = typeof body === 'string' ? { comments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/send-to-audit`, payload);
+    return response.data;
+  },
+  caAuditApprove: async (id, body) => {
+    const payload = typeof body === 'string' ? { comments: body, approvalComments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/audit-approve`, payload);
+    return response.data;
+  },
+  caForwardToAuditDirector: async (id, comments) => {
+    const response = await api.put(`/cash-approvals/${id}/forward-to-audit-director`, { comments });
+    return response.data;
+  },
+  caAuditReject: async (id, body) => {
+    const payload = typeof body === 'string' ? { rejectionComments: body, comments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/audit-reject`, payload);
+    return response.data;
+  },
+  caAuditReturn: async (id, body) => {
+    const payload = typeof body === 'string' ? { returnComments: body, comments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/audit-return`, payload);
+    return response.data;
+  },
+  caForwardToCeo: async (id, comments) => {
+    const response = await api.put(`/cash-approvals/${id}/forward-to-ceo`, { comments });
+    return response.data;
+  },
+  caCeoSecretariatReturn: async (id, comments) => {
+    const response = await api.put(`/cash-approvals/${id}/ceo-secretariat-return`, { comments });
+    return response.data;
+  },
+  caCeoApprove: async (id, data) => {
+    const response = await api.put(`/cash-approvals/${id}/ceo-approve`, data);
+    return response.data;
+  },
+  caCeoReject: async (id, comments) => {
+    const response = await api.put(`/cash-approvals/${id}/ceo-reject`, { comments });
+    return response.data;
+  },
+  caCeoReturn: async (id, comments) => {
+    const response = await api.put(`/cash-approvals/${id}/ceo-return`, { comments });
+    return response.data;
+  },
+  caIssueAdvance: async (id, data) => {
+    const response = await api.put(`/cash-approvals/${id}/issue-advance`, data);
+    return response.data;
+  },
+  caSettlePayment: async (id, data) => {
+    const response = await api.put(`/cash-approvals/${id}/settle-payment`, data);
+    return response.data;
+  },
+  caSendToProcurement: async (id, remarks) => {
+    const response = await api.put(`/cash-approvals/${id}/send-to-procurement`, { remarks });
+    return response.data;
+  },
+  caComplete: async (id, remarks) => {
+    const response = await api.put(`/cash-approvals/${id}/complete`, { remarks });
+    return response.data;
+  },
+  caCancel: async (id, reason) => {
+    const response = await api.put(`/cash-approvals/${id}/cancel`, { reason });
+    return response.data;
   }
 };
 

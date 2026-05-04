@@ -296,6 +296,7 @@ export const SUBMODULES = {
     'quotations',
     'comparative_statements',
     'purchase_orders',
+    'cash_approvals',
     'vendors',
     'store',
     'store_management',
@@ -593,6 +594,7 @@ export const MODULES = {
         subItems: [
           { name: 'Vendor Bills',         path: '/finance/accounts-payable'     },
           { name: 'Vendor Advance',       path: '/finance/vendor-advance'        },
+          { name: 'Cash Approvals',       path: '/finance/cash-approvals'        },
           { name: 'Batch Payment',        path: '/finance/batch-payment'        },
           { name: 'Vendor Payments',      path: '/finance/vendor-payments'      },
           { name: 'Vendor Refunds',       path: '/finance/vendor-refunds'       },
@@ -781,6 +783,7 @@ export const MODULES = {
       { name: 'Quotations', path: '/procurement/quotations' },
       { name: 'Comparative Statements', path: '/procurement/comparative-statements' },
       { name: 'Purchase Orders', path: '/procurement/purchase-orders' },
+      { name: 'Cash Approvals', path: '/procurement/cash-approvals' },
       {
         name: 'Vendors',
         path: '/procurement/vendors',
@@ -1339,6 +1342,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/procurement/quotations': 'quotations',
       '/procurement/comparative-statements': 'comparative_statements',
       '/procurement/purchase-orders': 'purchase_orders',
+      '/procurement/cash-approvals': 'cash_approvals',
       '/procurement/vendors': 'vendors',
       '/procurement/store': 'store',
       '/procurement/store/manage': 'store_management',

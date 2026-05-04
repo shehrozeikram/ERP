@@ -17,6 +17,21 @@ import api from '../../services/api';
 import dayjs from 'dayjs';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 
+function renderIndentItemDescriptionCell(item) {
+  const name = String(item?.itemName || '').trim();
+  const desc = String(item?.description || '').trim();
+  if (!name && !desc) return '___________';
+  if (name && desc && name !== desc) {
+    return (
+      <>
+        <div style={{ fontWeight: 600 }}>{name}</div>
+        <div style={{ marginTop: 4, fontSize: '0.92em', lineHeight: 1.45, color: '#333' }}>{desc}</div>
+      </>
+    );
+  }
+  return name || desc;
+}
+
 const RequisitionPrintView = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -270,7 +285,7 @@ const RequisitionPrintView = () => {
                       {(index + 1).toString().padStart(2, '0')}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                      {item.itemName || item.description || '___________'}
+                      {renderIndentItemDescriptionCell(item)}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                       {item.brand || '___________'}

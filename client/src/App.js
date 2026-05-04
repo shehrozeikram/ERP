@@ -302,6 +302,14 @@ const RecoveryTaskAssignment = lazy(() => import('./pages/Finance/Recovery/Recov
 const CompletedTasks = lazy(() => import('./pages/Finance/Recovery/CompletedTasks'));
 const RecoveryCampaigns = lazy(() => import('./pages/Finance/Recovery/RecoveryCampaigns'));
 const MyTasks = lazy(() => import('./pages/Finance/Recovery/MyTasks'));
+const CashApprovals = lazy(() => import('./pages/Procurement/CashApprovals'));
+const CashApprovalDocumentView = lazy(() => import('./pages/Procurement/CashApprovalDocumentView'));
+
+const lazyPageFallback = (
+  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+    <CircularProgress />
+  </Box>
+);
 
 // Component to handle role-based redirects
 const RoleBasedRedirect = () => {
@@ -1035,6 +1043,16 @@ function App() {
             <Route path="/finance/customer-payments" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CustomerPayments /></ProtectedRoute>} />
             <Route path="/finance/credit-notes" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CreditNotes /></ProtectedRoute>} />
             <Route path="/finance/vendor-advance" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorAdvance /></ProtectedRoute>} />
+            <Route
+              path="/finance/cash-approvals"
+              element={
+                <ProtectedRoute requiredRole={['super_admin', 'admin', 'finance_manager']}>
+                  <Suspense fallback={lazyPageFallback}>
+                    <CashApprovals />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
             <Route path="/finance/vendor-payments" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorPayments /></ProtectedRoute>} />
             <Route path="/finance/vendor-refunds" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorRefunds /></ProtectedRoute>} />
             <Route path="/finance/bill-to-receive" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BillToReceive /></ProtectedRoute>} />
@@ -1309,6 +1327,26 @@ function App() {
             <Route 
               path="/procurement/purchase-orders" 
               element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} 
+            />
+            <Route
+              path="/procurement/cash-approvals"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={lazyPageFallback}>
+                    <CashApprovals />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/procurement/cash-approvals/:id/print"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={lazyPageFallback}>
+                    <CashApprovalDocumentView />
+                  </Suspense>
+                </ProtectedRoute>
+              }
             />
             <Route 
               path="/procurement/vendors" 

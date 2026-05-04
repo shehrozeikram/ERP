@@ -39,6 +39,7 @@ import {
   Refresh as RefreshIcon,
   CheckCircle as ApproveIcon,
   ShoppingCart as POIcon,
+  MonetizationOn as CashApprovalIcon,
   Print as PrintIcon,
   CallSplit as SplitIcon,
   ExpandMore as ExpandMoreIcon
@@ -652,15 +653,26 @@ const Quotations = () => {
                                   </>
                                 )}
                                 {quote.status === 'Finalized' && (
-                                  <Tooltip title="Create PO">
-                                    <IconButton
-                                      size="small"
-                                      color="primary"
-                                      onClick={() => navigate('/procurement/purchase-orders', { state: { createFromQuotationId: quote._id } })}
-                                    >
-                                      <POIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
+                                  <>
+                                    <Tooltip title="Create PO">
+                                      <IconButton
+                                        size="small"
+                                        color="primary"
+                                        onClick={() => navigate('/procurement/purchase-orders', { state: { createFromQuotationId: quote._id } })}
+                                      >
+                                        <POIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Create Cash Approval">
+                                      <IconButton
+                                        size="small"
+                                        color="warning"
+                                        onClick={() => navigate('/procurement/cash-approvals', { state: { createFromQuotationId: quote._id } })}
+                                      >
+                                        <CashApprovalIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </>
                                 )}
                               </TableCell>
                             </TableRow>

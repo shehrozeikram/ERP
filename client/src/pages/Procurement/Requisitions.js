@@ -49,6 +49,22 @@ import { formatDate } from '../../utils/dateUtils';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import dayjs from 'dayjs';
 
+/** Indent lines store catalog name in itemName and free-text/spec in description; do not hide description when itemName is set. */
+function renderIndentItemDescriptionCell(item) {
+  const name = String(item?.itemName || '').trim();
+  const desc = String(item?.description || '').trim();
+  if (!name && !desc) return '___________';
+  if (name && desc && name !== desc) {
+    return (
+      <>
+        <div style={{ fontWeight: 600 }}>{name}</div>
+        <div style={{ marginTop: 4, fontSize: '0.92em', lineHeight: 1.45, color: '#333' }}>{desc}</div>
+      </>
+    );
+  }
+  return name || desc;
+}
+
 const Requisitions = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
@@ -789,7 +805,7 @@ const Requisitions = () => {
                               {(index + 1).toString().padStart(2, '0')}
                             </td>
                             <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                              {item.itemName || item.description || '___________'}
+                              {renderIndentItemDescriptionCell(item)}
                             </td>
                             <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                               {item.brand || '___________'}
@@ -1177,7 +1193,7 @@ const Requisitions = () => {
                                 {itemIndex + 1}
                               </td>
                               <td style={{ border: '1px solid #000', padding: '8px', verticalAlign: 'top' }}>
-                                {item.itemName || item.description || '___________'}
+                                {renderIndentItemDescriptionCell(item)}
                               </td>
                               <td style={{ border: '1px solid #000', padding: '8px', verticalAlign: 'top' }}>
                                 {item.unit || '___________'}

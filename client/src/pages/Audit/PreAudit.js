@@ -205,7 +205,11 @@ const PreAudit = () => {
       const doc = approveDialog.document;
       
       // Pre-GRN PO: Audit Director approves via procurement after forward (super_admin may approve from Pending on server)
-      if (doc.isPurchaseOrder && !doc.isPostGrnAudit) {
+      if (doc.isCashApproval) {
+        await api.put(`/cash-approvals/${doc._id}/audit-approve`, {
+          approvalComments
+        });
+      } else if (doc.isPurchaseOrder && !doc.isPostGrnAudit) {
         await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
           approvalComments
         });
@@ -266,7 +270,11 @@ const PreAudit = () => {
       setError(null);
       const doc = returnDialog.document;
       
-      if (doc.isPurchaseOrder) {
+      if (doc.isCashApproval) {
+        await api.put(`/cash-approvals/${doc._id}/audit-return`, {
+          returnComments
+        });
+      } else if (doc.isPurchaseOrder) {
         await api.put(`/procurement/purchase-orders/${doc._id}/audit-return`, {
           returnComments
         });
@@ -318,7 +326,13 @@ const PreAudit = () => {
         return;
       }
 
-      if (doc.isPurchaseOrder) {
+      if (doc.isCashApproval) {
+        await api.put(`/cash-approvals/${doc._id}/audit-reject`, {
+          rejectionComments: rejectionComments || 'Rejected with observations',
+          observations: observations.length > 0 ? observations : undefined
+        });
+        setSuccess('Cash approval rejected successfully.');
+      } else if (doc.isPurchaseOrder) {
         await api.put(`/procurement/purchase-orders/${doc._id}/audit-reject`, {
           rejectionComments: rejectionComments || 'Rejected with observations',
           observations: observations.length > 0 ? observations : undefined
@@ -1261,6 +1275,14 @@ const PreAudit = () => {
                                                     variant="filled"
                                                   />
                                                 )}
+                                                {doc.isCashApproval && (
+                                                  <Chip
+                                                    label="Cash Approval"
+                                                    size="small"
+                                                    color="success"
+                                                    variant="outlined"
+                                                  />
+                                                )}
                                               </Box>
                                               {doc.description && (
                                                 <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200, display: 'block' }}>
@@ -1333,6 +1355,32 @@ const PreAudit = () => {
                                                         } catch (error) {
                                                           console.error('Error fetching purchase order:', error);
                                                           setViewDialog({ open: true, document: { ...doc, isPurchaseOrder: true }, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 });
+                                                        }
+                                                      } else if (doc.isCashApproval) {
+                                                        try {
+                                                          const response = await api.get(`/cash-approvals/${doc._id}`);
+                                                          const caData = response.data?.success ? response.data.data : null;
+                                                          let quotations = [];
+                                                          if (caData?.indent?._id) {
+                                                            try {
+                                                              const qRes = await api.get(`/procurement/quotations/by-indent/${caData.indent._id}`);
+                                                              if (qRes.data?.success && Array.isArray(qRes.data.data)) {
+                                                                quotations = qRes.data.data;
+                                                              }
+                                                            } catch (_) { /* ignore */ }
+                                                          }
+                                                          setViewDialog({
+                                                            open: true,
+                                                            document: { ...doc, isCashApproval: true },
+                                                            fullDocument: caData,
+                                                            loading: false,
+                                                            quotations,
+                                                            grns: [],
+                                                            poAuditTab: 0
+                                                          });
+                                                        } catch (error) {
+                                                          console.error('Error fetching cash approval:', error);
+                                                          setViewDialog({ open: true, document: { ...doc, isCashApproval: true }, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 });
                                                         }
                                                       }
                                                       // If it's a workflow document (payment settlement), check if it's related to a PO
@@ -1571,14 +1619,14 @@ const PreAudit = () => {
       <Dialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 })}
-        maxWidth={(viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? false : "md"}
+        maxWidth={(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? false : "md"}
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 0,
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             background: '#ffffff',
-            ...((viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && {
+            ...((viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && {
               width: '90%',
               maxWidth: '210mm',
               maxHeight: '95vh',
@@ -1597,7 +1645,7 @@ const PreAudit = () => {
         <DialogTitle sx={{ 
           p: 0,
           m: 0,
-          '@media print': { display: (viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'none' : 'block' }
+          '@media print': { display: (viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'none' : 'block' }
         }}>
           <Box sx={{ 
             display: 'flex', 
@@ -1607,10 +1655,14 @@ const PreAudit = () => {
             borderBottom: '1px solid #e0e0e0'
           }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
-              {(viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'Purchase Order Details' : 'PAYMENT SETTLEMENT'}
+              {viewDialog.document?.isCashApproval
+                ? 'Cash Approval Details'
+                : (viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder))
+                  ? 'Purchase Order Details'
+                  : 'PAYMENT SETTLEMENT'}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
-              {(viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && (
+              {(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && (
                 <Button
                   variant="contained"
                   startIcon={<PrintIcon />}
@@ -1639,10 +1691,10 @@ const PreAudit = () => {
             </Box>
           ) : viewDialog.document && (
             <Box sx={{ 
-              p: (viewDialog.document.isPurchaseOrder || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 0 : 4, 
+              p: (viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 0 : 4, 
               background: '#ffffff',
-              fontFamily: (viewDialog.document.isPurchaseOrder || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'Arial, sans-serif' : '"Times New Roman", serif'
-            }} className={(viewDialog.document.isPurchaseOrder || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? "print-content" : ""}>
+              fontFamily: (viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'Arial, sans-serif' : '"Times New Roman", serif'
+            }} className={(viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? "print-content" : ""}>
               {/* Show Purchase Order + Comparative Statement + Quotations when it's a PO (for audit) */}
               {(viewDialog.document.isPurchaseOrder && viewDialog.fullDocument) ? (
                 <>
@@ -2357,6 +2409,102 @@ const PreAudit = () => {
                     </Box>
                   )}
                 </>
+              ) : (viewDialog.document.isCashApproval && viewDialog.fullDocument) ? (
+                <>
+                  <Box sx={{ p: 2, maxWidth: 900, mx: 'auto', '@media print': { p: 1 } }}>
+                    <Typography variant="h5" align="center" fontWeight={700} sx={{ mb: 2, letterSpacing: 1 }}>
+                      CASH APPROVAL
+                    </Typography>
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">CA Number</Typography>
+                        <Typography variant="body1" fontWeight={600}>{viewDialog.fullDocument.caNumber}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Status</Typography>
+                        <Typography variant="body1">{viewDialog.fullDocument.status}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Vendor</Typography>
+                        <Typography variant="body1">{viewDialog.fullDocument.vendor?.name || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" color="text.secondary">Total</Typography>
+                        <Typography variant="body1" fontWeight={600}>{formatPKR(viewDialog.fullDocument.totalAmount)}</Typography>
+                      </Grid>
+                    </Grid>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Items</Typography>
+                    <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>#</TableCell>
+                            <TableCell>Description</TableCell>
+                            <TableCell align="right">Qty</TableCell>
+                            <TableCell>Unit</TableCell>
+                            <TableCell align="right">Unit Price</TableCell>
+                            <TableCell align="right">Amount</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {(viewDialog.fullDocument.items || []).map((row, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell>{row.description}</TableCell>
+                              <TableCell align="right">{row.quantity}</TableCell>
+                              <TableCell>{row.unit}</TableCell>
+                              <TableCell align="right">{formatPKR(row.unitPrice)}</TableCell>
+                              <TableCell align="right">{formatPKR(row.amount)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Approval authorities</Typography>
+                    <Grid container spacing={1} sx={{ mb: 2 }}>
+                      {[
+                        { key: 'preparedBy', label: 'Prepared By' },
+                        { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
+                        { key: 'authorisedRep', label: 'Authorised Rep.' },
+                        { key: 'financeRep', label: 'Finance Rep.' },
+                        { key: 'managerProcurement', label: 'Manager Procurement' }
+                      ].map(({ key, label }) => (
+                        <Grid item xs={12} sm={6} key={key}>
+                          <Typography variant="caption" color="text.secondary">{label}</Typography>
+                          <Typography variant="body2">{(viewDialog.fullDocument.approvalAuthorities || {})[key] || '—'}</Typography>
+                        </Grid>
+                      ))}
+                    </Grid>
+                    {viewDialog.fullDocument.resubmissionChangeSummary && (
+                      <Alert severity="info" sx={{ mb: 2 }}>{viewDialog.fullDocument.resubmissionChangeSummary}</Alert>
+                    )}
+                    {Array.isArray(viewDialog.fullDocument.auditObservations) && viewDialog.fullDocument.auditObservations.length > 0 && (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Audit observations</Typography>
+                        {viewDialog.fullDocument.auditObservations.map((obs, idx) => (
+                          <Paper key={obs._id || idx} sx={{ p: 2, mb: 1, bgcolor: alpha(theme.palette.warning.main, 0.08) }}>
+                            <Typography variant="body2">{obs.observation}</Typography>
+                            {obs.answer && (
+                              <Typography variant="caption" display="block" sx={{ mt: 1, color: 'success.dark' }}>
+                                Response: {obs.answer}
+                              </Typography>
+                            )}
+                          </Paper>
+                        ))}
+                      </Box>
+                    )}
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<PrintIcon />}
+                      onClick={() => window.open(`/procurement/cash-approvals/${viewDialog.fullDocument._id}/print`, '_blank', 'noopener,noreferrer')}
+                      sx={{ '@media print': { display: 'none' } }}
+                    >
+                      Open print view
+                    </Button>
+                  </Box>
+                </>
               ) : (
                 /* Regular Pre Audit Document View */
                 <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -2391,6 +2539,7 @@ const PreAudit = () => {
                   {/* Show observations for regular PreAudit documents */}
                   {viewDialog.document.observations && 
                    !viewDialog.document.isPurchaseOrder && 
+                   !viewDialog.document.isCashApproval &&
                    !(viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder) &&
                    viewDialog.document.observations.length > 0 && (
                     <Grid item xs={12}>
@@ -2428,7 +2577,7 @@ const PreAudit = () => {
                   )}
                   {/* Show auditObservations for Purchase Orders */}
                   {(() => {
-                    const isPO = viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder);
+                    const isPO = viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder);
                     const observations = viewDialog.fullDocument?.auditObservations || viewDialog.document?.auditObservations || [];
                     const hasObservations = Array.isArray(observations) && observations.length > 0;
                     return isPO && hasObservations;
@@ -2514,7 +2663,7 @@ const PreAudit = () => {
             )}
           </Box>
           <Box>
-            {viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument && (
+            {(viewDialog.document?.isWorkflowDocument || viewDialog.document?.isCashApproval) && viewDialog.fullDocument && (
               <Button
                 variant="outlined"
                 startIcon={<HistoryIcon />}
@@ -2535,8 +2684,8 @@ const PreAudit = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Print Styles for Purchase Order Dialog */}
-      {(viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && (
+      {/* Print Styles for Purchase Order / Cash Approval wide dialogs */}
+      {(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && (
         <Box
           component="style"
           dangerouslySetInnerHTML={{
