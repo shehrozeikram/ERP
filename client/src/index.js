@@ -1,3 +1,4 @@
+import './suppressResizeObserverError';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -10,21 +11,6 @@ import './styles/print.css';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
-
-// Chrome reports "ResizeObserver loop completed with undelivered notifications" when a
-// ResizeObserver runs mid-layout (MUI Popper/Autocomplete/DataGrid do this). It is benign;
-// without this, the CRA dev overlay treats it as an uncaught runtime error.
-const resizeObserverNoise = /^ResizeObserver loop/;
-window.addEventListener(
-  'error',
-  (event) => {
-    const msg = event.message || event.error?.message || '';
-    if (resizeObserverNoise.test(msg)) {
-      event.stopImmediatePropagation();
-    }
-  },
-  true
-);
 
 // Create Material-UI theme
 const theme = createTheme({

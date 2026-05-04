@@ -414,11 +414,13 @@ const DepartmentChart = () => {
 
       // Use ResizeObserver for better responsive behavior
       const resizeObserver = new ResizeObserver((entries) => {
-        for (let entry of entries) {
-          if (chartInstance.current) {
-            chartInstance.current.resize();
+        requestAnimationFrame(() => {
+          for (let entry of entries) {
+            if (chartInstance.current) {
+              chartInstance.current.resize();
+            }
           }
-        }
+        });
       });
 
       if (chartRef.current) {

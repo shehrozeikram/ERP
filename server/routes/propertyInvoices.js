@@ -26,6 +26,9 @@ const {
   CACHE_KEYS
 } = require('../utils/tajUtilitiesOptimizer');
 
+/** Avoid SyntaxError from RegExp when sector names contain metacharacters (e.g. `[`, `(`). */
+const escapeRegExp = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Generate invoice number with type prefix
 const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuffix = '') => {
   const paddedMonth = String(month).padStart(2, '0');
@@ -2658,6 +2661,69 @@ router.post('/reconciliation/save', authMiddleware, reconciliationUpload.single(
   }
 }));
 
+// Month-wise summary must be registered BEFORE /:id, or "month-summary" is captured as an invoice id.
+router.get('/month-summary', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const { propertyId, status, paymentStatus, chargeType, residentId, sector, openInvoices } = req.query;
+    const filter = { status: { $ne: 'Cancelled' } };
+    if (openInvoices === 'true') {
+      filter.property = null;
+    } else if (propertyId) {
+      if (!mongoose.isValidObjectId(propertyId)) {
+        return res.status(400).json({ success: false, message: 'Invalid propertyId' });
+      }
+      filter.property = new mongoose.Types.ObjectId(propertyId);
+    }
+    if (status) filter.status = status;
+    if (paymentStatus != null && paymentStatus !== '') {
+      const ps = Array.isArray(paymentStatus) ? paymentStatus.join(',') : String(paymentStatus);
+      if (ps.includes(',')) {
+        filter.paymentStatus = { $in: ps.split(',').map((s) => s.trim()).filter(Boolean) };
+      } else {
+        filter.paymentStatus = ps;
+      }
+    }
+    if (chargeType) filter.chargeTypes = { $in: [chargeType] };
+
+    const pipeline = [{ $match: filter }];
+
+    if (residentId || sector) {
+      if (residentId && !mongoose.isValidObjectId(residentId)) {
+        return res.status(400).json({ success: false, message: 'Invalid residentId' });
+      }
+      pipeline.push({ $lookup: { from: 'tajproperties', localField: 'property', foreignField: '_id', as: 'prop' } });
+      pipeline.push({ $unwind: { path: '$prop', preserveNullAndEmptyArrays: true } });
+      if (residentId) {
+        pipeline.push({ $match: { 'prop.resident': new mongoose.Types.ObjectId(residentId) } });
+      }
+      if (sector) {
+        const sectorPattern = new RegExp(escapeRegExp(String(sector)), 'i');
+        pipeline.push({
+          $match: {
+            $or: [{ 'prop.sector': sector }, { 'prop.sector.name': sectorPattern }]
+          }
+        });
+      }
+    }
+
+    pipeline.push(
+      { $addFields: { monthKey: { $dateToString: { format: '%Y-%m', date: { $ifNull: ['$periodTo', '$invoiceDate'] } } } } },
+      { $group: { _id: '$monthKey', total: { $sum: '$grandTotal' }, paid: { $sum: '$totalPaid' }, balance: { $sum: '$balance' }, invoiceCount: { $sum: 1 } } },
+      { $sort: { _id: -1 } }
+    );
+
+    const summary = await PropertyInvoice.aggregate(pipeline);
+    const byMonth = summary.reduce((acc, row) => {
+      acc[row._id] = { total: row.total || 0, paid: row.paid || 0, balance: row.balance || 0, invoiceCount: row.invoiceCount || 0 };
+      return acc;
+    }, {});
+
+    res.json({ success: true, data: byMonth });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 // Get invoice by ID
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {
@@ -3262,53 +3328,6 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     }
     
     res.json(response);
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-}));
-
-// Month-wise summary (whole-month Total, Paid, Balance) — same filters as list; for Invoices page cards
-router.get('/month-summary', authMiddleware, asyncHandler(async (req, res) => {
-  try {
-    const { propertyId, status, paymentStatus, chargeType, residentId, sector, openInvoices } = req.query;
-    const filter = { status: { $ne: 'Cancelled' } };
-    if (openInvoices === 'true') {
-      filter.property = null;
-    } else if (propertyId) {
-      filter.property = propertyId;
-    }
-    if (status) filter.status = status;
-    if (paymentStatus) {
-      if (paymentStatus.includes(',')) {
-        filter.paymentStatus = { $in: paymentStatus.split(',').map(s => s.trim()).filter(Boolean) };
-      } else {
-        filter.paymentStatus = paymentStatus;
-      }
-    }
-    if (chargeType) filter.chargeTypes = { $in: [chargeType] };
-
-    const pipeline = [{ $match: filter }];
-
-    if (residentId || sector) {
-      pipeline.push({ $lookup: { from: 'tajproperties', localField: 'property', foreignField: '_id', as: 'prop' } });
-      pipeline.push({ $unwind: { path: '$prop', preserveNullAndEmptyArrays: true } });
-      if (residentId) pipeline.push({ $match: { 'prop.resident': new mongoose.Types.ObjectId(residentId) } });
-      if (sector) pipeline.push({ $match: { $or: [{ 'prop.sector': sector }, { 'prop.sector.name': new RegExp(sector, 'i') }] } });
-    }
-
-    pipeline.push(
-      { $addFields: { monthKey: { $dateToString: { format: '%Y-%m', date: { $ifNull: ['$periodTo', '$invoiceDate'] } } } } },
-      { $group: { _id: '$monthKey', total: { $sum: '$grandTotal' }, paid: { $sum: '$totalPaid' }, balance: { $sum: '$balance' }, invoiceCount: { $sum: 1 } } },
-      { $sort: { _id: -1 } }
-    );
-
-    const summary = await PropertyInvoice.aggregate(pipeline);
-    const byMonth = summary.reduce((acc, row) => {
-      acc[row._id] = { total: row.total || 0, paid: row.paid || 0, balance: row.balance || 0, invoiceCount: row.invoiceCount || 0 };
-      return acc;
-    }, {});
-
-    res.json({ success: true, data: byMonth });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

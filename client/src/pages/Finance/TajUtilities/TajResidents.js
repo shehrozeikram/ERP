@@ -227,42 +227,32 @@ const TajResidents = () => {
     };
   }, [allocations, payForm.amount]);
 
-  // Filter properties to only show those assigned to selected resident (for deposit payment dialog)
-  // Use unassignedProperties which includes all properties regardless of category
+  // Properties for "Pay from deposit" dropdown: must list every property linked on the resident.
+  // /unassigned-properties?includeAssigned=true is capped at 200 rows globally, so intersecting that
+  // list with the resident hid any property not in the first 200 — show resident.properties always
+  // and enrich from the fetched list when the same _id appears there.
   const filteredPropertiesForDeposit = useMemo(() => {
-    // Use unassignedProperties which is loaded from /unassigned-properties with includeAssigned: 'true'
-    // This ensures all properties are shown regardless of category
     const propertiesToFilter = unassignedProperties.length > 0 ? unassignedProperties : properties;
-    
+
     if (!selectedResident) {
       return propertiesToFilter;
     }
-    
-    // If resident has no properties or properties array is empty, show all properties
-    if (!selectedResident.properties || !Array.isArray(selectedResident.properties) || selectedResident.properties.length === 0) {
+
+    const fromResident = Array.isArray(selectedResident.properties) ? selectedResident.properties : [];
+    if (fromResident.length === 0) {
       return propertiesToFilter;
     }
-    
-    // Get IDs of properties assigned to this resident (convert all to strings for comparison)
-    const residentPropertyIds = selectedResident.properties.map(p => {
-      const id = typeof p === 'object' ? (p._id || p) : p;
-      return String(id);
+
+    const byId = new Map(propertiesToFilter.map((p) => [String(p._id || p), p]));
+
+    return fromResident.map((rp) => {
+      const id = String(typeof rp === 'object' && rp !== null ? (rp._id || rp.id || rp) : rp);
+      const fromList = byId.get(id);
+      if (fromList) {
+        return typeof rp === 'object' && rp !== null ? { ...rp, ...fromList } : { ...fromList };
+      }
+      return typeof rp === 'object' && rp !== null ? rp : { _id: id };
     });
-    
-    // Filter properties to only include those assigned to the resident
-    // Convert property._id to string for comparison
-    const filtered = propertiesToFilter.filter(property => {
-      const propertyId = String(property._id || property);
-      return residentPropertyIds.includes(propertyId);
-    });
-    
-    // If filtered list is empty but resident has properties, use resident's properties directly
-    // This handles cases where properties might not be in the unassignedProperties list
-    if (filtered.length === 0 && selectedResident.properties.length > 0) {
-      return selectedResident.properties;
-    }
-    
-    return filtered;
   }, [unassignedProperties, properties, selectedResident]);
 
   // API calls

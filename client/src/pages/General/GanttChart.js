@@ -222,8 +222,10 @@ const GanttChart = ({ project }) => {
   // ── Measure container ────────────────────────────────────────────────────────
   useEffect(() => {
     const obs = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width;
-      if (w) setSvgWidth(Math.max(w - LEFT_W, 400));
+      requestAnimationFrame(() => {
+        const w = entries[0]?.contentRect.width;
+        if (w) setSvgWidth(Math.max(w - LEFT_W, 400));
+      });
     });
     if (containerRef.current) obs.observe(containerRef.current);
     return () => obs.disconnect();
