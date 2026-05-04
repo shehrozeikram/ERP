@@ -30,7 +30,8 @@ import {
   ListItem,
   CircularProgress,
   Tabs,
-  Tab
+  Tab,
+  Popover
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -50,8 +51,27 @@ import { formatDate } from '../../utils/dateUtils';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import dayjs from 'dayjs';
 
-const ITEM_DESC_PREVIEW_CHARS = 96;
-const ITEM_DESC_COMBINED_PREVIEW_CHARS = 140;
+const ITEM_DESC_PREVIEW_CHARS = 72;
+const ITEM_DESC_COMBINED_PREVIEW_CHARS = 100;
+
+function getIndentItemLineName(item) {
+  if (!item || typeof item !== 'object') return '';
+  return String(item.itemName ?? item.name ?? item.productName ?? '').trim();
+}
+
+/** Prefer `description`; support legacy / alternate API shapes. */
+function getIndentItemLineDescription(item) {
+  if (!item || typeof item !== 'object') return '';
+  return String(
+    item.description ??
+      item.itemDescription ??
+      item.specification ??
+      item.spec ??
+      item.details ??
+      item.remarks ??
+      ''
+  ).trim();
+}
 
 const Requisitions = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -91,8 +111,9 @@ const Requisitions = () => {
     observation: '',
     submitting: false
   });
-  const [fullItemTextDialog, setFullItemTextDialog] = useState({
-    open: false,
+  /** Popover (not nested Dialog) so full text appears above the requisition modal. */
+  const [itemTextPopover, setItemTextPopover] = useState({
+    anchorEl: null,
     sections: [] // { label: string, text: string }[]
   });
   const [quotations, setQuotations] = useState([]);
@@ -305,12 +326,12 @@ const Requisitions = () => {
 
   const indentChainStep = (ind, index) => ind?.approvalChain?.[index];
 
-  const openFullItemTextDialog = (item) => {
-    const name = String(item?.itemName || '').trim();
-    const desc = String(item?.description || '').trim();
+  const openItemTextPopover = (event, item) => {
+    const name = getIndentItemLineName(item);
+    const desc = getIndentItemLineDescription(item);
     if (!name && !desc) return;
     if (name && desc && name === desc) {
-      setFullItemTextDialog({ open: true, sections: [{ label: 'Details', text: name }] });
+      setItemTextPopover({ anchorEl: event.currentTarget, sections: [{ label: 'Details', text: name }] });
       return;
     }
     const sections = [];
@@ -318,25 +339,30 @@ const Requisitions = () => {
     if (desc && (!name || desc !== name)) {
       sections.push({ label: 'Description', text: desc });
     }
-    setFullItemTextDialog({ open: true, sections });
+    setItemTextPopover({ anchorEl: event.currentTarget, sections });
   };
 
   const renderIndentItemDescriptionCell = (item) => {
-    const name = String(item?.itemName || '').trim();
-    const desc = String(item?.description || '').trim();
+    const name = getIndentItemLineName(item);
+    const desc = getIndentItemLineDescription(item);
     if (!name && !desc) return '___________';
 
     const truncate = (s, n) => (s.length <= n ? s : `${s.slice(0, n).trimEnd()}…`);
 
-    const expandBtn = (
-      <Tooltip title="View full text">
+    const showExpand =
+      (name && desc && name !== desc) ||
+      desc.length > ITEM_DESC_PREVIEW_CHARS ||
+      (name || desc).length > ITEM_DESC_COMBINED_PREVIEW_CHARS;
+
+    const expandBtn = showExpand ? (
+      <Tooltip title="View full item text">
         <IconButton
           type="button"
           size="small"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            openFullItemTextDialog(item);
+            openItemTextPopover(e, item);
           }}
           className="requisition-item-expand-btn"
           sx={{ flexShrink: 0, p: '2px', ml: 0.25, alignSelf: 'flex-start' }}
@@ -345,7 +371,7 @@ const Requisitions = () => {
           <ArticleOutlinedIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </Tooltip>
-    );
+    ) : null;
 
     if (name && desc && name !== desc) {
       const descLong =
@@ -358,6 +384,7 @@ const Requisitions = () => {
               {name}
             </Typography>
             <Typography
+              component="div"
               variant="body2"
               color="text.secondary"
               sx={{ mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
@@ -365,7 +392,7 @@ const Requisitions = () => {
               {descLong ? truncate(desc, ITEM_DESC_PREVIEW_CHARS) : desc}
             </Typography>
           </Box>
-          {descLong ? expandBtn : null}
+          {expandBtn}
         </Box>
       );
     }
@@ -375,6 +402,7 @@ const Requisitions = () => {
       return (
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.25 }}>
           <Typography
+            component="div"
             variant="body2"
             sx={{ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
           >
@@ -385,10 +413,7 @@ const Requisitions = () => {
       );
     }
 
-    if (name && desc && name === desc) {
-      return single;
-    }
-    return single;
+    return <Typography component="div" variant="body2">{single}</Typography>;
   };
 
   const handleTabChange = (event, newValue) => {
@@ -1336,34 +1361,63 @@ const Requisitions = () => {
           )}
         </DialogContent>
         <DialogActions sx={{ '@media print': { display: 'none' } }}>
-          <Button onClick={() => setViewDialog({ open: false, data: null, tab: 0 })}>Close</Button>
+          <Button
+            onClick={() => {
+              setItemTextPopover({ anchorEl: null, sections: [] });
+              setViewDialog({ open: false, data: null, tab: 0 });
+            }}
+          >
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        open={fullItemTextDialog.open}
-        onClose={() => setFullItemTextDialog({ open: false, sections: [] })}
-        maxWidth="sm"
-        fullWidth
-        sx={{ '@media print': { display: 'none' } }}
+      <Popover
+        open={Boolean(itemTextPopover.anchorEl)}
+        anchorEl={itemTextPopover.anchorEl}
+        onClose={() => setItemTextPopover({ anchorEl: null, sections: [] })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        disableRestoreFocus
+        slotProps={{
+          root: {
+            sx: {
+              zIndex: (theme) => theme.zIndex.modal + 10
+            }
+          }
+        }}
+        PaperProps={{
+          sx: {
+            p: 2,
+            maxWidth: 520,
+            width: 'min(520px, calc(100vw - 32px))',
+            maxHeight: 'min(70vh, 480px)',
+            overflow: 'auto',
+            '@media print': { display: 'none' }
+          }
+        }}
       >
-        <DialogTitle>Item line — full text</DialogTitle>
-        <DialogContent dividers>
-          {fullItemTextDialog.sections.map((s, i) => (
-            <Box key={`${s.label}-${i}`} sx={{ mb: i < fullItemTextDialog.sections.length - 1 ? 2.5 : 0 }}>
-              <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0.5 }}>
-                {s.label}
-              </Typography>
-              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', mt: 0.5 }}>
-                {s.text}
-              </Typography>
-            </Box>
-          ))}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setFullItemTextDialog({ open: false, sections: [] })}>Close</Button>
-        </DialogActions>
-      </Dialog>
+        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+          Item line — full text
+        </Typography>
+        {itemTextPopover.sections.map((s, i) => (
+          <Box key={`${s.label}-${i}`} sx={{ mb: i < itemTextPopover.sections.length - 1 ? 2 : 0 }}>
+            <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0.5 }} component="div">
+              {s.label}
+            </Typography>
+            <Typography
+              component="div"
+              variant="body2"
+              sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', mt: 0.5 }}
+            >
+              {s.text}
+            </Typography>
+          </Box>
+        ))}
+        <Button size="small" sx={{ mt: 1 }} onClick={() => setItemTextPopover({ anchorEl: null, sections: [] })}>
+          Close
+        </Button>
+      </Popover>
 
       {/* ASSIGN TASK DIALOG */}
       <Dialog
