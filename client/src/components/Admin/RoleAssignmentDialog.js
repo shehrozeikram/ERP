@@ -60,7 +60,13 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
 
   const fetchRoles = async () => {
     try {
-      const response = await api.get('/roles', { params: { isActive: true } });
+      const response = await api.get('/roles', {
+        params: {
+          isActive: true,
+          page: 1,
+          limit: 1000
+        }
+      });
       setRoles(response.data.data?.roles || []);
     } catch (error) {
       console.error('Failed to fetch roles:', error);
