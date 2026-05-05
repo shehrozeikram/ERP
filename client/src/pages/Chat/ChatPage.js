@@ -1264,6 +1264,24 @@ const ChatPage = () => {
                                       ...(useInlineTime ? { ml: 'auto' } : {})
                                     }}
                                   >
+                                    {!m.isDeletedForEveryone && (
+                                      <Tooltip title="Reply">
+                                        <IconButton
+                                          size="small"
+                                          onClick={() =>
+                                            setReplyTo({
+                                              ...m,
+                                              senderName: mine
+                                                ? 'You'
+                                                : (participantNameById.get(String(m.sender)) || 'User')
+                                            })
+                                          }
+                                          sx={{ color: outMuted, p: 0.45 }}
+                                        >
+                                          <ReplyIcon sx={{ fontSize: 18 }} />
+                                        </IconButton>
+                                      </Tooltip>
+                                    )}
                                     <Tooltip title="React">
                                       <IconButton
                                         size="small"
@@ -1286,6 +1304,24 @@ const ChatPage = () => {
                               ) : (
                                 <>
                                   <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                    {!m.isDeletedForEveryone && (
+                                      <Tooltip title="Reply">
+                                        <IconButton
+                                          size="small"
+                                          onClick={() =>
+                                            setReplyTo({
+                                              ...m,
+                                              senderName: mine
+                                                ? 'You'
+                                                : (participantNameById.get(String(m.sender)) || 'User')
+                                            })
+                                          }
+                                          sx={{ p: 0.45 }}
+                                        >
+                                          <ReplyIcon sx={{ fontSize: 18 }} />
+                                        </IconButton>
+                                      </Tooltip>
+                                    )}
                                     <Tooltip title="React">
                                       <IconButton
                                         size="small"
