@@ -486,6 +486,7 @@ export const MODULES = {
     subItems: [
       { name: 'HR Dashboard', path: '/hr' },
       { name: 'Employees', path: '/hr/employees' },
+      { name: 'Projects', path: '/hr/projects' },
       { name: 'Departments', path: '/hr/departments' },
       { name: 'Attendance', path: '/hr/attendance' },
       { name: 'Attendance Record', path: '/hr/attendance-record' },

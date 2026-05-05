@@ -22,6 +22,7 @@ import HRReports from './pages/HR/Reports/HRReports';
 import PayrollReport from './pages/HR/Reports/PayrollReport';
 import AttendanceReports from './pages/HR/Reports/AttendanceReports';
 import Departments from './pages/HR/Departments';
+import Projects from './pages/HR/Projects';
 import Payroll from './pages/HR/Payroll';
 import PayrollForm from './pages/HR/PayrollForm';
 import PayrollDetail from './pages/HR/PayrollDetail';
@@ -550,6 +551,10 @@ function App() {
             <Route
               path="/hr/departments"
               element={<ProtectedRoute><Departments /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/projects"
+              element={<ProtectedRoute><Projects /></ProtectedRoute>}
             />
             <Route
               path="/hr/payroll"

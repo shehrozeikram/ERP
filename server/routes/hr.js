@@ -1406,6 +1406,9 @@ router.post('/departments', [
     parentDepartment: req.body.parentDepartment || null,
     budget: req.body.budget ? parseFloat(req.body.budget) : null
   };
+  if (!departmentData.code || !String(departmentData.code).trim()) {
+    delete departmentData.code;
+  }
 
   const department = new Department(departmentData);
   await department.save();
@@ -1434,6 +1437,9 @@ router.put('/departments/:id',
       parentDepartment: req.body.parentDepartment || null,
       budget: req.body.budget ? parseFloat(req.body.budget) : null
     };
+    if (!departmentData.code || !String(departmentData.code).trim()) {
+      delete departmentData.code;
+    }
 
     const department = await Department.findByIdAndUpdate(
       req.params.id,
@@ -2072,10 +2078,11 @@ router.get('/projects',
   authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { company, search, status } = req.query;
-    const query = { status: status || 'Active' };
+    const query = {};
     
     if (company) query.company = company;
     if (search) query.name = { $regex: search, $options: 'i' };
+    if (status) query.status = status;
 
     const projects = await Project.find(query)
       .populate('projectManager', 'firstName lastName employeeId')

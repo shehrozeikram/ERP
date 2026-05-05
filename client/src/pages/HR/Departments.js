@@ -9,6 +9,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Button,
   IconButton,
   TextField,
@@ -41,6 +42,8 @@ const Departments = () => {
   const [departments, setDepartments] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState(null);
@@ -114,6 +117,9 @@ const Departments = () => {
           parentDepartment: values.parentDepartment || null,
           budget: values.budget ? parseFloat(values.budget) : null
         };
+        if (!cleanedValues.code || !String(cleanedValues.code).trim()) {
+          delete cleanedValues.code;
+        }
         
         console.log('Submitting department data:', cleanedValues);
         
@@ -210,6 +216,20 @@ const Departments = () => {
     }).length;
   };
 
+  const paginatedDepartments = departments.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  const handleChangePage = (_, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -230,7 +250,6 @@ const Departments = () => {
           Add Department
         </Button>
       </Box>
-
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
@@ -302,7 +321,7 @@ const Departments = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {departments.map((department) => (
+            {paginatedDepartments.map((department) => (
               <TableRow key={department._id}>
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -368,6 +387,15 @@ const Departments = () => {
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={departments.length}
+        page={page}
+        onPageChange={handleChangePage}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={handleChangeRowsPerPage}
+        rowsPerPageOptions={[5, 10, 25, 50]}
+      />
 
       {/* Add/Edit Department Dialog */}
       <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth>
@@ -392,7 +420,7 @@ const Departments = () => {
                 <TextField
                   fullWidth
                   name="code"
-                  label="Department Code"
+                  label="Department Code (Optional)"
                   value={formik.values.code}
                   onChange={formik.handleChange}
                   error={formik.touched.code && Boolean(formik.errors.code)}
