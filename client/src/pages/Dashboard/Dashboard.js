@@ -155,6 +155,8 @@ const Dashboard = () => {
   const [presentEmployeesPage, setPresentEmployeesPage] = useState(1);
   const [presentEmployeesRowsPerPage, setPresentEmployeesRowsPerPage] = useState(20);
   const [presentEmployeesTotalCount, setPresentEmployeesTotalCount] = useState(0);
+  const [onlineUsersCount, setOnlineUsersCount] = useState(0);
+  const [onlineUsersPreview, setOnlineUsersPreview] = useState([]);
   const normalizePresentPunchRows = (rows = []) =>
     rows.map((row) => ({
       emp_code: row.emp_code || row.employee_id || row.empId || '-',
@@ -202,12 +204,14 @@ const Dashboard = () => {
         payrollOverviewResponse,
         employeesResponse,
         attendanceResponse,
-        indentsResponse
+        indentsResponse,
+        onlineUsersResponse
       ] = await Promise.allSettled([
         api.get('/payroll/current-overview'), // Same as Payroll Management page
         api.get('/hr/employees?limit=1000'), // Get all employees for accurate count
         api.get('/attendance?limit=100'), // Reduced limit - only need today's data
-        indentService.getDashboardStats()
+        indentService.getDashboardStats(),
+        api.get('/auth/users-online')
       ]);
 
       // Process data with error handling
@@ -215,6 +219,14 @@ const Dashboard = () => {
       const payrollOverviewData = payrollOverviewResponse.status === 'fulfilled' ? payrollOverviewResponse.value.data.data : null;
       const attendance = attendanceResponse.status === 'fulfilled' ? attendanceResponse.value.data.data : [];
       const indentStats = indentsResponse.status === 'fulfilled' ? indentsResponse.value?.data?.stats : null;
+      const onlineUsers = onlineUsersResponse.status === 'fulfilled' ? (onlineUsersResponse.value?.data?.data?.users || []) : [];
+      setOnlineUsersCount(onlineUsers.length);
+      setOnlineUsersPreview(
+        onlineUsers
+          .slice(0, 3)
+          .map((u) => u.fullName || [u.firstName, u.lastName].filter(Boolean).join(' ').trim())
+          .filter(Boolean)
+      );
 
       // Calculate comprehensive metrics using same data as Payroll Management page
       const totalEmployees = payrollOverviewData?.totalEmployees || employees.length;
@@ -1157,6 +1169,24 @@ const Dashboard = () => {
               subtitle={`${dashboardData.overview.pendingIndents} pending approval`}
               delay={300}
               onClick={() => navigate('/general/indents')}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <PremiumKPICard
+              title="Online Users"
+              value={`${onlineUsersCount}`}
+              change={onlineUsersCount > 0 ? 'Live' : '0'}
+              changeLabel={onlineUsersCount > 0 ? 'Live now' : 'No users'}
+              trend="up"
+              icon={<People />}
+              color={theme.palette.secondary.main}
+              subtitle={
+                onlineUsersPreview.length
+                  ? onlineUsersPreview.join(', ')
+                  : 'No users currently online'
+              }
+              delay={350}
+              onClick={() => navigate('/admin/users/online')}
             />
           </Grid>
         </Grid>

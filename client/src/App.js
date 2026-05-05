@@ -146,6 +146,7 @@ import ChatPage from './pages/Chat/ChatPage';
 import ChatModerationPage from './pages/Chat/ChatModerationPage';
 import ChatFloatingButton from './components/ChatFloatingButton';
 import UserManagement from './pages/Admin/UserManagement';
+import OnlineUsers from './pages/Admin/OnlineUsers';
 import VehicleList from './pages/Admin/VehicleManagement/VehicleList';
 import VehicleForm from './pages/Admin/VehicleManagement/VehicleForm';
 import VehicleDetails from './pages/Admin/VehicleManagement/VehicleDetails';
@@ -1549,6 +1550,10 @@ function App() {
             <Route 
               path="/admin/users" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "appraisal_manager"]}><UserManagement /></ProtectedRoute>} 
+            />
+            <Route
+              path="/admin/users/online"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "appraisal_manager"]}><OnlineUsers /></ProtectedRoute>}
             />
             <Route 
               path="/admin/roles" 

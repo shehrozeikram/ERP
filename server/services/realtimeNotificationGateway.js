@@ -54,6 +54,7 @@ class RealtimeNotificationGateway {
       socket.join(userRoom);
       this._addSocket(socket.userId, socket.id);
       socket.emit('notification:connected', { ok: true, userId: socket.userId });
+      this.io.emit('presence:changed', { userId: socket.userId, online: true });
 
       socket.on('chat:typing', async (payload) => {
         try {
@@ -77,6 +78,7 @@ class RealtimeNotificationGateway {
 
       socket.on('disconnect', () => {
         this._removeSocket(socket.userId, socket.id);
+        this.io.emit('presence:changed', { userId: socket.userId, online: this.isUserOnline(socket.userId) });
       });
     });
 
@@ -118,6 +120,10 @@ class RealtimeNotificationGateway {
 
   getIO() {
     return this.io;
+  }
+
+  getOnlineUserIds() {
+    return [...this._userSockets.keys()];
   }
 }
 

@@ -82,6 +82,11 @@ export const authService = {
   // Admin: Delete user
   deleteUser: async (userId) => {
     return api.delete(`/auth/users/${userId}`);
+  },
+
+  // Admin: Get online users
+  getOnlineUsers: async (params = {}) => {
+    return api.get('/auth/users-online', { params });
   }
 };
 

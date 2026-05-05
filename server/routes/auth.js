@@ -13,6 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const UserLoginLog = require('../models/general/UserLoginLog');
 const { getClientIP, getUserAgent } = require('../utils/requestHelpers');
+const realtimeNotificationGateway = require('../services/realtimeNotificationGateway');
 
 const router = express.Router();
 
@@ -819,6 +820,67 @@ router.get('/users',
           pages: Math.ceil(total / limit),
           total
         }
+      }
+    });
+  })
+);
+
+// @route   GET /api/auth/users-online
+// @desc    Get currently online users (Admin only)
+// @access  Private (Admin)
+router.get(
+  '/users-online',
+  authMiddleware,
+  permissions.checkSubRolePermission('admin', 'user_management', 'read'),
+  asyncHandler(async (req, res) => {
+    const { search = '', department = '' } = req.query;
+    const onlineIds = realtimeNotificationGateway.getOnlineUserIds();
+
+    if (!onlineIds.length) {
+      return res.json({
+        success: true,
+        data: { totalOnline: 0, users: [] }
+      });
+    }
+
+    const query = {
+      _id: { $in: onlineIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      isActive: true
+    };
+
+    if (department) query.department = department;
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { employeeId: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const users = await User.find(query)
+      .select('firstName lastName email employeeId department position profileImage lastLogin role')
+      .sort({ firstName: 1, lastName: 1 })
+      .lean();
+
+    res.json({
+      success: true,
+      data: {
+        totalOnline: users.length,
+        users: users.map((u) => ({
+          id: u._id,
+          firstName: u.firstName || '',
+          lastName: u.lastName || '',
+          fullName: [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
+          email: u.email || '',
+          employeeId: u.employeeId || '',
+          department: u.department || '',
+          position: u.position || '',
+          profileImage: u.profileImage || '',
+          lastLogin: u.lastLogin || null,
+          role: u.role || '',
+          isOnline: true
+        }))
       }
     });
   })
