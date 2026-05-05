@@ -510,6 +510,12 @@ const IndentsList = () => {
       maximumFractionDigits: 0
     }).format(value || 0);
 
+  const getEnteredEstimatedAmount = (indent) => {
+    const items = Array.isArray(indent?.items) ? indent.items : [];
+    if (items.length === 0) return Number(indent?.totalEstimatedCost || 0);
+    return items.reduce((sum, item) => sum + (Number(item?.estimatedCost) || 0), 0);
+  };
+
   // Format date
   const formatDate = (date) => {
     if (!date) return '—';
@@ -837,7 +843,7 @@ const IndentsList = () => {
                       />
                     </TableCell>
                     <TableCell align="right">
-                      {formatCurrency(item.totalEstimatedCost)}
+                      {formatCurrency(getEnteredEstimatedAmount(item))}
                     </TableCell>
                     <TableCell>{formatDate(item.requestedDate)}</TableCell>
                     <TableCell align="center">

@@ -555,7 +555,13 @@ const IndentForm = () => {
         setError(`Item ${i + 1}: Purpose is required`);
         return false;
       }
-      if (item.estimatedCost === undefined || item.estimatedCost === null || Number(item.estimatedCost) < 0) {
+      if (
+        item.estimatedCost === undefined ||
+        item.estimatedCost === null ||
+        String(item.estimatedCost).trim() === '' ||
+        Number.isNaN(Number(item.estimatedCost)) ||
+        Number(item.estimatedCost) < 0
+      ) {
         setError(`Item ${i + 1}: Estimated cost is required and must be 0 or greater`);
         return false;
       }
@@ -600,7 +606,9 @@ const IndentForm = () => {
           quantity: item.quantity,
           unit: item.unit || 'Piece',
           purpose: item.purpose || '',
-          estimatedCost: Number(item.estimatedCost) >= 0 ? Number(item.estimatedCost) : 0
+          estimatedCost: Number.isFinite(Number(item.estimatedCost)) && Number(item.estimatedCost) >= 0
+            ? Number(item.estimatedCost)
+            : 0
         })),
         justification: formData.justification.trim(),
         signatures: formData.signatures,
@@ -1029,7 +1037,16 @@ const IndentForm = () => {
                           size="small"
                           type="number"
                           value={item.estimatedCost ?? ''}
-                          onChange={(e) => handleItemChange(index, 'estimatedCost', parseFloat(e.target.value) >= 0 ? parseFloat(e.target.value) : 0)}
+                          onChange={(e) => {
+                            const nextValue = e.target.value;
+                            if (nextValue === '') {
+                              handleItemChange(index, 'estimatedCost', '');
+                              return;
+                            }
+                            const parsed = Number(nextValue);
+                            if (Number.isNaN(parsed)) return;
+                            handleItemChange(index, 'estimatedCost', parsed < 0 ? 0 : nextValue);
+                          }}
                           inputProps={{ min: 0, step: 0.01, style: { textAlign: 'right' } }}
                           required
                           variant="standard"
