@@ -21,8 +21,15 @@ import {
 } from '@mui/icons-material';
 import api from '../../services/api';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
+import ComparativeRejectionObservationsAlert from '../../components/Procurement/ComparativeRejectionObservationsAlert';
 import { useAuth } from '../../contexts/AuthContext';
 import { canEditComparativeAuthorityUsers } from '../../utils/comparativeStatementAuthority';
+
+const normalizeMongoId = (v) => {
+  if (v == null || v === '') return '';
+  if (typeof v === 'object') return String(v._id || v.id || '');
+  return String(v);
+};
 
 const ComparativeStatements = () => {
   const { user } = useAuth();
@@ -190,11 +197,10 @@ const ComparativeStatements = () => {
   const comparativeApproval = selectedRequisition?.comparativeApproval || {};
   const comparativeStatus = comparativeApproval?.status || 'not_configured';
   const approvalSteps = Array.isArray(comparativeApproval?.approvers) ? comparativeApproval.approvers : [];
-  const userId = user?.id || user?._id;
-  const isPendingApprover = approvalSteps.some((s) => {
-    const approverId = s?.approver?._id || s?.approver;
-    return String(approverId || '') === String(userId || '') && s?.status === 'pending';
-  });
+  const userId = normalizeMongoId(user);
+  const isPendingApprover = approvalSteps.some(
+    (s) => normalizeMongoId(s?.approver) === userId && s?.status === 'pending'
+  );
   const assignedToId = selectedRequisition?.procurementAssignment?.assignedTo?._id || selectedRequisition?.procurementAssignment?.assignedTo;
   const isAssignedProcurementUser = assignedToId && String(assignedToId) === String(userId || '');
   const canConfigureComparative = Boolean(selectedRequisition?._id) && (canManageAssignments || isAssignedProcurementUser);
@@ -258,8 +264,19 @@ const ComparativeStatements = () => {
         resolutionNote: resolutionNote.trim()
       });
       if (res.data?.success) {
-        const updated = res.data.data;
-        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        const rid = selectedRequisition._id;
+        try {
+          const refreshed = await api.get(`/indents/${rid}`);
+          if (refreshed.data?.success && refreshed.data.data) {
+            setSelectedRequisition(refreshed.data.data);
+          } else {
+            const updated = res.data.data;
+            setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+          }
+        } catch {
+          const updated = res.data.data;
+          setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        }
         setSuccess('Comparative statement submitted for approvals.');
         setResolutionNote('');
       }
@@ -278,7 +295,21 @@ const ComparativeStatements = () => {
       const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-approve`);
       if (res.data?.success) {
         const updated = res.data.data;
-        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        const rid = updated?._id || selectedRequisition?._id;
+        if (rid) {
+          try {
+            const refreshed = await api.get(`/indents/${rid}`);
+            if (refreshed.data?.success && refreshed.data.data) {
+              setSelectedRequisition(refreshed.data.data);
+            } else {
+              setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+            }
+          } catch {
+            setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+          }
+        } else {
+          setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        }
         setSuccess(res.data.message || 'Approval recorded.');
         // Server finalizes shortlisted (or split-PO) quotations; refresh list so UI shows Finalized.
         if (updated?.comparativeApproval?.status === 'approved' && selectedRequisition?._id) {
@@ -507,40 +538,7 @@ const ComparativeStatements = () => {
         {/* Comparative Statement Display */}
         {selectedRequisition && (
           <>
-            {selectedRequisition?.comparativeApproval?.status === 'rejected' && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  Rejection observations
-                </Typography>
-                {(() => {
-                  const observations = Array.isArray(selectedRequisition?.comparativeApproval?.rejectionObservations)
-                    ? selectedRequisition.comparativeApproval.rejectionObservations
-                    : [];
-                  if (observations.length === 0 && selectedRequisition?.comparativeApproval?.rejectionObservation) {
-                    return <Typography variant="body2">{selectedRequisition.comparativeApproval.rejectionObservation}</Typography>;
-                  }
-                  return observations.map((obs, idx) => {
-                    const by =
-                      [obs?.rejectedBy?.firstName, obs?.rejectedBy?.lastName].filter(Boolean).join(' ').trim() ||
-                      obs?.rejectedBy?.email ||
-                      'Approver';
-                    const at = obs?.rejectedAt ? new Date(obs.rejectedAt).toLocaleString() : '';
-                    return (
-                      <Box key={`${obs?._id || idx}`} sx={{ mb: 1 }}>
-                        <Typography variant="body2">
-                          {idx + 1}. <strong>{by}</strong>{at ? ` (${at})` : ''}: {obs?.observation || '—'}
-                        </Typography>
-                        {obs?.resolutionNote ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
-                            Resolution: {obs.resolutionNote}
-                          </Typography>
-                        ) : null}
-                      </Box>
-                    );
-                  });
-                })()}
-              </Alert>
-            )}
+            <ComparativeRejectionObservationsAlert comparativeApproval={selectedRequisition?.comparativeApproval} />
             {canSubmitComparative && selectedRequisition?.comparativeApproval?.status === 'rejected' && (
               <TextField
                 fullWidth

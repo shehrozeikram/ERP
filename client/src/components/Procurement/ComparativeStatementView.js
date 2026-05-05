@@ -84,6 +84,14 @@ const ComparativeStatementView = ({
   approvingComparative = false,
   canEditApprovalAuthorities = true
 }) => {
+  const pickText = (...values) => {
+    for (const value of values) {
+      if (value == null) continue;
+      const text = String(value).trim();
+      if (text) return text;
+    }
+    return '—';
+  };
   const selectedRequisition = requisition;
   const comparativeNote = note;
   const keys = ['preparedBy', 'verifiedBy', 'authorisedRep', 'financeRep', 'managerProcurement'];
@@ -405,15 +413,27 @@ const ComparativeStatementView = ({
             <tbody>
               <tr style={{ border: '1px solid #000' }}>
                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}></td>
-                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{quote.deliveryTime || '7 Days'}</td>)}
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{quote.deliveryTime || '—'}</td>)}
               </tr>
               <tr style={{ border: '1px solid #000' }}>
                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Payment Term</td>
-                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{quote.paymentTerms || '100% Advance'}</td>)}
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.paymentTerms)}</td>)}
               </tr>
               <tr style={{ border: '1px solid #000' }}>
                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Delivery Place</td>
-                {quotations.map((_, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>Ex-Site</td>)}
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.deliveryPlace, quote.delivery_location)}</td>)}
+              </tr>
+              <tr style={{ border: '1px solid #000' }}>
+                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Carriage</td>
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.freightCarriage, quote.freight_carriage)}</td>)}
+              </tr>
+              <tr style={{ border: '1px solid #000' }}>
+                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Installation</td>
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.installation, quote.installationDetails)}</td>)}
+              </tr>
+              <tr style={{ border: '1px solid #000' }}>
+                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Freight</td>
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.freight)}</td>)}
               </tr>
             </tbody>
           </table>
@@ -507,7 +527,7 @@ const ComparativeStatementView = ({
             </Grid>
           </Box>
         ) : null}
-        {!readOnly && (onSaveApprovals || onSubmitComparative || onApproveComparative || onRejectComparative) && (
+        {(onApproveComparative || onRejectComparative || (!readOnly && (onSaveApprovals || onSubmitComparative))) && (
           <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'flex-end', gap: 1, '@media print': { display: 'none' } }}>
             {onApproveComparative && (
               <Button
@@ -531,7 +551,7 @@ const ComparativeStatementView = ({
                 Reject
               </Button>
             )}
-            {onSubmitComparative && (
+            {!readOnly && onSubmitComparative && (
               <Button
                 variant="contained"
                 color="primary"
@@ -542,7 +562,7 @@ const ComparativeStatementView = ({
                 {submittingComparative ? 'Submitting…' : 'Send to Approval Authorities'}
               </Button>
             )}
-            {onSaveApprovals ? (
+            {!readOnly && onSaveApprovals ? (
               <Button
                 variant="contained"
                 color="primary"

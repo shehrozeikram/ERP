@@ -149,6 +149,47 @@ const isAssignedComparativeAuthorityUser = async (indentId, userId) => {
 
 const normalizeToken = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const pickFirstNonEmptyString = (...values) => {
+  for (const value of values) {
+    if (value == null) continue;
+    const normalized = String(value).trim();
+    if (normalized) return normalized;
+  }
+  return '';
+};
+const normalizeQuotationSupplementaryFields = (payload = {}) => ({
+  deliveryPlace: pickFirstNonEmptyString(
+    payload.deliveryPlace,
+    payload.delivery_location,
+    payload.deliveryLocation,
+    payload.delivery,
+    payload.terms?.deliveryPlace,
+    payload.terms?.delivery_location,
+    payload.quotationTerms?.deliveryPlace
+  ),
+  freightCarriage: pickFirstNonEmptyString(
+    payload.freightCarriage,
+    payload.freight_carriage,
+    payload.carriage,
+    payload.terms?.freightCarriage,
+    payload.terms?.freight_carriage,
+    payload.terms?.carriage,
+    payload.quotationTerms?.freightCarriage,
+    payload.quotationTerms?.carriage
+  ),
+  installation: pickFirstNonEmptyString(
+    payload.installation,
+    payload.installationDetails,
+    payload.terms?.installation,
+    payload.terms?.installationDetails,
+    payload.quotationTerms?.installation
+  ),
+  freight: pickFirstNonEmptyString(
+    payload.freight,
+    payload.terms?.freight,
+    payload.quotationTerms?.freight
+  )
+});
 const tokenMatchesAuthorityText = (token, authorityText) => {
   const normalizedToken = normalizeToken(token);
   const normalizedAuthorityText = normalizeToken(authorityText);
@@ -431,6 +472,26 @@ const ensureComparativeApprovalObject = (indent) => {
     indent.comparativeApproval.rejectionObservations = [];
   }
   return indent.comparativeApproval;
+};
+
+/** Stable user id string for comparative approver steps (handles ObjectId, populated User, lean {_id}). */
+const comparativeApproverStepUserIdString = (step) => {
+  if (!step || step.approver == null) return '';
+  const a = step.approver;
+  if (typeof a === 'object' && (a._id != null || a.id != null)) return String(a._id || a.id);
+  return String(a);
+};
+
+/** Normalize approver ref to ObjectId for mongoose subdocs when rebuilding arrays. */
+const toApproverObjectId = (ref) => {
+  if (ref == null) return ref;
+  if (ref instanceof mongoose.Types.ObjectId) return ref;
+  if (typeof ref === 'object' && (ref._id != null || ref.id != null)) {
+    const s = String(ref._id || ref.id);
+    return mongoose.Types.ObjectId.isValid(s) ? new mongoose.Types.ObjectId(s) : ref;
+  }
+  const s = String(ref);
+  return mongoose.Types.ObjectId.isValid(s) ? new mongoose.Types.ObjectId(s) : ref;
 };
 
 const comparativeApprovalIsFullyApproved = (indent) => {
@@ -4618,7 +4679,7 @@ router.get('/requisitions',
   authMiddleware,
   asyncHandler(async (req, res) => {
     const hasFullProcurementRead = hasProcurementAccess(req.user);
-    const requesterId = String(req.user?.id || '');
+    const requesterId = String(req.user?._id || req.user?.id || '');
 
     const { 
       page = 1, 
@@ -4680,7 +4741,7 @@ router.get('/requisitions',
 
     const isManager = canManageProcurementAssignments(req.user);
     if (String(mineOnly).toLowerCase() === 'true') {
-      filter['procurementAssignment.assignedTo'] = req.user.id;
+      filter['procurementAssignment.assignedTo'] = req.user._id || req.user.id;
     }
 
     // Relaxed read-access for Comparative approvers:
@@ -5005,12 +5066,34 @@ router.post('/requisitions/:id/comparative-submit',
         };
       });
     }
-    ca.approvers = ca.approvers.map((s) => ({
-      approver: s.approver,
-      status: 'pending',
-      actedAt: null,
-      comment: ''
-    }));
+    // After a rejection, keep existing approvals and only reopen rejected (and still-pending) steps.
+    // First-time submit / draft: all approvers start as pending.
+    if (previousStatus === 'rejected') {
+      ca.approvers = ca.approvers.map((s) => {
+        const approverRef = toApproverObjectId(s.approver);
+        if (s.status === 'approved') {
+          return {
+            approver: approverRef,
+            status: 'approved',
+            actedAt: s.actedAt || null,
+            comment: s.comment || ''
+          };
+        }
+        return {
+          approver: approverRef,
+          status: 'pending',
+          actedAt: null,
+          comment: ''
+        };
+      });
+    } else {
+      ca.approvers = ca.approvers.map((s) => ({
+        approver: toApproverObjectId(s.approver),
+        status: 'pending',
+        actedAt: null,
+        comment: ''
+      }));
+    }
     ca.status = 'submitted';
     if (!ca.submittedAt) ca.submittedAt = new Date();
     else ca.lastResubmittedAt = new Date();
@@ -5024,25 +5107,47 @@ router.post('/requisitions/:id/comparative-submit',
       fromStatus: `Comparative Approval: ${previousStatus}`,
       toStatus: 'Comparative Approval: submitted',
       changedBy: req.user.id,
-      comments: resolutionNote
-        ? `Comparative statement resubmitted for approvals. Resolution: ${resolutionNote}`
-        : 'Comparative statement submitted for approvals.',
+      comments:
+        previousStatus === 'rejected'
+          ? (resolutionNote
+            ? `Comparative statement resubmitted (prior approvals preserved). Resolution: ${resolutionNote}`
+            : 'Comparative statement resubmitted (prior approvals preserved).')
+          : (resolutionNote
+            ? `Comparative statement submitted for approvals. Resolution: ${resolutionNote}`
+            : 'Comparative statement submitted for approvals.'),
       module: 'Procurement'
     });
 
+    indent.markModified('comparativeApproval');
     await indent.save();
 
-    const approverIds = ca.approvers.map((s) => s.approver);
-    await notifyDocumentRecipients({
-      recipientIds: approverIds,
-      actorId: req.user.id,
-      title: 'Comparative Statement needs your approval',
-      message: `Requisition ${indent.indentNumber || ''} comparative statement is submitted for approval.`,
-      actionUrl: '/procurement/comparative-statements',
-      entityId: indent._id,
-      entityType: 'Indent',
-      module: 'procurement'
-    });
+    const pendingApproverIds = [
+      ...new Set(
+        ca.approvers
+          .filter((s) => s.status === 'pending')
+          .map((s) => s.approver)
+          .filter(Boolean)
+          .map((id) => String(id))
+      )
+    ];
+    if (pendingApproverIds.length > 0) {
+      await notifyDocumentRecipients({
+        recipientIds: pendingApproverIds,
+        actorId: req.user.id,
+        title:
+          previousStatus === 'rejected'
+            ? 'Comparative Statement resubmitted — approval needed'
+            : 'Comparative Statement needs your approval',
+        message:
+          previousStatus === 'rejected'
+            ? `Requisition ${indent.indentNumber || ''} comparative was resubmitted. Only approvers with a pending step need to act (previous approvals are kept).`
+            : `Requisition ${indent.indentNumber || ''} comparative statement is submitted for approval.`,
+        actionUrl: '/procurement/comparative-statements',
+        entityId: indent._id,
+        entityType: 'Indent',
+        module: 'procurement'
+      });
+    }
 
     const updated = await Indent.findById(indent._id)
       .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
@@ -5074,18 +5179,19 @@ router.post('/requisitions/:id/comparative-approve',
       return res.status(400).json({ success: false, message: 'Comparative statement is not awaiting approval.' });
     }
 
-    const uid = String(req.user.id);
-    const idx = ca.approvers.findIndex((s) => String(s.approver) === uid && s.status === 'pending');
+    const uid = String(req.user._id || req.user.id || '');
+    const idx = ca.approvers.findIndex(
+      (s) => comparativeApproverStepUserIdString(s) === uid && s.status === 'pending'
+    );
     if (idx === -1) {
       return res.status(403).json({ success: false, message: 'You are not a pending approver for this comparative statement.' });
     }
 
     // Enforce Prepared By first approval (if configured as an approver)
-    const preparedById = indent?.comparativeStatementApprovals?.preparedByUser
-      ? String(indent.comparativeStatementApprovals.preparedByUser)
-      : '';
+    const rawPb = indent?.comparativeStatementApprovals?.preparedByUser;
+    const preparedById = rawPb != null ? comparativeApproverStepUserIdString({ approver: rawPb }) : '';
     if (preparedById && uid !== preparedById) {
-      const preparedStep = ca.approvers.find((s) => String(s.approver) === preparedById);
+      const preparedStep = ca.approvers.find((s) => comparativeApproverStepUserIdString(s) === preparedById);
       if (preparedStep && preparedStep.status !== 'approved') {
         return res.status(400).json({
           success: false,
@@ -5207,18 +5313,19 @@ router.post('/requisitions/:id/comparative-reject',
       return res.status(400).json({ success: false, message: 'Comparative statement is not awaiting approval.' });
     }
 
-    const uid = String(req.user.id);
-    const idx = ca.approvers.findIndex((s) => String(s.approver) === uid && s.status === 'pending');
+    const uid = String(req.user._id || req.user.id || '');
+    const idx = ca.approvers.findIndex(
+      (s) => comparativeApproverStepUserIdString(s) === uid && s.status === 'pending'
+    );
     if (idx === -1) {
       return res.status(403).json({ success: false, message: 'You are not a pending approver for this comparative statement.' });
     }
 
     // Enforce Prepared By first action (if configured as an approver)
-    const preparedById = indent?.comparativeStatementApprovals?.preparedByUser
-      ? String(indent.comparativeStatementApprovals.preparedByUser)
-      : '';
+    const rawPb = indent?.comparativeStatementApprovals?.preparedByUser;
+    const preparedById = rawPb != null ? comparativeApproverStepUserIdString({ approver: rawPb }) : '';
     if (preparedById && uid !== preparedById) {
-      const preparedStep = ca.approvers.find((s) => String(s.approver) === preparedById);
+      const preparedStep = ca.approvers.find((s) => comparativeApproverStepUserIdString(s) === preparedById);
       if (preparedStep && preparedStep.status !== 'approved') {
         return res.status(400).json({
           success: false,
@@ -5629,6 +5736,7 @@ router.post('/public-quotation/:token', [
     : new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000);
 
   // Create quotation
+  const normalizedSupplementaryFields = normalizeQuotationSupplementaryFields(req.body);
   const quotation = new Quotation({
     indent: invitation.indent._id,
     vendor: invitation.vendor._id,
@@ -5643,9 +5751,7 @@ router.post('/public-quotation/:token', [
     validityDays,
     deliveryTime: req.body.deliveryTime || '',
     paymentTerms: req.body.paymentTerms || '',
-    freightCarriage: req.body.freightCarriage || '',
-    installation: req.body.installation || '',
-    freight: req.body.freight || '',
+    ...normalizedSupplementaryFields,
     notes: req.body.notes || '',
     createdBy: null // Public submission, no user
   });
@@ -5755,7 +5861,14 @@ router.get('/quotations',
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
     const quotations = await Quotation.find(query)
-      .populate('indent', 'indentNumber title')
+      .populate({
+        path: 'indent',
+        select: 'indentNumber title comparativeApproval',
+        populate: {
+          path: 'comparativeApproval.rejectionObservations.rejectedBy',
+          select: 'firstName lastName email'
+        }
+      })
       .populate('vendor', 'name email phone contactPerson')
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
@@ -5790,10 +5903,11 @@ router.get('/quotations/:id',
     const quotation = await Quotation.findById(req.params.id)
       .populate({
         path: 'indent',
-        select: 'indentNumber title items erpRef requestedDate requiredDate department requestedBy justification signatures comparativeStatementApprovals',
+        select: 'indentNumber title items erpRef requestedDate requiredDate department requestedBy justification signatures comparativeStatementApprovals comparativeApproval',
         populate: [
           { path: 'department', select: 'name code' },
-          { path: 'requestedBy', select: 'firstName lastName email' }
+          { path: 'requestedBy', select: 'firstName lastName email' },
+          { path: 'comparativeApproval.rejectionObservations.rejectedBy', select: 'firstName lastName email' }
         ]
       })
       .populate('vendor', 'name email phone contactPerson address')
@@ -5909,20 +6023,28 @@ router.post('/quotations', [
 
   // Calculate item amounts
   const items = req.body.items.map(item => {
-    const subtotal = item.quantity * item.unitPrice;
-    const discountAmount = item.discount || 0;
+    const quantity = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+    const subtotal = quantity * unitPrice;
+    const discountAmount = Number(item.discount) || 0;
     const afterDiscount = subtotal - discountAmount;
-    const taxAmount = (afterDiscount * (item.taxRate || 0)) / 100;
+    const taxAmount = (afterDiscount * (Number(item.taxRate) || 0)) / 100;
     const amount = afterDiscount + taxAmount;
     
     return {
       ...item,
+      quantity,
+      unitPrice,
+      discount: discountAmount,
+      taxRate: Number(item.taxRate) || 0,
       amount
     };
   });
+  const normalizedSupplementaryFields = normalizeQuotationSupplementaryFields(req.body);
 
   const quotation = new Quotation({
     ...req.body,
+    ...normalizedSupplementaryFields,
     items,
     createdBy: req.user.id
   });
@@ -6002,18 +6124,26 @@ router.put('/quotations/:id', [
       });
     }
     req.body.items = req.body.items.map(item => {
-      const subtotal = item.quantity * item.unitPrice;
-      const discountAmount = item.discount || 0;
+      const quantity = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unitPrice) || 0;
+      const subtotal = quantity * unitPrice;
+      const discountAmount = Number(item.discount) || 0;
       const afterDiscount = subtotal - discountAmount;
-      const taxAmount = (afterDiscount * (item.taxRate || 0)) / 100;
+      const taxAmount = (afterDiscount * (Number(item.taxRate) || 0)) / 100;
       const amount = afterDiscount + taxAmount;
       
       return {
         ...item,
+        quantity,
+        unitPrice,
+        discount: discountAmount,
+        taxRate: Number(item.taxRate) || 0,
         amount
       };
     });
   }
+  const normalizedSupplementaryFields = normalizeQuotationSupplementaryFields(req.body);
+  Object.assign(req.body, normalizedSupplementaryFields);
 
   const wasFinalized = quotation.status === 'Finalized';
   const isBeingFinalized = req.body.status === 'Finalized' && quotation.status !== 'Finalized';

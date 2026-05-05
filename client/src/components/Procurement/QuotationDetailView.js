@@ -27,6 +27,18 @@ const QuotationDetailView = ({
 }) => {
   if (!quotation) return null;
   const data = quotation;
+  const pickText = (...values) => {
+    for (const value of values) {
+      if (value == null) continue;
+      const text = String(value).trim();
+      if (text) return text;
+    }
+    return '—';
+  };
+  const computedDiscountAmount = Array.isArray(data.items)
+    ? data.items.reduce((sum, item) => sum + (Number(item?.discount) || 0), 0)
+    : 0;
+  const effectiveDiscountAmount = Number(data.discountAmount ?? computedDiscountAmount) || 0;
 
   return (
     <Paper
@@ -113,7 +125,10 @@ const QuotationDetailView = ({
           </thead>
           <tbody>
             {data.items?.length > 0 ? data.items.map((item, index) => {
-              const itemTotal = (item.quantity || 0) * (item.unitPrice || 0);
+              const baseTotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+              const discount = Number(item.discount) || 0;
+              const taxRate = Number(item.taxRate) || 0;
+              const itemTotal = (baseTotal - discount) + (((baseTotal - discount) * taxRate) / 100);
               return (
                 <tr key={index} style={{ border: '1px solid #000' }}>
                   <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', verticalAlign: 'top' }}>{index + 1}</td>
@@ -129,63 +144,74 @@ const QuotationDetailView = ({
               </tr>
             )}
             {data.items?.length > 0 && (
-              <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000' }}>
-                <td colSpan={3} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700 }}>Total Amount</td>
-                <td style={{ border: '1px solid #000', padding: '10px 8px' }} />
-                <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontWeight: 700 }}>{formatNumber(data.totalAmount || 0)}</td>
-              </tr>
+              <>
+                {effectiveDiscountAmount > 0 && (
+                  <tr>
+                    <td colSpan={3} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 600 }}>Discount</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px' }} />
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontWeight: 600 }}>
+                      {formatNumber(effectiveDiscountAmount)}
+                    </td>
+                  </tr>
+                )}
+                <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000' }}>
+                  <td colSpan={3} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700 }}>Total Amount</td>
+                  <td style={{ border: '1px solid #000', padding: '10px 8px' }} />
+                  <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontWeight: 700 }}>{formatNumber(data.totalAmount || 0)}</td>
+                </tr>
+              </>
             )}
           </tbody>
         </table>
       </Box>
 
-      <Box sx={{ mb: 2, fontSize: '0.9rem', lineHeight: 2 }}>
-        <Typography sx={{ mb: 0.5 }}>Above prices are CASH</Typography>
-        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
-          <Typography component="span" sx={{ minWidth: '100px' }}>Delivery:</Typography>
-          <Typography component="span">{data.deliveryTime || '2 to 3 days'}</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
-          <Typography component="span" sx={{ minWidth: '100px' }}>Payment:</Typography>
-          <Typography component="span">{data.paymentTerms || 'Upon Delivery.'}</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 1 }}>
-          <Typography component="span" sx={{ minWidth: '100px' }}>Validity:</Typography>
-          <Typography component="span">{data.validityDays ? `${data.validityDays}Days` : '30Days'}</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
-          <Typography component="span" sx={{ minWidth: '140px' }}>Freight/Carriage:</Typography>
-          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{data.freightCarriage || '—'}</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
-          <Typography component="span" sx={{ minWidth: '140px' }}>Installation:</Typography>
-          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{data.installation || '—'}</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
-          <Typography component="span" sx={{ minWidth: '140px' }}>Freight:</Typography>
-          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{data.freight || '—'}</Typography>
+      <Box sx={{ mb: 3, fontSize: '0.9rem', lineHeight: 1.9 }}>
+        <Typography sx={{ mb: 1.5 }}>Above prices are CASH</Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '170px 1fr', rowGap: 0.8, columnGap: 2, mb: 1.5 }}>
+          <Typography component="span" sx={{ fontWeight: 500 }}>Delivery:</Typography>
+          <Typography component="span">{pickText(data.deliveryTime)}</Typography>
+
+          <Typography component="span" sx={{ fontWeight: 500 }}>Payment:</Typography>
+          <Typography component="span">{pickText(data.paymentTerms)}</Typography>
+
+          <Typography component="span" sx={{ fontWeight: 500 }}>Delivery Place:</Typography>
+          <Typography component="span">{pickText(data.deliveryPlace, data.delivery_location)}</Typography>
+
+          <Typography component="span" sx={{ fontWeight: 500 }}>Validity:</Typography>
+          <Typography component="span">{data.validityDays ? `${data.validityDays}Days` : '—'}</Typography>
+
+          <Typography component="span" sx={{ fontWeight: 500 }}>Carriage:</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.freightCarriage, data.freight_carriage)}</Typography>
+
+          <Typography component="span" sx={{ fontWeight: 500 }}>Installation:</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.installation, data.installationDetails)}</Typography>
+
+          <Typography component="span" sx={{ fontWeight: 500 }}>Freight:</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.freight)}</Typography>
         </Box>
         {data.attachments?.length > 0 && (
-          <Box sx={{ mb: 1 }}>
-            <Typography component="span" sx={{ minWidth: '100px' }}>Attachments:</Typography>
-            {data.attachments.map((att, i) => (
-              <Typography key={i} component="span" sx={{ mr: 1 }}>
-                <a href={att.url} target="_blank" rel="noopener noreferrer">{att.filename || att.url}</a>
-              </Typography>
-            ))}
+          <Box sx={{ mb: 1.5 }}>
+            <Typography sx={{ fontWeight: 500, mb: 0.5 }}>Attachments:</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {data.attachments.map((att, i) => (
+                <Typography key={i} component="span">
+                  <a href={att.url} target="_blank" rel="noopener noreferrer">{att.filename || att.url}</a>
+                </Typography>
+              ))}
+            </Box>
           </Box>
         )}
-        <Typography sx={{ mb: 2 }}>For further Information, please feel free to contact us.</Typography>
+        <Typography sx={{ mt: 1.5, mb: 2.5 }}>For further Information, please feel free to contact us.</Typography>
       </Box>
 
       <Box sx={{ mb: 3, fontSize: '0.9rem' }}>
-        <Typography sx={{ mb: 0.5 }}>With regards.</Typography>
-        <Typography sx={{ mb: 1, fontWeight: 600 }}>For {data.vendor?.name || 'Vendor Name'}</Typography>
+        <Typography sx={{ mb: 1 }}>With regards.</Typography>
+        <Typography sx={{ mb: 1.5, fontWeight: 600 }}>For {data.vendor?.name || 'Vendor Name'}</Typography>
         {data.vendor?.email && <Typography sx={{ mb: 0.5, color: '#0066cc' }}>Email: {data.vendor.email}</Typography>}
         {data.vendor?.website && <Typography sx={{ mb: 0.5, color: '#0066cc' }}>{data.vendor.website}</Typography>}
       </Box>
 
-      <Box sx={{ textAlign: 'center', fontSize: '0.8rem', mt: 4, pt: 2, borderTop: '1px solid #ccc' }}>
+      <Box sx={{ textAlign: 'center', fontSize: '0.8rem', mt: 5, pt: 2.5, borderTop: '1px solid #ccc' }}>
         <Typography>
           {data.vendor?.address && <span>{data.vendor.address}</span>}
           {data.vendor?.phone && <span>{data.vendor?.address ? ' Cell: ' : ''}{data.vendor.phone}{data.vendor?.officePhone ? ` | Office: ${data.vendor.officePhone}` : ''}</span>}

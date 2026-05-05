@@ -68,11 +68,11 @@ const jobPostingSchema = new mongoose.Schema({
   salaryRange: {
     min: {
       type: Number,
-      required: true
+      required: false
     },
     max: {
       type: Number,
-      required: true
+      required: false
     },
     currency: {
       type: String,
@@ -176,6 +176,9 @@ const jobPostingSchema = new mongoose.Schema({
 
 // Virtual for formatted salary range
 jobPostingSchema.virtual('formattedSalaryRange').get(function() {
+  if (!this.salaryRange || this.salaryRange.min == null || this.salaryRange.max == null) {
+    return 'Not specified';
+  }
   const formatter = new Intl.NumberFormat('en-PK', {
     style: 'currency',
     currency: this.salaryRange.currency || 'PKR',

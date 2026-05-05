@@ -112,8 +112,6 @@ router.post('/',
       employmentType,
       experienceLevel,
       educationLevel,
-      salaryRange,
-      benefits,
       applicationDeadline,
       positionsAvailable,
       tags,
@@ -123,15 +121,15 @@ router.post('/',
     // Validate required fields
     if (!title || !department || !position || !description || !requirements || 
         !responsibilities || !qualifications || !experienceLevel || !educationLevel || 
-        !salaryRange || !applicationDeadline) {
+        !applicationDeadline) {
       return res.status(400).json({
         success: false,
         message: 'All required fields must be provided'
       });
     }
 
-    // Validate salary range
-    if (salaryRange.min >= salaryRange.max) {
+    // Validate salary range only when provided
+    if (req.body.salaryRange && req.body.salaryRange.min != null && req.body.salaryRange.max != null && req.body.salaryRange.min >= req.body.salaryRange.max) {
       return res.status(400).json({
         success: false,
         message: 'Minimum salary must be less than maximum salary'
@@ -158,8 +156,8 @@ router.post('/',
       employmentType: employmentType || 'full_time',
       experienceLevel,
       educationLevel,
-      salaryRange,
-      benefits: benefits || [],
+      salaryRange: req.body.salaryRange,
+      benefits: req.body.benefits || [],
       applicationDeadline,
       positionsAvailable: positionsAvailable || 1,
       tags: tags || [],

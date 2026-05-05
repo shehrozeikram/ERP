@@ -53,6 +53,7 @@ import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import dayjs from 'dayjs';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
+import ComparativeRejectionObservationsAlert from '../../components/Procurement/ComparativeRejectionObservationsAlert';
 
 const Quotations = () => {
   const navigate = useNavigate();
@@ -94,6 +95,7 @@ const Quotations = () => {
     validityDays: 30,
     deliveryTime: '',
     paymentTerms: '',
+    deliveryPlace: '',
     freightCarriage: '',
     installation: '',
     freight: '',
@@ -204,6 +206,7 @@ const Quotations = () => {
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
+        deliveryPlace: '',
         freightCarriage: '',
         installation: '',
         freight: '',
@@ -224,6 +227,7 @@ const Quotations = () => {
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
+        deliveryPlace: '',
         freightCarriage: '',
         installation: '',
         freight: '',
@@ -256,8 +260,9 @@ const Quotations = () => {
       validityDays: quotation.validityDays || 30,
       deliveryTime: quotation.deliveryTime || '',
       paymentTerms: quotation.paymentTerms || '',
-      freightCarriage: quotation.freightCarriage || '',
-      installation: quotation.installation || '',
+      deliveryPlace: quotation.deliveryPlace || quotation.delivery_location || '',
+      freightCarriage: quotation.freightCarriage || quotation.freight_carriage || '',
+      installation: quotation.installation || quotation.installationDetails || '',
       freight: quotation.freight || '',
       notes: quotation.notes || '',
       attachments: quotation.attachments || []
@@ -354,9 +359,24 @@ const Quotations = () => {
         return sum + (afterDiscount * (item.taxRate || 0) / 100);
       }, 0);
       const totalAmount = subtotal - discountAmount + taxAmount;
+      const normalizedTerms = {
+        deliveryPlace: (formData.deliveryPlace || '').trim(),
+        freightCarriage: (formData.freightCarriage || '').trim(),
+        installation: (formData.installation || '').trim(),
+        freight: (formData.freight || '').trim()
+      };
 
       const quotationData = {
         ...formData,
+        ...normalizedTerms,
+        carriage: normalizedTerms.freightCarriage,
+        terms: {
+          deliveryPlace: normalizedTerms.deliveryPlace,
+          freightCarriage: normalizedTerms.freightCarriage,
+          carriage: normalizedTerms.freightCarriage,
+          installation: normalizedTerms.installation,
+          freight: normalizedTerms.freight
+        },
         items,
         subtotal,
         discountAmount,
@@ -620,6 +640,10 @@ const Quotations = () => {
                     </Box>
                   </AccordionSummary>
                   <AccordionDetails>
+                    <ComparativeRejectionObservationsAlert
+                      comparativeApproval={group.indent?.comparativeApproval}
+                      showComparativeLink
+                    />
                     <TableContainer>
                       <Table size="small">
                         <TableHead>
@@ -967,6 +991,12 @@ const Quotations = () => {
               <MenuItem value="Partial Advance">Partial Advance</MenuItem>
               <MenuItem value="Payment After Delivery">Payment After Delivery</MenuItem>
             </TextField>
+            <TextField
+              fullWidth
+              label="Delivery Place"
+              value={formData.deliveryPlace || ''}
+              onChange={(e) => setFormData({ ...formData, deliveryPlace: e.target.value })}
+            />
             <Box>
               <Tabs
                 value={termTab}
@@ -1112,6 +1142,11 @@ const Quotations = () => {
         <DialogContent sx={{ p: 0, overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
           {viewDialog.data && (
             <Box sx={{ width: '100%' }} className="print-content">
+              <ComparativeRejectionObservationsAlert
+                comparativeApproval={viewDialog.data?.indent?.comparativeApproval}
+                showComparativeLink
+                sx={{ mx: 2, mt: 2, '@media print': { mx: 0 } }}
+              />
               <QuotationDetailView
                 quotation={viewDialog.data}
                 formatNumber={formatNumber}
