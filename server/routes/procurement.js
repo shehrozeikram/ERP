@@ -420,11 +420,15 @@ const ensureComparativeApprovalObject = (indent) => {
       lastResubmittedAt: null,
       rejectedBy: null,
       rejectedAt: null,
-      rejectionObservation: ''
+      rejectionObservation: '',
+      rejectionObservations: []
     };
   }
   if (!Array.isArray(indent.comparativeApproval.approvers)) {
     indent.comparativeApproval.approvers = [];
+  }
+  if (!Array.isArray(indent.comparativeApproval.rejectionObservations)) {
+    indent.comparativeApproval.rejectionObservations = [];
   }
   return indent.comparativeApproval;
 };
@@ -4954,7 +4958,9 @@ router.put('/requisitions/:id/comparative-approvers',
     const updated = await Indent.findById(indent._id)
       .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
       .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
+      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -4987,6 +4993,18 @@ router.post('/requisitions/:id/comparative-submit',
     }
 
     const previousStatus = ca.status;
+    const resolutionNote = String(req.body?.resolutionNote || '').trim();
+    if (resolutionNote && Array.isArray(ca.rejectionObservations) && ca.rejectionObservations.length > 0) {
+      ca.rejectionObservations = ca.rejectionObservations.map((obs) => {
+        if (obs?.resolvedAt) return obs;
+        return {
+          ...obs,
+          resolutionNote,
+          resolvedBy: req.user.id,
+          resolvedAt: new Date()
+        };
+      });
+    }
     ca.approvers = ca.approvers.map((s) => ({
       approver: s.approver,
       status: 'pending',
@@ -5006,7 +5024,9 @@ router.post('/requisitions/:id/comparative-submit',
       fromStatus: `Comparative Approval: ${previousStatus}`,
       toStatus: 'Comparative Approval: submitted',
       changedBy: req.user.id,
-      comments: 'Comparative statement submitted for approvals.',
+      comments: resolutionNote
+        ? `Comparative statement resubmitted for approvals. Resolution: ${resolutionNote}`
+        : 'Comparative statement submitted for approvals.',
       module: 'Procurement'
     });
 
@@ -5027,7 +5047,9 @@ router.post('/requisitions/:id/comparative-submit',
     const updated = await Indent.findById(indent._id)
       .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
       .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
+      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -5144,7 +5166,9 @@ router.post('/requisitions/:id/comparative-approve',
     const updated = await Indent.findById(indent._id)
       .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
       .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
+      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -5212,6 +5236,15 @@ router.post('/requisitions/:id/comparative-reject',
     ca.rejectedBy = req.user.id;
     ca.rejectedAt = new Date();
     ca.rejectionObservation = observation;
+    if (!Array.isArray(ca.rejectionObservations)) ca.rejectionObservations = [];
+    ca.rejectionObservations.push({
+      observation,
+      rejectedBy: req.user.id,
+      rejectedAt: new Date(),
+      resolutionNote: '',
+      resolvedBy: null,
+      resolvedAt: null
+    });
 
     pushIndentWorkflowHistory(indent, {
       fromStatus: `Comparative Approval: ${previousStatus}`,
@@ -5239,7 +5272,9 @@ router.post('/requisitions/:id/comparative-reject',
     const updated = await Indent.findById(indent._id)
       .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
       .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
+      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,

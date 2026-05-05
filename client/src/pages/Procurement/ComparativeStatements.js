@@ -64,6 +64,7 @@ const ComparativeStatements = () => {
   const [approvingComparative, setApprovingComparative] = useState(false);
   const [rejectingComparative, setRejectingComparative] = useState(false);
   const [rejectObservation, setRejectObservation] = useState('');
+  const [resolutionNote, setResolutionNote] = useState('');
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const authoritySearchDebounceRef = useRef(null);
 
@@ -253,11 +254,14 @@ const ComparativeStatements = () => {
     try {
       setSubmittingComparative(true);
       setError('');
-      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-submit`);
+      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-submit`, {
+        resolutionNote: resolutionNote.trim()
+      });
       if (res.data?.success) {
         const updated = res.data.data;
         setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
         setSuccess('Comparative statement submitted for approvals.');
+        setResolutionNote('');
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to submit comparative statement');
@@ -503,6 +507,51 @@ const ComparativeStatements = () => {
         {/* Comparative Statement Display */}
         {selectedRequisition && (
           <>
+            {selectedRequisition?.comparativeApproval?.status === 'rejected' && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  Rejection observations
+                </Typography>
+                {(() => {
+                  const observations = Array.isArray(selectedRequisition?.comparativeApproval?.rejectionObservations)
+                    ? selectedRequisition.comparativeApproval.rejectionObservations
+                    : [];
+                  if (observations.length === 0 && selectedRequisition?.comparativeApproval?.rejectionObservation) {
+                    return <Typography variant="body2">{selectedRequisition.comparativeApproval.rejectionObservation}</Typography>;
+                  }
+                  return observations.map((obs, idx) => {
+                    const by =
+                      [obs?.rejectedBy?.firstName, obs?.rejectedBy?.lastName].filter(Boolean).join(' ').trim() ||
+                      obs?.rejectedBy?.email ||
+                      'Approver';
+                    const at = obs?.rejectedAt ? new Date(obs.rejectedAt).toLocaleString() : '';
+                    return (
+                      <Box key={`${obs?._id || idx}`} sx={{ mb: 1 }}>
+                        <Typography variant="body2">
+                          {idx + 1}. <strong>{by}</strong>{at ? ` (${at})` : ''}: {obs?.observation || '—'}
+                        </Typography>
+                        {obs?.resolutionNote ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
+                            Resolution: {obs.resolutionNote}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                    );
+                  });
+                })()}
+              </Alert>
+            )}
+            {canSubmitComparative && selectedRequisition?.comparativeApproval?.status === 'rejected' && (
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                label="Resolution / corrective actions before resubmission"
+                value={resolutionNote}
+                onChange={(e) => setResolutionNote(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+            )}
             <ComparativeStatementView
               requisition={selectedRequisition}
               quotations={quotations}

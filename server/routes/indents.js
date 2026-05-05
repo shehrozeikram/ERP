@@ -435,6 +435,8 @@ router.get('/:id',
       .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
       .populate('comparativeApproval.submittedBy', 'firstName lastName email')
       .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
+      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId')
       .populate('workflowHistory.changedBy', 'firstName lastName email');
 
     if (!indent || !indent.isActive) {

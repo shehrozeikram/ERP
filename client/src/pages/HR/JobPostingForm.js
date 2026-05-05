@@ -32,7 +32,6 @@ import {
   Work,
   Business,
   Description,
-  AttachMoney,
   Schedule,
   LocationOn
 } from '@mui/icons-material';
@@ -59,13 +58,7 @@ const stepValidationSchemas = [
     educationLevel: Yup.string().required('Education level is required')
   }),
   
-  // Step 3: Compensation & Benefits
-  Yup.object({
-    minSalary: Yup.number().min(0, 'Minimum salary must be positive'),
-    maxSalary: Yup.number().min(0, 'Maximum salary must be positive')
-  }),
-  
-  // Step 4: Application Details
+  // Step 3: Application Details
   Yup.object({
     applicationDeadline: Yup.date().min(new Date(), 'Deadline must be in the future')
   })
@@ -80,8 +73,6 @@ const completeValidationSchema = Yup.object({
   employmentType: Yup.string().required('Employment type is required'),
   experienceLevel: Yup.string().required('Experience level is required'),
   educationLevel: Yup.string().required('Education level is required'),
-  minSalary: Yup.number().min(0, 'Minimum salary must be positive'),
-  maxSalary: Yup.number().min(0, 'Maximum salary must be positive'),
   applicationDeadline: Yup.date().min(new Date(), 'Deadline must be in the future')
 });
 
@@ -102,7 +93,7 @@ const JobPostingForm = () => {
   const [editData, setEditData] = useState(null);
 
   // Steps for the form
-  const steps = ['Basic Information', 'Job Details', 'Compensation & Benefits', 'Application Details'];
+  const steps = ['Basic Information', 'Job Details', 'Application Details'];
 
   // Load departments, locations, and positions
   const loadDropdownData = async () => {
@@ -170,10 +161,6 @@ const JobPostingForm = () => {
         employmentType: response.data.employmentType || '',
         experienceLevel: response.data.experienceLevel || '',
         educationLevel: response.data.educationLevel || '',
-        minSalary: response.data.salaryRange?.min || '',
-        maxSalary: response.data.salaryRange?.max || '',
-        currency: response.data.salaryRange?.currency || 'PKR',
-        benefits: response.data.benefits?.join(', ') || '',
         applicationDeadline: response.data.applicationDeadline ? new Date(response.data.applicationDeadline).toISOString().split('T')[0] : '',
         numberOfPositions: response.data.positionsAvailable || 1,
         isRemote: response.data.isRemote || false
@@ -217,12 +204,6 @@ const JobPostingForm = () => {
         employmentType: values.employmentType,
         experienceLevel: values.experienceLevel,
         educationLevel: values.educationLevel,
-        salaryRange: {
-          min: parseInt(values.minSalary) || 0,
-          max: parseInt(values.maxSalary) || 0,
-          currency: values.currency || 'PKR'
-        },
-        benefits: values.benefits ? values.benefits.split(',').map(b => b.trim()).filter(b => b) : [],
         applicationDeadline: values.applicationDeadline,
         positionsAvailable: parseInt(values.numberOfPositions) || 1
       };
@@ -327,16 +308,7 @@ const JobPostingForm = () => {
     }
     
     if (activeStep === 2) {
-      // Step 3: Compensation & Benefits
-      const hasMinSalary = values.minSalary && values.minSalary > 0;
-      const hasMaxSalary = values.maxSalary && values.maxSalary > 0;
-      
-
-      return hasMinSalary && hasMaxSalary;
-    }
-    
-    if (activeStep === 3) {
-      // Step 4: Application Details
+      // Step 3: Application Details
       const hasDeadline = values.applicationDeadline && values.applicationDeadline.trim() !== '';
       
 
@@ -355,10 +327,6 @@ const JobPostingForm = () => {
     employmentType: '',
     experienceLevel: '',
     educationLevel: '',
-    minSalary: '',
-    maxSalary: '',
-    currency: 'PKR',
-    benefits: '',
     requirements: '',
     responsibilities: '',
     qualifications: '',
@@ -668,69 +636,8 @@ const JobPostingForm = () => {
                   </Box>
                 )}
 
-                {/* Step 3: Compensation & Benefits */}
+                {/* Step 3: Application Details */}
                 {activeStep === 2 && (
-                  <Box>
-                    <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main }}>
-                      <AttachMoney sx={{ mr: 1, verticalAlign: 'middle' }} />
-                      Compensation & Benefits
-                    </Typography>
-                    <Divider sx={{ mb: 3 }} />
-                    
-                    <Grid container spacing={3}>
-                      <Grid item xs={12} md={6}>
-                        <TextField
-                          fullWidth
-                          name="minSalary"
-                          label="Minimum Salary"
-                          type="number"
-                          value={values.minSalary}
-                          onChange={handleChange}
-                          onBlur={handleBlur}
-                          error={touched.minSalary && Boolean(errors.minSalary)}
-                          helperText={touched.minSalary && errors.minSalary}
-                          InputProps={{
-                            startAdornment: <Typography variant="body2" sx={{ mr: 1 }}>PKR</Typography>
-                          }}
-                        />
-                      </Grid>
-                      
-                      <Grid item xs={12} md={6}>
-                        <TextField
-                          fullWidth
-                          name="maxSalary"
-                          label="Maximum Salary"
-                          type="number"
-                          value={values.maxSalary}
-                          onChange={handleChange}
-                          onBlur={handleBlur}
-                          error={touched.maxSalary && Boolean(errors.maxSalary)}
-                          helperText={touched.maxSalary && errors.maxSalary}
-                          InputProps={{
-                            startAdornment: <Typography variant="body2" sx={{ mr: 1 }}>PKR</Typography>
-                          }}
-                        />
-                      </Grid>
-                      
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
-                          name="benefits"
-                          label="Benefits & Perks"
-                          multiline
-                          rows={3}
-                          value={values.benefits}
-                          onChange={handleChange}
-                          onBlur={handleBlur}
-                          placeholder="List the benefits and perks offered..."
-                        />
-                      </Grid>
-                    </Grid>
-                  </Box>
-                )}
-
-                {/* Step 4: Application Details */}
-                {activeStep === 3 && (
                   <Box>
                     <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main }}>
                       <Schedule sx={{ mr: 1, verticalAlign: 'middle' }} />

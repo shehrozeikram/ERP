@@ -321,7 +321,15 @@ const indentSchema = new mongoose.Schema({
       type: String,
       trim: true,
       default: ''
-    }
+    },
+    rejectionObservations: [{
+      observation: { type: String, trim: true, default: '' },
+      rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      rejectedAt: { type: Date, default: null },
+      resolutionNote: { type: String, trim: true, default: '' },
+      resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      resolvedAt: { type: Date, default: null }
+    }]
   },
   // Per-item vendor assignments from Comparative Statement (item index -> quotation id). When set, quotations are shortlisted; create split POs from Quotations page.
   splitPOAssignments: {
