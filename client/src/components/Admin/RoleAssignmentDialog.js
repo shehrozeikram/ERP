@@ -15,7 +15,6 @@ import {
   FormControlLabel,
   FormGroup,
   TextField,
-  Pagination,
   Autocomplete
 } from '@mui/material';
 import api from '../../services/api';
@@ -28,8 +27,6 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
   const [loading, setLoading] = useState(false);
   const [rolePermissions, setRolePermissions] = useState([]);
   const [roleSearch, setRoleSearch] = useState('');
-  const [rolePage, setRolePage] = useState(1);
-  const ROLES_PER_PAGE = 12;
 
   // Debug: Log user object when dialog opens
   useEffect(() => {
@@ -42,7 +39,6 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
     if (open && user) {
       fetchRoles();
       setRoleSearch('');
-      setRolePage(1);
       if (user.roleRef) {
         const roleRefId = typeof user.roleRef === 'object' ? user.roleRef._id : user.roleRef;
         setSelectedRole(roleRefId);
@@ -83,13 +79,6 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
       department.includes(term)
     );
   });
-
-  const totalRolePages = Math.max(1, Math.ceil(filteredRoles.length / ROLES_PER_PAGE));
-  const safeRolePage = Math.min(rolePage, totalRolePages);
-  const pagedRoles = filteredRoles.slice(
-    (safeRolePage - 1) * ROLES_PER_PAGE,
-    safeRolePage * ROLES_PER_PAGE
-  );
 
   const fetchRolePermissions = async (roleId) => {
     if (!roleId) {
@@ -280,7 +269,7 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
           ) : (
             <FormControl fullWidth sx={{ mb: 3 }}>
               <Autocomplete
-                options={pagedRoles}
+                options={filteredRoles}
                 value={roles.find((r) => r._id === selectedRole) || null}
                 getOptionLabel={(option) => option?.displayName || option?.name || ''}
                 isOptionEqualToValue={(option, value) => option._id === value._id}
@@ -293,9 +282,9 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
                 onInputChange={(_, value, reason) => {
                   if (reason === 'input') {
                     setRoleSearch(value || '');
-                    setRolePage(1);
                   }
                 }}
+                ListboxProps={{ style: { maxHeight: 320, overflow: 'auto' } }}
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -317,19 +306,8 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
                 )}
                 noOptionsText={roleSearch ? 'No roles match your search' : 'No roles available'}
               />
-              {filteredRoles.length > ROLES_PER_PAGE && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.5 }}>
-                  <Pagination
-                    size="small"
-                    count={totalRolePages}
-                    page={safeRolePage}
-                    onChange={(_, p) => setRolePage(p)}
-                    color="primary"
-                  />
-                </Box>
-              )}
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, ml: 0.5, display: 'block' }}>
-                Showing {pagedRoles.length} of {filteredRoles.length} role(s)
+                Showing {filteredRoles.length} role(s)
               </Typography>
               {selectedRole && (
                 <Typography variant="caption" color="success.main" sx={{ mt: 0.5, ml: 1.5 }}>
