@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Box, Typography, Button, CircularProgress, Alert, Divider, Grid, Table, TableBody, TableCell, TableHead, TableRow, Paper } from '@mui/material';
+import {
+  Box, Typography, Button, CircularProgress, Alert, Divider, Grid,
+  Table, TableBody, TableCell, TableHead, TableRow, Paper, TableContainer
+} from '@mui/material';
 import { Print as PrintIcon, ArrowBack as BackIcon } from '@mui/icons-material';
 import procurementService from '../../services/procurementService';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, formatDateTime } from '../../utils/dateUtils';
+import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { formatPKR } from '../../utils/currency';
 
 const CashApprovalDocumentView = () => {
@@ -31,6 +35,27 @@ const CashApprovalDocumentView = () => {
   if (!ca) return null;
 
   const aa = ca.approvalAuthorities || {};
+  const indent = ca.indent && typeof ca.indent === 'object' ? ca.indent : {};
+  const csa = indent.comparativeStatementApprovals || {};
+  const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
+    ? indent.comparativeApproval.approvers
+    : [];
+  const stepByUserId = new Map(
+    approvalSteps.map((s) => [String(s?.approver?._id || s?.approver || ''), s])
+  );
+  const personName = (user, fallback = '') => (
+    [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
+    user?.email ||
+    fallback ||
+    '—'
+  );
+  const authorityRows = [
+    { label: 'Prepared By', user: csa.preparedByUser, fallback: aa.preparedBy || csa.preparedBy || '' },
+    { label: 'Verified By (Procurement Committee)', user: csa.verifiedByUser, fallback: aa.verifiedBy || csa.verifiedBy || '' },
+    { label: 'Authorised Rep.', user: csa.authorisedRepUser, fallback: aa.authorisedRep || csa.authorisedRep || '' },
+    { label: 'Finance Rep.', user: csa.financeRepUser, fallback: aa.financeRep || csa.financeRep || '' },
+    { label: 'Manager Procurement', user: csa.managerProcurementUser, fallback: aa.managerProcurement || csa.managerProcurement || '' }
+  ];
 
   return (
     <Box>
@@ -159,33 +184,43 @@ const CashApprovalDocumentView = () => {
 
         <Divider sx={{ my: 3 }} />
 
-        {/* Approval Authorities Signature Block */}
-        <Typography variant="subtitle1" fontWeight={700} mb={2} sx={{ textAlign: 'center' }}>APPROVAL AUTHORITIES</Typography>
-        <Table sx={{ border: '1px solid #ccc', mb: 4 }}>
-          <TableHead>
-            <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Prepared By</TableCell>
-              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Verified By<br />(Procurement Committee)</TableCell>
-              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Authorised Rep.</TableCell>
-              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Finance Rep.</TableCell>
-              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Manager Procurement</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            <TableRow>
-              {['preparedBy', 'verifiedBy', 'authorisedRep', 'financeRep', 'managerProcurement'].map((key) => (
-                <TableCell key={key} sx={{ border: '1px solid #ccc', height: 60, verticalAlign: 'top', textAlign: 'center' }}>
-                  <Typography variant="body2" fontWeight={600}>{aa[key] || ''}</Typography>
-                </TableCell>
-              ))}
-            </TableRow>
-            <TableRow sx={{ bgcolor: '#fafafa' }}>
-              {['Signature', 'Signature', 'Signature', 'Signature', 'Signature'].map((s, i) => (
-                <TableCell key={i} sx={{ border: '1px solid #ccc', height: 50, textAlign: 'center', color: '#aaa', fontSize: 11 }}>{s}</TableCell>
-              ))}
-            </TableRow>
-          </TableBody>
-        </Table>
+        {/* Approval authorities — same layout as Purchase Order */}
+        <Typography variant="subtitle1" fontWeight={700} mb={1.5} sx={{ textAlign: 'center' }}>APPROVAL AUTHORITIES</Typography>
+        <TableContainer component={Box} sx={{ border: '1px solid #ccc', mb: 4 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Authority</TableCell>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Name</TableCell>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Digital Signature</TableCell>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Date &amp; Time</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {authorityRows.map((row) => {
+                const uid = String(row?.user?._id || row?.user || '');
+                const step = uid ? stepByUserId.get(uid) : null;
+                const approvalUser = step?.approver && typeof step.approver === 'object' ? step.approver : row.user;
+                return (
+                  <TableRow key={row.label}>
+                    <TableCell sx={{ border: '1px solid #ccc', fontWeight: 600 }}>{row.label}</TableCell>
+                    <TableCell sx={{ border: '1px solid #ccc' }}>{personName(approvalUser, row.fallback)}</TableCell>
+                    <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                      {approvalUser?.digitalSignature ? (
+                        <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ border: '1px solid #ccc' }}>
+                      {step?.actedAt ? formatDateTime(step.actedAt) : '—'}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
 
         {/* CEO Digital Signature (if approved) */}
         {ca.ceoApprovedBy && (

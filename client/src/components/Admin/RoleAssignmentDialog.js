@@ -8,14 +8,15 @@ import {
   Box,
   Typography,
   FormControl,
-  Select,
-  MenuItem,
   Chip,
   Alert,
   Divider,
   Checkbox,
   FormControlLabel,
-  FormGroup
+  FormGroup,
+  TextField,
+  Pagination,
+  Autocomplete
 } from '@mui/material';
 import api from '../../services/api';
 
@@ -26,6 +27,9 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
   const [useMultipleRoles, setUseMultipleRoles] = useState(false);
   const [loading, setLoading] = useState(false);
   const [rolePermissions, setRolePermissions] = useState([]);
+  const [roleSearch, setRoleSearch] = useState('');
+  const [rolePage, setRolePage] = useState(1);
+  const ROLES_PER_PAGE = 12;
 
   // Debug: Log user object when dialog opens
   useEffect(() => {
@@ -37,6 +41,8 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
   useEffect(() => {
     if (open && user) {
       fetchRoles();
+      setRoleSearch('');
+      setRolePage(1);
       if (user.roleRef) {
         const roleRefId = typeof user.roleRef === 'object' ? user.roleRef._id : user.roleRef;
         setSelectedRole(roleRefId);
@@ -64,6 +70,26 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
       console.error('Failed to fetch roles:', error);
     }
   };
+
+  const filteredRoles = roles.filter((role) => {
+    const term = roleSearch.trim().toLowerCase();
+    if (!term) return true;
+    const name = String(role.displayName || role.name || '').toLowerCase();
+    const description = String(role.description || '').toLowerCase();
+    const department = String(role.department || '').toLowerCase();
+    return (
+      name.includes(term) ||
+      description.includes(term) ||
+      department.includes(term)
+    );
+  });
+
+  const totalRolePages = Math.max(1, Math.ceil(filteredRoles.length / ROLES_PER_PAGE));
+  const safeRolePage = Math.min(rolePage, totalRolePages);
+  const pagedRoles = filteredRoles.slice(
+    (safeRolePage - 1) * ROLES_PER_PAGE,
+    safeRolePage * ROLES_PER_PAGE
+  );
 
   const fetchRolePermissions = async (roleId) => {
     if (!roleId) {
@@ -253,35 +279,58 @@ const RoleAssignmentDialog = ({ open, onClose, user, onSave }) => {
             </Box>
           ) : (
             <FormControl fullWidth sx={{ mb: 3 }}>
-              <Select
-                value={selectedRole || ''}
-                onChange={(e) => {
-                  const roleId = e.target.value;
+              <Autocomplete
+                options={pagedRoles}
+                value={roles.find((r) => r._id === selectedRole) || null}
+                getOptionLabel={(option) => option?.displayName || option?.name || ''}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                filterOptions={(x) => x}
+                onChange={(_, selectedOption) => {
+                  const roleId = selectedOption?._id || '';
                   console.log('Role selected from dropdown:', roleId);
                   handleRoleChange(roleId);
                 }}
-                displayEmpty
-                renderValue={(v) => {
-                  if (!v) return 'Select role';
-                  const r = roles.find(role => role._id === v);
-                  return r ? (r.displayName || r.name) : 'Select role';
+                onInputChange={(_, value, reason) => {
+                  if (reason === 'input') {
+                    setRoleSearch(value || '');
+                    setRolePage(1);
+                  }
                 }}
-                inputProps={{ 'aria-label': 'Select role' }}
-              >
-                <MenuItem value="">
-                  <em>No Role Assigned</em>
-                </MenuItem>
-                {roles.map((role) => (
-                  <MenuItem key={role._id} value={role._id}>
-                    {role.displayName || role.name}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Select role"
+                    placeholder="Search role by name, department or description"
+                  />
+                )}
+                renderOption={(props, role) => (
+                  <Box component="li" {...props} sx={{ display: 'block !important' }}>
+                    <Typography variant="body2">
+                      {role.displayName || role.name}
+                    </Typography>
                     {role.description && (
-                      <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                        - {role.description}
+                      <Typography variant="caption" color="text.secondary">
+                        {role.description}
                       </Typography>
                     )}
-                  </MenuItem>
-                ))}
-              </Select>
+                  </Box>
+                )}
+                noOptionsText={roleSearch ? 'No roles match your search' : 'No roles available'}
+              />
+              {filteredRoles.length > ROLES_PER_PAGE && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.5 }}>
+                  <Pagination
+                    size="small"
+                    count={totalRolePages}
+                    page={safeRolePage}
+                    onChange={(_, p) => setRolePage(p)}
+                    color="primary"
+                  />
+                </Box>
+              )}
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, ml: 0.5, display: 'block' }}>
+                Showing {pagedRoles.length} of {filteredRoles.length} role(s)
+              </Typography>
               {selectedRole && (
                 <Typography variant="caption" color="success.main" sx={{ mt: 0.5, ml: 1.5 }}>
                   ✓ Role selected: {roles.find(r => r._id === selectedRole)?.displayName || selectedRole}

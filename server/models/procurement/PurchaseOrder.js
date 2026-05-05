@@ -28,7 +28,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Draft', 'Pending Audit', 'Forwarded to Audit Director', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'GRN Created', 'Sent to Procurement', 'Sent to Audit', 'Sent to Finance', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
+    enum: ['Draft', 'Pending Approval', 'Pending Audit', 'Forwarded to Audit Director', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'GRN Created', 'Sent to Procurement', 'Sent to Audit', 'Sent to Finance', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
     default: 'Draft'
   },
   indent: {
@@ -210,6 +210,13 @@ const purchaseOrderSchema = new mongoose.Schema({
     financeRep: { type: String, trim: true, default: '' },
     managerProcurement: { type: String, trim: true, default: '' }
   },
+  authorityApprovals: [{
+    authorityKey: { type: String, trim: true },
+    authorityLabel: { type: String, trim: true },
+    approver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approvedAt: { type: Date, default: Date.now },
+    comments: { type: String, trim: true }
+  }],
   attachments: [{
     filename: String,
     url: String,

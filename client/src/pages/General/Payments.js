@@ -72,6 +72,8 @@ import { formatPKR } from '../../utils/currency';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
+import CashApprovalDetailTabsView from '../../components/Procurement/CashApprovalDetailTabsView';
+import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 
 const Payments = () => {
   const navigate = useNavigate();
@@ -90,7 +92,7 @@ const Payments = () => {
   const [tabValue, setTabValue] = useState(0);
   
   // Dialog states
-  const [viewDialog, setViewDialog] = useState({ open: false, settlement: null, isPurchaseOrder: false });
+  const [viewDialog, setViewDialog] = useState({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
   const [approveDialog, setApproveDialog] = useState({ open: false, settlement: null });
   const [rejectDialog, setRejectDialog] = useState({ open: false, settlement: null });
@@ -137,10 +139,11 @@ const Payments = () => {
         fromDepartment: departmentFilter || undefined
       };
 
-      // Fetch payment settlements and purchase orders for CEO Secretariat in parallel
-      const [settlementsRes, poRes] = await Promise.all([
+      // Fetch payment settlements, purchase orders, and cash approvals for CEO Secretariat in parallel
+      const [settlementsRes, poRes, caRes] = await Promise.all([
         paymentSettlementService.getPaymentSettlements(params),
-        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } }))
+        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } })),
+        api.get('/cash-approvals/ceo-secretariat').catch(() => ({ data: { data: [] } }))
       ]);
       let allSettlements = settlementsRes.data?.settlements || [];
       const poList = poRes.data?.data || [];
@@ -157,7 +160,21 @@ const Payments = () => {
         fromDepartment: 'Procurement',
         ...po
       }));
-      allSettlements = [...allSettlements, ...poFormatted];
+      const caList = caRes.data?.data || [];
+      const caFormatted = caList.map((ca) => ({
+        _id: ca._id,
+        workflowStatus: ca.status,
+        isCashApproval: true,
+        referenceNumber: ca.caNumber,
+        date: ca.approvalDate || ca.createdAt,
+        toWhomPaid: ca.vendor?.name,
+        forWhat: ca.notes || 'Cash Approval',
+        amount: ca.totalAmount,
+        grandTotal: ca.totalAmount,
+        fromDepartment: 'Procurement',
+        ...ca
+      }));
+      allSettlements = [...allSettlements, ...poFormatted, ...caFormatted];
       
       // Client-side filtering based on tab with proper status categorization
       // Document Flow Logic:
@@ -248,6 +265,28 @@ const Payments = () => {
       return;
     }
 
+    if (approveDialog.settlement?.isCashApproval) {
+      try {
+        setActionLoading(true);
+        setError(null);
+        await api.put(`/cash-approvals/${approveDialog.settlement._id}/forward-to-ceo`, {
+          comments: approvalComments
+        });
+        toast.success('Cash approval forwarded to CEO successfully');
+        setApproveDialog({ open: false, settlement: null });
+        setApprovalComments('');
+        setApprovalSignature('');
+        setApprovalAgree(false);
+        fetchSettlements();
+      } catch (error) {
+        setError(error.response?.data?.message || 'Failed to forward cash approval');
+        toast.error(error.response?.data?.message || 'Failed to forward cash approval');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setActionLoading(true);
       setError(null);
@@ -304,6 +343,32 @@ const Payments = () => {
       } catch (error) {
         setError(error.response?.data?.message || 'Failed to reject purchase order');
         toast.error('Failed to reject purchase order');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
+    if (rejectDialog.settlement?.isCashApproval) {
+      try {
+        setActionLoading(true);
+        setError(null);
+        await api.put(`/cash-approvals/${rejectDialog.settlement._id}/ceo-secretariat-reject`, {
+          rejectionComments,
+          comments: rejectionComments,
+          digitalSignature: rejectionSignature,
+          observations: observations.length > 0 ? observations : undefined
+        });
+        toast.success('Cash approval rejected successfully');
+        setRejectDialog({ open: false, settlement: null });
+        setRejectionComments('');
+        setRejectionSignature('');
+        setRejectionAgree(false);
+        setRejectObservations([{ observation: '', severity: 'medium' }]);
+        fetchSettlements();
+      } catch (error) {
+        setError(error.response?.data?.message || 'Failed to reject cash approval');
+        toast.error(error.response?.data?.message || 'Failed to reject cash approval');
       } finally {
         setActionLoading(false);
       }
@@ -367,6 +432,36 @@ const Payments = () => {
       } catch (error) {
         setError(error.response?.data?.message || 'Failed to return purchase order');
         toast.error('Failed to return purchase order');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
+    if (returnDialog.settlement?.isCashApproval) {
+      try {
+        setActionLoading(true);
+        setError(null);
+        const obsText = observations.length > 0
+          ? observations.map((obs, idx) => `Observation ${idx + 1} (${obs.severity || 'medium'}): ${obs.observation}`).join('; ')
+          : '';
+        const mergedComments = obsText ? `${returnComments}. Observations: ${obsText}` : returnComments;
+        await api.put(`/cash-approvals/${returnDialog.settlement._id}/ceo-secretariat-return`, {
+          returnComments: mergedComments,
+          comments: mergedComments,
+          digitalSignature: returnSignature,
+          observations: observations.length > 0 ? observations : undefined
+        });
+        toast.success('Cash approval returned to procurement successfully');
+        setReturnDialog({ open: false, settlement: null });
+        setReturnComments('');
+        setReturnSignature('');
+        setReturnAgree(false);
+        setReturnObservations([{ observation: '', severity: 'medium' }]);
+        fetchSettlements();
+      } catch (error) {
+        setError(error.response?.data?.message || 'Failed to return cash approval');
+        toast.error(error.response?.data?.message || 'Failed to return cash approval');
       } finally {
         setActionLoading(false);
       }
@@ -590,7 +685,6 @@ const Payments = () => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
   };
-
   // Purchase Order View Component
   const theme = useTheme();
   const PurchaseOrderView = ({ poData }) => {
@@ -967,31 +1061,74 @@ const Payments = () => {
             );
             const rows = [
               {
+                key: 'preparedBy',
                 label: 'Prepared By',
                 user: approvals.preparedByUser,
                 fallback: poData.approvalAuthorities?.preparedBy || approvals.preparedBy || auth.preparedBy || ''
               },
               {
+                key: 'verifiedBy',
                 label: 'Verified By (Procurement Committee)',
                 user: approvals.verifiedByUser,
                 fallback: poData.approvalAuthorities?.verifiedBy || approvals.verifiedBy || auth.verifiedBy || ''
               },
               {
+                key: 'authorisedRep',
                 label: 'Authorised Rep.',
                 user: approvals.authorisedRepUser,
                 fallback: poData.approvalAuthorities?.authorisedRep || approvals.authorisedRep || auth.authorisedRep || ''
               },
               {
+                key: 'financeRep',
                 label: 'Finance Rep.',
                 user: approvals.financeRepUser,
                 fallback: poData.approvalAuthorities?.financeRep || approvals.financeRep || auth.financeRep || ''
               },
               {
+                key: 'managerProcurement',
                 label: 'Manager Procurement',
                 user: approvals.managerProcurementUser,
                 fallback: poData.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || ''
+              },
+              {
+                key: 'preAuditInitial',
+                label: 'Pre-Audit Initial Approval',
+                directApproval: true,
+                approver: poData.preAuditInitialApprovedBy || null,
+                approvedAt: poData.preAuditInitialApprovedAt || null,
+                fallback: ''
+              },
+              {
+                key: 'auditDirectorApproval',
+                label: 'Audit Final Approval',
+                directApproval: true,
+                approver: poData.auditApprovedBy || null,
+                approvedAt: poData.auditApprovedAt || null,
+                fallback: ''
+              },
+              {
+                key: 'ceoSecretariatForward',
+                label: 'CEO Secretariat',
+                directApproval: true,
+                approver: poData.ceoForwardedBy || null,
+                approvedAt: poData.ceoForwardedAt || null,
+                fallback: ''
+              },
+              {
+                key: 'ceoApproval',
+                label: 'CEO Approval',
+                directApproval: true,
+                approver: poData.ceoApprovedBy || null,
+                approvedAt: poData.ceoApprovedAt || null,
+                fallback: ''
               }
             ];
+            const authorityApprovals = Array.isArray(poData?.authorityApprovals) ? poData.authorityApprovals : [];
+            const byKey = new Map(
+              authorityApprovals
+                .map((a) => [String(a?.authorityKey || '').trim(), a])
+                .filter(([k]) => Boolean(k))
+            );
             return (
               <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
                 <Table size="small">
@@ -999,6 +1136,7 @@ const Payments = () => {
                     <TableRow sx={{ bgcolor: 'grey.100' }}>
                       <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Digital Signature</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Date & Time</TableCell>
                     </TableRow>
@@ -1007,19 +1145,40 @@ const Payments = () => {
                     {rows.map((row) => {
                       const uid = String(row?.user?._id || row?.user || '');
                       const step = uid ? stepByUserId.get(uid) : null;
-                      const approvalUser = step?.approver && typeof step.approver === 'object' ? step.approver : row.user;
+                      const explicitApproval = row?.key ? byKey.get(row.key) : null;
+                      const approvalUser = row?.directApproval
+                        ? row.approver
+                        : (explicitApproval?.approver && typeof explicitApproval.approver === 'object'
+                          ? explicitApproval.approver
+                          : step?.approver && typeof step.approver === 'object'
+                            ? step.approver
+                            : row.user);
+                      const approvedAt = row?.directApproval
+                        ? (row.approvedAt || null)
+                        : (explicitApproval?.approvedAt || step?.actedAt || null);
+                      const isApproved = Boolean(approvedAt);
                       return (
-                        <TableRow key={row.label}>
+                        <TableRow key={row.key || row.label}>
                           <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
                           <TableCell>{personName(approvalUser, row.fallback)}</TableCell>
                           <TableCell>
-                            {approvalUser?.digitalSignature ? (
+                            <Chip
+                              size="small"
+                              label={isApproved ? 'Approved' : 'Pending'}
+                              color={isApproved ? 'success' : 'warning'}
+                              variant={isApproved ? 'filled' : 'outlined'}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {isApproved && approvalUser?.digitalSignature ? (
                               <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
+                            ) : isApproved ? (
+                              <Typography variant="caption" color="text.secondary">No signature on file</Typography>
                             ) : (
                               <Typography variant="caption" color="text.secondary">—</Typography>
                             )}
                           </TableCell>
-                          <TableCell>{formatDateTime(step?.actedAt)}</TableCell>
+                          <TableCell>{formatDateTime(approvedAt)}</TableCell>
                         </TableRow>
                       );
                     })}
@@ -1227,10 +1386,83 @@ const Payments = () => {
                                                         try {
                                                           const r = await api.get(`/procurement/purchase-orders/${settlement._id}`);
                                                           const d = r.data.data;
-                                                          setViewDialog({ open: true, settlement: d, isPurchaseOrder: true });
+                                                          const [qRes, grnRes] = await Promise.all([
+                                                            d?.indent?._id
+                                                              ? api.get(`/procurement/quotations/by-indent/${d.indent._id}`).catch(() => ({ data: { data: [] } }))
+                                                              : Promise.resolve({ data: { data: [] } }),
+                                                            api.get('/procurement/goods-receive', { params: { purchaseOrder: d._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
+                                                          ]);
+                                                          const poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+                                                          const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
+                                                          const poLinkedDocs = [];
+                                                          const pushDocs = (items = [], source = 'Attachment') => {
+                                                            items.forEach((item, idx) => {
+                                                              const url = item?.url || '';
+                                                              const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+                                                              if (!name && !url) return;
+                                                              poLinkedDocs.push({
+                                                                id: item?._id || `${source}-${idx}`,
+                                                                source,
+                                                                name,
+                                                                url,
+                                                                uploadedAt: item?.uploadedAt || null,
+                                                                mimeType: item?.mimeType || ''
+                                                              });
+                                                            });
+                                                          };
+                                                          pushDocs(d?.attachments, 'PO Attachment');
+                                                          pushDocs(d?.indent?.attachments, 'Indent Attachment');
+                                                          poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
+                                                          setViewDialog({
+                                                            open: true,
+                                                            settlement: d,
+                                                            isPurchaseOrder: true,
+                                                            isCashApproval: false,
+                                                            poQuotations,
+                                                            poGrns,
+                                                            poLinkedDocs,
+                                                            poAuditTab: 0
+                                                          });
                                                         } catch (e) {
                                                           console.error('Error fetching purchase order details:', e);
-                                                          setViewDialog({ open: true, settlement, isPurchaseOrder: false });
+                                                          setViewDialog({ open: true, settlement, isPurchaseOrder: true, isCashApproval: false, poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                                                        }
+                                                      } else if (settlement.isCashApproval) {
+                                                        try {
+                                                          const r = await api.get(`/cash-approvals/${settlement._id}`);
+                                                          const d = r.data?.data || settlement;
+                                                          let quotations = [];
+                                                          const linkedDocuments = [];
+                                                          const pushDocs = (items = [], source = 'Attachment') => {
+                                                            items.forEach((item, idx) => {
+                                                              const url = item?.url || '';
+                                                              const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+                                                              if (!name && !url) return;
+                                                              linkedDocuments.push({
+                                                                id: item?._id || `${source}-${idx}`,
+                                                                source,
+                                                                name,
+                                                                url,
+                                                                uploadedAt: item?.uploadedAt || null,
+                                                                mimeType: item?.mimeType || ''
+                                                              });
+                                                            });
+                                                          };
+                                                          if (d?.indent?._id) {
+                                                            try {
+                                                              const qRes = await api.get(`/procurement/quotations/by-indent/${d.indent._id}`);
+                                                              if (qRes.data?.success && Array.isArray(qRes.data.data)) {
+                                                                quotations = qRes.data.data;
+                                                              }
+                                                            } catch (_) { /* ignore */ }
+                                                          }
+                                                          pushDocs(d?.attachments, 'General Attachment');
+                                                          pushDocs(d?.purchaseReceipts, 'Purchase Receipt');
+                                                          pushDocs(d?.receiptAttachments, 'Settlement Receipt');
+                                                          setViewDialog({ open: true, settlement: d, isPurchaseOrder: false, isCashApproval: true, quotations, caLinkedDocs: linkedDocuments, poAuditTab: 0 });
+                                                        } catch (e) {
+                                                          console.error('Error fetching cash approval details:', e);
+                                                          setViewDialog({ open: true, settlement, isPurchaseOrder: false, isCashApproval: true, quotations: [], caLinkedDocs: [], poAuditTab: 0 });
                                                         }
                                                       } else {
                                                         try {
@@ -1249,19 +1481,56 @@ const Payments = () => {
                                                                 }
                                                               }
                                                               if (poResponse?.data?.success) {
-                                                                setViewDialog({ open: true, settlement: poResponse.data.data, isPurchaseOrder: true });
+                                                                const poData = poResponse.data.data;
+                                                                const [qRes, grnRes] = await Promise.all([
+                                                                  poData?.indent?._id
+                                                                    ? api.get(`/procurement/quotations/by-indent/${poData.indent._id}`).catch(() => ({ data: { data: [] } }))
+                                                                    : Promise.resolve({ data: { data: [] } }),
+                                                                  api.get('/procurement/goods-receive', { params: { purchaseOrder: poData._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
+                                                                ]);
+                                                                const poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+                                                                const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
+                                                                const poLinkedDocs = [];
+                                                                const pushDocs = (items = [], source = 'Attachment') => {
+                                                                  items.forEach((item, idx) => {
+                                                                    const url = item?.url || '';
+                                                                    const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+                                                                    if (!name && !url) return;
+                                                                    poLinkedDocs.push({
+                                                                      id: item?._id || `${source}-${idx}`,
+                                                                      source,
+                                                                      name,
+                                                                      url,
+                                                                      uploadedAt: item?.uploadedAt || null,
+                                                                      mimeType: item?.mimeType || ''
+                                                                    });
+                                                                  });
+                                                                };
+                                                                pushDocs(poData?.attachments, 'PO Attachment');
+                                                                pushDocs(poData?.indent?.attachments, 'Indent Attachment');
+                                                                poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
+                                                                setViewDialog({
+                                                                  open: true,
+                                                                  settlement: poData,
+                                                                  isPurchaseOrder: true,
+                                                                  isCashApproval: false,
+                                                                  poQuotations,
+                                                                  poGrns,
+                                                                  poLinkedDocs,
+                                                                  poAuditTab: 0
+                                                                });
                                                               } else {
-                                                                setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false });
+                                                                setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false, isCashApproval: false });
                                                               }
                                                             } catch (poError) {
-                                                              setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false });
+                                                              setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false, isCashApproval: false });
                                                             }
                                                           } else {
-                                                            setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false });
+                                                            setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false, isCashApproval: false });
                                                           }
                                                         } catch (error) {
                                                           console.error('Error fetching settlement details:', error);
-                                                          setViewDialog({ open: true, settlement, isPurchaseOrder: false });
+                                                          setViewDialog({ open: true, settlement, isPurchaseOrder: false, isCashApproval: false });
                                                         }
                                                       }
                                                     }}
@@ -1337,15 +1606,15 @@ const Payments = () => {
       {/* View Dialog - Same white paper style as PreAudit */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false })}
-        maxWidth={viewDialog.isPurchaseOrder ? false : "md"}
+        onClose={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 })}
+        maxWidth={(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? false : "md"}
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 0,
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             background: '#ffffff',
-            ...(viewDialog.isPurchaseOrder && {
+            ...((viewDialog.isPurchaseOrder || viewDialog.isCashApproval) && {
               width: '90%',
               maxWidth: '210mm',
               maxHeight: '95vh',
@@ -1361,7 +1630,7 @@ const Payments = () => {
           }
         }}
       >
-        <DialogTitle sx={{ p: 0, m: 0, '@media print': { display: viewDialog.isPurchaseOrder ? 'none' : 'block' } }}>
+        <DialogTitle sx={{ p: 0, m: 0, '@media print': { display: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 'none' : 'block' } }}>
           <Box sx={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -1370,7 +1639,7 @@ const Payments = () => {
             borderBottom: '1px solid #e0e0e0'
           }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
-              {viewDialog.isPurchaseOrder ? 'Purchase Order Details' : 'PAYMENT SETTLEMENT'}
+              {viewDialog.isPurchaseOrder ? 'Purchase Order Details' : viewDialog.isCashApproval ? 'Cash Approval Details' : 'PAYMENT SETTLEMENT'}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               {viewDialog.isPurchaseOrder && (
@@ -1386,7 +1655,7 @@ const Payments = () => {
               )}
               <IconButton 
                 size="small" 
-                onClick={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false })}
+                onClick={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 })}
                 sx={{ color: '#666', '@media print': { display: 'none' } }}
               >
                 <CloseIcon />
@@ -1397,13 +1666,300 @@ const Payments = () => {
         <DialogContent sx={{ p: 0, background: '#ffffff', overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
           {viewDialog.settlement && (
             <Box sx={{ 
-              p: viewDialog.isPurchaseOrder ? 0 : 4, 
+              p: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 0 : 4, 
               background: '#ffffff',
-              fontFamily: viewDialog.isPurchaseOrder ? 'Arial, sans-serif' : '"Times New Roman", serif'
-            }} className={viewDialog.isPurchaseOrder ? "print-content" : ""}>
+              fontFamily: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 'Arial, sans-serif' : '"Times New Roman", serif'
+            }} className={(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? "print-content" : ""}>
               {/* Show Purchase Order view if it's a PO */}
               {viewDialog.isPurchaseOrder ? (
-                <PurchaseOrderView poData={viewDialog.settlement} />
+                <>
+                  <Tabs
+                    value={viewDialog.poAuditTab ?? 0}
+                    onChange={(_, v) => setViewDialog((prev) => ({ ...prev, poAuditTab: v }))}
+                    sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                    variant="scrollable"
+                    scrollButtons="auto"
+                  >
+                    <Tab label="Indent" />
+                    <Tab label="Purchase Order" />
+                    <Tab label="Comparative Statement" />
+                    <Tab label={`Quotations (${viewDialog.poQuotations?.length || 0})`} />
+                    <Tab label={viewDialog.poGrns?.length > 0 ? `GRN(s) (${viewDialog.poGrns.length})` : 'GRN(s)'} />
+                    <Tab label={`Attached Documents (${viewDialog.poLinkedDocs?.length || 0})`} />
+                  </Tabs>
+
+                  {viewDialog.poAuditTab === 0 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!viewDialog.settlement?.indent ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                          No indent linked with this PO.
+                        </Typography>
+                      ) : (
+                        <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                            Purchase Request Form
+                          </Typography>
+                          {viewDialog.settlement.indent.title && (
+                            <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>
+                              {viewDialog.settlement.indent.title}
+                            </Typography>
+                          )}
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                            <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                            <Typography component="span" sx={{ ml: 1 }}>
+                              {viewDialog.settlement.indent.erpRef || 'PR #' + (viewDialog.settlement.indent.indentNumber?.split('-').pop() || '')}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Date:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.settlement.indent.requestedDate)}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Required Date:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.settlement.indent.requiredDate) || '—'}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Indent No.:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{viewDialog.settlement.indent.indentNumber || '—'}</Typography>
+                            </Box>
+                          </Box>
+                          <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Department:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{viewDialog.settlement.indent.department?.name || viewDialog.settlement.indent.department || '—'}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Originator:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>
+                                {viewDialog.settlement.indent.requestedBy?.firstName && viewDialog.settlement.indent.requestedBy?.lastName
+                                  ? `${viewDialog.settlement.indent.requestedBy.firstName} ${viewDialog.settlement.indent.requestedBy.lastName}`
+                                  : viewDialog.settlement.indent.requestedBy?.name || '—'}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Box sx={{ mb: 3 }}>
+                            <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S#</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Item Name</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="center">Qty</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Purpose</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Est. Cost</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(viewDialog.settlement.indent.items || []).map((item, idx) => (
+                                  <TableRow key={idx}>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity ?? '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.purpose || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </Box>
+                          {viewDialog.settlement.indent.justification && (
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                {viewDialog.settlement.indent.justification}
+                              </Typography>
+                            </Box>
+                          )}
+                          {Array.isArray(viewDialog.settlement.indent.approvalChain) && viewDialog.settlement.indent.approvalChain.length > 0 && (
+                            <Box sx={{ mt: 3 }}>
+                              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                                Indent approval progress
+                              </Typography>
+                              <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
+                                <TableHead>
+                                  <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                    <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {viewDialog.settlement.indent.approvalChain.map((step, idx) => {
+                                    const approver = step.approver;
+                                    const name =
+                                      [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                                      approver?.email ||
+                                      `Approver ${idx + 1}`;
+                                    const status = step.status || 'pending';
+                                    const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                                    const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                                    return (
+                                      <TableRow key={`${name}-${idx}`}>
+                                        <TableCell>{name}</TableCell>
+                                        <TableCell>
+                                          <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} />
+                                        </TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{step?.actedAt ? formatDateForDocument(step.actedAt) : '—'}</TableCell>
+                                        <TableCell align="center">
+                                          {status === 'approved' && approver?.digitalSignature ? (
+                                            <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                                          ) : status === 'approved' ? (
+                                            <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                          ) : (
+                                            <Typography variant="caption" color="text.secondary">—</Typography>
+                                          )}
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
+                            </Box>
+                          )}
+                        </Paper>
+                      )}
+                    </Box>
+                  )}
+
+                  {viewDialog.poAuditTab === 1 && (
+                    <PurchaseOrderView poData={viewDialog.settlement} />
+                  )}
+
+                  {viewDialog.poAuditTab === 2 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      <ComparativeStatementView
+                        requisition={viewDialog.settlement?.indent}
+                        quotations={viewDialog.poQuotations || []}
+                        approvalAuthority={viewDialog.settlement?.indent?.comparativeStatementApprovals || {}}
+                        note={viewDialog.settlement?.indent?.notes ?? ''}
+                        readOnly
+                        formatNumber={formatNumber}
+                        loadingQuotations={false}
+                        showPrintButton={false}
+                      />
+                    </Box>
+                  )}
+
+                  {viewDialog.poAuditTab === 3 && (
+                    <Box sx={{ p: 2 }}>
+                      {(!viewDialog.poQuotations || viewDialog.poQuotations.length === 0) ? (
+                        <Typography color="text.secondary">No quotations linked with this PO.</Typography>
+                      ) : (
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>#</TableCell>
+                                <TableCell>Quotation No</TableCell>
+                                <TableCell>Vendor</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell align="right">Total</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.poQuotations.map((q, idx) => (
+                                <TableRow key={q._id || idx}>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell>{q.quotationNumber || '—'}</TableCell>
+                                  <TableCell>{q.vendor?.name || '—'}</TableCell>
+                                  <TableCell>{formatDateForDocument(q.quotationDate)}</TableCell>
+                                  <TableCell align="right">{formatPKR(q.totalAmount || 0)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </Box>
+                  )}
+
+                  {viewDialog.poAuditTab === 4 && (
+                    <Box sx={{ p: 2 }}>
+                      {(!viewDialog.poGrns || viewDialog.poGrns.length === 0) ? (
+                        <Typography color="text.secondary">No GRN attached to this PO.</Typography>
+                      ) : (
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>#</TableCell>
+                                <TableCell>GRN No</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell>Supplier</TableCell>
+                                <TableCell align="right">Net Amount</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.poGrns.map((grn, idx) => (
+                                <TableRow key={grn._id || idx}>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell>{grn.receiveNumber || grn._id}</TableCell>
+                                  <TableCell>{formatDateForDocument(grn.receiveDate)}</TableCell>
+                                  <TableCell>{grn.supplierName || grn.supplier?.name || '—'}</TableCell>
+                                  <TableCell align="right">{formatPKR(grn.netAmount || grn.total || 0)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </Box>
+                  )}
+
+                  {viewDialog.poAuditTab === 5 && (
+                    <Box sx={{ p: 2 }}>
+                      {(!viewDialog.poLinkedDocs || viewDialog.poLinkedDocs.length === 0) ? (
+                        <Typography color="text.secondary">No attached documents found.</Typography>
+                      ) : (
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>#</TableCell>
+                                <TableCell>Source</TableCell>
+                                <TableCell>Document</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell align="right">Action</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.poLinkedDocs.map((doc, idx) => (
+                                <TableRow key={doc.id || idx}>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell>{doc.source || 'Attachment'}</TableCell>
+                                  <TableCell>{doc.name || 'Document'}</TableCell>
+                                  <TableCell>{doc.uploadedAt ? formatDateForDocument(doc.uploadedAt) : '—'}</TableCell>
+                                  <TableCell align="right">
+                                    {doc.url ? (
+                                      <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
+                                        Open
+                                      </Button>
+                                    ) : '—'}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </Box>
+                  )}
+                </>
+              ) : viewDialog.isCashApproval ? (
+                <CashApprovalDetailTabsView
+                  cashApproval={viewDialog.settlement}
+                  tabValue={viewDialog.poAuditTab ?? 0}
+                  onTabChange={(v) => setViewDialog((prev) => ({ ...prev, poAuditTab: v }))}
+                  quotations={viewDialog.quotations || []}
+                  linkedDocs={viewDialog.caLinkedDocs || []}
+                />
               ) : (
                 <>
               {/* Document Header */}
@@ -1898,7 +2454,7 @@ const Payments = () => {
           '@media print': { display: 'none' }
         }}>
           <Box>
-            {!viewDialog.isPurchaseOrder && (
+            {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && (
               <>
                 <Chip
                   label={viewDialog.settlement?.workflowStatus || 'Draft'}
@@ -1913,6 +2469,13 @@ const Payments = () => {
                 />
               </>
             )}
+            {viewDialog.isCashApproval && (
+              <Chip
+                label={viewDialog.settlement?.status || viewDialog.settlement?.workflowStatus || '—'}
+                color={getWorkflowStatusColor(viewDialog.settlement?.status || viewDialog.settlement?.workflowStatus || '')}
+                size="small"
+              />
+            )}
           </Box>
           <Box>
             <Button 
@@ -1925,12 +2488,12 @@ const Payments = () => {
             </Button>
             <Button 
               variant="outlined" 
-              onClick={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false })}
+              onClick={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 })}
               sx={{ minWidth: 80, mr: 1 }}
             >
               Close
             </Button>
-            {!viewDialog.isPurchaseOrder && (
+            {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && (
               <Button 
                 variant="outlined" 
                 startIcon={<PrintIcon />}
@@ -1944,8 +2507,8 @@ const Payments = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Print Styles for Purchase Order Dialog */}
-      {viewDialog.isPurchaseOrder && (
+      {/* Print Styles for Purchase Order / Cash Approval Dialog */}
+      {(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) && (
         <Box
           component="style"
           dangerouslySetInnerHTML={{
@@ -2028,7 +2591,13 @@ const Payments = () => {
         <DialogTitle>Forward to CEO</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to forward {approveDialog.settlement?.isPurchaseOrder ? 'purchase order' : 'payment settlement'} to CEO: <strong>{approveDialog.settlement?.referenceNumber}</strong>
+            You are about to forward{' '}
+            {approveDialog.settlement?.isPurchaseOrder
+              ? 'purchase order'
+              : approveDialog.settlement?.isCashApproval
+                ? 'cash approval'
+                : 'payment settlement'}{' '}
+            to CEO: <strong>{approveDialog.settlement?.referenceNumber}</strong>
           </Typography>
           
           <TextField
@@ -2048,7 +2617,13 @@ const Payments = () => {
                 onChange={(e) => setApprovalAgree(e.target.checked)}
               />
             }
-            label={approveDialog.settlement?.isPurchaseOrder ? 'I confirm that I have reviewed all details and forward this purchase order to CEO' : 'I confirm that I have reviewed all payment details and forward this payment settlement to CEO'}
+            label={
+              approveDialog.settlement?.isPurchaseOrder
+                ? 'I confirm that I have reviewed all details and forward this purchase order to CEO'
+                : approveDialog.settlement?.isCashApproval
+                  ? 'I confirm that I have reviewed all details and forward this cash approval to CEO'
+                  : 'I confirm that I have reviewed all payment details and forward this payment settlement to CEO'
+            }
           />
         </DialogContent>
         <DialogActions>
@@ -2087,10 +2662,22 @@ const Payments = () => {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>Reject Payment</DialogTitle>
+        <DialogTitle>
+          {rejectDialog.settlement?.isPurchaseOrder
+            ? 'Reject Purchase Order'
+            : rejectDialog.settlement?.isCashApproval
+              ? 'Reject Cash Approval'
+              : 'Reject Payment'}
+        </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to reject payment settlement: <strong>{rejectDialog.settlement?.referenceNumber}</strong>
+            You are about to reject{' '}
+            {rejectDialog.settlement?.isPurchaseOrder
+              ? 'purchase order'
+              : rejectDialog.settlement?.isCashApproval
+                ? 'cash approval'
+                : 'payment settlement'}
+            : <strong>{rejectDialog.settlement?.referenceNumber}</strong>
           </Typography>
           
           <TextField
@@ -2176,7 +2763,13 @@ const Payments = () => {
                 onChange={(e) => setRejectionAgree(e.target.checked)}
               />
             }
-            label="I confirm that I have reviewed all payment details and reject this payment settlement"
+            label={
+              rejectDialog.settlement?.isPurchaseOrder
+                ? 'I confirm that I have reviewed all details and reject this purchase order from CEO Secretariat'
+                : rejectDialog.settlement?.isCashApproval
+                  ? 'I confirm that I have reviewed all details and reject this cash approval from CEO Secretariat'
+                  : 'I confirm that I have reviewed all payment details and reject this payment settlement'
+            }
           />
         </DialogContent>
         <DialogActions>
@@ -2216,10 +2809,22 @@ const Payments = () => {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>{returnDialog.settlement?.isPurchaseOrder ? 'Return Purchase Order with Observations' : 'Return Payment with Observations'}</DialogTitle>
+        <DialogTitle>
+          {returnDialog.settlement?.isPurchaseOrder
+            ? 'Return Purchase Order with Observations'
+            : returnDialog.settlement?.isCashApproval
+              ? 'Return Cash Approval with Observations'
+              : 'Return Payment with Observations'}
+        </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to return {returnDialog.settlement?.isPurchaseOrder ? 'purchase order' : 'payment settlement'}: <strong>{returnDialog.settlement?.referenceNumber}</strong> with observations
+            You are about to return{' '}
+            {returnDialog.settlement?.isPurchaseOrder
+              ? 'purchase order'
+              : returnDialog.settlement?.isCashApproval
+                ? 'cash approval'
+                : 'payment settlement'}
+            : <strong>{returnDialog.settlement?.referenceNumber}</strong> with observations
           </Typography>
           
           <TextField
@@ -2305,7 +2910,13 @@ const Payments = () => {
                 onChange={(e) => setReturnAgree(e.target.checked)}
               />
             }
-            label={returnDialog.settlement?.isPurchaseOrder ? 'I confirm that I have reviewed all details and return this purchase order with observations' : 'I confirm that I have reviewed all payment details and return this payment settlement with observations'}
+            label={
+              returnDialog.settlement?.isPurchaseOrder
+                ? 'I confirm that I have reviewed all details and return this purchase order with observations'
+                : returnDialog.settlement?.isCashApproval
+                  ? 'I confirm that I have reviewed all details and return this cash approval with observations'
+                  : 'I confirm that I have reviewed all payment details and return this payment settlement with observations'
+            }
           />
         </DialogContent>
         <DialogActions>

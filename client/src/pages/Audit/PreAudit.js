@@ -61,7 +61,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import paymentSettlementService from '../../services/paymentSettlementService';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, formatDateTime } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
@@ -91,7 +91,7 @@ const PreAudit = () => {
   const [tabValue, setTabValue] = useState(0);
   
   // Dialog states
-  const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 });
+  const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
   const [approveDialog, setApproveDialog] = useState({ open: false, document: null });
   const [forwardDialog, setForwardDialog] = useState({ open: false, document: null });
@@ -627,6 +627,50 @@ const PreAudit = () => {
   // Purchase Order View Component
   const PurchaseOrderView = ({ poData }) => {
     if (!poData) return null;
+    const authorityText = poData.approvalAuthorities || {};
+    const indent = poData.indent && typeof poData.indent === 'object' ? poData.indent : {};
+    const csa = indent.comparativeStatementApprovals || {};
+    const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
+      ? indent.comparativeApproval.approvers
+      : [];
+    const stepByUserId = new Map(
+      approvalSteps.map((step) => [String(step?.approver?._id || step?.approver || ''), step])
+    );
+    const personName = (user, fallback = '') => (
+      [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
+      || user?.email
+      || fallback
+      || '—'
+    );
+    const authorityRows = [
+      { key: 'preparedBy', label: 'Prepared By', user: csa.preparedByUser, fallback: authorityText.preparedBy || csa.preparedBy || '' },
+      { key: 'verifiedBy', label: 'Verified By (Procurement Committee)', user: csa.verifiedByUser, fallback: authorityText.verifiedBy || csa.verifiedBy || '' },
+      { key: 'authorisedRep', label: 'Authorised Rep.', user: csa.authorisedRepUser, fallback: authorityText.authorisedRep || csa.authorisedRep || '' },
+      { key: 'financeRep', label: 'Finance Rep.', user: csa.financeRepUser, fallback: authorityText.financeRep || csa.financeRep || '' },
+      { key: 'managerProcurement', label: 'Manager Procurement', user: csa.managerProcurementUser, fallback: authorityText.managerProcurement || csa.managerProcurement || '' },
+      { key: 'preAuditInitial', label: 'Initial Pre-Audit', user: poData.preAuditInitialApprovedBy, fallback: '' },
+      { key: 'auditDirectorApproval', label: 'Audit Director', user: poData.auditApprovedBy, fallback: '' }
+    ];
+    const authorityApprovalByKey = new Map(
+      (Array.isArray(poData.authorityApprovals) ? poData.authorityApprovals : [])
+        .filter((entry) => entry?.authorityKey)
+        .map((entry) => [String(entry.authorityKey), entry])
+    );
+    const auditAction = poData.auditRejectedBy
+        ? {
+            label: 'Rejected by Pre-Audit',
+            user: poData.auditRejectedBy,
+            actedAt: poData.auditRejectedAt,
+            comments: poData.auditRejectionComments || ''
+          }
+        : poData.auditReturnedBy
+          ? {
+              label: 'Returned by Pre-Audit',
+              user: poData.auditReturnedBy,
+              actedAt: poData.auditReturnedAt,
+              comments: poData.auditReturnComments || ''
+            }
+          : null;
     
     return (
       <Paper
@@ -1019,6 +1063,82 @@ const PreAudit = () => {
           </Box>
         </Box>
 
+        <Divider sx={{ my: 3 }} />
+
+        <Typography variant="subtitle1" fontWeight={700} mb={1.5} sx={{ textAlign: 'center' }}>
+          APPROVAL AUTHORITIES
+        </Typography>
+        <TableContainer component={Box} sx={{ border: '1px solid #ccc', mb: 4 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Authority</TableCell>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Name</TableCell>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Digital Signature</TableCell>
+                <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Date</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {authorityRows.map((row) => {
+                const uid = String(row?.user?._id || row?.user || '');
+                const step = uid ? stepByUserId.get(uid) : null;
+                const authorityApproval = authorityApprovalByKey.get(String(row.key));
+                const authorityUser = authorityApproval?.approver && typeof authorityApproval.approver === 'object'
+                  ? authorityApproval.approver
+                  : step?.approver && typeof step.approver === 'object'
+                    ? step.approver
+                    : row.user;
+                const actionDate = authorityApproval?.approvedAt
+                  || step?.actedAt
+                  || (row.key === 'preAuditInitial' ? poData.preAuditInitialApprovedAt : null)
+                  || (row.key === 'auditDirectorApproval' ? poData.auditApprovedAt : null)
+                  || null;
+                return (
+                  <TableRow key={row.key}>
+                    <TableCell sx={{ border: '1px solid #ccc', fontWeight: 600 }}>{row.label}</TableCell>
+                    <TableCell sx={{ border: '1px solid #ccc' }}>{personName(authorityUser, row.fallback)}</TableCell>
+                    <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center' }}>
+                      {authorityUser?.digitalSignature ? (
+                        <DigitalSignatureImage userOrPath={authorityUser} alt={`${row.label} signature`} />
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ border: '1px solid #ccc' }}>
+                      {actionDate ? formatDateTime(actionDate) : '—'}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {auditAction && (
+                <TableRow>
+                  <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, color: 'primary.main' }}>
+                    {auditAction.label}
+                  </TableCell>
+                  <TableCell sx={{ border: '1px solid #ccc' }}>
+                    {personName(auditAction.user)}
+                    {auditAction.comments ? (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }}>
+                        {auditAction.comments}
+                      </Typography>
+                    ) : null}
+                  </TableCell>
+                  <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center' }}>
+                    {auditAction.user?.digitalSignature ? (
+                      <DigitalSignatureImage userOrPath={auditAction.user} alt="Pre-Audit signature" />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">—</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ border: '1px solid #ccc' }}>
+                    {auditAction.actedAt ? formatDateTime(auditAction.actedAt) : '—'}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
         
       </Paper>
     );
@@ -1361,6 +1481,22 @@ const PreAudit = () => {
                                                           const response = await api.get(`/cash-approvals/${doc._id}`);
                                                           const caData = response.data?.success ? response.data.data : null;
                                                           let quotations = [];
+                                                          const linkedDocuments = [];
+                                                          const pushDocs = (items = [], source = 'Attachment') => {
+                                                            items.forEach((item, idx) => {
+                                                              const url = item?.url || '';
+                                                              const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+                                                              if (!name && !url) return;
+                                                              linkedDocuments.push({
+                                                                id: item?._id || `${source}-${idx}`,
+                                                                source,
+                                                                name,
+                                                                url,
+                                                                uploadedAt: item?.uploadedAt || null,
+                                                                mimeType: item?.mimeType || ''
+                                                              });
+                                                            });
+                                                          };
                                                           if (caData?.indent?._id) {
                                                             try {
                                                               const qRes = await api.get(`/procurement/quotations/by-indent/${caData.indent._id}`);
@@ -1369,18 +1505,22 @@ const PreAudit = () => {
                                                               }
                                                             } catch (_) { /* ignore */ }
                                                           }
+                                                          pushDocs(caData?.attachments, 'General Attachment');
+                                                          pushDocs(caData?.purchaseReceipts, 'Purchase Receipt');
+                                                          pushDocs(caData?.receiptAttachments, 'Settlement Receipt');
                                                           setViewDialog({
                                                             open: true,
                                                             document: { ...doc, isCashApproval: true },
                                                             fullDocument: caData,
                                                             loading: false,
                                                             quotations,
+                                                            caLinkedDocs: linkedDocuments,
                                                             grns: [],
                                                             poAuditTab: 0
                                                           });
                                                         } catch (error) {
                                                           console.error('Error fetching cash approval:', error);
-                                                          setViewDialog({ open: true, document: { ...doc, isCashApproval: true }, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 });
+                                                          setViewDialog({ open: true, document: { ...doc, isCashApproval: true }, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 });
                                                         }
                                                       }
                                                       // If it's a workflow document (payment settlement), check if it's related to a PO
@@ -1618,7 +1758,7 @@ const PreAudit = () => {
       {/* View Document Dialog */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 })}
+        onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 })}
         maxWidth={(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? false : "md"}
         fullWidth
         PaperProps={{
@@ -1675,7 +1815,7 @@ const PreAudit = () => {
               )}
               <IconButton 
                 size="small" 
-                onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 })}
+                onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 })}
                 sx={{ color: '#666', '@media print': { display: 'none' } }}
               >
                 <CloseIcon />
@@ -1794,11 +1934,6 @@ const PreAudit = () => {
                                             []
                         }} 
                       />
-                      <Paper sx={{ p: 3, mt: 2, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
-                        {renderComparativeApprovalProgress(viewDialog.fullDocument?.indent, {
-                          title: 'Comparative approval progress (Linked Indent)'
-                        })}
-                      </Paper>
                     </Box>
                   )}
 
@@ -2411,99 +2546,326 @@ const PreAudit = () => {
                 </>
               ) : (viewDialog.document.isCashApproval && viewDialog.fullDocument) ? (
                 <>
-                  <Box sx={{ p: 2, maxWidth: 900, mx: 'auto', '@media print': { p: 1 } }}>
-                    <Typography variant="h5" align="center" fontWeight={700} sx={{ mb: 2, letterSpacing: 1 }}>
-                      CASH APPROVAL
-                    </Typography>
-                    <Grid container spacing={2} sx={{ mb: 2 }}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="caption" color="text.secondary">CA Number</Typography>
-                        <Typography variant="body1" fontWeight={600}>{viewDialog.fullDocument.caNumber}</Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="caption" color="text.secondary">Status</Typography>
-                        <Typography variant="body1">{viewDialog.fullDocument.status}</Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="caption" color="text.secondary">Vendor</Typography>
-                        <Typography variant="body1">{viewDialog.fullDocument.vendor?.name || '—'}</Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="caption" color="text.secondary">Total</Typography>
-                        <Typography variant="body1" fontWeight={600}>{formatPKR(viewDialog.fullDocument.totalAmount)}</Typography>
-                      </Grid>
-                    </Grid>
-                    <Divider sx={{ my: 2 }} />
-                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Items</Typography>
-                    <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>#</TableCell>
-                            <TableCell>Description</TableCell>
-                            <TableCell align="right">Qty</TableCell>
-                            <TableCell>Unit</TableCell>
-                            <TableCell align="right">Unit Price</TableCell>
-                            <TableCell align="right">Amount</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {(viewDialog.fullDocument.items || []).map((row, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell>{idx + 1}</TableCell>
-                              <TableCell>{row.description}</TableCell>
-                              <TableCell align="right">{row.quantity}</TableCell>
-                              <TableCell>{row.unit}</TableCell>
-                              <TableCell align="right">{formatPKR(row.unitPrice)}</TableCell>
-                              <TableCell align="right">{formatPKR(row.amount)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Approval authorities</Typography>
-                    <Grid container spacing={1} sx={{ mb: 2 }}>
-                      {[
-                        { key: 'preparedBy', label: 'Prepared By' },
-                        { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
-                        { key: 'authorisedRep', label: 'Authorised Rep.' },
-                        { key: 'financeRep', label: 'Finance Rep.' },
-                        { key: 'managerProcurement', label: 'Manager Procurement' }
-                      ].map(({ key, label }) => (
-                        <Grid item xs={12} sm={6} key={key}>
-                          <Typography variant="caption" color="text.secondary">{label}</Typography>
-                          <Typography variant="body2">{(viewDialog.fullDocument.approvalAuthorities || {})[key] || '—'}</Typography>
-                        </Grid>
-                      ))}
-                    </Grid>
-                    {viewDialog.fullDocument.resubmissionChangeSummary && (
-                      <Alert severity="info" sx={{ mb: 2 }}>{viewDialog.fullDocument.resubmissionChangeSummary}</Alert>
-                    )}
-                    {Array.isArray(viewDialog.fullDocument.auditObservations) && viewDialog.fullDocument.auditObservations.length > 0 && (
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Audit observations</Typography>
-                        {viewDialog.fullDocument.auditObservations.map((obs, idx) => (
-                          <Paper key={obs._id || idx} sx={{ p: 2, mb: 1, bgcolor: alpha(theme.palette.warning.main, 0.08) }}>
-                            <Typography variant="body2">{obs.observation}</Typography>
-                            {obs.answer && (
-                              <Typography variant="caption" display="block" sx={{ mt: 1, color: 'success.dark' }}>
-                                Response: {obs.answer}
+                  <Tabs
+                    value={viewDialog.poAuditTab ?? 0}
+                    onChange={(_, v) => setViewDialog(prev => ({ ...prev, poAuditTab: v }))}
+                    sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                    variant="scrollable"
+                    scrollButtons="auto"
+                  >
+                    <Tab label="Indent" />
+                    <Tab label="Cash Approval" />
+                    <Tab label="Comparative Statement" />
+                    <Tab label={`Quotations (${viewDialog.quotations?.length || 0})`} />
+                    <Tab label={`Linked Documents (${viewDialog.caLinkedDocs?.length || 0})`} />
+                  </Tabs>
+
+                  {viewDialog.poAuditTab === 0 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!viewDialog.fullDocument?.indent ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                          No indent linked to this Cash Approval.
+                        </Typography>
+                      ) : (
+                        <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                            Purchase Request Form
+                          </Typography>
+                          {viewDialog.fullDocument.indent.title && (
+                            <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>
+                              {viewDialog.fullDocument.indent.title}
+                            </Typography>
+                          )}
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                            <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                            <Typography component="span" sx={{ ml: 1 }}>
+                              {viewDialog.fullDocument.indent.erpRef || 'PR #' + (viewDialog.fullDocument.indent.indentNumber?.split('-').pop() || '')}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box><Typography component="span" fontWeight={600}>Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.fullDocument.indent.requestedDate)}</Typography></Box>
+                            <Box><Typography component="span" fontWeight={600}>Required Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.fullDocument.indent.requiredDate) || '—'}</Typography></Box>
+                            <Box><Typography component="span" fontWeight={600}>Indent No.:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.indent.indentNumber || '—'}</Typography></Box>
+                          </Box>
+                          <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box><Typography component="span" fontWeight={600}>Department:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.indent.department?.name || viewDialog.fullDocument.indent.department || '—'}</Typography></Box>
+                            <Box><Typography component="span" fontWeight={600}>Originator:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.indent.requestedBy?.firstName && viewDialog.fullDocument.indent.requestedBy?.lastName ? `${viewDialog.fullDocument.indent.requestedBy.firstName} ${viewDialog.fullDocument.indent.requestedBy.lastName}` : viewDialog.fullDocument.indent.requestedBy?.name || '—'}</Typography></Box>
+                          </Box>
+                          <Box sx={{ mb: 3 }}>
+                            <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S#</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Item Name</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="center">Qty</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Purpose</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Est. Cost</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(viewDialog.fullDocument.indent.items || []).map((item, idx) => (
+                                  <TableRow key={idx}>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity ?? '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.purpose || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </Box>
+                          {viewDialog.fullDocument.indent.justification && (
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                {viewDialog.fullDocument.indent.justification}
                               </Typography>
-                            )}
-                          </Paper>
-                        ))}
+                            </Box>
+                          )}
+                          {renderIndentApprovalProgress(viewDialog.fullDocument.indent, {
+                            title: 'Indent approval progress'
+                          })}
+                        </Paper>
+                      )}
+                    </Box>
+                  )}
+
+                  {viewDialog.poAuditTab === 1 && (
+                    <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider', '@media print': { p: 2.5, maxWidth: '100%', mx: 0 } }}>
+                      <Typography variant="h5" align="center" fontWeight={700} sx={{ mb: 2, letterSpacing: 1 }}>
+                        CASH APPROVAL
+                      </Typography>
+                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                        <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                        <Typography component="span" sx={{ ml: 1 }}>
+                          {viewDialog.fullDocument?.indent?.erpRef || viewDialog.fullDocument?.caNumber || '—'}
+                        </Typography>
                       </Box>
-                    )}
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<PrintIcon />}
-                      onClick={() => window.open(`/procurement/cash-approvals/${viewDialog.fullDocument._id}/print`, '_blank', 'noopener,noreferrer')}
-                      sx={{ '@media print': { display: 'none' } }}
-                    >
-                      Open print view
-                    </Button>
-                  </Box>
+                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        <Box><Typography component="span" fontWeight={600}>CA Number:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.caNumber || '—'}</Typography></Box>
+                        <Box><Typography component="span" fontWeight={600}>Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.fullDocument.approvalDate)}</Typography></Box>
+                        <Box><Typography component="span" fontWeight={600}>Status:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.status || '—'}</Typography></Box>
+                      </Box>
+                      <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        <Box><Typography component="span" fontWeight={600}>Vendor:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.vendor?.name || '—'}</Typography></Box>
+                        <Box><Typography component="span" fontWeight={600}>Expected Purchase:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.fullDocument.expectedPurchaseDate) || '—'}</Typography></Box>
+                        <Box><Typography component="span" fontWeight={600}>Total:</Typography><Typography component="span" sx={{ ml: 1, fontWeight: 700 }}>{formatPKR(viewDialog.fullDocument.totalAmount)}</Typography></Box>
+                      </Box>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Items</Typography>
+                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>#</TableCell>
+                              <TableCell>Description</TableCell>
+                              <TableCell align="right">Qty</TableCell>
+                              <TableCell>Unit</TableCell>
+                              <TableCell align="right">Unit Price</TableCell>
+                              <TableCell align="right">Amount</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {(viewDialog.fullDocument.items || []).map((row, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell>{idx + 1}</TableCell>
+                                <TableCell>{row.description}</TableCell>
+                                <TableCell align="right">{row.quantity}</TableCell>
+                                <TableCell>{row.unit}</TableCell>
+                                <TableCell align="right">{formatPKR(row.unitPrice)}</TableCell>
+                                <TableCell align="right">{formatPKR(row.amount)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Approval authorities</Typography>
+                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>Date &amp; Time</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }} align="center">Digital Signature</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {(() => {
+                              const authorityRows = [
+                                { key: 'preparedBy', label: 'Prepared By' },
+                                { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
+                                { key: 'authorisedRep', label: 'Authorised Rep.' },
+                                { key: 'financeRep', label: 'Finance Rep.' },
+                                { key: 'managerProcurement', label: 'Manager Procurement' }
+                              ];
+                              if (viewDialog.fullDocument?.preAuditInitialApprovedBy || viewDialog.fullDocument?.preAuditInitialApprovedAt) {
+                                authorityRows.push({
+                                  label: 'Pre-Audit Initial Approval',
+                                  directApproval: true,
+                                  approver: viewDialog.fullDocument.preAuditInitialApprovedBy || null,
+                                  approvedAt: viewDialog.fullDocument.preAuditInitialApprovedAt || null
+                                });
+                              }
+                              if (viewDialog.fullDocument?.auditApprovedBy || viewDialog.fullDocument?.auditApprovedAt) {
+                                authorityRows.push({
+                                  label: 'Audit Final Approval',
+                                  directApproval: true,
+                                  approver: viewDialog.fullDocument.auditApprovedBy || null,
+                                  approvedAt: viewDialog.fullDocument.auditApprovedAt || null
+                                });
+                              }
+                              const authorityApprovals = Array.isArray(viewDialog.fullDocument?.authorityApprovals)
+                                ? viewDialog.fullDocument.authorityApprovals
+                                : [];
+                              const byKey = new Map(
+                                authorityApprovals
+                                  .map((a) => [String(a?.authorityKey || '').trim(), a])
+                                  .filter(([k]) => Boolean(k))
+                              );
+                              const normalizeToken = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                              const legacyApprover = viewDialog.fullDocument?.authorityApprovedBy;
+                              const legacyAt = viewDialog.fullDocument?.authorityApprovedAt;
+                              const legacyTokens = [
+                                [legacyApprover?.firstName, legacyApprover?.lastName].filter(Boolean).join(' ').trim(),
+                                legacyApprover?.email,
+                                legacyApprover?.employeeId
+                              ].map(normalizeToken).filter(Boolean);
+                              let legacyApplied = false;
+                              return authorityRows.map((row) => {
+                                const explicitApproval = row?.key ? byKey.get(row.key) : null;
+                                let approver = row?.directApproval
+                                  ? row.approver
+                                  : (explicitApproval?.approver && typeof explicitApproval.approver === 'object'
+                                    ? explicitApproval.approver
+                                    : null);
+                                let approvedAt = row?.directApproval ? (row.approvedAt || null) : (explicitApproval?.approvedAt || null);
+                                const assignedText = (viewDialog.fullDocument?.approvalAuthorities || {})[row.key] || '';
+                                const assignedToken = normalizeToken(assignedText);
+                                const legacyMatch = assignedToken && legacyTokens.some((t) => t === assignedToken || t.includes(assignedToken) || assignedToken.includes(t));
+                                if (!row?.directApproval && !explicitApproval && !legacyApplied && legacyApprover && legacyAt && legacyMatch) {
+                                  approver = legacyApprover;
+                                  approvedAt = legacyAt;
+                                  legacyApplied = true;
+                                }
+                                const approverName = approver
+                                  ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || assignedText || '—')
+                                  : (assignedText || '—');
+                                const isApproved = Boolean(approvedAt);
+                                return (
+                                  <TableRow key={row.key}>
+                                    <TableCell>{row.label}</TableCell>
+                                    <TableCell>{approverName}</TableCell>
+                                    <TableCell>
+                                      <Chip
+                                        size="small"
+                                        label={isApproved ? 'Approved' : 'Pending'}
+                                        color={isApproved ? 'success' : 'warning'}
+                                        variant={isApproved ? 'filled' : 'outlined'}
+                                      />
+                                    </TableCell>
+                                    <TableCell>{approvedAt ? new Date(approvedAt).toLocaleString() : '—'}</TableCell>
+                                    <TableCell align="center">
+                                      {isApproved && approver?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={approver} alt={`${row.label} signature`} />
+                                      ) : isApproved ? (
+                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              });
+                            })()}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Paper>
+                  )}
+
+                  {viewDialog.poAuditTab === 2 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      <ComparativeStatementView
+                        requisition={viewDialog.fullDocument?.indent}
+                        quotations={viewDialog.quotations || []}
+                        approvalAuthority={viewDialog.fullDocument?.indent?.comparativeStatementApprovals || {}}
+                        note={viewDialog.fullDocument?.indent?.notes ?? ''}
+                        readOnly
+                        formatNumber={formatNumber}
+                        loadingQuotations={false}
+                        showPrintButton={false}
+                      />
+                    </Box>
+                  )}
+
+                  {viewDialog.poAuditTab === 3 && (
+                    <Box sx={{ p: 2 }}>
+                      {(!viewDialog.quotations || viewDialog.quotations.length === 0) ? (
+                        <Typography color="text.secondary">No quotations for this requisition.</Typography>
+                      ) : (
+                        <Stack spacing={4}>
+                          {viewDialog.quotations.map((q) => (
+                            <QuotationDetailView
+                              key={q._id}
+                              quotation={q}
+                              formatNumber={formatNumber}
+                              formatDateForPrint={formatDateForPrint}
+                            />
+                          ))}
+                        </Stack>
+                      )}
+                    </Box>
+                  )}
+
+                  {viewDialog.poAuditTab === 4 && (
+                    <Box sx={{ p: 2 }}>
+                      {(!viewDialog.caLinkedDocs || viewDialog.caLinkedDocs.length === 0) ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                          No linked documents found for this Cash Approval.
+                        </Typography>
+                      ) : (
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>#</TableCell>
+                                <TableCell>Type</TableCell>
+                                <TableCell>Document</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell align="right">Action</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.caLinkedDocs.map((doc, idx) => (
+                                <TableRow key={doc.id || idx}>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell>{doc.source || 'Attachment'}</TableCell>
+                                  <TableCell>{doc.name || 'Document'}</TableCell>
+                                  <TableCell>{doc.uploadedAt ? formatDate(doc.uploadedAt) : '—'}</TableCell>
+                                  <TableCell align="right">
+                                    {doc.url ? (
+                                      <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
+                                        Open
+                                      </Button>
+                                    ) : '—'}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </Box>
+                  )}
                 </>
               ) : (
                 /* Regular Pre Audit Document View */
@@ -2674,7 +3036,7 @@ const PreAudit = () => {
               </Button>
             )}
             <Button 
-              onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
+              onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 })}
               variant="outlined"
               sx={{ minWidth: 80, '@media print': { display: 'none' } }}
             >

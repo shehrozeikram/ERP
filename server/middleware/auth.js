@@ -184,8 +184,10 @@ const checkRoleModulePermissions = (role, normalizedAllowedRoles, requiredModule
     }
   }
 
-  // Check if role has permission for required modules
+  // Check if role has permission for any required module
+  const checkedModules = [];
   for (const requiredModule of requiredModules) {
+    checkedModules.push(requiredModule);
     const modulePermission = role.permissions.find(p => p.module === requiredModule);
     if (modulePermission) {
       // Check module-level read permission
@@ -210,12 +212,12 @@ const checkRoleModulePermissions = (role, normalizedAllowedRoles, requiredModule
       if (hasModuleRead || hasSubmoduleRead) {
         if (isDev) console.log(`🔒 [Backend] ✅ Access granted for module: ${requiredModule} (hasModuleRead: ${hasModuleRead}, hasSubmoduleRead: ${hasSubmoduleRead})`);
         return true;
-      } else if (isDev) {
-        console.log(`🔒 [Backend] ❌ No read permission for module: ${requiredModule}`);
       }
-    } else if (isDev) {
-      console.log(`🔒 [Backend] ❌ No permission found for module: ${requiredModule}`);
     }
+  }
+
+  if (isDev && checkedModules.length > 0) {
+    console.log(`🔒 [Backend] ❌ No matching read access in required modules: ${checkedModules.join(', ')}`);
   }
   
   return false;

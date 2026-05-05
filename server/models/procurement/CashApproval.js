@@ -37,12 +37,14 @@ const cashApprovalSchema = new mongoose.Schema({
     type: String,
     enum: [
       'Draft',
+      'Pending Approval',
       'Pending Audit',
       'Forwarded to Audit Director',
       'Send to CEO Office',
       'Forwarded to CEO',
       'Pending Finance',
       'Advance Issued',
+      'Evidence Submitted',
       'Payment Settled',
       'Sent to Procurement',
       'Completed',
@@ -87,6 +89,16 @@ const cashApprovalSchema = new mongoose.Schema({
     financeRep: { type: String, trim: true, default: '' },
     managerProcurement: { type: String, trim: true, default: '' }
   },
+  authorityApprovals: [{
+    authorityKey: { type: String, trim: true },
+    authorityLabel: { type: String, trim: true },
+    approver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approvedAt: { type: Date, default: Date.now },
+    comments: { type: String, trim: true }
+  }],
+  authorityApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  authorityApprovedAt: { type: Date },
+  authorityApprovalComments: { type: String, trim: true },
 
   // ─── Audit workflow ───────────────────────────────────────────────────────────
   preAuditInitialApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -143,6 +155,20 @@ const cashApprovalSchema = new mongoose.Schema({
   advanceIssuedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   advanceIssuedAt: { type: Date },
 
+  // ─── Procurement Evidence Submission (after advance issued, before finance settles) ──
+  evidenceSubmittedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  evidenceSubmittedAt: { type: Date },
+  purchaseInvoiceNo: { type: String, trim: true },
+  evidenceActualAmount: { type: Number, default: 0 },
+  evidenceRemarks: { type: String, trim: true },
+  purchaseReceipts: [{
+    filename: { type: String },
+    originalName: { type: String },
+    url: { type: String },
+    mimeType: { type: String },
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+
   // ─── Finance: Settlement ──────────────────────────────────────────────────────
   actualAmountSpent: { type: Number, default: 0 },
   excessReturned: { type: Number, default: 0 },
@@ -155,6 +181,7 @@ const cashApprovalSchema = new mongoose.Schema({
   settlementRemarks: { type: String, trim: true },
   settlementDate: { type: Date },
   settledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  financeVerificationNotes: { type: String, trim: true },
 
   // ─── Finance: Sent back ───────────────────────────────────────────────────────
   sentToProcurementBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

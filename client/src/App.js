@@ -686,7 +686,7 @@ function App() {
             
             <Route
               path="/general/ceo-secretariat/payments"
-              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><Payments /></ProtectedRoute>}
+              element={<ProtectedRoute><Payments /></ProtectedRoute>}
             />
             <Route
               path="/general/user-tracking"

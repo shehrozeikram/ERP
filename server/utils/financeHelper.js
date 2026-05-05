@@ -16,7 +16,8 @@ const FinanceHelper = {
     CASH: '1001',
     BANK: '1002',
     INVENTORY: '1100',       // Stock Valuation Asset — DR on GRN
-    VENDOR_ADVANCE: '1110',  // Advance to Suppliers (asset)
+    VENDOR_ADVANCE: '1110',  // Advance to Suppliers (asset) — vendor prepayments
+    STAFF_ADVANCE: '1120',   // Cash Advance to Staff — petty cash / cash purchase advances
     RECEIVABLE: '1200',
     PAYABLE: '2001',
     GRNI: '2100',            // Goods Received Not Invoiced — CR on GRN, DR on AP Bill (THE KEY CLEARING ACCOUNT)
@@ -173,6 +174,28 @@ const FinanceHelper = {
    */
   getAccountByNumber: async (accountNumber) => {
     return await Account.findOne({ accountNumber });
+  },
+
+  /**
+   * Ensure account 1120 — Cash Advance to Staff exists.
+   * Auto-creates it if missing (same pattern as Vendor Advance 1110).
+   */
+  ensureStaffAdvanceAccount: async (createdBy) => {
+    let acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.STAFF_ADVANCE });
+    if (!acc) {
+      acc = await Account.create({
+        accountNumber: FinanceHelper.ACCOUNTS.STAFF_ADVANCE,
+        name: 'Cash Advance to Staff',
+        type: 'Asset',
+        category: 'Current Asset',
+        detailType: 'Other Current Assets',
+        description: 'Temporary cash advances issued to procurement / staff for cash purchases. Cleared on settlement.',
+        isSystem: true,
+        isActive: true,
+        createdBy
+      });
+    }
+    return acc;
   },
 
   /**

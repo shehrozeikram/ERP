@@ -156,6 +156,16 @@ const procurementService = {
     const response = await api.put(`/cash-approvals/${id}/send-to-audit`, payload);
     return response.data;
   },
+  caApprove: async (id, body) => {
+    const payload = typeof body === 'string' ? { comments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/approve`, payload);
+    return response.data;
+  },
+  caReject: async (id, body) => {
+    const payload = typeof body === 'string' ? { rejectionComments: body, comments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/reject`, payload);
+    return response.data;
+  },
   caAuditApprove: async (id, body) => {
     const payload = typeof body === 'string' ? { comments: body, approvalComments: body } : (body || {});
     const response = await api.put(`/cash-approvals/${id}/audit-approve`, payload);
@@ -179,8 +189,17 @@ const procurementService = {
     const response = await api.put(`/cash-approvals/${id}/forward-to-ceo`, { comments });
     return response.data;
   },
-  caCeoSecretariatReturn: async (id, comments) => {
-    const response = await api.put(`/cash-approvals/${id}/ceo-secretariat-return`, { comments });
+  caCeoSecretariatReturn: async (id, body) => {
+    const payload = typeof body === 'string' ? { comments: body, returnComments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/ceo-secretariat-return`, payload);
+    return response.data;
+  },
+  caCeoSecretariatReject: async (id, body) => {
+    const response = await api.put(`/cash-approvals/${id}/ceo-secretariat-reject`, body || {});
+    return response.data;
+  },
+  getCashApprovalsCeoSecretariat: async () => {
+    const response = await api.get('/cash-approvals/ceo-secretariat');
     return response.data;
   },
   caCeoApprove: async (id, data) => {
@@ -197,6 +216,10 @@ const procurementService = {
   },
   caIssueAdvance: async (id, data) => {
     const response = await api.put(`/cash-approvals/${id}/issue-advance`, data);
+    return response.data;
+  },
+  caSubmitEvidence: async (id, data) => {
+    const response = await api.put(`/cash-approvals/${id}/submit-evidence`, data);
     return response.data;
   },
   caSettlePayment: async (id, data) => {

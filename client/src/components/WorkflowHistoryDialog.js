@@ -109,6 +109,7 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
   const workflowHistory = [...rawHistory].sort((a, b) => new Date(a.changedAt || 0) - new Date(b.changedAt || 0));
   const referenceNumber =
     document?.referenceNumber ||
+    document?.caNumber ||
     document?.documentNumber ||
     document?.orderNumber ||
     document?.indentNumber ||

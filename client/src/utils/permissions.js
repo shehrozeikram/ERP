@@ -1176,6 +1176,10 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
 
   // Chat (1:1, groups, moderation UI) — any authenticated user; moderation page enforces admin API
   if (path === '/chat' || path.startsWith('/chat/')) return true;
+
+  // Purchase Orders route relies on backend assignment checks for visibility and actions.
+  // Keep this route reachable for cross-module authority approvers (audit/hr/general/etc).
+  if (path === '/procurement/purchase-orders' || path.startsWith('/procurement/purchase-orders/')) return true;
   
   // Developer: full access except core Finance and CEO Secretariat; allow Taj Utilities & Charges + Recovery
   if (userRole === ROLES.DEVELOPER) {

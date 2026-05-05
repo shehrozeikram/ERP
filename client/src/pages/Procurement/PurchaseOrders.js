@@ -42,6 +42,7 @@ import {
   Delete as DeleteIcon,
   Visibility as ViewIcon,
   CheckCircle as ApproveIcon,
+  Cancel as RejectIcon,
   Search as SearchIcon,
   Refresh as RefreshIcon,
   Send as SendIcon,
@@ -55,6 +56,7 @@ import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../co
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
+import { useAuth } from '../../contexts/AuthContext';
 
 const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'preparedBy', label: 'Prepared By' },
@@ -63,6 +65,15 @@ const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'financeRep', label: 'Finance Rep.' },
   { key: 'managerProcurement', label: 'Manager Procurement' }
 ];
+const normalizeAuthorityToken = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const tokenMatchesAuthorityText = (token, authorityText) => {
+  const normalizedToken = normalizeAuthorityToken(token);
+  const normalizedAuthorityText = normalizeAuthorityToken(authorityText);
+  if (!normalizedToken || !normalizedAuthorityText) return false;
+  return normalizedAuthorityText === normalizedToken
+    || normalizedAuthorityText.includes(normalizedToken)
+    || normalizedToken.includes(normalizedAuthorityText);
+};
 
 const WidePopper = (props) => {
   const { style, ...rest } = props;
@@ -82,6 +93,7 @@ const PurchaseOrders = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
+  const { user } = useAuth();
   
   // State management
   const [loading, setLoading] = useState(true);
@@ -204,7 +216,7 @@ const PurchaseOrders = () => {
           internalNotes: q.indent?.indentNumber ? `Source: Quotation ${q.quotationNumber || ''}, Indent: ${q.indent.indentNumber}` : ''
         });
         setApprovalAuthority({
-          preparedBy: approvals.preparedBy || '',
+          preparedBy: approvals.preparedBy || approverLabel(user) || '',
           verifiedBy: approvals.verifiedBy || '',
           authorisedRep: approvals.authorisedRep || '',
           financeRep: approvals.financeRep || '',
@@ -278,7 +290,13 @@ const PurchaseOrders = () => {
   }, [loadStatistics, loadVendors]);
 
   const handleCreate = () => {
-    setApprovalAuthority({ preparedBy: '', verifiedBy: '', authorisedRep: '', financeRep: '', managerProcurement: '' });
+    setApprovalAuthority({
+      preparedBy: approverLabel(user) || '',
+      verifiedBy: '',
+      authorisedRep: '',
+      financeRep: '',
+      managerProcurement: ''
+    });
     setFormData({
       vendor: '',
       orderDate: new Date().toISOString().split('T')[0],
@@ -473,12 +491,25 @@ const PurchaseOrders = () => {
 
   const handleApprove = async (id) => {
     try {
-      await api.put(`/procurement/purchase-orders/${id}/approve`);
-      setSuccess('Purchase order approved successfully');
+      const res = await api.put(`/procurement/purchase-orders/${id}/approve`);
+      setSuccess(res?.data?.message || 'Authority approval recorded successfully');
       loadPurchaseOrders();
       loadStatistics();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to approve purchase order');
+    }
+  };
+
+  const handleReject = async (id) => {
+    const rejectionComments = window.prompt('Please enter rejection comments:');
+    if (rejectionComments === null) return;
+    try {
+      await api.put(`/procurement/purchase-orders/${id}/reject`, { rejectionComments });
+      setSuccess('Purchase order rejected successfully');
+      loadPurchaseOrders();
+      loadStatistics();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reject purchase order');
     }
   };
 
@@ -612,6 +643,43 @@ const PurchaseOrders = () => {
     const terms = String(order?.paymentTerms || '').toLowerCase().trim();
     if (!terms) return false;
     return terms.includes('full advance') || (terms.includes('advance') && !terms.includes('partial'));
+  };
+
+  const isAssignedAuthorityUser = (order) => {
+    const uid = String(user?.id || user?._id || '');
+    if (!uid) return false;
+    const csa = order?.indent?.comparativeStatementApprovals || {};
+    const authorityIds = [
+      csa.preparedByUser?._id || csa.preparedByUser,
+      csa.verifiedByUser?._id || csa.verifiedByUser,
+      csa.authorisedRepUser?._id || csa.authorisedRepUser,
+      csa.financeRepUser?._id || csa.financeRepUser,
+      csa.managerProcurementUser?._id || csa.managerProcurementUser
+    ].map((id) => String(id || '')).filter(Boolean);
+    const chainIds = Array.isArray(order?.indent?.comparativeApproval?.approvers)
+      ? order.indent.comparativeApproval.approvers.map((s) => String(s?.approver?._id || s?.approver || '')).filter(Boolean)
+      : [];
+    const csaText = order?.approvalAuthorities || {};
+    const userTokens = [
+      normalizeAuthorityToken(`${user?.firstName || ''} ${user?.lastName || ''}`),
+      normalizeAuthorityToken(user?.email),
+      normalizeAuthorityToken(user?.employeeId)
+    ].filter(Boolean);
+    const textAssigned = [
+      csaText.preparedBy,
+      csaText.verifiedBy,
+      csaText.authorisedRep,
+      csaText.financeRep,
+      csaText.managerProcurement
+    ].map((v) => normalizeAuthorityToken(v)).filter(Boolean);
+    return [...authorityIds, ...chainIds].includes(uid)
+      || userTokens.some((t) => textAssigned.some((assigned) => tokenMatchesAuthorityText(t, assigned)));
+  };
+  const hasCurrentUserApprovedAuthority = (order) => {
+    const uid = String(user?.id || user?._id || '');
+    if (!uid) return false;
+    return Array.isArray(order?.authorityApprovals)
+      && order.authorityApprovals.some((a) => String(a?.approver?._id || a?.approver || '') === uid);
   };
 
   const getStatusLabel = (order) => {
@@ -878,10 +946,17 @@ const PurchaseOrders = () => {
                           </IconButton>
                         </Tooltip>
                       )}
-                      {order.status === 'Pending Approval' && (
+                      {order.status === 'Pending Approval' && isAssignedAuthorityUser(order) && !hasCurrentUserApprovedAuthority(order) && (
                         <Tooltip title="Approve">
                           <IconButton size="small" color="success" onClick={() => handleApprove(order._id)}>
                             <ApproveIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {order.status === 'Pending Approval' && isAssignedAuthorityUser(order) && !hasCurrentUserApprovedAuthority(order) && (
+                        <Tooltip title="Reject">
+                          <IconButton size="small" color="error" onClick={() => handleReject(order._id)}>
+                            <RejectIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
@@ -1729,12 +1804,6 @@ const PurchaseOrders = () => {
                   {(() => {
                     const indent = viewDialog.data?.indent || {};
                     const approvals = indent?.comparativeStatementApprovals || {};
-                    const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
-                      ? indent.comparativeApproval.approvers
-                      : [];
-                    const stepByUserId = new Map(
-                      approvalSteps.map((s) => [String(s?.approver?._id || s?.approver || ''), s])
-                    );
                     const personName = (user, fallback = '') => (
                       [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
                       user?.email ||
@@ -1743,31 +1812,65 @@ const PurchaseOrders = () => {
                     );
                     const rows = [
                       {
+                        key: 'preparedBy',
                         label: 'Prepared By',
                         user: approvals.preparedByUser,
                         fallback: viewDialog.data.approvalAuthorities?.preparedBy || approvals.preparedBy || ''
                       },
                       {
+                        key: 'verifiedBy',
                         label: 'Verified By (Procurement Committee)',
                         user: approvals.verifiedByUser,
                         fallback: viewDialog.data.approvalAuthorities?.verifiedBy || approvals.verifiedBy || ''
                       },
                       {
+                        key: 'authorisedRep',
                         label: 'Authorised Rep.',
                         user: approvals.authorisedRepUser,
                         fallback: viewDialog.data.approvalAuthorities?.authorisedRep || approvals.authorisedRep || ''
                       },
                       {
+                        key: 'financeRep',
                         label: 'Finance Rep.',
                         user: approvals.financeRepUser,
                         fallback: viewDialog.data.approvalAuthorities?.financeRep || approvals.financeRep || ''
                       },
                       {
+                        key: 'managerProcurement',
                         label: 'Manager Procurement',
                         user: approvals.managerProcurementUser,
                         fallback: viewDialog.data.approvalAuthorities?.managerProcurement || approvals.managerProcurement || ''
                       }
                     ];
+                    const authorityApprovalHistory = Array.isArray(viewDialog.data?.workflowHistory)
+                      ? [...viewDialog.data.workflowHistory]
+                        .reverse()
+                        .find((h) => h?.fromStatus === 'Pending Approval' && h?.toStatus === 'Pending Audit')
+                      : null;
+                    const authorityApprovedBy = viewDialog.data?.approvedBy || authorityApprovalHistory?.changedBy || null;
+                    const authorityApprovedAt = viewDialog.data?.approvedAt || authorityApprovalHistory?.changedAt || null;
+                    const authorityApprovals = Array.isArray(viewDialog.data?.authorityApprovals) ? viewDialog.data.authorityApprovals : [];
+                    const authorityApprovalByKey = new Map(
+                      authorityApprovals
+                        .map((approval) => [String(approval?.authorityKey || '').trim(), approval])
+                        .filter(([key]) => Boolean(key))
+                    );
+                    const normalizeToken = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                    const getUserTokens = (u) => {
+                      if (!u || typeof u !== 'object') return [];
+                      return [
+                        [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
+                        u.email,
+                        u.employeeId
+                      ].map(normalizeToken).filter(Boolean);
+                    };
+                    const authorityTokens = getUserTokens(authorityApprovedBy);
+                    const matchesAuthority = (value) => {
+                      const token = normalizeToken(value);
+                      if (!token || authorityTokens.length === 0) return false;
+                      return authorityTokens.some((at) => at === token || at.includes(token) || token.includes(at));
+                    };
+                    let legacyAuthorityApplied = false;
                     return (
                       <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
                         <Table size="small">
@@ -1781,21 +1884,34 @@ const PurchaseOrders = () => {
                           </TableHead>
                           <TableBody>
                             {rows.map((row) => {
-                              const uid = String(row?.user?._id || row?.user || '');
-                              const step = uid ? stepByUserId.get(uid) : null;
-                              const approvalUser = step?.approver && typeof step.approver === 'object' ? step.approver : row.user;
+                              const slotApproval = authorityApprovalByKey.get(row.key);
+                              let approvalUser = row.user;
+                              let actedAt = null;
+                              if (slotApproval) {
+                                approvalUser = slotApproval?.approver && typeof slotApproval.approver === 'object'
+                                  ? slotApproval.approver
+                                  : row.user;
+                                actedAt = slotApproval?.approvedAt || null;
+                              }
+                              const rowAuthorityText = viewDialog.data?.approvalAuthorities?.[row.key] || approvals?.[row.key] || row.fallback || '';
+                              const rowMatchesApprovedAuthority = matchesAuthority(rowAuthorityText) || matchesAuthority(personName(row.user, ''));
+                              if (!slotApproval && !legacyAuthorityApplied && (authorityApprovedBy || authorityApprovedAt) && rowMatchesApprovedAuthority) {
+                                approvalUser = authorityApprovedBy || approvalUser;
+                                actedAt = authorityApprovedAt || actedAt;
+                                legacyAuthorityApplied = true;
+                              }
                               return (
                                 <TableRow key={row.label}>
                                   <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
                                   <TableCell>{personName(approvalUser, row.fallback)}</TableCell>
                                   <TableCell>
-                                    {approvalUser?.digitalSignature ? (
+                                    {actedAt && approvalUser?.digitalSignature ? (
                                       <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
                                     ) : (
                                       <Typography variant="caption" color="text.secondary">—</Typography>
                                     )}
                                   </TableCell>
-                                  <TableCell>{formatDateTime(step?.actedAt)}</TableCell>
+                                  <TableCell>{actedAt ? formatDateTime(actedAt) : '—'}</TableCell>
                                 </TableRow>
                               );
                             })}

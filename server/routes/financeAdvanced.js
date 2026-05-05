@@ -164,10 +164,11 @@ router.post('/accounts/ensure-defaults',
   asyncHandler(async (req, res) => {
     // Account model enum: type ∈ ['Asset','Liability','Equity','Revenue','Expense'], category is required
     const defaults = [
-      { accountNumber: '1001', name: 'Cash',               type: 'Asset',     category: 'Current Asset',       detailType: 'Cash and Cash Equivalents' },
-      { accountNumber: '1002', name: 'Bank Account',       type: 'Asset',     category: 'Current Asset',       detailType: 'Bank'                      },
-      { accountNumber: '1100', name: 'Inventory',          type: 'Asset',     category: 'Current Asset',       detailType: 'Inventory Asset'            },
-      { accountNumber: '1200', name: 'Accounts Receivable',type: 'Asset',     category: 'Current Asset',       detailType: 'Accounts Receivable'        },
+      { accountNumber: '1001', name: 'Cash',                    type: 'Asset',     category: 'Current Asset',       detailType: 'Cash and Cash Equivalents' },
+      { accountNumber: '1002', name: 'Bank Account',            type: 'Asset',     category: 'Current Asset',       detailType: 'Bank'                      },
+      { accountNumber: '1100', name: 'Inventory',               type: 'Asset',     category: 'Current Asset',       detailType: 'Inventory Asset'            },
+      { accountNumber: '1120', name: 'Cash Advance to Staff',   type: 'Asset',     category: 'Current Asset',       detailType: 'Other Current Assets'       },
+      { accountNumber: '1200', name: 'Accounts Receivable',     type: 'Asset',     category: 'Current Asset',       detailType: 'Accounts Receivable'        },
       { accountNumber: '2001', name: 'Accounts Payable',   type: 'Liability', category: 'Current Liability',   detailType: 'Accounts Payable'           },
       { accountNumber: '2004', name: 'WHT Payable',        type: 'Liability', category: 'Current Liability',   detailType: 'Other Current Liabilities'  },
       { accountNumber: '2100', name: 'GRNI Clearing',      type: 'Liability', category: 'Current Liability',   detailType: 'Other Current Liabilities'  },

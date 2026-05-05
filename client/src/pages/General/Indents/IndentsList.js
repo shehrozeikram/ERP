@@ -120,9 +120,10 @@ const IndentsList = () => {
         ...(departmentFilter && { fromDepartment: departmentFilter })
       };
 
-      const [settlementsRes, poRes] = await Promise.all([
+      const [settlementsRes, poRes, caRes] = await Promise.all([
         paymentSettlementService.getPaymentSettlements(params),
-        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } }))
+        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } })),
+        api.get('/cash-approvals/ceo-secretariat').catch(() => ({ data: { data: [] } }))
       ]);
       let allPayments = settlementsRes.data?.settlements || [];
       const poList = poRes.data?.data || [];
@@ -139,7 +140,21 @@ const IndentsList = () => {
         date: po.orderDate,
         ...po
       }));
-      allPayments = [...allPayments, ...poFormatted];
+      const caList = caRes.data?.data || [];
+      const caFormatted = caList.filter((c) => c.status === 'Forwarded to CEO').map((ca) => ({
+        _id: ca._id,
+        workflowStatus: 'Forwarded to CEO',
+        isCashApproval: true,
+        referenceNumber: ca.caNumber,
+        forWhat: ca.notes || 'Cash Approval',
+        toWhomPaid: ca.vendor?.name,
+        grandTotal: ca.totalAmount,
+        amount: ca.totalAmount,
+        fromDepartment: 'Procurement',
+        date: ca.approvalDate || ca.createdAt,
+        ...ca
+      }));
+      allPayments = [...allPayments, ...poFormatted, ...caFormatted];
       
       // Filter only "Forwarded to CEO" payments for CEO review
       let filteredPayments = allPayments.filter(p => p.workflowStatus === 'Forwarded to CEO');
@@ -235,6 +250,27 @@ const IndentsList = () => {
       return;
     }
 
+    if (approvePaymentDialog.payment?.isCashApproval) {
+      try {
+        setPaymentActionLoading(true);
+        await api.put(`/cash-approvals/${approvePaymentDialog.payment._id}/ceo-approve`, {
+          comments: approvalComments,
+          approvalComments,
+          digitalSignature: approvalSignature
+        });
+        toast.success('Cash approval approved by CEO and sent to Finance');
+        setApprovePaymentDialog({ open: false, payment: null });
+        setApprovalComments('');
+        setApprovalSignature('');
+        loadPayments();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to approve cash approval');
+      } finally {
+        setPaymentActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setPaymentActionLoading(true);
       const response = await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
@@ -285,6 +321,27 @@ const IndentsList = () => {
       return;
     }
 
+    if (rejectPaymentDialog.payment?.isCashApproval) {
+      try {
+        setPaymentActionLoading(true);
+        await api.put(`/cash-approvals/${rejectPaymentDialog.payment._id}/ceo-reject`, {
+          rejectionComments,
+          comments: rejectionComments,
+          digitalSignature: rejectionSignature
+        });
+        toast.success('Cash approval rejected successfully');
+        setRejectPaymentDialog({ open: false, payment: null });
+        setRejectionComments('');
+        setRejectionSignature('');
+        loadPayments();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to reject cash approval');
+      } finally {
+        setPaymentActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setPaymentActionLoading(true);
       await paymentSettlementService.rejectPayment(rejectPaymentDialog.payment._id, {
@@ -323,6 +380,26 @@ const IndentsList = () => {
         loadPayments();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to return purchase order');
+      } finally {
+        setPaymentActionLoading(false);
+      }
+      return;
+    }
+
+    if (returnPaymentDialog.payment?.isCashApproval) {
+      try {
+        setPaymentActionLoading(true);
+        await api.put(`/cash-approvals/${returnPaymentDialog.payment._id}/ceo-return`, {
+          returnComments,
+          comments: returnComments
+        });
+        toast.success('Cash approval returned successfully');
+        setReturnPaymentDialog({ open: false, payment: null });
+        setReturnComments('');
+        setReturnSignature('');
+        loadPayments();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to return cash approval');
       } finally {
         setPaymentActionLoading(false);
       }

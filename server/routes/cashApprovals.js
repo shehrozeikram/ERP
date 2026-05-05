@@ -1,6 +1,6 @@
 /**
  * Cash Approval Routes
- * Full workflow: Draft → Audit → CEO → Finance (Advance) → Settlement → Procurement → Completed
+ * Full workflow: Draft → Audit → CEO → Finance (Advance) → Procurement (Evidence) → Finance (Settle) → Procurement → Completed
  */
 const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -11,11 +11,17 @@ const Indent = require('../models/general/Indent');
 const User = require('../models/User');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
+const FinanceHelper = require('../utils/financeHelper');
+
 const router = express.Router();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const normalizeRoleLabel = (v) => String(v || '').trim().toLowerCase();
+const looksLikeAuditDirectorLabel = (value) => {
+  const normalized = normalizeRoleLabel(value).replace(/[-\s]+/g, '_');
+  return normalized.includes('audit') && normalized.includes('director');
+};
 
 const userHasRoleName = (user, names = []) => {
   const accepted = names.map(normalizeRoleLabel);
@@ -47,6 +53,11 @@ const hasAuditAccess = (user) => {
 const isAuditDirectorUser = (user) => {
   if (!user) return false;
   if (['audit_director', 'Audit Director'].includes(user.role)) return true;
+  if (looksLikeAuditDirectorLabel(user.role)) return true;
+  if (looksLikeAuditDirectorLabel(user?.roleRef?.name) || looksLikeAuditDirectorLabel(user?.roleRef?.displayName)) return true;
+  if (Array.isArray(user?.roles) && user.roles.some((r) => looksLikeAuditDirectorLabel(r?.name) || looksLikeAuditDirectorLabel(r?.displayName))) {
+    return true;
+  }
   return userHasRoleName(user, ['audit_director', 'audit director']);
 };
 
@@ -64,6 +75,104 @@ const hasProcurementAccess = (user) => {
   if (hasModuleAccess(user.roleRef, 'procurement')) return true;
   if (Array.isArray(user.roles) && user.roles.some((r) => hasModuleAccess(r, 'procurement'))) return true;
   return false;
+};
+
+const hasCeoSecretariatAccess = (user) => {
+  if (!user) return false;
+  if (['super_admin', 'admin', 'hr_manager', 'higher_management'].includes(user.role)) return true;
+  if (hasModuleAccess(user.roleRef, 'hr') || hasModuleAccess(user.roleRef, 'general')) return true;
+  if (Array.isArray(user.roles) && user.roles.some((r) => hasModuleAccess(r, 'hr') || hasModuleAccess(r, 'general'))) return true;
+  return false;
+};
+
+const isAssignedComparativeAuthorityUser = async (indentId, userId) => {
+  if (!indentId || !userId) return false;
+  const indent = await Indent.findById(indentId)
+    .select('comparativeStatementApprovals comparativeApproval')
+    .lean();
+  if (!indent) return false;
+  const uid = String(userId);
+  const csa = indent.comparativeStatementApprovals || {};
+  const authorityIds = [
+    csa.preparedByUser,
+    csa.verifiedByUser,
+    csa.authorisedRepUser,
+    csa.financeRepUser,
+    csa.managerProcurementUser
+  ]
+    .map((id) => String(id || ''))
+    .filter(Boolean);
+  if (authorityIds.includes(uid)) return true;
+
+  const steps = Array.isArray(indent?.comparativeApproval?.approvers) ? indent.comparativeApproval.approvers : [];
+  return steps.some((s) => String(s?.approver?._id || s?.approver || '') === uid);
+};
+
+const normalizeToken = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const AUTHORITY_SLOT_CONFIG = [
+  { key: 'preparedBy', label: 'Prepared By', indentUserField: 'preparedByUser' },
+  { key: 'verifiedBy', label: 'Verified By (Procurement Committee)', indentUserField: 'verifiedByUser' },
+  { key: 'authorisedRep', label: 'Authorised Rep.', indentUserField: 'authorisedRepUser' },
+  { key: 'financeRep', label: 'Finance Rep.', indentUserField: 'financeRepUser' },
+  { key: 'managerProcurement', label: 'Manager Procurement', indentUserField: 'managerProcurementUser' }
+];
+const getUserIdentityTokens = (user) => {
+  const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
+  return [...new Set([
+    normalizeToken(fullName),
+    normalizeToken(user?.email),
+    normalizeToken(user?.employeeId)
+  ].filter(Boolean))];
+};
+const isAssignedByAuthorityText = (approvalAuthorities, user) => {
+  const authorities = approvalAuthorities || {};
+  const assignedTexts = [
+    authorities.preparedBy,
+    authorities.verifiedBy,
+    authorities.authorisedRep,
+    authorities.financeRep,
+    authorities.managerProcurement
+  ].map(normalizeToken).filter(Boolean);
+  if (!assignedTexts.length) return false;
+  const tokens = getUserIdentityTokens(user);
+  return tokens.some((t) => assignedTexts.includes(t));
+};
+const getRequiredAuthoritySlots = async (indentId, approvalAuthorities = {}) => {
+  const indent = indentId
+    ? await Indent.findById(indentId).select('comparativeStatementApprovals').lean()
+    : null;
+  const csa = indent?.comparativeStatementApprovals || {};
+  return AUTHORITY_SLOT_CONFIG.map((slot) => {
+    const userId = String(csa?.[slot.indentUserField] || '').trim();
+    const textToken = normalizeToken(approvalAuthorities?.[slot.key]);
+    if (!userId && !textToken) return null;
+    return { ...slot, userId: userId || '', textToken: textToken || '' };
+  }).filter(Boolean);
+};
+const matchUserToAuthoritySlots = (requiredSlots, user) => {
+  const uid = String(user?.id || user?._id || '').trim();
+  const tokens = getUserIdentityTokens(user);
+  return requiredSlots.filter((slot) => {
+    if (slot.userId && uid && slot.userId === uid) return true;
+    if (slot.textToken && tokens.includes(slot.textToken)) return true;
+    return false;
+  });
+};
+
+const getAssignedIndentIdsForUser = async (userId) => {
+  if (!userId) return [];
+  const uid = String(userId);
+  const indents = await Indent.find({
+    $or: [
+      { 'comparativeStatementApprovals.preparedByUser': uid },
+      { 'comparativeStatementApprovals.verifiedByUser': uid },
+      { 'comparativeStatementApprovals.authorisedRepUser': uid },
+      { 'comparativeStatementApprovals.financeRepUser': uid },
+      { 'comparativeStatementApprovals.managerProcurementUser': uid },
+      { 'comparativeApproval.approvers.approver': uid }
+    ]
+  }).select('_id').lean();
+  return indents.map((i) => i._id);
 };
 
 const normalizeIds = (ids = []) => [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
@@ -86,6 +195,10 @@ const getCeoSecretariatRecipients = async () => {
   const a = await getUserIdsByRoles(['hr_manager', 'admin', 'super_admin']);
   const b = await getUserIdsByDepartment('hr');
   return [...new Set([...a, ...b])];
+};
+const getCeoRecipients = async () => {
+  const byRole = await getUserIdsByRoles(['higher_management', 'admin', 'super_admin']);
+  return [...new Set(byRole)];
 };
 const getFinanceRecipients = async () => {
   const a = await getUserIdsByDepartment('finance');
@@ -160,18 +273,37 @@ function buildCAChangeSummary(currentItems, snapshot) {
   return lines.length ? lines.join('\n') : '';
 }
 
+const indentWithComparativePopulate = {
+  path: 'indent',
+  select: 'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes justification approvalChain signatures comparativeStatementApprovals comparativeApproval',
+  populate: [
+    { path: 'department', select: 'name code' },
+    { path: 'requestedBy', select: 'firstName lastName email digitalSignature' },
+    { path: 'approvalChain.approver', select: 'firstName lastName email digitalSignature' },
+    { path: 'comparativeStatementApprovals.preparedByUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.verifiedByUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.authorisedRepUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.financeRepUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.managerProcurementUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeApproval.approvers.approver', select: 'firstName lastName email employeeId digitalSignature' }
+  ]
+};
+
 const fullPopulate = (q) => q
   .populate('vendor', 'name email phone')
-  .populate('indent', 'title indentNumber erpRef')
+  .populate(indentWithComparativePopulate)
   .populate('quotation', 'quotationNumber')
   .populate('createdBy', 'firstName lastName email')
   .populate('updatedBy', 'firstName lastName email')
+  .populate('authorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
+  .populate('authorityApprovedBy', 'firstName lastName email employeeId digitalSignature')
   .populate('advanceTo', 'firstName lastName email')
   .populate('advanceIssuedBy', 'firstName lastName email')
+  .populate('evidenceSubmittedBy', 'firstName lastName email')
   .populate('settledBy', 'firstName lastName email')
   .populate('sentToProcurementBy', 'firstName lastName email')
   .populate('completedBy', 'firstName lastName email')
-  .populate('auditApprovedBy', 'firstName lastName email')
+  .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
   .populate('preAuditInitialApprovedBy', 'firstName lastName email digitalSignature')
   .populate('auditObservations.addedBy', 'firstName lastName email')
   .populate('auditObservations.answeredBy', 'firstName lastName email')
@@ -183,10 +315,11 @@ const fullPopulate = (q) => q
 
 // GET /api/cash-approvals
 router.get('/', authMiddleware, asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, search = '', status = '', vendor = '' } = req.query;
+  const { page = 1, limit = 20, search = '', status = '', vendor = '', priority = '' } = req.query;
   const filter = {};
   if (status) filter.status = status;
   if (vendor) filter.vendor = vendor;
+  if (priority) filter.priority = priority;
   if (search) {
     filter.$or = [
       { caNumber: { $regex: search, $options: 'i' } },
@@ -210,10 +343,46 @@ router.get('/statistics', authMiddleware, asyncHandler(async (req, res) => {
 // GET /api/cash-approvals/pending-finance  (for Finance view)
 router.get('/pending-finance', authMiddleware, asyncHandler(async (req, res) => {
   const data = await fullPopulate(
-    CashApproval.find({ status: { $in: ['Pending Finance', 'Advance Issued', 'Payment Settled'] } }).sort({ createdAt: -1 })
+    CashApproval.find({ status: { $in: ['Pending Finance', 'Advance Issued', 'Evidence Submitted', 'Payment Settled'] } }).sort({ createdAt: -1 })
   );
   res.json({ success: true, data });
 }));
+
+// GET /api/cash-approvals/ceo-secretariat — same queue stages as PO (Payments / CEO flow)
+router.get('/ceo-secretariat',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const isCeoQueueUser = hasCeoSecretariatAccess(req.user);
+    let filter = {
+      status: { $in: ['Send to CEO Office', 'Forwarded to CEO', 'Returned from CEO Office'] }
+    };
+    if (!isCeoQueueUser) {
+      const indentIds = await getAssignedIndentIdsForUser(req.user.id);
+      const tokens = getUserIdentityTokens(req.user);
+      const authorityTextConditions = tokens.length ? [
+        { 'approvalAuthorities.preparedBy': { $in: tokens } },
+        { 'approvalAuthorities.verifiedBy': { $in: tokens } },
+        { 'approvalAuthorities.authorisedRep': { $in: tokens } },
+        { 'approvalAuthorities.financeRep': { $in: tokens } },
+        { 'approvalAuthorities.managerProcurement': { $in: tokens } }
+      ] : [];
+      if (!indentIds.length && !authorityTextConditions.length) {
+        return res.json({ success: true, data: [] });
+      }
+      filter = {
+        ...filter,
+        $or: [
+          ...(indentIds.length ? [{ indent: { $in: indentIds } }] : []),
+          ...authorityTextConditions
+        ]
+      };
+    }
+    const list = await fullPopulate(
+      CashApproval.find(filter).sort({ updatedAt: -1 })
+    );
+    res.json({ success: true, data: list });
+  })
+);
 
 // GET /api/cash-approvals/:id
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
@@ -259,7 +428,9 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
     }
   }
 
-  const ca = new CashApproval({ ...body, createdBy: req.user.id });
+  const ca = new CashApproval({ ...body, status: 'Pending Approval', createdBy: req.user.id });
+  await ca.save();
+  pushHistory(ca, '—', 'Pending Approval', req.user.id, 'Created in Procurement and submitted for authority approval', 'Procurement');
   await ca.save();
   const saved = await fullPopulate(CashApproval.findById(ca._id));
   res.status(201).json({ success: true, message: 'Cash Approval created successfully', data: saved });
@@ -269,7 +440,7 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
 router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  const editableStatuses = ['Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'];
+  const editableStatuses = ['Pending Approval', 'Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'];
   if (!editableStatuses.includes(ca.status)) {
     return res.status(400).json({ success: false, message: `Cannot edit a Cash Approval in "${ca.status}" status` });
   }
@@ -285,7 +456,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
 router.delete('/:id', authMiddleware, authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  if (!['Draft', 'Cancelled', 'Rejected'].includes(ca.status)) {
+  if (!['Pending Approval', 'Draft', 'Cancelled', 'Rejected'].includes(ca.status)) {
     return res.status(400).json({ success: false, message: 'Only Draft, Cancelled, or Rejected Cash Approvals can be deleted' });
   }
   await CashApproval.deleteOne({ _id: ca._id });
@@ -293,6 +464,101 @@ router.delete('/:id', authMiddleware, authorize('super_admin', 'admin', 'procure
 }));
 
 // ─── Workflow Actions ─────────────────────────────────────────────────────────
+
+// Phase 3: Authority Approve (assigned authority -> move to Pending Audit)
+router.put('/:id/approve', authMiddleware, asyncHandler(async (req, res) => {
+  const ca = await CashApproval.findById(req.params.id);
+  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  if (ca.status !== 'Pending Approval') {
+    return res.status(400).json({ success: false, message: 'Only pending cash approvals can be approved' });
+  }
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  const isAdmin = ['super_admin', 'admin'].includes(req.user.role);
+  if (!isAdmin && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'Only assigned authority can approve this cash approval' });
+  }
+  const requiredSlots = await getRequiredAuthoritySlots(ca.indent, ca.approvalAuthorities);
+  if (!requiredSlots.length) {
+    return res.status(400).json({ success: false, message: 'No approval authorities configured on this cash approval' });
+  }
+  const matchedSlots = matchUserToAuthoritySlots(requiredSlots, req.user);
+  if (!matchedSlots.length) {
+    return res.status(400).json({ success: false, message: 'Your user is not mapped to any pending authority slot' });
+  }
+  const approvals = Array.isArray(ca.authorityApprovals) ? [...ca.authorityApprovals] : [];
+  const approvedKeys = new Set(approvals.map((a) => String(a?.authorityKey || '').trim()).filter(Boolean));
+  const pendingMatchedSlots = matchedSlots.filter((slot) => !approvedKeys.has(slot.key));
+  if (!pendingMatchedSlots.length) {
+    return res.status(400).json({ success: false, message: 'You have already approved your assigned authority slot(s)' });
+  }
+  const now = new Date();
+  pendingMatchedSlots.forEach((slot) => {
+    approvals.push({
+      authorityKey: slot.key,
+      authorityLabel: slot.label,
+      approver: req.user.id,
+      approvedAt: now,
+      comments: req.body.comments || ''
+    });
+  });
+  ca.authorityApprovals = approvals;
+  const requiredKeys = new Set(requiredSlots.map((s) => s.key));
+  const updatedApprovedKeys = new Set(ca.authorityApprovals.map((a) => String(a?.authorityKey || '').trim()).filter(Boolean));
+  const allApproved = [...requiredKeys].every((key) => updatedApprovedKeys.has(key));
+  ca.authorityApprovedBy = req.user.id;
+  ca.authorityApprovedAt = now;
+  ca.authorityApprovalComments = req.body.comments || '';
+  if (allApproved) {
+    pushHistory(ca, 'Pending Approval', 'Pending Audit', req.user.id, req.body.comments || 'All assigned authorities approved and sent to Pre-Audit', 'Procurement');
+    ca.status = 'Pending Audit';
+  } else {
+    const remaining = requiredSlots.length - updatedApprovedKeys.size;
+    pushHistory(ca, 'Pending Approval', 'Pending Approval', req.user.id, req.body.comments || `Authority approval recorded. ${remaining} approval(s) remaining.`, 'Procurement');
+  }
+  ca.updatedBy = req.user.id;
+  await ca.save();
+  if (allApproved) {
+    const recipients = await getAuditRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId: req.user.id,
+      title: 'Cash Approval pending Audit review',
+      message: `Cash Approval ${ca.caNumber} received all authority approvals and is now waiting in Pre-Audit queue.`,
+      actionUrl: '/audit',
+      entityId: ca._id
+    });
+  }
+  const remaining = requiredSlots.length - updatedApprovedKeys.size;
+  const message = allApproved
+    ? 'All authority approvals completed. Cash Approval sent to Pre-Audit successfully'
+    : `Authority approval recorded successfully. ${remaining} approval(s) remaining before Pre-Audit`;
+  res.json({ success: true, message, data: await fullPopulate(CashApproval.findById(ca._id)) });
+}));
+
+// Phase 3: Authority Reject
+router.put('/:id/reject', authMiddleware, asyncHandler(async (req, res) => {
+  const ca = await CashApproval.findById(req.params.id);
+  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  if (ca.status !== 'Pending Approval') {
+    return res.status(400).json({ success: false, message: 'Only pending cash approvals can be rejected' });
+  }
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  const isAdmin = ['super_admin', 'admin'].includes(req.user.role);
+  if (!isAdmin && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'Only assigned authority can reject this cash approval' });
+  }
+  const rejectMsg = req.body?.rejectionComments || req.body?.comments || '';
+  pushHistory(ca, 'Pending Approval', 'Rejected', req.user.id, rejectMsg || 'Rejected by assigned authority', 'Procurement');
+  ca.status = 'Rejected';
+  ca.auditRejectionComments = rejectMsg;
+  ca.updatedBy = req.user.id;
+  await ca.save();
+  res.json({ success: true, message: 'Cash Approval rejected successfully', data: await fullPopulate(CashApproval.findById(ca._id)) });
+}));
 
 // Phase 4: Send to Audit
 router.put('/:id/send-to-audit', authMiddleware, asyncHandler(async (req, res) => {
@@ -385,7 +651,21 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
   ca.updatedBy = req.user.id;
   await ca.save();
   const ceoRecipients = await getCeoSecretariatRecipients();
-  await notify({ recipientIds: ceoRecipients, actorId: req.user.id, title: 'Cash Approval pending CEO Secretariat', message: `Cash Approval ${ca.caNumber} audit-approved and in CEO Secretariat queue.`, actionUrl: '/general/ceo-secretariat', entityId: ca._id });
+  await notify({
+    recipientIds: ceoRecipients,
+    actorId: req.user.id,
+    title: 'Cash Approval pending CEO Secretariat',
+    message: `Cash Approval ${ca.caNumber} is audit-approved and now waiting in CEO Secretariat queue (Payments).`,
+    actionUrl: '/general/ceo-secretariat/payments',
+    entityId: ca._id,
+    entityType: 'CashApproval',
+    module: 'procurement',
+    metadata: {
+      queueStage: 'send_to_ceo_office',
+      targetModule: 'general',
+      targetTab: 'ceo_secretariat_payments'
+    }
+  });
   res.json({ success: true, message: 'Cash Approval audit-approved and sent to CEO Office', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
@@ -481,34 +761,69 @@ router.put('/:id/audit-return', authMiddleware, asyncHandler(async (req, res) =>
   res.json({ success: true, message: 'Cash Approval returned from Audit', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
-// Phase 5: CEO Secretariat forward to CEO
+// Phase 5: CEO Secretariat forward to CEO (same rules as PO)
 router.put('/:id/forward-to-ceo', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  if (ca.status !== 'Send to CEO Office') {
-    return res.status(400).json({ success: false, message: 'Cash Approval must be in "Send to CEO Office" status' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!hasCeoSecretariatAccess(req.user) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'CEO Secretariat access required' });
   }
-  pushHistory(ca, 'Send to CEO Office', 'Forwarded to CEO', req.user.id, req.body.comments || 'Forwarded to CEO', 'CEO Secretariat');
+  if (!['Send to CEO Office', 'Returned from CEO Office'].includes(ca.status)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Only Cash Approvals in Send to CEO Office or Returned from CEO Office can be forwarded to CEO'
+    });
+  }
+  const from = ca.status;
+  pushHistory(ca, from, 'Forwarded to CEO', req.user.id, req.body.comments || 'Forwarded to CEO for approval', 'CEO Secretariat');
   ca.status = 'Forwarded to CEO';
   ca.ceoForwardedBy = req.user.id;
   ca.ceoForwardedAt = new Date();
   ca.updatedBy = req.user.id;
   await ca.save();
+  const ceoRecipients = await getCeoRecipients();
+  await notify({
+    recipientIds: ceoRecipients,
+    actorId: req.user.id,
+    title: 'Cash Approval pending CEO approval',
+    message: `Cash Approval ${ca.caNumber} was forwarded to CEO and is awaiting approval.`,
+    actionUrl: '/general/ceo-secretariat/payments',
+    entityId: ca._id,
+    entityType: 'CashApproval',
+    module: 'procurement',
+    metadata: {
+      queueStage: 'forwarded_to_ceo',
+      targetModule: 'general',
+      targetTab: 'ceo_secretariat_payments'
+    }
+  });
   res.json({ success: true, message: 'Forwarded to CEO', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
-// Phase 5: CEO Secretariat return
+// Phase 5: CEO Secretariat return (Send to CEO Office only — matches PO)
 router.put('/:id/ceo-secretariat-return', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  if (!['Send to CEO Office', 'Forwarded to CEO'].includes(ca.status)) {
-    return res.status(400).json({ success: false, message: 'Can only return from CEO Office or Forwarded to CEO status' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!hasCeoSecretariatAccess(req.user) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'CEO Secretariat access required' });
   }
-  pushHistory(ca, ca.status, 'Returned from CEO Secretariat', req.user.id, req.body.comments || '', 'CEO Secretariat');
+  if (ca.status !== 'Send to CEO Office') {
+    return res.status(400).json({
+      success: false,
+      message: 'Only Cash Approvals in Send to CEO Office can be returned by CEO Secretariat'
+    });
+  }
+  pushHistory(ca, 'Send to CEO Office', 'Returned from CEO Secretariat', req.user.id, req.body.returnComments || req.body.comments || '', 'CEO Secretariat');
   ca.status = 'Returned from CEO Secretariat';
   ca.ceoReturnedBy = req.user.id;
   ca.ceoReturnedAt = new Date();
-  ca.ceoReturnComments = req.body.comments || '';
+  ca.ceoReturnComments = req.body.returnComments || req.body.comments || '';
   ca.updatedBy = req.user.id;
   await ca.save();
   const procRecipients = await getProcurementRecipients();
@@ -516,10 +831,55 @@ router.put('/:id/ceo-secretariat-return', authMiddleware, asyncHandler(async (re
   res.json({ success: true, message: 'Returned from CEO Secretariat', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
+// Phase 5: CEO Secretariat reject (Send to CEO Office only — matches PO)
+router.put('/:id/ceo-secretariat-reject', authMiddleware, asyncHandler(async (req, res) => {
+  const ca = await CashApproval.findById(req.params.id);
+  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!hasCeoSecretariatAccess(req.user) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'CEO Secretariat access required' });
+  }
+  if (ca.status !== 'Send to CEO Office') {
+    return res.status(400).json({
+      success: false,
+      message: 'Only Cash Approvals in Send to CEO Office can be rejected by CEO Secretariat'
+    });
+  }
+  const rejectionComments = req.body.rejectionComments || req.body.comments || '';
+  pushHistory(ca, 'Send to CEO Office', 'Rejected', req.user.id, rejectionComments, 'CEO Secretariat');
+  ca.status = 'Rejected';
+  ca.ceoRejectedBy = req.user.id;
+  ca.ceoRejectedAt = new Date();
+  ca.ceoRejectionComments = rejectionComments;
+  if (req.body.digitalSignature) {
+    ca.ceoDigitalSignature = req.body.digitalSignature;
+  }
+  ca.updatedBy = req.user.id;
+  await ca.save();
+  const procRecipients = await getProcurementRecipients();
+  await notify({
+    recipientIds: procRecipients,
+    actorId: req.user.id,
+    title: 'Cash Approval rejected by CEO Secretariat',
+    message: `Cash Approval ${ca.caNumber} was rejected from Payments (CEO Secretariat).`,
+    actionUrl: '/procurement/cash-approvals',
+    entityId: ca._id
+  });
+  res.json({ success: true, message: 'Cash Approval rejected by CEO Secretariat', data: await fullPopulate(CashApproval.findById(ca._id)) });
+}));
+
 // Phase 5: CEO Approve → always goes to Pending Finance for cash approvals
 router.put('/:id/ceo-approve', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'CEO approval access required' });
+  }
   if (ca.status !== 'Forwarded to CEO') {
     return res.status(400).json({ success: false, message: 'Cash Approval must be "Forwarded to CEO" to approve' });
   }
@@ -540,14 +900,21 @@ router.put('/:id/ceo-approve', authMiddleware, asyncHandler(async (req, res) => 
 router.put('/:id/ceo-reject', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'CEO rejection access required' });
+  }
   if (ca.status !== 'Forwarded to CEO') {
     return res.status(400).json({ success: false, message: 'Cash Approval must be "Forwarded to CEO" to reject' });
   }
-  pushHistory(ca, 'Forwarded to CEO', 'Rejected', req.user.id, req.body.comments || '', 'CEO');
+  const rejectMsg = req.body.rejectionComments || req.body.comments || '';
+  pushHistory(ca, 'Forwarded to CEO', 'Rejected', req.user.id, rejectMsg, 'CEO');
   ca.status = 'Rejected';
   ca.ceoRejectedBy = req.user.id;
   ca.ceoRejectedAt = new Date();
-  ca.ceoRejectionComments = req.body.comments || '';
+  ca.ceoRejectionComments = rejectMsg;
   ca.updatedBy = req.user.id;
   await ca.save();
   const procRecipients = await getProcurementRecipients();
@@ -559,6 +926,12 @@ router.put('/:id/ceo-reject', authMiddleware, asyncHandler(async (req, res) => {
 router.put('/:id/ceo-return', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'CEO return access required' });
+  }
   if (ca.status !== 'Forwarded to CEO') {
     return res.status(400).json({ success: false, message: 'Cash Approval must be "Forwarded to CEO" to return' });
   }
@@ -576,19 +949,28 @@ router.put('/:id/ceo-return', authMiddleware, asyncHandler(async (req, res) => {
 
 // Phase 6: Finance Issue Advance
 router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) => {
-  if (!hasFinanceAccess(req.user)) return res.status(403).json({ success: false, message: 'Finance access required' });
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!hasFinanceAccess(req.user) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'Finance access required' });
+  }
   if (ca.status !== 'Pending Finance') {
     return res.status(400).json({ success: false, message: 'Cash Approval must be in "Pending Finance" status to issue advance' });
   }
   const { advanceTo, advanceToName, advanceAmount, advancePaymentMethod, advanceVoucherNo, advanceRemarks } = req.body;
   if (!advanceAmount || advanceAmount <= 0) return res.status(400).json({ success: false, message: 'Advance amount is required and must be > 0' });
-  pushHistory(ca, 'Pending Finance', 'Advance Issued', req.user.id, `Advance of ${advanceAmount} issued via ${advancePaymentMethod || 'Cash'}. Voucher: ${advanceVoucherNo || '-'}`, 'Finance');
+
+  const amount = Math.round(parseFloat(advanceAmount) * 100) / 100;
+  const isCash = (advancePaymentMethod || 'Cash').toLowerCase() === 'cash';
+
+  pushHistory(ca, 'Pending Finance', 'Advance Issued', req.user.id, `Advance of ${amount} issued via ${advancePaymentMethod || 'Cash'}. Voucher: ${advanceVoucherNo || '-'}`, 'Finance');
   ca.status = 'Advance Issued';
   ca.advanceTo = advanceTo || null;
   ca.advanceToName = advanceToName || '';
-  ca.advanceAmount = advanceAmount;
+  ca.advanceAmount = amount;
   ca.advancePaymentMethod = advancePaymentMethod || 'Cash';
   ca.advanceVoucherNo = advanceVoucherNo || '';
   ca.advanceRemarks = advanceRemarks || '';
@@ -596,33 +978,123 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
   ca.advanceIssuedAt = new Date();
   ca.updatedBy = req.user.id;
   await ca.save();
+
+  // ── Journal Entry 1: DR Cash Advance to Staff / CR Cash or Bank ──────────────
+  try {
+    const staffAdvAcc = await FinanceHelper.ensureStaffAdvanceAccount(req.user.id);
+    const cashBankAcc = await FinanceHelper.getAccountByNumber(
+      isCash ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+    );
+    if (staffAdvAcc && cashBankAcc) {
+      await FinanceHelper.createAndPostJournalEntry({
+        date: new Date(),
+        reference: advanceVoucherNo || ca.caNumber,
+        description: `Cash Advance issued for ${ca.caNumber}${advanceToName ? ` to ${advanceToName}` : ''}`,
+        department: 'procurement',
+        module: 'procurement',
+        referenceId: ca._id,
+        referenceType: 'payment',
+        journalCode: isCash ? 'CASH' : 'BANK',
+        createdBy: req.user.id,
+        lines: [
+          {
+            account: staffAdvAcc._id,
+            description: `Staff advance for ${ca.caNumber}${advanceToName ? ` — ${advanceToName}` : ''}`,
+            debit: amount,
+            department: 'procurement'
+          },
+          {
+            account: cashBankAcc._id,
+            description: `${isCash ? 'Cash' : 'Bank'} payment — advance for ${ca.caNumber}`,
+            credit: amount,
+            department: 'finance'
+          }
+        ]
+      });
+    }
+  } catch (jeErr) {
+    // JE failure is non-fatal — CA status is already saved; log for investigation
+    console.error(`⚠️  JE (advance) failed for ${ca.caNumber}:`, jeErr.message);
+  }
+
   const procRecipients = await getProcurementRecipients();
-  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Advance Issued', message: `Advance of PKR ${advanceAmount.toLocaleString()} issued for Cash Approval ${ca.caNumber}. Proceed with purchase.`, actionUrl: '/procurement/cash-approvals', entityId: ca._id });
+  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Advance Issued', message: `Advance of PKR ${amount.toLocaleString()} issued for Cash Approval ${ca.caNumber}. Proceed with purchase.`, actionUrl: '/procurement/cash-approvals', entityId: ca._id });
   res.json({ success: true, message: 'Advance issued successfully', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
-// Phase 8: Finance Settle Payment
-router.put('/:id/settle-payment', authMiddleware, asyncHandler(async (req, res) => {
-  if (!hasFinanceAccess(req.user)) return res.status(403).json({ success: false, message: 'Finance access required' });
+// Phase 7: Procurement Submit Evidence (after advance received, purchase made)
+router.put('/:id/submit-evidence', authMiddleware, asyncHandler(async (req, res) => {
+  if (!hasProcurementAccess(req.user)) return res.status(403).json({ success: false, message: 'Procurement access required' });
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
   if (ca.status !== 'Advance Issued') {
-    return res.status(400).json({ success: false, message: 'Cash Approval must be in "Advance Issued" status to settle' });
+    return res.status(400).json({ success: false, message: 'Evidence can only be submitted when status is "Advance Issued"' });
   }
-  const { actualAmountSpent, settlementRemarks, receiptAttachments } = req.body;
+  const { evidenceActualAmount, purchaseInvoiceNo, evidenceRemarks, purchaseReceipts } = req.body;
+  if (!evidenceActualAmount || parseFloat(evidenceActualAmount) <= 0) {
+    return res.status(400).json({ success: false, message: 'Actual amount spent is required' });
+  }
+  pushHistory(
+    ca, 'Advance Issued', 'Evidence Submitted', req.user.id,
+    `Purchase evidence submitted. Invoice: ${purchaseInvoiceNo || '—'}. Amount spent: ${evidenceActualAmount}. ${evidenceRemarks || ''}`,
+    'Procurement'
+  );
+  ca.status = 'Evidence Submitted';
+  ca.evidenceSubmittedBy = req.user.id;
+  ca.evidenceSubmittedAt = new Date();
+  ca.purchaseInvoiceNo = purchaseInvoiceNo || '';
+  ca.evidenceActualAmount = parseFloat(evidenceActualAmount);
+  ca.evidenceRemarks = evidenceRemarks || '';
+  if (Array.isArray(purchaseReceipts) && purchaseReceipts.length) {
+    ca.purchaseReceipts.push(...purchaseReceipts);
+  }
+  ca.updatedBy = req.user.id;
+  await ca.save();
+  const financeRecipients = await getFinanceRecipients();
+  await notify({
+    recipientIds: financeRecipients,
+    actorId: req.user.id,
+    title: 'Purchase Evidence Submitted — Action Required',
+    message: `Procurement has submitted purchase receipts for Cash Approval ${ca.caNumber}. Please review and confirm settlement.`,
+    actionUrl: '/finance/cash-approvals',
+    entityId: ca._id
+  });
+  res.json({ success: true, message: 'Purchase evidence submitted. Finance will review and confirm settlement.', data: await fullPopulate(CashApproval.findById(ca._id)) });
+}));
+
+// Phase 8: Finance Confirm Settlement (reviews evidence, records final amounts)
+router.put('/:id/settle-payment', authMiddleware, asyncHandler(async (req, res) => {
+  const ca = await CashApproval.findById(req.params.id);
+  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  const assignedAuthorityAccess =
+    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
+    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
+  if (!hasFinanceAccess(req.user) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'Finance access required' });
+  }
+  if (ca.status !== 'Evidence Submitted') {
+    return res.status(400).json({ success: false, message: 'Finance can only confirm settlement after procurement submits purchase evidence' });
+  }
+  const { actualAmountSpent, settlementRemarks, financeVerificationNotes, receiptAttachments } = req.body;
   if (actualAmountSpent === undefined || actualAmountSpent === null) {
     return res.status(400).json({ success: false, message: 'Actual amount spent is required' });
   }
-  const spent = parseFloat(actualAmountSpent);
-  const advance = ca.advanceAmount || 0;
-  const excess = advance > spent ? advance - spent : 0;
-  const additional = spent > advance ? spent - advance : 0;
-  pushHistory(ca, 'Advance Issued', 'Payment Settled', req.user.id, `Actual spent: ${spent}. Excess returned: ${excess}. Additional paid: ${additional}. ${settlementRemarks || ''}`, 'Finance');
+  const spent = Math.round(parseFloat(actualAmountSpent) * 100) / 100;
+  const advance = Math.round((ca.advanceAmount || 0) * 100) / 100;
+  const excess = advance > spent ? Math.round((advance - spent) * 100) / 100 : 0;
+  const additional = spent > advance ? Math.round((spent - advance) * 100) / 100 : 0;
+
+  pushHistory(
+    ca, 'Evidence Submitted', 'Payment Settled', req.user.id,
+    `Finance confirmed. Actual spent: ${spent}. Excess returned: ${excess}. Additional paid: ${additional}. ${settlementRemarks || ''}`,
+    'Finance'
+  );
   ca.status = 'Payment Settled';
   ca.actualAmountSpent = spent;
   ca.excessReturned = excess;
   ca.additionalPaid = additional;
   ca.settlementRemarks = settlementRemarks || '';
+  ca.financeVerificationNotes = financeVerificationNotes || '';
   ca.settlementDate = new Date();
   ca.settledBy = req.user.id;
   ca.updatedBy = req.user.id;
@@ -630,14 +1102,98 @@ router.put('/:id/settle-payment', authMiddleware, asyncHandler(async (req, res) 
     ca.receiptAttachments.push(...receiptAttachments);
   }
   await ca.save();
+
+  // ── Journal Entry 2: Settle the advance ──────────────────────────────────────
+  //
+  // Three possible scenarios:
+  //   A) Exact match  — DR Expense / CR Staff Advance  (advance == spent)
+  //   B) Excess cash  — DR Expense / DR Cash / CR Staff Advance (spent < advance, staff returns change)
+  //   C) Extra spend  — DR Expense / CR Staff Advance / CR Cash (spent > advance, company tops up)
+  //
+  try {
+    const staffAdvAcc  = await FinanceHelper.ensureStaffAdvanceAccount(req.user.id);
+    const expenseAcc   = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
+    const isCash       = (ca.advancePaymentMethod || 'Cash').toLowerCase() === 'cash';
+    const cashBankAcc  = await FinanceHelper.getAccountByNumber(
+      isCash ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+    );
+
+    if (staffAdvAcc && expenseAcc && cashBankAcc) {
+      const lines = [];
+
+      // Debit: Expense for the actual amount spent
+      lines.push({
+        account: expenseAcc._id,
+        description: `Purchase expense — ${ca.caNumber} (${ca.vendor?.name || 'Vendor'})`,
+        debit: spent,
+        department: 'procurement'
+      });
+
+      // Scenario B: excess cash returned — DR Cash (staff returns leftover)
+      if (excess > 0) {
+        lines.push({
+          account: cashBankAcc._id,
+          description: `Excess cash returned for ${ca.caNumber}`,
+          debit: excess,
+          department: 'finance'
+        });
+      }
+
+      // Credit: Clear the staff advance account (the full advance amount)
+      lines.push({
+        account: staffAdvAcc._id,
+        description: `Staff advance cleared — ${ca.caNumber}`,
+        credit: advance,
+        department: 'procurement'
+      });
+
+      // Scenario C: additional spend by company — CR Cash (company tops up)
+      if (additional > 0) {
+        lines.push({
+          account: cashBankAcc._id,
+          description: `Additional cash paid for ${ca.caNumber}`,
+          credit: additional,
+          department: 'finance'
+        });
+      }
+
+      await FinanceHelper.createAndPostJournalEntry({
+        date: new Date(),
+        reference: ca.caNumber,
+        description: `Cash Advance Settlement — ${ca.caNumber}${ca.vendor?.name ? ` (${ca.vendor.name})` : ''}`,
+        department: 'procurement',
+        module: 'procurement',
+        referenceId: ca._id,
+        referenceType: 'expense',
+        journalCode: isCash ? 'CASH' : 'BANK',
+        createdBy: req.user.id,
+        lines
+      });
+    }
+  } catch (jeErr) {
+    console.error(`⚠️  JE (settlement) failed for ${ca.caNumber}:`, jeErr.message);
+  }
+
+  const procRecipients = await getProcurementRecipients();
+  await notify({
+    recipientIds: procRecipients,
+    actorId: req.user.id,
+    title: 'Cash Approval Payment Settled',
+    message: `Finance has confirmed the settlement for Cash Approval ${ca.caNumber}. Awaiting final confirmation.`,
+    actionUrl: '/procurement/cash-approvals',
+    entityId: ca._id
+  });
   res.json({ success: true, message: 'Payment settled successfully', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
 // Phase 8: Finance Send to Procurement
 router.put('/:id/send-to-procurement', authMiddleware, asyncHandler(async (req, res) => {
-  if (!hasFinanceAccess(req.user)) return res.status(403).json({ success: false, message: 'Finance access required' });
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  const assignedAuthorityAccess = await isAssignedComparativeAuthorityUser(ca.indent, req.user.id);
+  if (!hasFinanceAccess(req.user) && !assignedAuthorityAccess) {
+    return res.status(403).json({ success: false, message: 'Finance access required' });
+  }
   if (ca.status !== 'Payment Settled') {
     return res.status(400).json({ success: false, message: 'Payment must be settled before sending back to Procurement' });
   }

@@ -46,7 +46,7 @@ const notificationSchema = new mongoose.Schema({
   metadata: {
     module: {
       type: String,
-      enum: ['employees', 'hr', 'finance', 'crm', 'sales', 'procurement', 'other'],
+      enum: ['employees', 'hr', 'finance', 'crm', 'sales', 'procurement', 'audit', 'other'],
       default: 'other'
     },
     entityId: mongoose.Schema.Types.ObjectId, // Related entity ID
