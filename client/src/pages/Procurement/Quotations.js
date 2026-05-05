@@ -489,7 +489,15 @@ const Quotations = () => {
     return Object.values(groupedQuotations).sort((a, b) => {
       const aNum = a.indent?.indentNumber || '';
       const bNum = b.indent?.indentNumber || '';
-      return aNum.localeCompare(bNum);
+      const extractIndentSequence = (value) => {
+        const matches = String(value || '').match(/\d+/g);
+        if (!matches || matches.length === 0) return Number.NEGATIVE_INFINITY;
+        return parseInt(matches[matches.length - 1], 10);
+      };
+      const aSeq = extractIndentSequence(aNum);
+      const bSeq = extractIndentSequence(bNum);
+      if (aSeq !== bSeq) return bSeq - aSeq;
+      return bNum.localeCompare(aNum, undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [groupedQuotations]);
 

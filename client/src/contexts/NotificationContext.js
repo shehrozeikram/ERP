@@ -95,9 +95,68 @@ const notificationReducer = (state, action) => {
 
 const NotificationContext = createContext();
 
+const EVT_CHAT_UNREAD_CHANGED = 'sgc:chat-unread-changed';
+const EVT_APP_NOTIFICATIONS_REFRESH = 'sgc:app-notifications-refresh';
+const CHAT_SOUND_PREF_PREFIX = 'sgc:chat-sound-enabled:';
+
+const isChatSoundEnabled = (userId) => {
+  if (typeof window === 'undefined') return true;
+  const key = `${CHAT_SOUND_PREF_PREFIX}${String(userId || '')}`;
+  const saved = window.localStorage.getItem(key);
+  if (saved == null) return true;
+  return saved !== '0' && saved !== 'false';
+};
+
+const playIncomingChatSound = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+
+    // Very close tri-tone-style notification (Apple-like timing/envelope).
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, ctx.currentTime);
+    master.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.008);
+    master.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.62);
+    master.connect(ctx.destination);
+
+    const playTone = (freq, start, duration, type = 'sine', level = 1) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, start);
+      env.gain.setValueAtTime(0.0001, start);
+      env.gain.exponentialRampToValueAtTime(0.62 * level, start + 0.006);
+      env.gain.exponentialRampToValueAtTime(0.26 * level, start + duration * 0.35);
+      env.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      osc.connect(env);
+      env.connect(master);
+      osc.start(start);
+      osc.stop(start + duration + 0.01);
+      return osc;
+    };
+
+    // Tri-tone contour (short-short-long) with a tiny bright layer.
+    const t0 = ctx.currentTime;
+    playTone(830.61, t0, 0.12, 'sine', 1); // G#5
+    playTone(1046.5, t0 + 0.135, 0.12, 'sine', 0.95); // C6
+    const last = playTone(1318.51, t0 + 0.27, 0.2, 'sine', 0.9); // E6
+
+    // Subtle upper harmonics to mimic phone timbre.
+    playTone(1661.22, t0 + 0.002, 0.1, 'triangle', 0.22);
+    playTone(2093.0, t0 + 0.138, 0.1, 'triangle', 0.2);
+    playTone(2637.02, t0 + 0.275, 0.14, 'triangle', 0.18);
+
+    last.onended = () => ctx.close().catch(() => {});
+  } catch {
+    // Browser may block autoplay until user interaction.
+  }
+};
+
 export const NotificationProvider = ({ children }) => {
   const [state, dispatch] = useReducer(notificationReducer, initialState);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   // Memoized selectors for performance
   const selectors = useMemo(() => ({
@@ -222,18 +281,41 @@ export const NotificationProvider = ({ children }) => {
       auth: { token }
     });
 
-    socket.on('notification:new', (notification) => {
+    const myUserId = String(user?.id || user?._id || '');
+
+    const onNotificationNew = (notification) => {
       if (notification && notification._id) {
         addNotification(notification);
       } else {
         fetchNotifications(true);
       }
-    });
+    };
+
+    const onChatMessage = (payload) => {
+      const senderId = String(payload?.message?.sender || '');
+      if (!senderId || senderId === myUserId) return;
+      window.dispatchEvent(new Event(EVT_CHAT_UNREAD_CHANGED));
+      window.dispatchEvent(new Event(EVT_APP_NOTIFICATIONS_REFRESH));
+      if (isChatSoundEnabled(myUserId)) {
+        playIncomingChatSound();
+      }
+    };
+
+    const onChatConversationUpdated = () => {
+      window.dispatchEvent(new Event(EVT_CHAT_UNREAD_CHANGED));
+    };
+
+    socket.on('notification:new', onNotificationNew);
+    socket.on('chat:message', onChatMessage);
+    socket.on('chat:conversation:updated', onChatConversationUpdated);
 
     return () => {
+      socket.off('notification:new', onNotificationNew);
+      socket.off('chat:message', onChatMessage);
+      socket.off('chat:conversation:updated', onChatConversationUpdated);
       socket.disconnect();
     };
-  }, [isAuthenticated, addNotification, fetchNotifications]);
+  }, [isAuthenticated, user, addNotification, fetchNotifications]);
 
   // Context value memoized to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({

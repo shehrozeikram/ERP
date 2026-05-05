@@ -2686,11 +2686,17 @@ const PreAudit = () => {
                           </TableBody>
                         </Table>
                       </TableContainer>
-                      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Approval authorities</Typography>
+                      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                        Approval authorities (recorded trail)
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                        Each row is an approval action on this Cash Approval, in chronological order.
+                      </Typography>
                       <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
                         <Table size="small">
                           <TableHead>
                             <TableRow>
+                              <TableCell sx={{ fontWeight: 700 }} width={48}>#</TableCell>
                               <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
                               <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
                               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
@@ -2700,91 +2706,198 @@ const PreAudit = () => {
                           </TableHead>
                           <TableBody>
                             {(() => {
-                              const authorityRows = [
-                                { key: 'preparedBy', label: 'Prepared By' },
-                                { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
-                                { key: 'authorisedRep', label: 'Authorised Rep.' },
-                                { key: 'financeRep', label: 'Finance Rep.' },
-                                { key: 'managerProcurement', label: 'Manager Procurement' }
-                              ];
-                              if (viewDialog.fullDocument?.preAuditInitialApprovedBy || viewDialog.fullDocument?.preAuditInitialApprovedAt) {
-                                authorityRows.push({
-                                  label: 'Pre-Audit Initial Approval',
-                                  directApproval: true,
-                                  approver: viewDialog.fullDocument.preAuditInitialApprovedBy || null,
-                                  approvedAt: viewDialog.fullDocument.preAuditInitialApprovedAt || null
-                                });
-                              }
-                              if (viewDialog.fullDocument?.auditApprovedBy || viewDialog.fullDocument?.auditApprovedAt) {
-                                authorityRows.push({
-                                  label: 'Audit Final Approval',
-                                  directApproval: true,
-                                  approver: viewDialog.fullDocument.auditApprovedBy || null,
-                                  approvedAt: viewDialog.fullDocument.auditApprovedAt || null
-                                });
-                              }
-                              const authorityApprovals = Array.isArray(viewDialog.fullDocument?.authorityApprovals)
-                                ? viewDialog.fullDocument.authorityApprovals
-                                : [];
-                              const byKey = new Map(
-                                authorityApprovals
-                                  .map((a) => [String(a?.authorityKey || '').trim(), a])
-                                  .filter(([k]) => Boolean(k))
+                              const ca = viewDialog.fullDocument;
+                              const personName = (user, fallback = '') => (
+                                [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
+                                || user?.email
+                                || fallback
+                                || '—'
                               );
-                              const normalizeToken = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
-                              const legacyApprover = viewDialog.fullDocument?.authorityApprovedBy;
-                              const legacyAt = viewDialog.fullDocument?.authorityApprovedAt;
-                              const legacyTokens = [
-                                [legacyApprover?.firstName, legacyApprover?.lastName].filter(Boolean).join(' ').trim(),
-                                legacyApprover?.email,
-                                legacyApprover?.employeeId
-                              ].map(normalizeToken).filter(Boolean);
-                              let legacyApplied = false;
-                              return authorityRows.map((row) => {
-                                const explicitApproval = row?.key ? byKey.get(row.key) : null;
-                                let approver = row?.directApproval
-                                  ? row.approver
-                                  : (explicitApproval?.approver && typeof explicitApproval.approver === 'object'
-                                    ? explicitApproval.approver
-                                    : null);
-                                let approvedAt = row?.directApproval ? (row.approvedAt || null) : (explicitApproval?.approvedAt || null);
-                                const assignedText = (viewDialog.fullDocument?.approvalAuthorities || {})[row.key] || '';
-                                const assignedToken = normalizeToken(assignedText);
-                                const legacyMatch = assignedToken && legacyTokens.some((t) => t === assignedToken || t.includes(assignedToken) || assignedToken.includes(t));
-                                if (!row?.directApproval && !explicitApproval && !legacyApplied && legacyApprover && legacyAt && legacyMatch) {
-                                  approver = legacyApprover;
-                                  approvedAt = legacyAt;
-                                  legacyApplied = true;
-                                }
-                                const approverName = approver
-                                  ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || assignedText || '—')
-                                  : (assignedText || '—');
-                                const isApproved = Boolean(approvedAt);
-                                return (
-                                  <TableRow key={row.key}>
-                                    <TableCell>{row.label}</TableCell>
-                                    <TableCell>{approverName}</TableCell>
+                              const normalizeAuthKey = (k) => String(k || '').trim().toLowerCase();
+                              const slotLabels = {
+                                preparedby: 'Prepared By',
+                                verifiedby: 'Verified By (Procurement Committee)',
+                                authorisedrep: 'Authorised Rep.',
+                                financerep: 'Finance Rep.',
+                                managerprocurement: 'Manager Procurement'
+                              };
+                              const roleLabel = (entry) => {
+                                const lbl = String(entry.authorityLabel || '').trim();
+                                if (lbl) return lbl;
+                                const k = normalizeAuthKey(entry.authorityKey);
+                                return slotLabels[k] || (entry.authorityKey ? String(entry.authorityKey).trim() : 'Authority');
+                              };
+                              const rawAuthorityApprovals = Array.isArray(ca?.authorityApprovals) ? ca.authorityApprovals : [];
+                              const trailSorted = [...rawAuthorityApprovals]
+                                .filter((e) => e?.approver != null)
+                                .sort((a, b) => {
+                                  const ta = a.approvedAt ? new Date(a.approvedAt).getTime() : 0;
+                                  const tb = b.approvedAt ? new Date(b.approvedAt).getTime() : 0;
+                                  return ta - tb;
+                                });
+                              const auditAction = ca?.auditRejectedBy
+                                ? {
+                                    label: 'Rejected by Pre-Audit',
+                                    user: ca.auditRejectedBy,
+                                    actedAt: ca.auditRejectedAt,
+                                    comments: ca.auditRejectionComments || ''
+                                  }
+                                : ca?.auditReturnedBy
+                                  ? {
+                                      label: 'Returned by Pre-Audit',
+                                      user: ca.auditReturnedBy,
+                                      actedAt: ca.auditReturnedAt,
+                                      comments: ca.auditReturnComments || ''
+                                    }
+                                  : null;
+
+                              const rows = [];
+                              let step = 0;
+
+                              trailSorted.forEach((entry, idx) => {
+                                step += 1;
+                                const approver = entry.approver;
+                                const userObj = approver && typeof approver === 'object' ? approver : null;
+                                const idHint = typeof approver === 'string' ? `User …${String(approver).slice(-6)}` : '';
+                                const label = roleLabel(entry);
+                                rows.push(
+                                  <TableRow key={`ca-trail-${String(entry._id || entry.authorityKey || idx)}-${idx}`}>
+                                    <TableCell>{step}</TableCell>
+                                    <TableCell>{label}</TableCell>
                                     <TableCell>
-                                      <Chip
-                                        size="small"
-                                        label={isApproved ? 'Approved' : 'Pending'}
-                                        color={isApproved ? 'success' : 'warning'}
-                                        variant={isApproved ? 'filled' : 'outlined'}
-                                      />
+                                      {personName(userObj, idHint)}
+                                      {entry.comments ? (
+                                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }}>
+                                          {entry.comments}
+                                        </Typography>
+                                      ) : null}
                                     </TableCell>
-                                    <TableCell>{approvedAt ? new Date(approvedAt).toLocaleString() : '—'}</TableCell>
+                                    <TableCell>
+                                      <Chip size="small" label="Approved" color="success" variant="filled" />
+                                    </TableCell>
+                                    <TableCell>{entry.approvedAt ? formatDateTime(entry.approvedAt) : '—'}</TableCell>
                                     <TableCell align="center">
-                                      {isApproved && approver?.digitalSignature ? (
-                                        <DigitalSignatureImage userOrPath={approver} alt={`${row.label} signature`} />
-                                      ) : isApproved ? (
-                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                      {userObj?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={userObj} alt={`${label} signature`} />
                                       ) : (
-                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
                                       )}
                                     </TableCell>
                                   </TableRow>
                                 );
                               });
+
+                              if (!trailSorted.length && ca?.authorityApprovedBy && ca?.authorityApprovedAt) {
+                                step += 1;
+                                const userObj = typeof ca.authorityApprovedBy === 'object' ? ca.authorityApprovedBy : null;
+                                rows.push(
+                                  <TableRow key="ca-trail-legacy">
+                                    <TableCell>{step}</TableCell>
+                                    <TableCell>Authority approval (legacy record)</TableCell>
+                                    <TableCell>{personName(userObj)}</TableCell>
+                                    <TableCell>
+                                      <Chip size="small" label="Approved" color="success" variant="filled" />
+                                    </TableCell>
+                                    <TableCell>{formatDateTime(ca.authorityApprovedAt)}</TableCell>
+                                    <TableCell align="center">
+                                      {userObj?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={userObj} alt="Legacy authority signature" />
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              }
+
+                              if (ca?.preAuditInitialApprovedBy || ca?.preAuditInitialApprovedAt) {
+                                step += 1;
+                                const userObj = typeof ca.preAuditInitialApprovedBy === 'object' ? ca.preAuditInitialApprovedBy : null;
+                                rows.push(
+                                  <TableRow key="ca-pre-audit-initial">
+                                    <TableCell>{step}</TableCell>
+                                    <TableCell>Initial Pre-Audit</TableCell>
+                                    <TableCell>{personName(userObj)}</TableCell>
+                                    <TableCell>
+                                      <Chip size="small" label="Approved" color="success" variant="filled" />
+                                    </TableCell>
+                                    <TableCell>{ca.preAuditInitialApprovedAt ? formatDateTime(ca.preAuditInitialApprovedAt) : '—'}</TableCell>
+                                    <TableCell align="center">
+                                      {userObj?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={userObj} alt="Initial Pre-Audit signature" />
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              }
+
+                              if (ca?.auditApprovedBy || ca?.auditApprovedAt) {
+                                step += 1;
+                                const userObj = typeof ca.auditApprovedBy === 'object' ? ca.auditApprovedBy : null;
+                                rows.push(
+                                  <TableRow key="ca-audit-director">
+                                    <TableCell>{step}</TableCell>
+                                    <TableCell>Audit Director (final)</TableCell>
+                                    <TableCell>{personName(userObj)}</TableCell>
+                                    <TableCell>
+                                      <Chip size="small" label="Approved" color="success" variant="filled" />
+                                    </TableCell>
+                                    <TableCell>{ca.auditApprovedAt ? formatDateTime(ca.auditApprovedAt) : '—'}</TableCell>
+                                    <TableCell align="center">
+                                      {userObj?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={userObj} alt="Audit Director signature" />
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              }
+
+                              if (auditAction) {
+                                step += 1;
+                                rows.push(
+                                  <TableRow key="ca-audit-action">
+                                    <TableCell>{step}</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, color: 'primary.main' }}>{auditAction.label}</TableCell>
+                                    <TableCell>
+                                      {personName(auditAction.user)}
+                                      {auditAction.comments ? (
+                                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }}>
+                                          {auditAction.comments}
+                                        </Typography>
+                                      ) : null}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Chip size="small" label="—" color="default" variant="outlined" />
+                                    </TableCell>
+                                    <TableCell>{auditAction.actedAt ? formatDateTime(auditAction.actedAt) : '—'}</TableCell>
+                                    <TableCell align="center">
+                                      {auditAction.user?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={auditAction.user} alt="Pre-Audit signature" />
+                                      ) : (
+                                        <Typography variant="body2" color="text.secondary">—</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              }
+
+                              if (!rows.length) {
+                                return (
+                                  <TableRow>
+                                    <TableCell colSpan={6}>
+                                      <Typography variant="body2" color="text.secondary">
+                                        No authority approvals recorded on this Cash Approval yet.
+                                      </Typography>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              }
+
+                              return <>{rows}</>;
                             })()}
                           </TableBody>
                         </Table>

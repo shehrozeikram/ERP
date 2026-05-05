@@ -305,6 +305,8 @@ const fullPopulate = (q) => q
   .populate('completedBy', 'firstName lastName email')
   .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
   .populate('preAuditInitialApprovedBy', 'firstName lastName email digitalSignature')
+  .populate('auditReturnedBy', 'firstName lastName email digitalSignature')
+  .populate('auditRejectedBy', 'firstName lastName email digitalSignature')
   .populate('auditObservations.addedBy', 'firstName lastName email')
   .populate('auditObservations.answeredBy', 'firstName lastName email')
   .populate('ceoApprovedBy', 'firstName lastName email')

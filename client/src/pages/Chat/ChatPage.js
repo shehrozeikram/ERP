@@ -114,6 +114,63 @@ function linkifyText(text) {
   });
 }
 
+function renderFormattedChatText(text, mentions = []) {
+  if (!text) return null;
+  const mentionLabels = (Array.isArray(mentions) ? mentions : [])
+    .map((m) => String(m?.label || '').trim())
+    .filter(Boolean);
+
+  const renderWithMentions = (plainText, keyPrefix) => {
+    if (!plainText) return null;
+    if (!mentionLabels.length) return <span key={`${keyPrefix}-plain`}>{plainText}</span>;
+    const escaped = mentionLabels
+      .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .sort((a, b) => b.length - a.length);
+    const rx = new RegExp(`(@(?:${escaped.join('|')}))`, 'gi');
+    const bits = plainText.split(rx);
+    return bits.map((bit, idx) => {
+      const isMention = /^@.+/.test(bit) && mentionLabels.some((lbl) => bit.toLowerCase() === `@${lbl}`.toLowerCase());
+      if (isMention) {
+        return (
+          <strong key={`${keyPrefix}-m-${idx}`} style={{ fontWeight: 700 }}>
+            {bit}
+          </strong>
+        );
+      }
+      return <span key={`${keyPrefix}-t-${idx}`}>{bit}</span>;
+    });
+  };
+
+  const parts = String(text).split(/(https?:\/\/[^\s]+)/gi);
+  return parts.map((part, i) => {
+    if (/^https?:\/\//i.test(part)) {
+      return (
+        <a key={`url-${i}`} href={part} target="_blank" rel="noopener noreferrer" style={{ wordBreak: 'break-all' }}>
+          {part}
+        </a>
+      );
+    }
+    // WhatsApp-like bold syntax: *bold text* (also supports **bold**).
+    const chunks = part.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g);
+    return (
+      <React.Fragment key={`txt-${i}`}>
+        {chunks.map((chunk, j) => {
+          const isBold = /^\*\*[^*\n]+\*\*$/.test(chunk) || /^\*[^*\n]+\*$/.test(chunk);
+          if (isBold) {
+            const textValue = chunk.startsWith('**') ? chunk.slice(2, -2) : chunk.slice(1, -1);
+            return (
+              <strong key={`b-${i}-${j}`} style={{ fontWeight: 700 }}>
+                {renderWithMentions(textValue, `b-${i}-${j}`)}
+              </strong>
+            );
+          }
+          return <React.Fragment key={`s-${i}-${j}`}>{renderWithMentions(chunk, `s-${i}-${j}`)}</React.Fragment>;
+        })}
+      </React.Fragment>
+    );
+  });
+}
+
 function formatTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -177,6 +234,9 @@ const ChatPage = () => {
   const [groupDir, setGroupDir] = useState([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionUsers, setMentionUsers] = useState([]);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionAnchorPos, setMentionAnchorPos] = useState({ start: -1, end: -1 });
+  const [mentionHighlightIndex, setMentionHighlightIndex] = useState(0);
   const [pendingMentions, setPendingMentions] = useState([]);
   const [emojiMenu, setEmojiMenu] = useState(null);
   const composerRef = useRef(null);
@@ -196,6 +256,7 @@ const ChatPage = () => {
   const typingTimerRef = useRef(null);
   const lastTypingEmitRef = useRef(0);
   const socketRef = useRef(null);
+  const mentionRequestSeqRef = useRef(0);
 
   const loadConversations = useCallback(async () => {
     setLoadingList(true);
@@ -485,25 +546,46 @@ const ChatPage = () => {
     s.emit('chat:typing', { conversationId: activeId, typing: isTyping });
   };
 
+  const extractMentionContext = (text, caretPos) => {
+    const before = String(text || '').slice(0, Math.max(0, caretPos));
+    const at = before.lastIndexOf('@');
+    if (at < 0) return null;
+    const beforeAt = at > 0 ? before[at - 1] : ' ';
+    if (!/\s|[([{,.!?;:'"`-]/.test(beforeAt)) return null;
+    const token = before.slice(at + 1);
+    if (token.includes('\n')) return null;
+    if (token.length > 72) return null;
+    // Allow spaces in mention search (Cursor-like), trim only for query.
+    const query = token.replace(/^\s+/, '').slice(0, 64);
+    return { start: at, end: caretPos, query };
+  };
+
   const handleDraftChange = async (e) => {
     const v = e.target.value;
+    const caret = e.target.selectionStart ?? v.length;
     setDraft(v);
-    const at = v.lastIndexOf('@');
-    if (at >= 0) {
-      const after = v.slice(at + 1);
-      if (!after.includes(' ') && after.length <= 48) {
-        setMentionOpen(true);
-        try {
-          const rows = await ChatService.directory(after, 12);
+    const ctx = extractMentionContext(v, caret);
+    if (ctx) {
+      setMentionAnchorPos({ start: ctx.start, end: ctx.end });
+      setMentionQuery(ctx.query);
+      setMentionOpen(true);
+      setMentionHighlightIndex(0);
+      const seq = ++mentionRequestSeqRef.current;
+      try {
+        const rows = await ChatService.directory(ctx.query, 12);
+        if (mentionRequestSeqRef.current === seq) {
           setMentionUsers(rows);
-        } catch {
+        }
+      } catch {
+        if (mentionRequestSeqRef.current === seq) {
           setMentionUsers([]);
         }
-      } else {
-        setMentionOpen(false);
       }
     } else {
       setMentionOpen(false);
+      setMentionUsers([]);
+      setMentionQuery('');
+      setMentionAnchorPos({ start: -1, end: -1 });
     }
     emitTyping(true);
     clearTimeout(typingTimerRef.current);
@@ -512,16 +594,28 @@ const ChatPage = () => {
 
   const insertMention = (u) => {
     const label = u.fullName || `${u.firstName || ''} ${u.lastName || ''}`.trim();
-    const v = draft;
-    const at = v.lastIndexOf('@');
-    const prefix = at >= 0 ? v.slice(0, at) : v;
-    const next = `${prefix}@${label} `;
+    const v = String(draft || '');
+    const start = mentionAnchorPos.start >= 0 ? mentionAnchorPos.start : v.lastIndexOf('@');
+    const end = mentionAnchorPos.end >= 0 ? mentionAnchorPos.end : (composerRef.current?.selectionStart ?? v.length);
+    const prefix = start >= 0 ? v.slice(0, start) : v;
+    const suffix = end >= 0 ? v.slice(end) : '';
+    const next = `${prefix}@${label} ${suffix}`;
     setDraft(next);
     setPendingMentions((prev) => {
       if (prev.some((p) => String(p.userId) === String(u.id))) return prev;
       return [...prev, { userId: u.id, label }];
     });
     setMentionOpen(false);
+    setMentionUsers([]);
+    setMentionQuery('');
+    setMentionAnchorPos({ start: -1, end: -1 });
+    requestAnimationFrame(() => {
+      const pos = (prefix + `@${label} `).length;
+      if (composerRef.current) {
+        composerRef.current.focus();
+        composerRef.current.setSelectionRange(pos, pos);
+      }
+    });
   };
 
   const selectConversation = (id) => {
@@ -1078,7 +1172,7 @@ const ChatPage = () => {
                                             })
                                       }}
                                     >
-                                      {linkifyText(m.body)}
+                                      {renderFormattedChatText(m.body, m.mentions)}
                                     </Typography>
                                     {metaRight}
                                   </Box>
@@ -1099,30 +1193,10 @@ const ChatPage = () => {
                                           })
                                     }}
                                   >
-                                    {linkifyText(m.body)}
+                                    {renderFormattedChatText(m.body, m.mentions)}
                                   </Typography>
                                 ) : null}
-                                {!!(m.mentions || []).length && (
-                                  <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                    {(m.mentions || []).map((men) => (
-                                      <Chip
-                                        key={`${m.id}-${men.user}`}
-                                        size="small"
-                                        label={`@${men.label || 'user'}`}
-                                        variant="outlined"
-                                        sx={
-                                          mine
-                                            ? {
-                                                borderColor: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.25)',
-                                                color: outFg,
-                                                bgcolor: isDark ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.45)'
-                                              }
-                                            : { color: 'primary.main', borderColor: 'primary.light' }
-                                        }
-                                      />
-                                    ))}
-                                  </Box>
-                                )}
+                                {/* Mentions are rendered inline inside message body text; no duplicate chip row. */}
                                 {(m.linkPreviews || []).map((lp) => (
                                   <Card key={lp.url} variant="outlined" sx={{ mt: 0.75, bgcolor: 'background.paper' }}>
                                     {lp.image ? (
@@ -1319,6 +1393,29 @@ const ChatPage = () => {
                   value={draft}
                   onChange={handleDraftChange}
                   onKeyDown={(e) => {
+                    if (mentionOpen && mentionUsers.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setMentionHighlightIndex((idx) => (idx + 1) % mentionUsers.length);
+                        return;
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setMentionHighlightIndex((idx) => (idx - 1 + mentionUsers.length) % mentionUsers.length);
+                        return;
+                      }
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault();
+                        const pick = mentionUsers[Math.max(0, Math.min(mentionHighlightIndex, mentionUsers.length - 1))];
+                        if (pick) insertMention(pick);
+                        return;
+                      }
+                    }
+                    if (mentionOpen && e.key === 'Escape') {
+                      e.preventDefault();
+                      setMentionOpen(false);
+                      return;
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       sendNow();
@@ -1431,18 +1528,29 @@ const ChatPage = () => {
         open={mentionOpen && !!composerRef.current}
         anchorEl={composerRef.current}
         onClose={() => setMentionOpen(false)}
+        disableAutoFocus
+        disableEnforceFocus
+        disableRestoreFocus
         anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
         transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       >
         <List dense sx={{ minWidth: 220, maxHeight: 240, overflow: 'auto' }}>
-          {mentionUsers.map((u) => (
-            <ListItemButton key={u.id} onClick={() => insertMention(u)}>
+          {mentionUsers.map((u, idx) => (
+            <ListItemButton
+              key={u.id}
+              selected={idx === mentionHighlightIndex}
+              onMouseEnter={() => setMentionHighlightIndex(idx)}
+              onClick={() => insertMention(u)}
+            >
               <ListItemAvatar>
                 <Avatar src={getImageUrl(u.profileImage)} sx={{ width: 28, height: 28 }}>
                   {(u.firstName || '?')[0]}
                 </Avatar>
               </ListItemAvatar>
-              <ListItemText primary={u.fullName || `${u.firstName} ${u.lastName}`} secondary={u.email} />
+              <ListItemText
+                primary={u.fullName || `${u.firstName} ${u.lastName}`}
+                secondary={mentionQuery ? `@${mentionQuery}  ·  ${u.email}` : u.email}
+              />
             </ListItemButton>
           ))}
         </List>

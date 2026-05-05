@@ -16,13 +16,17 @@ import {
   Alert,
   Tooltip,
   TextField,
-  Button
+  Button,
+  FormControlLabel,
+  Switch
 } from '@mui/material';
 import { Person as PersonIcon, Email, Phone, Work, LocationOn, CameraAlt as CameraIcon, Draw as DrawIcon } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { authService } from '../../services/authService';
 import api from '../../services/api';
 import { getImageUrl } from '../../utils/imageService';
+
+const CHAT_SOUND_PREF_PREFIX = 'sgc:chat-sound-enabled:';
 
 const Profile = () => {
   const theme = useTheme();
@@ -39,6 +43,7 @@ const Profile = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [chatSoundEnabled, setChatSoundEnabled] = useState(true);
 
   useEffect(() => {
     if (user?.profileImage) {
@@ -52,6 +57,14 @@ const Profile = () => {
       setSignaturePreview(null);
     }
   }, [user]);
+
+  useEffect(() => {
+    const uid = String(user?.id || user?._id || '');
+    if (!uid) return;
+    const key = `${CHAT_SOUND_PREF_PREFIX}${uid}`;
+    const saved = localStorage.getItem(key);
+    setChatSoundEnabled(saved == null ? true : (saved !== '0' && saved !== 'false'));
+  }, [user?.id, user?._id]);
 
   const handleImageClick = () => {
     fileInputRef.current?.click();
@@ -233,6 +246,19 @@ const Profile = () => {
     } finally {
       setSignatureUploading(false);
     }
+  };
+
+  const handleToggleChatSound = (enabled) => {
+    const uid = String(user?.id || user?._id || '');
+    if (!uid) return;
+    const key = `${CHAT_SOUND_PREF_PREFIX}${uid}`;
+    localStorage.setItem(key, enabled ? '1' : '0');
+    setChatSoundEnabled(enabled);
+    setSnackbar({
+      open: true,
+      message: enabled ? 'Chat sound enabled' : 'Chat sound muted',
+      severity: 'success'
+    });
   };
 
   const formatEmployeeId = (employeeId) => {
@@ -529,6 +555,29 @@ const Profile = () => {
                   </Button>
                 ) : null}
               </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2, color: theme.palette.text.primary }}>
+                Chat preferences
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Control whether an audible alert plays when a new chat message arrives in real time.
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={chatSoundEnabled}
+                    onChange={(e) => handleToggleChatSound(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={chatSoundEnabled ? 'Chat sound on' : 'Chat sound off'}
+              />
             </CardContent>
           </Card>
         </Grid>
