@@ -364,6 +364,14 @@ const ComparativeStatementView = ({
                   ))}
                 </tr>
                 <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
+                  <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>Discount</td>
+                  {quotations.map((quote, idx) => (
+                    <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
+                      {formatNumber(quote.discountAmount || 0)}
+                    </td>
+                  ))}
+                </tr>
+                <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
                   <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>Income Tax</td>
                   {quotations.map((_, idx) => <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>Not Included</td>)}
                 </tr>

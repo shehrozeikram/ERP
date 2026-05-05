@@ -114,6 +114,21 @@ const quotationSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  freightCarriage: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  installation: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  freight: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   notes: {
     type: String,
     trim: true

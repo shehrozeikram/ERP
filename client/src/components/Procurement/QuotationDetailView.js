@@ -153,6 +153,18 @@ const QuotationDetailView = ({
           <Typography component="span" sx={{ minWidth: '100px' }}>Validity:</Typography>
           <Typography component="span">{data.validityDays ? `${data.validityDays}Days` : '30Days'}</Typography>
         </Box>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
+          <Typography component="span" sx={{ minWidth: '140px' }}>Freight/Carriage:</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{data.freightCarriage || '—'}</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
+          <Typography component="span" sx={{ minWidth: '140px' }}>Installation:</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{data.installation || '—'}</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
+          <Typography component="span" sx={{ minWidth: '140px' }}>Freight:</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{data.freight || '—'}</Typography>
+        </Box>
         {data.attachments?.length > 0 && (
           <Box sx={{ mb: 1 }}>
             <Typography component="span" sx={{ minWidth: '100px' }}>Attachments:</Typography>

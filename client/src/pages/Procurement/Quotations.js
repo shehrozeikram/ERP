@@ -28,7 +28,9 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  Autocomplete
+  Autocomplete,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -92,10 +94,14 @@ const Quotations = () => {
     validityDays: 30,
     deliveryTime: '',
     paymentTerms: '',
+    freightCarriage: '',
+    installation: '',
+    freight: '',
     notes: '',
     attachments: []
   });
   const [attachmentFiles, setAttachmentFiles] = useState([]);
+  const [termTab, setTermTab] = useState(0);
 
   const loadIndentsWithSplitAssignments = useCallback(async () => {
     try {
@@ -198,10 +204,14 @@ const Quotations = () => {
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
+        freightCarriage: '',
+        installation: '',
+        freight: '',
         notes: '',
         attachments: []
       });
       setAttachmentFiles([]);
+      setTermTab(0);
       setFormDialog({ open: true, mode: 'create', data: null, requisition });
     } else {
       setFormData({
@@ -214,10 +224,14 @@ const Quotations = () => {
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
+        freightCarriage: '',
+        installation: '',
+        freight: '',
         notes: '',
         attachments: []
       });
       setAttachmentFiles([]);
+      setTermTab(0);
       setFormDialog({ open: true, mode: 'create', data: null, requisition: null });
     }
   };
@@ -242,10 +256,14 @@ const Quotations = () => {
       validityDays: quotation.validityDays || 30,
       deliveryTime: quotation.deliveryTime || '',
       paymentTerms: quotation.paymentTerms || '',
+      freightCarriage: quotation.freightCarriage || '',
+      installation: quotation.installation || '',
+      freight: quotation.freight || '',
       notes: quotation.notes || '',
       attachments: quotation.attachments || []
     });
     setAttachmentFiles([]);
+    setTermTab(0);
     setFormDialog({ open: true, mode: 'edit', data: quotation, requisition: null, editReason: 'Negotiating purpose' });
     setEditReasonDialog({ open: false, quotation: null });
   };
@@ -949,6 +967,49 @@ const Quotations = () => {
               <MenuItem value="Partial Advance">Partial Advance</MenuItem>
               <MenuItem value="Payment After Delivery">Payment After Delivery</MenuItem>
             </TextField>
+            <Box>
+              <Tabs
+                value={termTab}
+                onChange={(_, value) => setTermTab(value)}
+                variant="scrollable"
+                scrollButtons="auto"
+                sx={{ borderBottom: 1, borderColor: 'divider', mb: 1 }}
+              >
+                <Tab label="Freight/Carriage" />
+                <Tab label="Installation" />
+                <Tab label="Freight" />
+              </Tabs>
+              {termTab === 0 && (
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  label="Freight/Carriage"
+                  value={formData.freightCarriage || ''}
+                  onChange={(e) => setFormData({ ...formData, freightCarriage: e.target.value })}
+                />
+              )}
+              {termTab === 1 && (
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  label="Installation"
+                  value={formData.installation || ''}
+                  onChange={(e) => setFormData({ ...formData, installation: e.target.value })}
+                />
+              )}
+              {termTab === 2 && (
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  label="Freight"
+                  value={formData.freight || ''}
+                  onChange={(e) => setFormData({ ...formData, freight: e.target.value })}
+                />
+              )}
+            </Box>
             <Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Attachments</Typography>
               <input

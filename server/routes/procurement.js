@@ -5608,6 +5608,9 @@ router.post('/public-quotation/:token', [
     validityDays,
     deliveryTime: req.body.deliveryTime || '',
     paymentTerms: req.body.paymentTerms || '',
+    freightCarriage: req.body.freightCarriage || '',
+    installation: req.body.installation || '',
+    freight: req.body.freight || '',
     notes: req.body.notes || '',
     createdBy: null // Public submission, no user
   });
