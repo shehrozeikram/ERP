@@ -19,6 +19,7 @@ import {
   ListItemAvatar,
   ListItemButton,
   ListItemText,
+  ListSubheader,
   Menu,
   MenuItem,
   Paper,
@@ -194,6 +195,29 @@ function formatDayLabel(iso) {
   if (y(d) === y(yest)) return 'Yesterday';
   return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 }
+
+const getDepartmentLabel = (userObj) =>
+  (userObj?.department || userObj?.departmentName || userObj?.departmentCode || '').trim() || 'No Department';
+
+const getEmployeeName = (userObj) =>
+  userObj?.fullName || [userObj?.firstName, userObj?.lastName].filter(Boolean).join(' ').trim() || userObj?.email || 'Employee';
+
+const groupUsersByDepartment = (users = []) => {
+  const sorted = [...users].sort((a, b) => {
+    const deptCmp = getDepartmentLabel(a).localeCompare(getDepartmentLabel(b), undefined, { sensitivity: 'base' });
+    if (deptCmp !== 0) return deptCmp;
+    return getEmployeeName(a).localeCompare(getEmployeeName(b), undefined, { sensitivity: 'base' });
+  });
+
+  const groups = [];
+  sorted.forEach((u) => {
+    const department = getDepartmentLabel(u);
+    const existing = groups.find((g) => g.department === department);
+    if (existing) existing.members.push(u);
+    else groups.push({ department, members: [u] });
+  });
+  return groups;
+};
 
 function newClientId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -827,6 +851,14 @@ const ChatPage = () => {
         ? 'Online'
         : 'Offline'
     : `${onlineOthersCount} online`;
+  const groupedGroupMembers = useMemo(
+    () => groupUsersByDepartment(groupDir.filter((u) => String(u.id) !== String(meId))),
+    [groupDir, meId]
+  );
+  const groupedDirectory = useMemo(
+    () => groupUsersByDepartment(directory.filter((u) => String(u.id) !== String(meId))),
+    [directory, meId]
+  );
 
   return (
     <Box sx={{ height: 'calc(100vh - 140px)', display: 'flex', gap: 0, mx: -3, mt: -2 }}>
@@ -1606,14 +1638,19 @@ const ChatPage = () => {
             Select at least one member (you are added automatically).
           </Typography>
           <List dense sx={{ maxHeight: 280, overflow: 'auto' }}>
-            {groupDir
-              .filter((u) => String(u.id) !== String(meId))
-              .map((u) => (
-                <ListItemButton key={u.id} onClick={() => toggleGroupMember(u.id)} dense>
-                  <Checkbox edge="start" checked={groupPick.includes(u.id)} tabIndex={-1} disableRipple />
-                  <ListItemText primary={u.fullName || `${u.firstName} ${u.lastName}`} secondary={u.email} />
-                </ListItemButton>
-              ))}
+            {groupedGroupMembers.map((grp) => (
+              <React.Fragment key={grp.department}>
+                <ListSubheader disableSticky sx={{ bgcolor: 'action.hover', lineHeight: 1.9, fontWeight: 700 }}>
+                  {grp.department}
+                </ListSubheader>
+                {grp.members.map((u) => (
+                  <ListItemButton key={u.id} onClick={() => toggleGroupMember(u.id)} dense>
+                    <Checkbox edge="start" checked={groupPick.includes(u.id)} tabIndex={-1} disableRipple />
+                    <ListItemText primary={getEmployeeName(u)} secondary={u.email} />
+                  </ListItemButton>
+                ))}
+              </React.Fragment>
+            ))}
           </List>
         </DialogContent>
         <DialogActions>
@@ -1635,15 +1672,22 @@ const ChatPage = () => {
             onChange={(e) => setDirSearch(e.target.value)}
           />
           <List>
-            {directory.map((u) => (
-              <ListItemButton key={u.id} onClick={() => startWithUser(u.id)}>
-                <ListItemAvatar>
-                  <Avatar src={getImageUrl(u.profileImage)} onError={handleImageError}>
-                    {(u.firstName || '?')[0]}
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText primary={u.fullName || `${u.firstName} ${u.lastName}`} secondary={u.email} />
-              </ListItemButton>
+            {groupedDirectory.map((grp) => (
+              <React.Fragment key={grp.department}>
+                <ListSubheader disableSticky sx={{ bgcolor: 'action.hover', lineHeight: 1.9, fontWeight: 700 }}>
+                  {grp.department}
+                </ListSubheader>
+                {grp.members.map((u) => (
+                  <ListItemButton key={u.id} onClick={() => startWithUser(u.id)}>
+                    <ListItemAvatar>
+                      <Avatar src={getImageUrl(u.profileImage)} onError={handleImageError}>
+                        {(u.firstName || '?')[0]}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText primary={getEmployeeName(u)} secondary={u.email} />
+                  </ListItemButton>
+                ))}
+              </React.Fragment>
             ))}
           </List>
         </DialogContent>

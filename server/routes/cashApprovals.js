@@ -1,6 +1,6 @@
 /**
  * Cash Approval Routes
- * Full workflow: Draft → Audit → CEO → Finance (Advance) → Procurement (Evidence) → Finance (Settle) → Procurement → Completed
+ * Full workflow: Draft → Audit → CEO → Finance (Advance) → Finance (Settle) → Procurement → Completed
  */
 const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -345,7 +345,7 @@ router.get('/statistics', authMiddleware, asyncHandler(async (req, res) => {
 // GET /api/cash-approvals/pending-finance  (for Finance view)
 router.get('/pending-finance', authMiddleware, asyncHandler(async (req, res) => {
   const data = await fullPopulate(
-    CashApproval.find({ status: { $in: ['Pending Finance', 'Advance Issued', 'Evidence Submitted', 'Payment Settled'] } }).sort({ createdAt: -1 })
+    CashApproval.find({ status: { $in: ['Pending Finance', 'Advance Issued', 'Payment Settled'] } }).sort({ createdAt: -1 })
   );
   res.json({ success: true, data });
 }));
@@ -968,8 +968,8 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
   const amount = Math.round(parseFloat(advanceAmount) * 100) / 100;
   const isCash = (advancePaymentMethod || 'Cash').toLowerCase() === 'cash';
 
-  pushHistory(ca, 'Pending Finance', 'Advance Issued', req.user.id, `Advance of ${amount} issued via ${advancePaymentMethod || 'Cash'}. Voucher: ${advanceVoucherNo || '-'}`, 'Finance');
-  ca.status = 'Advance Issued';
+  pushHistory(ca, 'Pending Finance', 'Payment Settled', req.user.id, `Advance of ${amount} issued via ${advancePaymentMethod || 'Cash'}. Voucher: ${advanceVoucherNo || '-'}. Auto-settled.`, 'Finance');
+  ca.status = 'Payment Settled';
   ca.advanceTo = advanceTo || null;
   ca.advanceToName = advanceToName || '';
   ca.advanceAmount = amount;
@@ -978,6 +978,13 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
   ca.advanceRemarks = advanceRemarks || '';
   ca.advanceIssuedBy = req.user.id;
   ca.advanceIssuedAt = new Date();
+  ca.actualAmountSpent = amount;
+  ca.excessReturned = 0;
+  ca.additionalPaid = 0;
+  ca.settlementRemarks = 'Auto-settled on advance issue';
+  ca.settlementDate = new Date();
+  ca.settledBy = req.user.id;
+  ca.financeVerificationNotes = '';
   ca.updatedBy = req.user.id;
   await ca.save();
 
@@ -1020,172 +1027,8 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
   }
 
   const procRecipients = await getProcurementRecipients();
-  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Advance Issued', message: `Advance of PKR ${amount.toLocaleString()} issued for Cash Approval ${ca.caNumber}. Proceed with purchase.`, actionUrl: '/procurement/cash-approvals', entityId: ca._id });
-  res.json({ success: true, message: 'Advance issued successfully', data: await fullPopulate(CashApproval.findById(ca._id)) });
-}));
-
-// Phase 7: Procurement Submit Evidence (after advance received, purchase made)
-router.put('/:id/submit-evidence', authMiddleware, asyncHandler(async (req, res) => {
-  if (!hasProcurementAccess(req.user)) return res.status(403).json({ success: false, message: 'Procurement access required' });
-  const ca = await CashApproval.findById(req.params.id);
-  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  if (ca.status !== 'Advance Issued') {
-    return res.status(400).json({ success: false, message: 'Evidence can only be submitted when status is "Advance Issued"' });
-  }
-  const { evidenceActualAmount, purchaseInvoiceNo, evidenceRemarks, purchaseReceipts } = req.body;
-  if (!evidenceActualAmount || parseFloat(evidenceActualAmount) <= 0) {
-    return res.status(400).json({ success: false, message: 'Actual amount spent is required' });
-  }
-  pushHistory(
-    ca, 'Advance Issued', 'Evidence Submitted', req.user.id,
-    `Purchase evidence submitted. Invoice: ${purchaseInvoiceNo || '—'}. Amount spent: ${evidenceActualAmount}. ${evidenceRemarks || ''}`,
-    'Procurement'
-  );
-  ca.status = 'Evidence Submitted';
-  ca.evidenceSubmittedBy = req.user.id;
-  ca.evidenceSubmittedAt = new Date();
-  ca.purchaseInvoiceNo = purchaseInvoiceNo || '';
-  ca.evidenceActualAmount = parseFloat(evidenceActualAmount);
-  ca.evidenceRemarks = evidenceRemarks || '';
-  if (Array.isArray(purchaseReceipts) && purchaseReceipts.length) {
-    ca.purchaseReceipts.push(...purchaseReceipts);
-  }
-  ca.updatedBy = req.user.id;
-  await ca.save();
-  const financeRecipients = await getFinanceRecipients();
-  await notify({
-    recipientIds: financeRecipients,
-    actorId: req.user.id,
-    title: 'Purchase Evidence Submitted — Action Required',
-    message: `Procurement has submitted purchase receipts for Cash Approval ${ca.caNumber}. Please review and confirm settlement.`,
-    actionUrl: '/finance/cash-approvals',
-    entityId: ca._id
-  });
-  res.json({ success: true, message: 'Purchase evidence submitted. Finance will review and confirm settlement.', data: await fullPopulate(CashApproval.findById(ca._id)) });
-}));
-
-// Phase 8: Finance Confirm Settlement (reviews evidence, records final amounts)
-router.put('/:id/settle-payment', authMiddleware, asyncHandler(async (req, res) => {
-  const ca = await CashApproval.findById(req.params.id);
-  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  const assignedAuthorityAccess =
-    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
-    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
-  if (!hasFinanceAccess(req.user) && !assignedAuthorityAccess) {
-    return res.status(403).json({ success: false, message: 'Finance access required' });
-  }
-  if (ca.status !== 'Evidence Submitted') {
-    return res.status(400).json({ success: false, message: 'Finance can only confirm settlement after procurement submits purchase evidence' });
-  }
-  const { actualAmountSpent, settlementRemarks, financeVerificationNotes, receiptAttachments } = req.body;
-  if (actualAmountSpent === undefined || actualAmountSpent === null) {
-    return res.status(400).json({ success: false, message: 'Actual amount spent is required' });
-  }
-  const spent = Math.round(parseFloat(actualAmountSpent) * 100) / 100;
-  const advance = Math.round((ca.advanceAmount || 0) * 100) / 100;
-  const excess = advance > spent ? Math.round((advance - spent) * 100) / 100 : 0;
-  const additional = spent > advance ? Math.round((spent - advance) * 100) / 100 : 0;
-
-  pushHistory(
-    ca, 'Evidence Submitted', 'Payment Settled', req.user.id,
-    `Finance confirmed. Actual spent: ${spent}. Excess returned: ${excess}. Additional paid: ${additional}. ${settlementRemarks || ''}`,
-    'Finance'
-  );
-  ca.status = 'Payment Settled';
-  ca.actualAmountSpent = spent;
-  ca.excessReturned = excess;
-  ca.additionalPaid = additional;
-  ca.settlementRemarks = settlementRemarks || '';
-  ca.financeVerificationNotes = financeVerificationNotes || '';
-  ca.settlementDate = new Date();
-  ca.settledBy = req.user.id;
-  ca.updatedBy = req.user.id;
-  if (Array.isArray(receiptAttachments) && receiptAttachments.length) {
-    ca.receiptAttachments.push(...receiptAttachments);
-  }
-  await ca.save();
-
-  // ── Journal Entry 2: Settle the advance ──────────────────────────────────────
-  //
-  // Three possible scenarios:
-  //   A) Exact match  — DR Expense / CR Staff Advance  (advance == spent)
-  //   B) Excess cash  — DR Expense / DR Cash / CR Staff Advance (spent < advance, staff returns change)
-  //   C) Extra spend  — DR Expense / CR Staff Advance / CR Cash (spent > advance, company tops up)
-  //
-  try {
-    const staffAdvAcc  = await FinanceHelper.ensureStaffAdvanceAccount(req.user.id);
-    const expenseAcc   = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
-    const isCash       = (ca.advancePaymentMethod || 'Cash').toLowerCase() === 'cash';
-    const cashBankAcc  = await FinanceHelper.getAccountByNumber(
-      isCash ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
-    );
-
-    if (staffAdvAcc && expenseAcc && cashBankAcc) {
-      const lines = [];
-
-      // Debit: Expense for the actual amount spent
-      lines.push({
-        account: expenseAcc._id,
-        description: `Purchase expense — ${ca.caNumber} (${ca.vendor?.name || 'Vendor'})`,
-        debit: spent,
-        department: 'procurement'
-      });
-
-      // Scenario B: excess cash returned — DR Cash (staff returns leftover)
-      if (excess > 0) {
-        lines.push({
-          account: cashBankAcc._id,
-          description: `Excess cash returned for ${ca.caNumber}`,
-          debit: excess,
-          department: 'finance'
-        });
-      }
-
-      // Credit: Clear the staff advance account (the full advance amount)
-      lines.push({
-        account: staffAdvAcc._id,
-        description: `Staff advance cleared — ${ca.caNumber}`,
-        credit: advance,
-        department: 'procurement'
-      });
-
-      // Scenario C: additional spend by company — CR Cash (company tops up)
-      if (additional > 0) {
-        lines.push({
-          account: cashBankAcc._id,
-          description: `Additional cash paid for ${ca.caNumber}`,
-          credit: additional,
-          department: 'finance'
-        });
-      }
-
-      await FinanceHelper.createAndPostJournalEntry({
-        date: new Date(),
-        reference: ca.caNumber,
-        description: `Cash Advance Settlement — ${ca.caNumber}${ca.vendor?.name ? ` (${ca.vendor.name})` : ''}`,
-        department: 'procurement',
-        module: 'procurement',
-        referenceId: ca._id,
-        referenceType: 'expense',
-        journalCode: isCash ? 'CASH' : 'BANK',
-        createdBy: req.user.id,
-        lines
-      });
-    }
-  } catch (jeErr) {
-    console.error(`⚠️  JE (settlement) failed for ${ca.caNumber}:`, jeErr.message);
-  }
-
-  const procRecipients = await getProcurementRecipients();
-  await notify({
-    recipientIds: procRecipients,
-    actorId: req.user.id,
-    title: 'Cash Approval Payment Settled',
-    message: `Finance has confirmed the settlement for Cash Approval ${ca.caNumber}. Awaiting final confirmation.`,
-    actionUrl: '/procurement/cash-approvals',
-    entityId: ca._id
-  });
-  res.json({ success: true, message: 'Payment settled successfully', data: await fullPopulate(CashApproval.findById(ca._id)) });
+  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Settled after Advance', message: `Advance of PKR ${amount.toLocaleString()} issued for Cash Approval ${ca.caNumber}. It is now marked as settled and ready to send to Procurement.`, actionUrl: '/procurement/cash-approvals', entityId: ca._id });
+  res.json({ success: true, message: 'Advance issued and settlement completed successfully', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
 // Phase 8: Finance Send to Procurement

@@ -13,7 +13,7 @@ import {
   CheckCircle as ApproveIcon, Cancel as RejectIcon,
   Print as PrintIcon, Send as SendIcon, Undo as ReturnIcon,
   ArrowForward as ForwardIcon, MonetizationOn as CashIcon,
-  Receipt as ReceiptIcon, Done as CompleteIcon,
+  Done as CompleteIcon,
   Search as SearchIcon, History as HistoryIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -35,7 +35,6 @@ const STATUS_COLORS = {
   'Forwarded to CEO': 'info',
   'Pending Finance': 'warning',
   'Advance Issued': 'primary',
-  'Evidence Submitted': 'secondary',
   'Payment Settled': 'success',
   'Sent to Procurement': 'success',
   'Completed': 'success',
@@ -71,7 +70,7 @@ const WidePopper = (props) => {
 const WORKFLOW_STEPS = [
   'Draft', 'Pending Approval', 'Pending Audit', 'Forwarded to Audit Director',
   'Send to CEO Office', 'Forwarded to CEO', 'Pending Finance',
-  'Advance Issued', 'Evidence Submitted', 'Payment Settled', 'Sent to Procurement', 'Completed'
+  'Payment Settled', 'Sent to Procurement', 'Completed'
 ];
 
 const getStepIndex = (status) => {
@@ -451,8 +450,6 @@ const CashApprovalsPage = () => {
         case 'ceo-reject': actionRes = await procurementService.caCeoReject(ca._id, actionComments); break;
         case 'ceo-return': actionRes = await procurementService.caCeoReturn(ca._id, actionComments); break;
         case 'issue-advance': actionRes = await procurementService.caIssueAdvance(ca._id, extraData); break;
-        case 'submit-evidence': actionRes = await procurementService.caSubmitEvidence(ca._id, extraData); break;
-        case 'settle-payment': actionRes = await procurementService.caSettlePayment(ca._id, extraData); break;
         case 'send-to-procurement': actionRes = await procurementService.caSendToProcurement(ca._id, actionComments); break;
         case 'complete': actionRes = await procurementService.caComplete(ca._id, actionComments); break;
         case 'cancel': actionRes = await procurementService.caCancel(ca._id, actionComments); break;
@@ -553,16 +550,6 @@ const CashApprovalsPage = () => {
           actions.push({ label: 'Issue Advance', type: 'issue-advance', color: 'success', icon: <CashIcon /> });
         }
         break;
-      case 'Advance Issued':
-        if (isProcurement) {
-          actions.push({ label: 'Submit Evidence', type: 'submit-evidence', color: 'secondary', icon: <ReceiptIcon /> });
-        }
-        break;
-      case 'Evidence Submitted':
-        if (isFinance || isAssignedAuthority) {
-          actions.push({ label: 'Confirm Settlement', type: 'settle-payment', color: 'success', icon: <ApproveIcon /> });
-        }
-        break;
       case 'Payment Settled':
         if (isFinance || isAssignedAuthority) {
           actions.push({ label: 'Send to Procurement', type: 'send-to-procurement', color: 'primary', icon: <SendIcon /> });
@@ -586,30 +573,6 @@ const CashApprovalsPage = () => {
     if (actionDialog.type === 'issue-advance') {
       api.get('/hr/employees?limit=300&isActive=true').then((r) => setEmployees(r.data?.data || [])).catch(() => setEmployees([]));
       setAdvanceForm({ advanceTo: null, advanceToName: '', advanceAmount: actionDialog.ca?.totalAmount || '', advancePaymentMethod: 'Cash', advanceVoucherNo: '', advanceRemarks: '' });
-    }
-  }, [actionDialog.type, actionDialog.ca]);
-
-  // ─── Submit Evidence Dialog State ────────────────────────────────────────────
-  const [evidenceForm, setEvidenceForm] = useState({ evidenceActualAmount: '', purchaseInvoiceNo: '', evidenceRemarks: '' });
-  useEffect(() => {
-    if (actionDialog.type === 'submit-evidence') {
-      setEvidenceForm({
-        evidenceActualAmount: actionDialog.ca?.totalAmount || '',
-        purchaseInvoiceNo: '',
-        evidenceRemarks: ''
-      });
-    }
-  }, [actionDialog.type, actionDialog.ca]);
-
-  // ─── Confirm Settlement Dialog State ─────────────────────────────────────────
-  const [settlementForm, setSettlementForm] = useState({ actualAmountSpent: '', settlementRemarks: '', financeVerificationNotes: '' });
-  useEffect(() => {
-    if (actionDialog.type === 'settle-payment') {
-      setSettlementForm({
-        actualAmountSpent: actionDialog.ca?.evidenceActualAmount || actionDialog.ca?.advanceAmount || '',
-        settlementRemarks: '',
-        financeVerificationNotes: ''
-      });
     }
   }, [actionDialog.type, actionDialog.ca]);
 
@@ -1408,7 +1371,7 @@ const CashApprovalsPage = () => {
       />
 
       {/* ─── Action Dialogs ───────────────────────────────────────────────────── */}
-      <Dialog open={actionDialog.open && !['issue-advance', 'submit-evidence', 'settle-payment'].includes(actionDialog.type)} onClose={closeAction} maxWidth="sm" fullWidth>
+      <Dialog open={actionDialog.open && !['issue-advance'].includes(actionDialog.type)} onClose={closeAction} maxWidth="sm" fullWidth>
         <DialogTitle>
           {actionDialog.type === 'send-to-audit' && 'Send to Audit'}
           {actionDialog.type === 'approve' && 'Approve Cash Approval'}
@@ -1500,150 +1463,6 @@ const CashApprovalsPage = () => {
           <Button onClick={closeAction}>Cancel</Button>
           <Button variant="contained" color="success" onClick={() => handleAction({ ...advanceForm, advanceAmount: parseFloat(advanceForm.advanceAmount) })} disabled={actionLoading || !advanceForm.advanceAmount}>
             {actionLoading ? <CircularProgress size={20} /> : 'Issue Advance'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Submit Purchase Evidence Dialog (Procurement Officer) */}
-      <Dialog open={actionDialog.open && actionDialog.type === 'submit-evidence'} onClose={closeAction} maxWidth="sm" fullWidth>
-        <DialogTitle>Submit Purchase Evidence — {actionDialog.ca?.caNumber}</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid item xs={12}>
-              <Alert severity="info">
-                Advance Issued: <strong>{formatPKR(actionDialog.ca?.advanceAmount)}</strong>
-                {actionDialog.ca?.advanceToName && <> &nbsp;·&nbsp; Issued to: <strong>{actionDialog.ca.advanceToName}</strong></>}
-              </Alert>
-            </Grid>
-            <Grid item xs={12}>
-              <Alert severity="warning">
-                You are confirming that the purchase has been made. Please attach receipts / invoices and enter the actual amount spent.
-              </Alert>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth size="small" type="number" label="Actual Amount Spent *"
-                value={evidenceForm.evidenceActualAmount}
-                onChange={(e) => setEvidenceForm({ ...evidenceForm, evidenceActualAmount: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth size="small" label="Vendor Invoice / Receipt No."
-                value={evidenceForm.purchaseInvoiceNo}
-                onChange={(e) => setEvidenceForm({ ...evidenceForm, purchaseInvoiceNo: e.target.value })}
-              />
-            </Grid>
-            {evidenceForm.evidenceActualAmount && (
-              <Grid item xs={12}>
-                {parseFloat(evidenceForm.evidenceActualAmount) < (actionDialog.ca?.advanceAmount || 0) && (
-                  <Alert severity="success">
-                    You will return excess cash of: <strong>{formatPKR((actionDialog.ca?.advanceAmount || 0) - parseFloat(evidenceForm.evidenceActualAmount))}</strong>
-                  </Alert>
-                )}
-                {parseFloat(evidenceForm.evidenceActualAmount) > (actionDialog.ca?.advanceAmount || 0) && (
-                  <Alert severity="warning">
-                    You spent <strong>{formatPKR(parseFloat(evidenceForm.evidenceActualAmount) - (actionDialog.ca?.advanceAmount || 0))}</strong> more than the advance — Finance will need to pay additional.
-                  </Alert>
-                )}
-              </Grid>
-            )}
-            <Grid item xs={12}>
-              <TextField
-                fullWidth size="small" multiline rows={3}
-                label="Remarks (items purchased, vendor details, etc.)"
-                value={evidenceForm.evidenceRemarks}
-                onChange={(e) => setEvidenceForm({ ...evidenceForm, evidenceRemarks: e.target.value })}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeAction}>Cancel</Button>
-          <Button
-            variant="contained" color="secondary"
-            onClick={() => handleAction({ ...evidenceForm, evidenceActualAmount: parseFloat(evidenceForm.evidenceActualAmount) })}
-            disabled={actionLoading || !evidenceForm.evidenceActualAmount}
-          >
-            {actionLoading ? <CircularProgress size={20} /> : 'Submit Evidence'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Confirm Settlement Dialog (Finance — reviews submitted evidence) */}
-      <Dialog open={actionDialog.open && actionDialog.type === 'settle-payment'} onClose={closeAction} maxWidth="sm" fullWidth>
-        <DialogTitle>Confirm Settlement — {actionDialog.ca?.caNumber}</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid item xs={12}>
-              <Alert severity="info">
-                Advance Issued: <strong>{formatPKR(actionDialog.ca?.advanceAmount)}</strong>
-                &nbsp;·&nbsp; Evidence submitted by: <strong>
-                  {actionDialog.ca?.evidenceSubmittedBy
-                    ? `${actionDialog.ca.evidenceSubmittedBy.firstName || ''} ${actionDialog.ca.evidenceSubmittedBy.lastName || ''}`.trim()
-                    : '—'}
-                </strong>
-              </Alert>
-            </Grid>
-            {actionDialog.ca?.purchaseInvoiceNo && (
-              <Grid item xs={12}>
-                <Alert severity="success">
-                  Invoice / Receipt No.: <strong>{actionDialog.ca.purchaseInvoiceNo}</strong>
-                  &nbsp;·&nbsp; Reported Amount: <strong>{formatPKR(actionDialog.ca.evidenceActualAmount)}</strong>
-                </Alert>
-              </Grid>
-            )}
-            {actionDialog.ca?.evidenceRemarks && (
-              <Grid item xs={12}>
-                <Typography variant="caption" color="text.secondary">Procurement Remarks</Typography>
-                <Typography variant="body2" sx={{ p: 1, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider', mt: 0.5 }}>
-                  {actionDialog.ca.evidenceRemarks}
-                </Typography>
-              </Grid>
-            )}
-            <Grid item xs={12}>
-              <TextField
-                fullWidth size="small" type="number" label="Actual Amount Spent (confirmed by Finance) *"
-                value={settlementForm.actualAmountSpent}
-                onChange={(e) => setSettlementForm({ ...settlementForm, actualAmountSpent: e.target.value })}
-                helperText="Pre-filled from procurement submission. Change if verified amount differs."
-              />
-            </Grid>
-            {settlementForm.actualAmountSpent && (
-              <Grid item xs={12}>
-                {parseFloat(settlementForm.actualAmountSpent) < (actionDialog.ca?.advanceAmount || 0) && (
-                  <Alert severity="success">Excess to be returned: <strong>{formatPKR((actionDialog.ca?.advanceAmount || 0) - parseFloat(settlementForm.actualAmountSpent))}</strong></Alert>
-                )}
-                {parseFloat(settlementForm.actualAmountSpent) > (actionDialog.ca?.advanceAmount || 0) && (
-                  <Alert severity="warning">Additional amount to pay: <strong>{formatPKR(parseFloat(settlementForm.actualAmountSpent) - (actionDialog.ca?.advanceAmount || 0))}</strong></Alert>
-                )}
-              </Grid>
-            )}
-            <Grid item xs={12}>
-              <TextField
-                fullWidth size="small" multiline rows={2} label="Finance Verification Notes"
-                value={settlementForm.financeVerificationNotes}
-                onChange={(e) => setSettlementForm({ ...settlementForm, financeVerificationNotes: e.target.value })}
-                placeholder="Receipts verified, amounts match, etc."
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth size="small" multiline rows={2} label="Settlement Remarks"
-                value={settlementForm.settlementRemarks}
-                onChange={(e) => setSettlementForm({ ...settlementForm, settlementRemarks: e.target.value })}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeAction}>Cancel</Button>
-          <Button
-            variant="contained" color="success"
-            onClick={() => handleAction({ ...settlementForm, actualAmountSpent: parseFloat(settlementForm.actualAmountSpent) })}
-            disabled={actionLoading || !settlementForm.actualAmountSpent}
-          >
-            {actionLoading ? <CircularProgress size={20} /> : 'Confirm Settlement'}
           </Button>
         </DialogActions>
       </Dialog>

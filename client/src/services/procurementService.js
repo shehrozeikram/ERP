@@ -218,14 +218,6 @@ const procurementService = {
     const response = await api.put(`/cash-approvals/${id}/issue-advance`, data);
     return response.data;
   },
-  caSubmitEvidence: async (id, data) => {
-    const response = await api.put(`/cash-approvals/${id}/submit-evidence`, data);
-    return response.data;
-  },
-  caSettlePayment: async (id, data) => {
-    const response = await api.put(`/cash-approvals/${id}/settle-payment`, data);
-    return response.data;
-  },
   caSendToProcurement: async (id, remarks) => {
     const response = await api.put(`/cash-approvals/${id}/send-to-procurement`, { remarks });
     return response.data;
