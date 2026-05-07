@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography, Paper } from '@mui/material';
+import { Box, Typography, Paper, Stack, Button } from '@mui/material';
 import dayjs from 'dayjs';
 
 /**
@@ -175,30 +175,44 @@ const QuotationDetailView = ({
           <Typography component="span">{pickText(data.paymentTerms)}</Typography>
 
           <Typography component="span" sx={{ fontWeight: 500 }}>Delivery Place:</Typography>
-          <Typography component="span">{pickText(data.deliveryPlace, data.delivery_location)}</Typography>
+          <Typography component="span">{pickText(data.deliveryPlace, data.delivery_location, data.deliveryLocation, data.terms?.deliveryPlace, data.quotationTerms?.deliveryPlace)}</Typography>
 
           <Typography component="span" sx={{ fontWeight: 500 }}>Validity:</Typography>
           <Typography component="span">{data.validityDays ? `${data.validityDays}Days` : '—'}</Typography>
 
           <Typography component="span" sx={{ fontWeight: 500 }}>Carriage:</Typography>
-          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.freightCarriage, data.freight_carriage)}</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.freightCarriage, data.freight_carriage, data.carriage, data.terms?.freightCarriage, data.terms?.freight_carriage, data.terms?.carriage, data.quotationTerms?.freightCarriage, data.quotationTerms?.carriage)}</Typography>
 
           <Typography component="span" sx={{ fontWeight: 500 }}>Installation:</Typography>
-          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.installation, data.installationDetails)}</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.installation, data.installationDetails, data.terms?.installation, data.terms?.installationDetails, data.quotationTerms?.installation)}</Typography>
 
           <Typography component="span" sx={{ fontWeight: 500 }}>Freight:</Typography>
-          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.freight)}</Typography>
+          <Typography component="span" sx={{ whiteSpace: 'pre-wrap' }}>{pickText(data.freight, data.terms?.freight, data.quotationTerms?.freight)}</Typography>
         </Box>
-        {data.attachments?.length > 0 && (
+        {Array.isArray(data.attachments) && data.attachments.length > 0 && (
           <Box sx={{ mb: 1.5 }}>
             <Typography sx={{ fontWeight: 500, mb: 0.5 }}>Attachments:</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {data.attachments.map((att, i) => (
-                <Typography key={i} component="span">
-                  <a href={att.url} target="_blank" rel="noopener noreferrer">{att.filename || att.url}</a>
-                </Typography>
-              ))}
-            </Box>
+            <Stack spacing={1}>
+              {data.attachments.map((att, i) => {
+                const name = att?.filename || att?.originalName || `Document ${i + 1}`;
+                const isImage = /\.(png|jpe?g|webp|gif)$/i.test(String(att?.url || '')) || String(att?.mimeType || '').startsWith('image/');
+                return (
+                  <Box key={i}>
+                    <Button size="small" variant="outlined" onClick={() => window.open(att?.url, '_blank', 'noopener,noreferrer')}>
+                      {name}
+                    </Button>
+                    {isImage && att?.url ? (
+                      <Box
+                        component="img"
+                        src={att.url}
+                        alt={name}
+                        sx={{ mt: 1, width: '100%', maxHeight: 260, objectFit: 'contain', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+                      />
+                    ) : null}
+                  </Box>
+                );
+              })}
+            </Stack>
           </Box>
         )}
         <Typography sx={{ mt: 1.5, mb: 2.5 }}>For further Information, please feel free to contact us.</Typography>

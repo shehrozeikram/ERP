@@ -58,6 +58,7 @@ import {
   History as HistoryIcon,
   Print as PrintIcon
 } from '@mui/icons-material';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import paymentSettlementService from '../../services/paymentSettlementService';
@@ -72,6 +73,7 @@ import { DigitalSignatureImage } from '../../components/common/DigitalSignatureI
 const PreAudit = () => {
   const theme = useTheme();
   const { user } = useAuth();
+  const location = useLocation();
   
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -89,6 +91,22 @@ const PreAudit = () => {
     priority: ''
   });
   const [tabValue, setTabValue] = useState(0);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    const tabParam = String(params.get('tab') || params.get('status') || '').toLowerCase();
+    if (!tabParam) return;
+    const tabMap = {
+      pending: 0,
+      under_review: 1,
+      forwarded_to_director: 2,
+      approved: 3,
+      returned_with_observations: 4
+    };
+    if (Object.prototype.hasOwnProperty.call(tabMap, tabParam)) {
+      setTabValue(tabMap[tabParam]);
+    }
+  }, [location.search]);
   
   // Dialog states
   const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 });
@@ -126,6 +144,12 @@ const PreAudit = () => {
     userHasRoleLabel(['audit_manager', 'auditor']) ||
     normalizeRole(user?.role) === 'super_admin' ||
     normalizeRole(user?.role) === 'developer';
+  const isCashApprovalBillDoc = (doc) => {
+    if (!doc?.isCashApproval) return false;
+    if (doc?.originalDocument?.evidenceSubmittedAt) return true;
+    const probe = `${doc?.title || ''} ${doc?.description || ''} ${doc?.documentType || ''}`.toLowerCase();
+    return probe.includes('cash approval bill') || probe.includes('settlement bill');
+  };
   const hasInitialApproval = (doc) =>
     Boolean(
       doc?.initialAuditApproved ||
@@ -1377,7 +1401,9 @@ const PreAudit = () => {
                                             <TableCell>
                                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                                 <Typography variant="body2" fontWeight="medium">
-                                                  {doc.title}
+                                                  {doc.isCashApproval
+                                                    ? `${isCashApprovalBillDoc(doc) ? 'Cash Approval Bill' : 'Cash Approval'}: ${doc.documentNumber || doc?.originalDocument?.caNumber || doc.title || '—'}`
+                                                    : doc.title}
                                                 </Typography>
                                                 {doc.isWorkflowDocument && !doc.isPostGrnAudit && (
                                                   <Chip
@@ -1397,7 +1423,7 @@ const PreAudit = () => {
                                                 )}
                                                 {doc.isCashApproval && (
                                                   <Chip
-                                                    label="Cash Approval"
+                                                    label={isCashApprovalBillDoc(doc) ? 'Cash Approval Bill' : 'Cash Approval'}
                                                     size="small"
                                                     color="success"
                                                     variant="outlined"
@@ -1796,7 +1822,7 @@ const PreAudit = () => {
           }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
               {viewDialog.document?.isCashApproval
-                ? 'Cash Approval Details'
+                ? `${isCashApprovalBillDoc(viewDialog.document) ? 'Cash Approval Bill' : 'Cash Approval'} Details`
                 : (viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder))
                   ? 'Purchase Order Details'
                   : 'PAYMENT SETTLEMENT'}
@@ -2557,7 +2583,7 @@ const PreAudit = () => {
                     <Tab label="Cash Approval" />
                     <Tab label="Comparative Statement" />
                     <Tab label={`Quotations (${viewDialog.quotations?.length || 0})`} />
-                    <Tab label={`Linked Documents (${viewDialog.caLinkedDocs?.length || 0})`} />
+                    <Tab label="Cash Approval Bill" />
                   </Tabs>
 
                   {viewDialog.poAuditTab === 0 && (
@@ -2941,44 +2967,124 @@ const PreAudit = () => {
 
                   {viewDialog.poAuditTab === 4 && (
                     <Box sx={{ p: 2 }}>
-                      {(!viewDialog.caLinkedDocs || viewDialog.caLinkedDocs.length === 0) ? (
-                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                          No linked documents found for this Cash Approval.
+                      <Paper sx={{ p: 3, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="h5" align="center" fontWeight={700} sx={{ mb: 2, letterSpacing: 0.8 }}>
+                          CASH APPROVAL BILL
                         </Typography>
-                      ) : (
+                        <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                          <Table size="small">
+                            <TableBody>
+                              <TableRow>
+                                <TableCell sx={{ width: '32%', fontWeight: 700, bgcolor: 'action.hover' }}>Advance Issued Amount</TableCell>
+                                <TableCell>{formatPKR(Number(viewDialog.fullDocument?.advanceAmount) || Number(viewDialog.fullDocument?.totalAmount) || 0)}</TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Actual Amount Spent (Procurement Bill)</TableCell>
+                                <TableCell>{formatPKR(viewDialog.fullDocument?.evidenceActualAmount || 0)}</TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Invoice / Receipt No.</TableCell>
+                                <TableCell>{viewDialog.fullDocument?.purchaseInvoiceNo || '—'}</TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Bill Submitted By</TableCell>
+                                <TableCell>
+                                  {[viewDialog.fullDocument?.evidenceSubmittedBy?.firstName, viewDialog.fullDocument?.evidenceSubmittedBy?.lastName].filter(Boolean).join(' ')
+                                    || viewDialog.fullDocument?.evidenceSubmittedBy?.email
+                                    || '—'}
+                                </TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Bill Submitted At</TableCell>
+                                <TableCell>{viewDialog.fullDocument?.evidenceSubmittedAt ? formatDate(viewDialog.fullDocument.evidenceSubmittedAt) : '—'}</TableCell>
+                              </TableRow>
+                              <TableRow>
+                                <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Bill Remarks</TableCell>
+                                <TableCell sx={{ whiteSpace: 'pre-wrap' }}>{viewDialog.fullDocument?.evidenceRemarks || '—'}</TableCell>
+                              </TableRow>
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                          Approval Authorities
+                        </Typography>
                         <TableContainer component={Paper} variant="outlined">
                           <Table size="small">
                             <TableHead>
                               <TableRow>
-                                <TableCell>#</TableCell>
-                                <TableCell>Type</TableCell>
-                                <TableCell>Document</TableCell>
-                                <TableCell>Date</TableCell>
-                                <TableCell align="right">Action</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }}>Date &amp; Time</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }} align="center">Digital Signature</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
-                              {viewDialog.caLinkedDocs.map((doc, idx) => (
-                                <TableRow key={doc.id || idx}>
-                                  <TableCell>{idx + 1}</TableCell>
-                                  <TableCell>{doc.source || 'Attachment'}</TableCell>
-                                  <TableCell>{doc.name || 'Document'}</TableCell>
-                                  <TableCell>{doc.uploadedAt ? formatDate(doc.uploadedAt) : '—'}</TableCell>
-                                  <TableCell align="right">
-                                    {doc.url ? (
-                                      <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
-                                        Open
-                                      </Button>
-                                    ) : '—'}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
+                              {[
+                                {
+                                  key: 'pre-audit-initial',
+                                  label: 'Initial Pre-Audit',
+                                  user: viewDialog.fullDocument?.preAuditInitialApprovedBy,
+                                  actedAt: viewDialog.fullDocument?.preAuditInitialApprovedAt
+                                },
+                                {
+                                  key: 'audit-director-final',
+                                  label: 'Audit Director (final)',
+                                  user: viewDialog.fullDocument?.auditApprovedBy,
+                                  actedAt: viewDialog.fullDocument?.auditApprovedAt
+                                }
+                              ].map((row) => {
+                                const billSubmittedAt = viewDialog.fullDocument?.evidenceSubmittedAt
+                                  ? new Date(viewDialog.fullDocument.evidenceSubmittedAt)
+                                  : null;
+                                const userObj = row.user && typeof row.user === 'object' ? row.user : null;
+                                const userId = userObj?._id || userObj?.id || (typeof row.user === 'string' ? row.user : '');
+                                const actedAtDate = row.actedAt ? new Date(row.actedAt) : null;
+                                const hasValidActionDate = Boolean(actedAtDate && !Number.isNaN(actedAtDate.getTime()));
+                                const isInBillCycle = !billSubmittedAt
+                                  || Number.isNaN(billSubmittedAt.getTime())
+                                  || (hasValidActionDate && actedAtDate >= billSubmittedAt);
+                                const baseApproverName = userObj
+                                  ? ([userObj.firstName, userObj.lastName].filter(Boolean).join(' ').trim() || userObj.email || '—')
+                                  : '—';
+                                const currentStatus = String(viewDialog.fullDocument?.status || '').trim();
+                                const hasFinalBillApprovalStatus = !['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'].includes(currentStatus);
+                                const isApproved = row.key === 'audit-director-final'
+                                  ? (Boolean(userId) && hasValidActionDate && isInBillCycle && hasFinalBillApprovalStatus)
+                                  : (Boolean(userId) && hasValidActionDate);
+                                const approverName = isApproved ? baseApproverName : '—';
+                                return (
+                                  <TableRow key={row.key}>
+                                    <TableCell>{row.label}</TableCell>
+                                    <TableCell>{approverName}</TableCell>
+                                    <TableCell>
+                                      <Chip
+                                        size="small"
+                                        label={isApproved ? 'Approved' : 'Pending'}
+                                        color={isApproved ? 'success' : 'warning'}
+                                        variant={isApproved ? 'filled' : 'outlined'}
+                                      />
+                                    </TableCell>
+                                    <TableCell>{isApproved ? formatDateTime(row.actedAt) : '—'}</TableCell>
+                                    <TableCell align="center">
+                                      {isApproved && userObj?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={userObj} alt={`${row.label} signature`} />
+                                      ) : isApproved ? (
+                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
                             </TableBody>
                           </Table>
                         </TableContainer>
-                      )}
+                      </Paper>
                     </Box>
                   )}
+
                 </>
               ) : (
                 /* Regular Pre Audit Document View */

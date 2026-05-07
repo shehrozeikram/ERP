@@ -20,6 +20,7 @@ import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 import ComparativeStatementView from './ComparativeStatementView';
 import QuotationDetailView from './QuotationDetailView';
 import { formatPKR } from '../../utils/currency';
+import api from '../../services/api';
 
 const formatDateForPrint = (date) => {
   if (!date) return '';
@@ -44,6 +45,20 @@ const formatDateTime = (date) => {
     hour: '2-digit',
     minute: '2-digit'
   });
+};
+
+const resolveFileUrl = (url) => {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  const apiBase = (api?.defaults?.baseURL || '').replace(/\/api\/?$/, '');
+  if (!apiBase) return url;
+  return `${apiBase}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+const resolveIssuedAdvanceAmount = (cashApproval) => {
+  const issued = Number(cashApproval?.advanceAmount);
+  if (Number.isFinite(issued) && issued > 0) return issued;
+  const fallback = Number(cashApproval?.totalAmount);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
 };
 
 const renderIndentApprovalProgress = (indent, { title = 'Indent approval progress' } = {}) => {
@@ -112,13 +127,15 @@ const CashApprovalDetailTabsView = ({
   tabValue = 0,
   onTabChange,
   quotations = [],
-  linkedDocs = []
+  linkedDocs = [],
+  showFinanceOnlyTabs = false
 }) => {
   if (!cashApproval) return null;
+  const safeTabValue = (!showFinanceOnlyTabs && tabValue > 4) ? 0 : tabValue;
   return (
     <>
       <Tabs
-        value={tabValue}
+        value={safeTabValue}
         onChange={(_, v) => onTabChange?.(v)}
         sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
         variant="scrollable"
@@ -128,10 +145,12 @@ const CashApprovalDetailTabsView = ({
         <Tab label="Cash Approval" />
         <Tab label="Comparative Statement" />
         <Tab label={`Quotations (${quotations?.length || 0})`} />
-        <Tab label={`Linked Documents (${linkedDocs?.length || 0})`} />
+        <Tab label="Cash Approval Bill" />
+        {showFinanceOnlyTabs && <Tab label={`Check Evidence (${cashApproval?.signedCheckAttachments?.length || 0})`} />}
+        {showFinanceOnlyTabs && <Tab label={`Finance Document (${linkedDocs?.length || 0})`} />}
       </Tabs>
 
-      {tabValue === 0 && (
+      {safeTabValue === 0 && (
         <Box sx={{ p: 2, overflowX: 'auto' }}>
           {!cashApproval?.indent ? (
             <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
@@ -208,7 +227,7 @@ const CashApprovalDetailTabsView = ({
         </Box>
       )}
 
-      {tabValue === 1 && (
+      {safeTabValue === 1 && (
         <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider', '@media print': { p: 2.5, maxWidth: '100%', mx: 0 } }}>
           <Typography variant="h5" align="center" fontWeight={700} sx={{ mb: 2, letterSpacing: 1 }}>
             CASH APPROVAL
@@ -294,6 +313,22 @@ const CashApprovalDetailTabsView = ({
                       approvedAt: cashApproval.auditApprovedAt || null
                     });
                   }
+                  if (cashApproval?.ceoForwardedBy || cashApproval?.ceoForwardedAt) {
+                    authorityRows.push({
+                      label: 'CEO Secretariat Forward',
+                      directApproval: true,
+                      approver: cashApproval.ceoForwardedBy || null,
+                      approvedAt: cashApproval.ceoForwardedAt || null
+                    });
+                  }
+                  if (cashApproval?.ceoApprovedBy || cashApproval?.ceoApprovedAt) {
+                    authorityRows.push({
+                      label: 'CEO Final Approval',
+                      directApproval: true,
+                      approver: cashApproval.ceoApprovedBy || null,
+                      approvedAt: cashApproval.ceoApprovedAt || null
+                    });
+                  }
                   const authorityApprovals = Array.isArray(cashApproval?.authorityApprovals)
                     ? cashApproval.authorityApprovals
                     : [];
@@ -360,10 +395,45 @@ const CashApprovalDetailTabsView = ({
               </TableBody>
             </Table>
           </TableContainer>
+
+          {Number(cashApproval?.actualAmountSpent || 0) > 0 && (
+            <Box sx={{ mt: 2.5 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                Settlement Snapshot
+              </Typography>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableBody>
+                    <TableRow>
+                      <TableCell sx={{ width: '30%', fontWeight: 700, bgcolor: 'action.hover' }}>Actual Amount Spent</TableCell>
+                      <TableCell>{formatPKR(cashApproval?.actualAmountSpent || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Excess Returned</TableCell>
+                      <TableCell>{formatPKR(cashApproval?.excessReturned || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Additional Paid</TableCell>
+                      <TableCell>{formatPKR(cashApproval?.additionalPaid || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Settlement Date</TableCell>
+                      <TableCell>{formatDateTime(cashApproval?.settlementDate)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Settlement Remarks</TableCell>
+                      <TableCell sx={{ whiteSpace: 'pre-wrap' }}>{cashApproval?.settlementRemarks || '—'}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
+
         </Paper>
       )}
 
-      {tabValue === 2 && (
+      {safeTabValue === 2 && (
         <Box sx={{ p: 2, overflowX: 'auto' }}>
           <ComparativeStatementView
             requisition={cashApproval?.indent}
@@ -378,7 +448,7 @@ const CashApprovalDetailTabsView = ({
         </Box>
       )}
 
-      {tabValue === 3 && (
+      {safeTabValue === 3 && (
         <Box sx={{ p: 2 }}>
           {(!quotations || quotations.length === 0) ? (
             <Typography color="text.secondary">No quotations for this requisition.</Typography>
@@ -397,44 +467,317 @@ const CashApprovalDetailTabsView = ({
         </Box>
       )}
 
-      {tabValue === 4 && (
+      {safeTabValue === 4 && (
         <Box sx={{ p: 2 }}>
-          {(!linkedDocs || linkedDocs.length === 0) ? (
+          <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider', '@media print': { p: 2.5, maxWidth: '100%', mx: 0 } }}>
+            <Typography variant="h5" align="center" fontWeight={700} sx={{ mb: 2, letterSpacing: 0.8 }}>
+              CASH APPROVAL BILL
+            </Typography>
+            <Box sx={{ mb: 2, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              <Box><Typography component="span" fontWeight={600}>CA Number:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.caNumber || '—'}</Typography></Box>
+              <Box><Typography component="span" fontWeight={600}>ERP Ref:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.indent?.erpRef || '—'}</Typography></Box>
+              <Box><Typography component="span" fontWeight={600}>Status:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.status || '—'}</Typography></Box>
+            </Box>
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+              <Table size="small">
+                <TableBody>
+                  <TableRow>
+                    <TableCell sx={{ width: '32%', fontWeight: 700, bgcolor: 'action.hover' }}>Advance Issued Amount</TableCell>
+                    <TableCell>{formatPKR(resolveIssuedAdvanceAmount(cashApproval))}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Actual Amount Spent (Procurement Bill)</TableCell>
+                    <TableCell>{formatPKR(cashApproval?.evidenceActualAmount || 0)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Invoice / Receipt No.</TableCell>
+                    <TableCell>{cashApproval?.purchaseInvoiceNo || '—'}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Bill Submitted By</TableCell>
+                    <TableCell>
+                      {[cashApproval?.evidenceSubmittedBy?.firstName, cashApproval?.evidenceSubmittedBy?.lastName].filter(Boolean).join(' ')
+                        || cashApproval?.evidenceSubmittedBy?.email
+                        || '—'}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Bill Submitted At</TableCell>
+                    <TableCell>{formatDateTime(cashApproval?.evidenceSubmittedAt)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Bill Remarks</TableCell>
+                    <TableCell sx={{ whiteSpace: 'pre-wrap' }}>{cashApproval?.evidenceRemarks || '—'}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Purchase Evidence Attachments</Typography>
+            {Array.isArray(cashApproval?.purchaseReceipts) && cashApproval.purchaseReceipts.length > 0 ? (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>#</TableCell>
+                      <TableCell>File Name</TableCell>
+                      <TableCell>Type</TableCell>
+                      <TableCell>Uploaded At</TableCell>
+                      <TableCell align="right">Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {cashApproval.purchaseReceipts.map((doc, idx) => (
+                      <TableRow key={doc._id || doc.url || idx}>
+                        <TableCell>{idx + 1}</TableCell>
+                        <TableCell>{doc.originalName || doc.filename || `Evidence ${idx + 1}`}</TableCell>
+                        <TableCell>{doc.mimeType || '—'}</TableCell>
+                        <TableCell>{formatDateTime(doc.uploadedAt)}</TableCell>
+                        <TableCell align="right">
+                          {doc.url ? (
+                            <Button size="small" variant="outlined" onClick={() => window.open(resolveFileUrl(doc.url), '_blank', 'noopener,noreferrer')}>
+                              Open
+                            </Button>
+                          ) : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                No purchase evidence attached yet.
+              </Typography>
+            )}
+          </Paper>
+        </Box>
+      )}
+
+      {showFinanceOnlyTabs && safeTabValue === 5 && (
+        <Box sx={{ p: 2 }}>
+          {(!cashApproval?.signedCheckAttachments || cashApproval.signedCheckAttachments.length === 0) ? (
             <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-              No linked documents found for this Cash Approval.
+              No signed check image/evidence uploaded yet.
             </Typography>
           ) : (
+            <Stack spacing={2}>
+              {cashApproval.signedCheckAttachments.map((doc, idx) => {
+                const isImage = String(doc?.mimeType || '').startsWith('image/');
+                return (
+                  <Paper key={doc._id || doc.url || idx} variant="outlined" sx={{ p: 1.5 }}>
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                      {doc.originalName || doc.filename || `Check file ${idx + 1}`}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                      {doc.mimeType || '—'} {doc.uploadedAt ? `• ${formatDateTime(doc.uploadedAt)}` : ''}
+                    </Typography>
+                    {isImage && doc.url ? (
+                      <Box
+                        component="img"
+                        src={resolveFileUrl(doc.url)}
+                        alt={doc.originalName || `Signed check ${idx + 1}`}
+                        sx={{
+                          width: '100%',
+                          maxHeight: 420,
+                          objectFit: 'contain',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          bgcolor: 'grey.50'
+                        }}
+                      />
+                    ) : (
+                      <Button size="small" variant="outlined" onClick={() => window.open(resolveFileUrl(doc.url), '_blank', 'noopener,noreferrer')}>
+                        Open File
+                      </Button>
+                    )}
+                  </Paper>
+                );
+              })}
+            </Stack>
+          )}
+        </Box>
+      )}
+
+      {showFinanceOnlyTabs && safeTabValue === 6 && (
+        <Box sx={{ p: 2 }}>
+          <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider', '@media print': { p: 2.5, maxWidth: '100%', mx: 0 } }}>
+            <Typography variant="h5" align="center" fontWeight={700} sx={{ mb: 2, letterSpacing: 1 }}>
+              LINKED DOCUMENTS
+            </Typography>
+            <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+              <Typography component="span" fontWeight={600}>CA Number:</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>
+                {cashApproval?.caNumber || '—'}
+              </Typography>
+            </Box>
+            <Box sx={{ mb: 2.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <Box><Typography component="span" fontWeight={600}>ERP Ref:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.indent?.erpRef || '—'}</Typography></Box>
+              <Box><Typography component="span" fontWeight={600}>Status:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.status || '—'}</Typography></Box>
+            </Box>
+
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Finance - Advance Issued</Typography>
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+              <Table size="small">
+                <TableBody>
+                  <TableRow>
+                    <TableCell sx={{ width: '28%', fontWeight: 700, bgcolor: 'action.hover' }}>Advance Status</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={Number(cashApproval?.advanceAmount || 0) > 0 ? 'Issued' : 'Not Issued'}
+                        color={Number(cashApproval?.advanceAmount || 0) > 0 ? 'success' : 'warning'}
+                        variant={Number(cashApproval?.advanceAmount || 0) > 0 ? 'filled' : 'outlined'}
+                      />
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Advance Amount</TableCell>
+                    <TableCell>{formatPKR(cashApproval?.advanceAmount || 0)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Payment Method</TableCell>
+                    <TableCell>{cashApproval?.advancePaymentMethod || '—'}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Voucher No.</TableCell>
+                    <TableCell>{cashApproval?.advanceVoucherNo || '—'}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Signed Check No.</TableCell>
+                    <TableCell>{cashApproval?.signedCheckNumber || '—'}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Signed Check Date</TableCell>
+                    <TableCell>{formatDateTime(cashApproval?.signedCheckDate)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Bank Name</TableCell>
+                    <TableCell>{cashApproval?.signedCheckBankName || '—'}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Issued By (Finance)</TableCell>
+                    <TableCell>
+                      {[cashApproval?.advanceIssuedBy?.firstName, cashApproval?.advanceIssuedBy?.lastName].filter(Boolean).join(' ')
+                        || cashApproval?.advanceIssuedBy?.email
+                        || '—'}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Issued Date &amp; Time</TableCell>
+                    <TableCell>{formatDateTime(cashApproval?.advanceIssuedAt)}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, bgcolor: 'action.hover' }}>Finance Remarks</TableCell>
+                    <TableCell sx={{ whiteSpace: 'pre-wrap' }}>{cashApproval?.advanceRemarks || '—'}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Document Register</Typography>
+            {(!linkedDocs || linkedDocs.length === 0) ? (
+              <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                No linked documents found for this Cash Approval.
+              </Typography>
+            ) : (
+              <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>#</TableCell>
+                      <TableCell>Type</TableCell>
+                      <TableCell>Document</TableCell>
+                      <TableCell>Date</TableCell>
+                      <TableCell align="right">Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {linkedDocs.map((doc, idx) => (
+                      <TableRow key={doc.id || idx}>
+                        <TableCell>{idx + 1}</TableCell>
+                        <TableCell>{doc.source || 'Attachment'}</TableCell>
+                        <TableCell>{doc.name || 'Document'}</TableCell>
+                        <TableCell>{doc.uploadedAt ? formatDateTime(doc.uploadedAt) : '—'}</TableCell>
+                        <TableCell align="right">
+                          {doc.url ? (
+                            <Button size="small" variant="outlined" onClick={() => window.open(resolveFileUrl(doc.url), '_blank', 'noopener,noreferrer')}>
+                              Open
+                            </Button>
+                          ) : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Finance Approval Authority</Typography>
             <TableContainer component={Paper} variant="outlined">
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>#</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Document</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell align="right">Action</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Date &amp; Time</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="center">Digital Signature</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {linkedDocs.map((doc, idx) => (
-                    <TableRow key={doc.id || idx}>
-                      <TableCell>{idx + 1}</TableCell>
-                      <TableCell>{doc.source || 'Attachment'}</TableCell>
-                      <TableCell>{doc.name || 'Document'}</TableCell>
-                      <TableCell>{doc.uploadedAt ? formatDateTime(doc.uploadedAt) : '—'}</TableCell>
-                      <TableCell align="right">
-                        {doc.url ? (
-                          <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
-                            Open
-                          </Button>
-                        ) : '—'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {(() => {
+                    const financeSlots = [
+                      { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
+                      { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+                      { key: 'financeControllerUser', label: 'GM Finance' }
+                    ];
+                    const financeApprovals = Array.isArray(cashApproval?.financeAuthorityApprovals) ? cashApproval.financeAuthorityApprovals : [];
+                    const financeByKey = new Map(financeApprovals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
+                    const financeRows = financeSlots.map((slot) => {
+                      const approval = financeByKey.get(slot.key);
+                      const approver = approval?.approver || cashApproval?.financeApprovalAuthorities?.[slot.key];
+                      const approverName = approver
+                        ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
+                        : '—';
+                      return {
+                        label: slot.label,
+                        approverName,
+                        approvedAt: approval?.approvedAt || null,
+                        decision: String(approval?.decision || (approval ? 'approved' : 'pending')).toLowerCase()
+                      };
+                    });
+                    return financeRows.map((row, idx) => (
+                      <TableRow key={`all-auth-${idx}`}>
+                        <TableCell>{row.label}</TableCell>
+                        <TableCell>{row.approverName}</TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={row.decision === 'rejected' ? 'Rejected' : (row.decision === 'approved' ? 'Approved' : 'Pending')}
+                            color={row.decision === 'rejected' ? 'error' : (row.decision === 'approved' ? 'success' : 'warning')}
+                            variant={row.decision === 'approved' || row.decision === 'rejected' ? 'filled' : 'outlined'}
+                          />
+                        </TableCell>
+                        <TableCell>{row.approvedAt ? formatDateTime(row.approvedAt) : '—'}</TableCell>
+                        <TableCell align="center">
+                          {row.decision === 'approved' && row.approver?.digitalSignature ? (
+                            <DigitalSignatureImage userOrPath={row.approver} alt={`${row.label} signature`} />
+                          ) : row.decision === 'approved' ? (
+                            <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ));
+                  })()}
                 </TableBody>
               </Table>
             </TableContainer>
-          )}
+          </Paper>
         </Box>
       )}
     </>

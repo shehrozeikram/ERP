@@ -369,12 +369,20 @@ const Quotations = () => {
       const quotationData = {
         ...formData,
         ...normalizedTerms,
+        delivery_location: normalizedTerms.deliveryPlace,
+        delivery_place: normalizedTerms.deliveryPlace,
         carriage: normalizedTerms.freightCarriage,
+        freight_carriage: normalizedTerms.freightCarriage,
+        installationDetails: normalizedTerms.installation,
+        freightCharges: normalizedTerms.freight,
         terms: {
           deliveryPlace: normalizedTerms.deliveryPlace,
+          delivery_location: normalizedTerms.deliveryPlace,
           freightCarriage: normalizedTerms.freightCarriage,
+          freight_carriage: normalizedTerms.freightCarriage,
           carriage: normalizedTerms.freightCarriage,
           installation: normalizedTerms.installation,
+          installationDetails: normalizedTerms.installation,
           freight: normalizedTerms.freight
         },
         items,

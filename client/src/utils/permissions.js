@@ -289,7 +289,8 @@ export const SUBMODULES = {
     'recovery_task_assignment',
     'recovery_completed_tasks',
     'recovery_campaigns',
-    'recovery_my_tasks'
+    'recovery_my_tasks',
+    'vouchers'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
     'procurement_requisitions',
@@ -621,6 +622,7 @@ export const MODULES = {
           { name: 'Bank Reconciliation',  path: '/finance/bank-reconciliation'  },
           { name: 'Opening Balances',     path: '/finance/opening-balances'     },
           { name: 'Year-End Closing',     path: '/finance/year-end-closing'     },
+          { name: 'Vouchers',             path: '/finance/vouchers'              },
         ]
       },
 
@@ -1301,6 +1303,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/general-ledger': 'general_ledger',
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-payable': 'accounts_payable',
+      '/finance/cash-approvals': 'accounts_payable',
       '/finance/vendor-advance': 'accounts_payable',
       '/finance/banking': 'banking',
       '/finance/taxes': 'tax_management',
@@ -1342,6 +1345,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
       '/finance/recovery/campaigns': 'recovery_campaigns',
       '/finance/recovery/my-tasks': 'recovery_my_tasks',
+      '/finance/vouchers': 'vouchers',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
@@ -1529,7 +1533,25 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
           if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (module-level read, submodule ${submoduleName} not in permissions)`);
           return true;
         } else {
-          if (isDev) console.log(`🔒 [${roleName}] ❌ Submodule ${submoduleName} not found and no module-level read`);
+          // Dynamic fallback: if role has read on any submodule of this module,
+          // allow access to sibling routes that belong to the same module.
+          const anySubmoduleRead =
+            modulePermission.submodules &&
+            Array.isArray(modulePermission.submodules) &&
+            modulePermission.submodules.some((sm) => {
+              if (!sm) return false;
+              if (typeof sm === 'string') return true;
+              if (typeof sm === 'object') {
+                const acts = Array.isArray(sm.actions) ? sm.actions : [];
+                return acts.includes('read');
+              }
+              return false;
+            });
+          if (anySubmoduleRead) {
+            if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (dynamic fallback: any readable submodule in module)`);
+            return true;
+          }
+          if (isDev) console.log(`🔒 [${roleName}] ❌ Submodule ${submoduleName} not found and no readable module/submodule access`);
           return false;
         }
       }

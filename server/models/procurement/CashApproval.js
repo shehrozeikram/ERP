@@ -43,6 +43,7 @@ const cashApprovalSchema = new mongoose.Schema({
       'Send to CEO Office',
       'Forwarded to CEO',
       'Pending Finance',
+      'Finance Authority Approved',
       'Advance Issued',
       'Evidence Submitted',
       'Payment Settled',
@@ -154,6 +155,36 @@ const cashApprovalSchema = new mongoose.Schema({
   advanceRemarks: { type: String, trim: true },
   advanceIssuedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   advanceIssuedAt: { type: Date },
+  voucherEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
+  signedCheckNumber: { type: String, trim: true },
+  signedCheckDate: { type: Date },
+  signedCheckBankName: { type: String, trim: true },
+  signedCheckRemarks: { type: String, trim: true },
+  signedCheckAttachments: [{
+    filename: { type: String },
+    originalName: { type: String },
+    url: { type: String },
+    mimeType: { type: String },
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+  financeApprovalAuthorities: {
+    accountsOfficerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    accountsManagerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    financeControllerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  },
+  financeAuthorityApprovals: [{
+    authorityKey: { type: String, trim: true },
+    authorityLabel: { type: String, trim: true },
+    approver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    decision: { type: String, enum: ['approved', 'rejected'], default: 'approved' },
+    approvedAt: { type: Date, default: Date.now },
+    comments: { type: String, trim: true }
+  }],
+  financeRejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  financeRejectedAt: { type: Date },
+  financeRejectionComments: { type: String, trim: true },
+  financeAuthoritiesAssignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  financeAuthoritiesAssignedAt: { type: Date },
 
   // ─── Procurement Evidence Submission (after advance issued, before finance settles) ──
   evidenceSubmittedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

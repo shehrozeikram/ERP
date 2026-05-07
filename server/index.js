@@ -396,6 +396,28 @@ app.use('/uploads', (req, res, next) => {
   }
 }));
 
+// Legacy uploads fallback: some older flows stored files at repo-root /uploads
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
+      const mimeTypes = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.svg': 'image/svg+xml'
+      };
+      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+    } else if (filePath.toLowerCase().endsWith('.pdf')) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="' + path.basename(filePath) + '"');
+    }
+  }
+}));
+
 app.use('/images', express.static(path.join(__dirname, '../client/public/images')));
 
 // Note: React build files are now served by nginx, not by Node.js

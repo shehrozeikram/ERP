@@ -378,6 +378,7 @@ router.get('/approver-candidates',
   authMiddleware,
   [
     query('search').optional().trim(),
+    query('departmentLike').optional().trim(),
     query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be 1–100')
   ],
   asyncHandler(async (req, res) => {
@@ -387,6 +388,7 @@ router.get('/approver-candidates',
     }
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const raw = String(req.query.search || '').trim();
+    const departmentLike = String(req.query.departmentLike || '').trim();
     const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const filter = { isActive: true };
     if (raw) {
@@ -398,8 +400,18 @@ router.get('/approver-candidates',
         { employeeId: rx }
       ];
     }
+    if (departmentLike) {
+      const tokens = departmentLike
+        .split(/[,\|/]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map(escapeRx);
+      if (tokens.length) {
+        filter.department = { $regex: tokens.join('|'), $options: 'i' };
+      }
+    }
     const users = await User.find(filter)
-      .select('firstName lastName email employeeId')
+      .select('firstName lastName email employeeId department')
       .sort({ firstName: 1, lastName: 1 })
       .limit(limit)
       .lean();

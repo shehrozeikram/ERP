@@ -23,7 +23,14 @@ export default function YearEndClosing() {
   const loadAccounts = useCallback(async () => {
     try {
       const res = await api.get('/finance/accounts', { params: { limit: 500 } });
-      setAccounts(res.data.data || res.data.accounts || []);
+      const payload = res?.data || {};
+      const candidates = [
+        payload?.data,
+        payload?.accounts,
+        payload?.data?.accounts
+      ];
+      const list = candidates.find((value) => Array.isArray(value)) || [];
+      setAccounts(list);
     } catch { setAccounts([]); }
   }, []);
 
@@ -76,7 +83,7 @@ export default function YearEndClosing() {
               </TextField>
 
               <Autocomplete
-                options={accounts.filter(a => ['equity','retained_earnings','owners_equity'].some(t => a.type?.includes(t)))}
+                options={(Array.isArray(accounts) ? accounts : []).filter(a => ['equity','retained_earnings','owners_equity'].some(t => a.type?.includes(t)))}
                 getOptionLabel={o => o ? `${o.accountNumber} — ${o.name}` : ''}
                 value={reAccount}
                 onChange={(_, v) => setReAccount(v)}

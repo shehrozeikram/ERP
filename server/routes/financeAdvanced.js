@@ -18,6 +18,7 @@ const FinanceHelper = require('../utils/financeHelper');
 const VendorAdvance = require('../models/finance/VendorAdvance');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
+const CashApproval = require('../models/procurement/CashApproval');
 
 const router = express.Router();
 const { ACCOUNT_TYPES_GROUPED, ACCOUNT_TYPE_TO_SECTION, DETAIL_TYPES_BY_ACCOUNT_TYPE } = require('../config/accountDetailTypes');
@@ -344,6 +345,91 @@ router.get('/journal-entries/:id',
     // but also provide account details for display
     const normalized = entry.toObject();
     res.json({ success: true, data: normalized });
+  })
+);
+
+// @route   PUT /api/finance/journal-entries/:id/clearance
+// @desc    Mark/unmark voucher clearance status
+// @access  Private (Finance and Admin)
+router.put('/journal-entries/:id/clearance',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { clearanceStatus = 'pending', clearanceRemarks = '', clearedAt } = req.body || {};
+    if (!['pending', 'cleared'].includes(clearanceStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid clearance status' });
+    }
+
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
+
+    entry.clearanceStatus = clearanceStatus;
+    if (clearanceStatus === 'cleared') {
+      entry.clearedAt = clearedAt ? new Date(clearedAt) : new Date();
+      entry.clearedBy = req.user._id;
+      entry.clearanceRemarks = clearanceRemarks || '';
+    } else {
+      entry.clearedAt = null;
+      entry.clearedBy = null;
+      entry.clearanceRemarks = clearanceRemarks || '';
+    }
+    await entry.save();
+
+    const updated = await JournalEntry.findById(entry._id)
+      .populate('clearedBy', 'firstName lastName email');
+    return res.json({
+      success: true,
+      message: `Voucher marked as ${clearanceStatus}`,
+      data: updated
+    });
+  })
+);
+
+// @route   PUT /api/finance/journal-entries/:id/signed-document
+// @desc    Mark/unmark voucher signed document status
+// @access  Private (Finance and Admin)
+router.put('/journal-entries/:id/signed-document',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { signedDocumentStatus = 'not_signed', signedDocumentAt } = req.body || {};
+    if (!['signed', 'not_signed'].includes(signedDocumentStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid signed document status' });
+    }
+
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
+
+    entry.signedDocumentStatus = signedDocumentStatus;
+    if (signedDocumentStatus === 'signed') {
+      entry.signedDocumentAt = signedDocumentAt ? new Date(signedDocumentAt) : new Date();
+    } else {
+      entry.signedDocumentAt = null;
+    }
+    await entry.save();
+
+    // Voucher-driven finance control:
+    // Once voucher is marked as signed, linked cash approval is auto-moved to Advance Issued.
+    if (signedDocumentStatus === 'signed') {
+      const linkedCashApproval = await CashApproval.findOne({
+        $or: [
+          { voucherEntryId: entry._id },
+          { _id: entry.referenceId }
+        ]
+      });
+      if (linkedCashApproval && linkedCashApproval.status !== 'Advance Issued') {
+        linkedCashApproval.status = 'Advance Issued';
+        if (!linkedCashApproval.advanceIssuedAt) linkedCashApproval.advanceIssuedAt = new Date();
+        if (!linkedCashApproval.advanceIssuedBy) linkedCashApproval.advanceIssuedBy = req.user._id;
+        linkedCashApproval.updatedBy = req.user._id;
+        await linkedCashApproval.save();
+      }
+    }
+
+    const updated = await JournalEntry.findById(entry._id);
+    return res.json({
+      success: true,
+      message: `Voucher marked as ${signedDocumentStatus === 'signed' ? 'signed' : 'not signed'}`,
+      data: updated
+    });
   })
 );
 

@@ -161,35 +161,85 @@ const normalizeQuotationSupplementaryFields = (payload = {}) => ({
   deliveryPlace: pickFirstNonEmptyString(
     payload.deliveryPlace,
     payload.delivery_location,
+    payload.delivery_place,
+    payload.deliveryplace,
     payload.deliveryLocation,
+    payload.deliveryAddress,
+    payload.placeOfDelivery,
     payload.delivery,
     payload.terms?.deliveryPlace,
     payload.terms?.delivery_location,
+    payload.terms?.delivery_place,
+    payload.terms?.deliveryAddress,
+    payload.terms?.placeOfDelivery,
+    payload.quotationTerms?.delivery_location,
     payload.quotationTerms?.deliveryPlace
   ),
   freightCarriage: pickFirstNonEmptyString(
     payload.freightCarriage,
     payload.freight_carriage,
+    payload.freight_and_carriage,
+    payload.freightAndCarriage,
     payload.carriage,
+    payload.carriageCharges,
     payload.terms?.freightCarriage,
     payload.terms?.freight_carriage,
+    payload.terms?.freight_and_carriage,
+    payload.terms?.freightAndCarriage,
     payload.terms?.carriage,
+    payload.terms?.carriageCharges,
     payload.quotationTerms?.freightCarriage,
+    payload.quotationTerms?.freight_carriage,
+    payload.quotationTerms?.freightAndCarriage,
     payload.quotationTerms?.carriage
   ),
   installation: pickFirstNonEmptyString(
     payload.installation,
     payload.installationDetails,
+    payload.installationCharges,
+    payload.installation_charge,
     payload.terms?.installation,
     payload.terms?.installationDetails,
+    payload.terms?.installationCharges,
+    payload.terms?.installation_charge,
+    payload.quotationTerms?.installationDetails,
+    payload.quotationTerms?.installationCharges,
     payload.quotationTerms?.installation
   ),
   freight: pickFirstNonEmptyString(
     payload.freight,
+    payload.freightCharges,
+    payload.shippingCharges,
     payload.terms?.freight,
+    payload.terms?.freightCharges,
+    payload.terms?.shippingCharges,
+    payload.quotationTerms?.freightCharges,
     payload.quotationTerms?.freight
   )
 });
+const hasAnyOwnProperty = (obj, keys = []) => keys.some((key) => Object.prototype.hasOwnProperty.call(obj || {}, key));
+const quotationSupplementaryAliases = {
+  deliveryPlace: [
+    'deliveryPlace', 'delivery_location', 'delivery_place', 'deliveryplace', 'deliveryLocation',
+    'deliveryAddress', 'placeOfDelivery', 'delivery'
+  ],
+  freightCarriage: [
+    'freightCarriage', 'freight_carriage', 'freight_and_carriage', 'freightAndCarriage',
+    'carriage', 'carriageCharges'
+  ],
+  installation: ['installation', 'installationDetails', 'installationCharges', 'installation_charge'],
+  freight: ['freight', 'freightCharges', 'shippingCharges']
+};
+const shouldNormalizeQuotationSupplementaryFields = (payload = {}) => {
+  const root = payload || {};
+  const terms = root.terms || {};
+  const quotationTerms = root.quotationTerms || {};
+  const aliases = Object.values(quotationSupplementaryAliases).flat();
+
+  return hasAnyOwnProperty(root, aliases)
+    || hasAnyOwnProperty(terms, aliases)
+    || hasAnyOwnProperty(quotationTerms, aliases);
+};
 const tokenMatchesAuthorityText = (token, authorityText) => {
   const normalizedToken = normalizeToken(token);
   const normalizedAuthorityText = normalizeToken(authorityText);
@@ -444,6 +494,7 @@ const canViewQuotationsByIndentRead = (user, indent) => {
   if (!user?.id || !indent) return false;
   if (canOperateAssignedProcurementRequisition(user, indent)) return true;
   if (isAuditReadRole(user)) return true;
+  if (hasFinanceAccess(user)) return true;
   if (user.role === 'higher_management') return true;
   const approverSteps = Array.isArray(indent?.comparativeApproval?.approvers) ? indent.comparativeApproval.approvers : [];
   const isComparativeApprover = approverSteps.some((step) => String(step?.approver || '') === String(user.id));
@@ -6142,8 +6193,10 @@ router.put('/quotations/:id', [
       };
     });
   }
-  const normalizedSupplementaryFields = normalizeQuotationSupplementaryFields(req.body);
-  Object.assign(req.body, normalizedSupplementaryFields);
+  if (shouldNormalizeQuotationSupplementaryFields(req.body)) {
+    const normalizedSupplementaryFields = normalizeQuotationSupplementaryFields(req.body);
+    Object.assign(req.body, normalizedSupplementaryFields);
+  }
 
   const wasFinalized = quotation.status === 'Finalized';
   const isBeingFinalized = req.body.status === 'Finalized' && quotation.status !== 'Finalized';

@@ -421,22 +421,69 @@ const ComparativeStatementView = ({
               </tr>
               <tr style={{ border: '1px solid #000' }}>
                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Delivery Place</td>
-                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.deliveryPlace, quote.delivery_location)}</td>)}
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.deliveryPlace, quote.delivery_location, quote.deliveryLocation, quote.terms?.deliveryPlace, quote.quotationTerms?.deliveryPlace)}</td>)}
               </tr>
               <tr style={{ border: '1px solid #000' }}>
                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Carriage</td>
-                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.freightCarriage, quote.freight_carriage)}</td>)}
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.freightCarriage, quote.freight_carriage, quote.carriage, quote.terms?.freightCarriage, quote.terms?.freight_carriage, quote.terms?.carriage, quote.quotationTerms?.freightCarriage, quote.quotationTerms?.carriage)}</td>)}
               </tr>
               <tr style={{ border: '1px solid #000' }}>
                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Installation</td>
-                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.installation, quote.installationDetails)}</td>)}
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.installation, quote.installationDetails, quote.terms?.installation, quote.terms?.installationDetails, quote.quotationTerms?.installation)}</td>)}
               </tr>
               <tr style={{ border: '1px solid #000' }}>
                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Freight</td>
-                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.freight)}</td>)}
+                {quotations.map((quote, idx) => <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>{pickText(quote.freight, quote.terms?.freight, quote.quotationTerms?.freight)}</td>)}
               </tr>
             </tbody>
           </table>
+        </Box>
+      )}
+
+      {/* Vendor Quotation Documents */}
+      {quotations?.length > 0 && (
+        <Box sx={{ mb: 3, mt: 2 }}>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, fontSize: '1rem', textDecoration: 'underline' }}>
+            Quotation Documents
+          </Typography>
+          <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 980 }}>
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Documents</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {quotations.map((quote, idx) => {
+                const docs = Array.isArray(quote?.attachments) ? quote.attachments : [];
+                return (
+                  <TableRow key={quote?._id || idx}>
+                    <TableCell sx={{ verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                      {quote?.vendor?.name || `Vendor ${idx + 1}`}
+                    </TableCell>
+                    <TableCell>
+                      {docs.length ? (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          {docs.map((doc, i) => (
+                            <Button
+                              key={`${quote?._id || idx}-doc-${i}`}
+                              size="small"
+                              variant="outlined"
+                              onClick={() => window.open(doc?.url, '_blank', 'noopener,noreferrer')}
+                            >
+                              {doc?.filename || doc?.originalName || `Document ${i + 1}`}
+                            </Button>
+                          ))}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">No documents uploaded</Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </Box>
       )}
 

@@ -213,7 +213,7 @@ router.get('/employees',
         .populate('placementDepartment', 'name code')
         .populate('placementSection', 'name department')
         .populate('placementDesignation', 'title level')
-        .populate('user', '_id firstName lastName email')
+        .populate('user', '_id firstName lastName email department')
         .sort({ 
           // First priority: Active employees first, inactive at the end
           isActive: -1, // true (active) first, then false (inactive)

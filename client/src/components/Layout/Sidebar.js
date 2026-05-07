@@ -228,6 +228,7 @@ const Sidebar = () => {
       '/finance/budgets':                 'budgets',
       '/finance/deferred-entries':        'deferred_entries',
       '/finance/bank-statement-import':   'bank_statement_import',
+      '/finance/vouchers':                'vouchers',
       '/finance/setup':                   'finance_setup',
       '/procurement/purchase-returns': 'purchase_returns',
       '/finance/taj-utilities-charges': 'taj_utilities_charges',
@@ -253,6 +254,7 @@ const Sidebar = () => {
       '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
       '/finance/recovery/campaigns': 'recovery_campaigns',
       '/finance/recovery/my-tasks': 'recovery_my_tasks',
+      '/finance/vouchers': 'vouchers',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module (must match permissions.js / Role Permission Matrix submodule keys)

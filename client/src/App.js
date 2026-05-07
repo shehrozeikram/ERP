@@ -110,6 +110,8 @@ import BudgetForm from './pages/Finance/BudgetForm';
 import DeferredEntries from './pages/Finance/DeferredEntries';
 import BankStatementImport from './pages/Finance/BankStatementImport';
 import FinanceSetup from './pages/Finance/FinanceSetup';
+import Vouchers from './pages/Finance/Vouchers';
+import VoucherView from './pages/Finance/VoucherView';
 import PurchaseReturns from './pages/Procurement/PurchaseReturns';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
 import ProcurementReports from './pages/Procurement/ProcurementReports';
@@ -1074,6 +1076,8 @@ function App() {
             <Route path="/finance/budgets/:id" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetForm /></ProtectedRoute>} />
             <Route path="/finance/deferred-entries" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><DeferredEntries /></ProtectedRoute>} />
             <Route path="/finance/bank-statement-import" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankStatementImport /></ProtectedRoute>} />
+            <Route path="/finance/vouchers" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><Vouchers /></ProtectedRoute>} />
+            <Route path="/finance/vouchers/:id" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VoucherView /></ProtectedRoute>} />
             <Route path="/finance/setup" element={<ProtectedRoute requiredRole={["super_admin"]}><FinanceSetup /></ProtectedRoute>} />
             <Route path="/procurement/purchase-returns" element={<ProtectedRoute requiredRole={["super_admin", "admin", "procurement_manager"]}><PurchaseReturns /></ProtectedRoute>} />
             <Route
@@ -1911,55 +1915,55 @@ function App() {
             {/* Audit Module Routes */}
             <Route 
               path="/audit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><AuditDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><AuditDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/list" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><AuditList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><AuditList /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "Audit Director"]}><AuditForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "audit_director", "Audit Director"]}><AuditForm /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/:auditId/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "Audit Director"]}><AuditForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "audit_director", "Audit Director"]}><AuditForm /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/findings" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><AuditFindings /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><AuditFindings /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/findings/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><AddAuditFinding /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><AddAuditFinding /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/corrective-actions" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><CorrectiveActions /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><CorrectiveActions /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/corrective-actions/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "Audit Director"]}><CorrectiveActionForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "audit_director", "Audit Director"]}><CorrectiveActionForm /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/corrective-actions/:actionId/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "Audit Director"]}><CorrectiveActionForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "audit_director", "Audit Director"]}><CorrectiveActionForm /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/trail" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "Audit Director"]}><AuditTrail /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "audit_director", "Audit Director"]}><AuditTrail /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/reports" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><AuditReports /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><AuditReports /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/schedules" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><AuditSchedules /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><AuditSchedules /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/pre-audit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "Audit Director"]}><PreAudit /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor", "audit_director", "Audit Director"]}><PreAudit /></ProtectedRoute>} 
             />
 
             {/* HR Management Routes */}

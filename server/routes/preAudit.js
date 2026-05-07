@@ -80,7 +80,7 @@ const notifyAuditDirectorQueue = async ({ actorId, title, message, entityId, ent
     type: 'info',
     category: 'approval',
     priority: 'high',
-    actionUrl: '/audit',
+    actionUrl: '/audit/pre-audit?tab=forwarded_to_director',
     createdBy: actorId,
     excludeUserId: actorId,
     metadata: {

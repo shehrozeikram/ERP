@@ -19,11 +19,12 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import procurementService from '../../services/procurementService';
-import { formatDate, formatDateTime } from '../../utils/dateUtils';
-import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import { formatDate } from '../../utils/dateUtils';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
+import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { formatPKR } from '../../utils/currency';
 import { useAuth } from '../../contexts/AuthContext';
+import CashApprovalDetailTabsView from '../../components/Procurement/CashApprovalDetailTabsView';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const STATUS_COLORS = {
@@ -34,6 +35,7 @@ const STATUS_COLORS = {
   'Send to CEO Office': 'info',
   'Forwarded to CEO': 'info',
   'Pending Finance': 'warning',
+  'Finance Authority Approved': 'info',
   'Advance Issued': 'primary',
   'Payment Settled': 'success',
   'Sent to Procurement': 'success',
@@ -70,7 +72,7 @@ const WidePopper = (props) => {
 const WORKFLOW_STEPS = [
   'Draft', 'Pending Approval', 'Pending Audit', 'Forwarded to Audit Director',
   'Send to CEO Office', 'Forwarded to CEO', 'Pending Finance',
-  'Payment Settled', 'Sent to Procurement', 'Completed'
+  'Finance Authority Approved', 'Advance Issued', 'Payment Settled', 'Sent to Procurement', 'Completed'
 ];
 
 const getStepIndex = (status) => {
@@ -146,7 +148,7 @@ const CashApprovalsPage = () => {
 
   // Dialogs
   const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null });
-  const [viewDialog, setViewDialog] = useState({ open: false, data: null });
+  const [viewDialog, setViewDialog] = useState({ open: false, data: null, tab: 0, quotations: [], linkedDocs: [] });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   const [actionDialog, setActionDialog] = useState({ open: false, type: '', ca: null });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
@@ -164,6 +166,16 @@ const CashApprovalsPage = () => {
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [formLoading, setFormLoading] = useState(false);
   const [prefillQuotationId, setPrefillQuotationId] = useState(null);
+
+  const userHasModuleAccess = useCallback((moduleKey) => {
+    const hasInRoleDoc = (roleDoc) => roleDoc?.isActive && Array.isArray(roleDoc?.permissions) &&
+      roleDoc.permissions.some((p) => p?.module === moduleKey);
+    if (hasInRoleDoc(user?.roleRef)) return true;
+    if (Array.isArray(user?.roles) && user.roles.some((r) => hasInRoleDoc(r))) return true;
+    return false;
+  }, [user]);
+
+  const canViewFinanceOnlyTabs = ['super_admin', 'admin', 'finance_manager'].includes(user?.role) || userHasModuleAccess('finance');
 
   const loadStatistics = useCallback(async () => {
     try {
@@ -315,38 +327,38 @@ const CashApprovalsPage = () => {
 
   const calculateFormTotal = () => computeTotal(formData.items, formData.shippingCost);
 
-  const numberToWords = (num) => {
-    if (!num || num === 0) return 'Zero Rupees Only';
-    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-    const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    const convert = (n) => {
-      if (n === 0) return '';
-      if (n < 10) return ones[n];
-      if (n < 20) return teens[n - 10];
-      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ` ${ones[n % 10]}` : '');
-      if (n < 1000) return `${ones[Math.floor(n / 100)]} Hundred${n % 100 ? ` ${convert(n % 100)}` : ''}`;
-      if (n < 100000) return `${convert(Math.floor(n / 1000))} Thousand${n % 1000 ? ` ${convert(n % 1000)}` : ''}`;
-      if (n < 10000000) return `${convert(Math.floor(n / 100000))} Lakh${n % 100000 ? ` ${convert(n % 100000)}` : ''}`;
-      return `${convert(Math.floor(n / 10000000))} Crore${n % 10000000 ? ` ${convert(n % 10000000)}` : ''}`;
+  const buildLinkedDocs = (doc) => {
+    const linkedDocuments = [];
+    const pushDocs = (items = [], source = 'Attachment') => {
+      items.forEach((item, idx) => {
+        const url = item?.url || '';
+        const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+        if (!name && !url) return;
+        linkedDocuments.push({
+          id: item?._id || `${source}-${idx}`,
+          source,
+          name,
+          url,
+          uploadedAt: item?.uploadedAt || null,
+          mimeType: item?.mimeType || ''
+        });
+      });
     };
-    const amount = Math.floor(num);
-    const paise = Math.round((num - amount) * 100);
-    let result = `${convert(amount)} Rupees`;
-    if (paise > 0) result += ` and ${convert(paise)} Paise`;
-    return `${result} Only`;
-  };
-
-  const formatDateForPrint = (date) => {
-    if (!date) return '';
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const d = new Date(date);
-    return `${d.getDate()}-${months[d.getMonth()]}-${d.getFullYear()}`;
-  };
-
-  const formatNumber = (num) => {
-    if (num === null || num === undefined) return '0.00';
-    return parseFloat(num).toFixed(2);
+    pushDocs(doc?.attachments, 'General Attachment');
+    pushDocs(doc?.purchaseReceipts, 'Purchase Receipt');
+    pushDocs(doc?.signedCheckAttachments, 'Signed Check Evidence');
+    pushDocs(doc?.receiptAttachments, 'Settlement Receipt');
+    if (doc?.voucherEntryId) {
+      linkedDocuments.push({
+        id: String(doc?.voucherEntryId?._id || doc?.voucherEntryId || 'voucher-linked'),
+        source: 'Voucher',
+        name: doc?.voucherEntryId?.entryNumber || doc?.advanceVoucherNo || 'Linked Voucher',
+        url: doc?.voucherEntryId?._id ? `/finance/vouchers/${doc.voucherEntryId._id}` : '',
+        uploadedAt: doc?.voucherEntryId?.date || null,
+        mimeType: 'application/x-voucher-link'
+      });
+    }
+    return linkedDocuments;
   };
 
   const getPriorityColor = (priority) => {
@@ -450,6 +462,35 @@ const CashApprovalsPage = () => {
         case 'ceo-reject': actionRes = await procurementService.caCeoReject(ca._id, actionComments); break;
         case 'ceo-return': actionRes = await procurementService.caCeoReturn(ca._id, actionComments); break;
         case 'issue-advance': actionRes = await procurementService.caIssueAdvance(ca._id, extraData); break;
+        case 'create-voucher':
+          actionRes = await procurementService.caCreateVoucher(ca._id, {
+            comments: actionComments,
+            remarks: advanceForm.advanceRemarks || '',
+            voucherType: String(advanceForm.voucherType || 'PAYMENT').toLowerCase(),
+            paymentMethod: String(advanceForm.advancePaymentMethod || 'Bank Transfer').toLowerCase(),
+            advanceTo: advanceForm.advanceTo || null,
+            advanceToName: advanceForm.advanceToName || '',
+            advanceAmount: parseFloat(advanceForm.advanceAmount || 0),
+            advancePaymentMethod: advanceForm.advancePaymentMethod || 'Cash',
+            signedCheckNumber: advanceForm.signedCheckNumber || '',
+            signedCheckDate: advanceForm.signedCheckDate || '',
+            signedCheckBankName: advanceForm.signedCheckBankName || '',
+            signedCheckRemarks: advanceForm.signedCheckRemarks || '',
+            financeApprovalAuthorities: {
+              accountsOfficerUser: financeAuthoritiesForm.accountsOfficerUser || null,
+              accountsManagerUser: financeAuthoritiesForm.accountsManagerUser || null,
+              financeControllerUser: financeAuthoritiesForm.financeControllerUser || null
+            }
+          });
+          break;
+        case 'finance-approve': actionRes = await procurementService.caFinanceApprove(ca._id, actionComments); break;
+        case 'finance-reject': actionRes = await procurementService.caFinanceReject(ca._id, actionComments); break;
+        case 'submit-settlement-bill':
+          actionRes = await procurementService.caSubmitSettlementBill(ca._id, extraData);
+          break;
+        case 'settle-payment':
+          actionRes = await procurementService.caSettlePayment(ca._id, extraData);
+          break;
         case 'send-to-procurement': actionRes = await procurementService.caSendToProcurement(ca._id, actionComments); break;
         case 'complete': actionRes = await procurementService.caComplete(ca._id, actionComments); break;
         case 'cancel': actionRes = await procurementService.caCancel(ca._id, actionComments); break;
@@ -508,6 +549,19 @@ const CashApprovalsPage = () => {
     const isAssignedAuthority = (uid && [...authorityIds, ...chainIds].includes(uid)) || userTokens.some((t) => textAssigned.includes(t));
     const hasAlreadyApproved = Array.isArray(ca?.authorityApprovals)
       && ca.authorityApprovals.some((a) => String(a?.approver?._id || a?.approver || '') === uid);
+    const financeAuthorities = ca?.financeApprovalAuthorities || {};
+    const normId = (v) => String(v?._id || v?.id || v || '').trim();
+    const financeMySlots = [
+      'accountsOfficerUser',
+      'accountsManagerUser',
+      'financeControllerUser'
+    ].filter((key) => normId(financeAuthorities?.[key]) === uid);
+    const financeDecidedKeys = new Set(
+      (Array.isArray(ca?.financeAuthorityApprovals) ? ca.financeAuthorityApprovals : [])
+        .map((a) => String(a?.authorityKey || '').trim())
+        .filter(Boolean)
+    );
+    const hasPendingFinanceAuthorityDecision = financeMySlots.some((k) => !financeDecidedKeys.has(k));
     const isProcurement = isAdmin || role === 'procurement_manager' || hasModuleAccess('procurement');
     const isFinance = isAdmin || role === 'finance_manager' || hasModuleAccess('finance');
     const isCeoSecretariat = isAdmin || role === 'hr_manager' || role === 'higher_management' || hasModuleAccess('hr') || hasModuleAccess('general');
@@ -546,8 +600,33 @@ const CashApprovalsPage = () => {
         }
         break;
       case 'Pending Finance':
+        if (ca?.evidenceSubmittedAt && ca?.advanceIssuedAt) {
+          if (isFinance || isAssignedAuthority) {
+            actions.push({ label: 'Settle Payment', type: 'settle-payment', color: 'primary', icon: <CashIcon /> });
+          }
+        } else {
+          if (isFinance && !ca?.voucherEntryId) {
+            actions.push({ label: 'Create Voucher', type: 'create-voucher', color: 'primary', icon: <AddIcon /> });
+          }
+          const hasConfiguredFinanceAuthorities = Boolean(
+            ca?.financeApprovalAuthorities?.accountsOfficerUser
+            || ca?.financeApprovalAuthorities?.accountsManagerUser
+            || ca?.financeApprovalAuthorities?.financeControllerUser
+          );
+          if (hasConfiguredFinanceAuthorities && hasPendingFinanceAuthorityDecision) {
+            actions.push({ label: 'Approve', type: 'finance-approve', color: 'success', icon: <ApproveIcon /> });
+            actions.push({ label: 'Reject', type: 'finance-reject', color: 'error', icon: <RejectIcon /> });
+          }
+        }
+        break;
+      case 'Finance Authority Approved':
         if (isFinance || isAssignedAuthority) {
-          actions.push({ label: 'Issue Advance', type: 'issue-advance', color: 'success', icon: <CashIcon /> });
+          actions.push({ label: 'Issue Advance', type: 'issue-advance', color: 'primary', icon: <CashIcon /> });
+        }
+        break;
+      case 'Advance Issued':
+        if (isProcurement || isAssignedAuthority) {
+          actions.push({ label: 'Create Bill', type: 'submit-settlement-bill', color: 'primary', icon: <AddIcon /> });
         }
         break;
       case 'Payment Settled':
@@ -568,13 +647,222 @@ const CashApprovalsPage = () => {
 
   // ─── Advance Issue Dialog State ───────────────────────────────────────────────
   const [advanceForm, setAdvanceForm] = useState({ advanceTo: null, advanceToName: '', advanceAmount: '', advancePaymentMethod: 'Cash', advanceVoucherNo: '', advanceRemarks: '' });
+  const [signedCheckAttachments, setSignedCheckAttachments] = useState([]);
+  const [signedCheckUploadLoading, setSignedCheckUploadLoading] = useState(false);
+  const [purchaseEvidenceAttachments, setPurchaseEvidenceAttachments] = useState([]);
+  const [purchaseEvidenceUploadLoading, setPurchaseEvidenceUploadLoading] = useState(false);
+  const [settlementBillForm, setSettlementBillForm] = useState({
+    purchaseInvoiceNo: '',
+    evidenceActualAmount: '',
+    evidenceRemarks: ''
+  });
+  const [settlementFinanceForm, setSettlementFinanceForm] = useState({
+    actualAmountSpent: '',
+    settlementRemarks: '',
+    financeVerificationNotes: ''
+  });
+  const resolveIssuedAdvanceAmount = (caDoc) => {
+    const issued = Number(caDoc?.advanceAmount);
+    if (Number.isFinite(issued) && issued > 0) return issued;
+    const fallback = Number(caDoc?.totalAmount);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+  };
   const [employees, setEmployees] = useState([]);
+  const [financeAuthorityUsers, setFinanceAuthorityUsers] = useState([]);
+  const [financeAuthoritiesForm, setFinanceAuthoritiesForm] = useState({
+    accountsOfficerUser: null,
+    accountsManagerUser: null,
+    financeControllerUser: null
+  });
+  const resolveVoucherNoForDialog = (caDoc) => String(caDoc?.voucherEntryId?.entryNumber || '').trim();
   useEffect(() => {
-    if (actionDialog.type === 'issue-advance') {
-      api.get('/hr/employees?limit=300&isActive=true').then((r) => setEmployees(r.data?.data || [])).catch(() => setEmployees([]));
-      setAdvanceForm({ advanceTo: null, advanceToName: '', advanceAmount: actionDialog.ca?.totalAmount || '', advancePaymentMethod: 'Cash', advanceVoucherNo: '', advanceRemarks: '' });
+    if (['issue-advance', 'create-voucher', 'submit-settlement-bill', 'settle-payment'].includes(actionDialog.type)) {
+      const currentUserId = String(user?.id || user?._id || '').trim() || null;
+      if (['issue-advance', 'create-voucher'].includes(actionDialog.type)) {
+        api.get('/indents/approver-candidates', {
+          params: { limit: 100, departmentLike: 'procurement', _ts: Date.now() },
+          headers: { 'Cache-Control': 'no-cache' }
+        })
+          .then((r) => {
+            const users = Array.isArray(r?.data?.data) ? r.data.data : [];
+            if (users.length) {
+              setEmployees(users);
+              return;
+            }
+            // Fallback: broaden query and filter client-side if department labels vary.
+            return api.get('/indents/approver-candidates', {
+              params: { limit: 100, _ts: Date.now() },
+              headers: { 'Cache-Control': 'no-cache' }
+            }).then((r2) => {
+              const all = Array.isArray(r2?.data?.data) ? r2.data.data : [];
+              const procurementOnly = all.filter((u) => /procurement/i.test(String(u?.department || '')));
+              setEmployees(procurementOnly.length ? procurementOnly : all);
+            });
+          })
+          .catch(() => setEmployees([]));
+      }
+      api.get('/indents/approver-candidates', {
+        params: { limit: 100, departmentLike: 'finance/accounts', _ts: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' }
+      }).then((r) => {
+        const allUsers = Array.isArray(r?.data?.data) ? r.data.data : [];
+        const normalize = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        const financeUsers = allUsers.filter((u) => {
+          const dept = normalize(u?.department);
+          return dept.includes('finance') || dept.includes('account');
+        });
+        const currentUserId = String(user?.id || user?._id || '').trim();
+        const me = currentUserId
+          ? allUsers.find((u) => String(u?._id || u?.id || '').trim() === currentUserId) || {
+            _id: currentUserId,
+            id: currentUserId,
+            firstName: user?.firstName || '',
+            lastName: user?.lastName || '',
+            email: user?.email || '',
+            employeeId: user?.employeeId || '',
+            department: user?.department || ''
+          }
+          : null;
+        const nextUsers = [...financeUsers];
+        if (me && !nextUsers.some((u) => String(u?._id || u?.id || '').trim() === currentUserId)) {
+          nextUsers.unshift(me);
+        }
+        setFinanceAuthorityUsers((prev) => (nextUsers.length ? nextUsers : prev));
+      }).catch(() => {
+        setFinanceAuthorityUsers((prev) => prev || []);
+      });
+      setAdvanceForm({
+        advanceTo: null,
+        advanceToName: '',
+        advanceAmount: actionDialog.ca?.totalAmount || '',
+        voucherType: 'PAYMENT',
+        advancePaymentMethod: 'Cash',
+        advanceVoucherNo: resolveVoucherNoForDialog(actionDialog.ca),
+        advanceRemarks: '',
+        signedCheckNumber: actionDialog.ca?.signedCheckNumber || '',
+        signedCheckDate: actionDialog.ca?.signedCheckDate ? new Date(actionDialog.ca.signedCheckDate).toISOString().split('T')[0] : '',
+        signedCheckBankName: actionDialog.ca?.signedCheckBankName || '',
+        signedCheckRemarks: actionDialog.ca?.signedCheckRemarks || ''
+      });
+      setSignedCheckAttachments(Array.isArray(actionDialog.ca?.signedCheckAttachments) ? actionDialog.ca.signedCheckAttachments : []);
+      const assignedFinanceAuthorities = actionDialog.ca?.financeApprovalAuthorities || {};
+      setFinanceAuthoritiesForm({
+        // For voucher creation, Accounts Officer / AM must default to the current finance user.
+        accountsOfficerUser: actionDialog.type === 'create-voucher'
+          ? (currentUserId || null)
+          : (assignedFinanceAuthorities?.accountsOfficerUser?._id || currentUserId),
+        accountsManagerUser: assignedFinanceAuthorities?.accountsManagerUser?._id || null,
+        financeControllerUser: assignedFinanceAuthorities?.financeControllerUser?._id || null
+      });
+      setPurchaseEvidenceAttachments(Array.isArray(actionDialog.ca?.purchaseReceipts) ? actionDialog.ca.purchaseReceipts : []);
+      setSettlementBillForm({
+        purchaseInvoiceNo: actionDialog.ca?.purchaseInvoiceNo || '',
+        evidenceActualAmount: actionDialog.ca?.evidenceActualAmount || actionDialog.ca?.advanceAmount || '',
+        evidenceRemarks: actionDialog.ca?.evidenceRemarks || ''
+      });
+      setSettlementFinanceForm({
+        actualAmountSpent: actionDialog.ca?.actualAmountSpent || actionDialog.ca?.evidenceActualAmount || '',
+        settlementRemarks: actionDialog.ca?.settlementRemarks || '',
+        financeVerificationNotes: actionDialog.ca?.financeVerificationNotes || ''
+      });
     }
-  }, [actionDialog.type, actionDialog.ca]);
+  }, [actionDialog.type, actionDialog.ca, user]);
+
+  const saveFinanceAuthorities = async () => {
+    if (!actionDialog?.ca?._id) return;
+    try {
+      setActionLoading(true);
+      const payload = {
+        accountsOfficerUser: financeAuthoritiesForm.accountsOfficerUser || null,
+        accountsManagerUser: financeAuthoritiesForm.accountsManagerUser || null,
+        financeControllerUser: financeAuthoritiesForm.financeControllerUser || null
+      };
+      const res = await procurementService.caSetFinanceAuthorities(actionDialog.ca._id, payload);
+      setSuccess(res?.message || 'Finance approval authorities saved');
+      const updated = res?.data || actionDialog.ca;
+      setActionDialog((prev) => ({ ...prev, ca: updated }));
+      if (viewDialog.open && viewDialog.data?._id === updated._id) {
+        setViewDialog((prev) => ({ ...prev, data: updated }));
+      }
+      await loadCashApprovals();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save finance authorities');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const uploadSignedCheckEvidence = async (fileList) => {
+    if (!actionDialog?.ca?._id) return;
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    try {
+      setSignedCheckUploadLoading(true);
+      const res = await procurementService.caUploadSignedCheckEvidence(actionDialog.ca._id, files);
+      const uploaded = Array.isArray(res?.data) ? res.data : [];
+      setSignedCheckAttachments((prev) => [...prev, ...uploaded]);
+      setSuccess(res?.message || 'Signed check evidence uploaded');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to upload signed check evidence');
+    } finally {
+      setSignedCheckUploadLoading(false);
+    }
+  };
+  const uploadPurchaseEvidence = async (fileList) => {
+    if (!actionDialog?.ca?._id) return;
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    try {
+      setPurchaseEvidenceUploadLoading(true);
+      const res = await procurementService.caUploadPurchaseEvidence(actionDialog.ca._id, files);
+      const uploaded = Array.isArray(res?.data) ? res.data : [];
+      setPurchaseEvidenceAttachments((prev) => [...prev, ...uploaded]);
+      setSuccess(res?.message || 'Purchase evidence uploaded');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to upload purchase evidence');
+    } finally {
+      setPurchaseEvidenceUploadLoading(false);
+    }
+  };
+
+  const approveMyFinanceAuthority = async () => {
+    if (!actionDialog?.ca?._id) return;
+    try {
+      setActionLoading(true);
+      const res = await procurementService.caFinanceApprove(actionDialog.ca._id);
+      setSuccess(res?.message || 'Finance authority approval recorded');
+      const updated = res?.data || actionDialog.ca;
+      setActionDialog((prev) => ({ ...prev, ca: updated }));
+      if (viewDialog.open && viewDialog.data?._id === updated._id) {
+        setViewDialog((prev) => ({ ...prev, data: updated }));
+      }
+      await loadCashApprovals();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to approve finance authority');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const rejectMyFinanceAuthority = async () => {
+    if (!actionDialog?.ca?._id) return;
+    const rejectionComments = window.prompt('Enter rejection reason (optional):', '') || '';
+    try {
+      setActionLoading(true);
+      const res = await procurementService.caFinanceReject(actionDialog.ca._id, rejectionComments);
+      setSuccess(res?.message || 'Finance authority rejection recorded');
+      const updated = res?.data || actionDialog.ca;
+      setActionDialog((prev) => ({ ...prev, ca: updated }));
+      if (viewDialog.open && viewDialog.data?._id === updated._id) {
+        setViewDialog((prev) => ({ ...prev, data: updated }));
+      }
+      await loadCashApprovals();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reject finance authority');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const stats = [
     {
@@ -607,9 +895,20 @@ const CashApprovalsPage = () => {
     try {
       const res = await procurementService.getCashApprovalById(ca._id);
       const doc = res?.success ? res.data : ca;
-      setViewDialog({ open: true, data: doc });
+      let quotations = [];
+      if (doc?.indent?._id) {
+        try {
+          const qRes = await api.get(`/procurement/quotations/by-indent/${doc.indent._id}`);
+          if (qRes.data?.success && Array.isArray(qRes.data.data)) {
+            quotations = qRes.data.data;
+          }
+        } catch (_) {
+          quotations = [];
+        }
+      }
+      setViewDialog({ open: true, data: doc, tab: 0, quotations, linkedDocs: buildLinkedDocs(doc) });
     } catch {
-      setViewDialog({ open: true, data: ca });
+      setViewDialog({ open: true, data: ca, tab: 0, quotations: [], linkedDocs: buildLinkedDocs(ca) });
     }
   };
 
@@ -986,13 +1285,13 @@ const CashApprovalsPage = () => {
       {viewDialog.open && viewDialog.data && (
         <Dialog
           open={viewDialog.open}
-          onClose={() => setViewDialog({ open: false, data: null })}
+          onClose={() => setViewDialog({ open: false, data: null, tab: 0, quotations: [], linkedDocs: [] })}
           maxWidth={false}
           fullWidth
           PaperProps={{
             sx: {
-              width: '90%',
-              maxWidth: '210mm',
+              width: '96%',
+              maxWidth: '1400px',
               maxHeight: '95vh',
               m: 2,
               '@media print': {
@@ -1025,299 +1324,28 @@ const CashApprovalsPage = () => {
                 </Stepper>
               </Box>
 
-              <Paper
-                className="ca-print-page"
-                sx={{
-                  p: { xs: 3, sm: 3.5, md: 4 },
-                  maxWidth: '210mm',
-                  mx: 'auto',
-                  backgroundColor: '#fff',
-                  boxShadow: 'none',
-                  width: '100%',
-                  fontFamily: 'Arial, sans-serif',
-                  '@media print': {
-                    boxShadow: 'none',
-                    p: 1.25,
-                    maxWidth: '100%',
-                    backgroundColor: '#fff',
-                    mx: 0,
-                    width: '100%',
-                    pageBreakInside: 'avoid'
-                  }
-                }}
-              >
-                <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 3, fontSize: { xs: '1.8rem', print: '1.6rem' }, letterSpacing: 1 }}>
-                  Cash Approval
-                </Typography>
-
-                <Box sx={{ mb: 2.5 }}>
-                  <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>Residencia</Typography>
-                  <Typography sx={{ fontSize: '0.9rem', mb: 0.5 }}>1st Avenue 18 4 Islamabad</Typography>
-                  <Typography sx={{ fontSize: '0.9rem' }}>1. Het Sne 1-8. Islamabad.</Typography>
-                </Box>
-
-                <Divider sx={{ my: 2.5, borderWidth: 1, borderColor: '#ccc' }} />
-
-                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
-                  <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
-                    <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
-                      {viewDialog.data.vendor?.name || 'Vendor Name'}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>
-                      {viewDialog.data.vendor?.address || 'Vendor Address'}
-                    </Typography>
-                    {viewDialog.data.indent?.indentNumber && (
-                      <Typography sx={{ fontSize: '0.9rem' }}>
-                        Indent# {viewDialog.data.indent.indentNumber}
-                        {viewDialog.data.indent?.title ? ` — ${viewDialog.data.indent.title}` : ''}
-                      </Typography>
-                    )}
-                  </Box>
-                  <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>C.A No.:</Typography>
-                      <Typography component="span">{viewDialog.data.caNumber}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
-                      <Typography component="span">{formatDateForPrint(viewDialog.data.approvalDate)}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Expected Purchase:</Typography>
-                      <Typography component="span">{formatDateForPrint(viewDialog.data.expectedPurchaseDate)}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
-                      <Typography component="span">{viewDialog.data.deliveryAddress?.trim() || viewDialog.data.vendor?.address || '___________'}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Priority:</Typography>
-                      <Typography component="span">{viewDialog.data.priority}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Status:</Typography>
-                      <Typography component="span">{viewDialog.data.status}</Typography>
-                    </Box>
-                  </Box>
-                </Box>
-
-                <Box sx={{ mb: 3 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>Sr</th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left' }}>Description</th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left' }}>Specification</th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left' }}>Brand</th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center' }}>Qty / Unit</th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right' }}>Rate</th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right' }}>Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(viewDialog.data.items || []).length > 0 ? (
-                        (viewDialog.data.items || []).map((item, index) => (
-                          <tr key={index} style={{ border: '1px solid #000' }}>
-                            <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', verticalAlign: 'top' }}>{index + 1}</td>
-                            <td style={{ border: '1px solid #000', padding: '8px', verticalAlign: 'top' }}>{item.description}</td>
-                            <td style={{ border: '1px solid #000', padding: '8px', verticalAlign: 'top' }}>{item.specification || '___________'}</td>
-                            <td style={{ border: '1px solid #000', padding: '8px', verticalAlign: 'top' }}>{item.brand || '___________'}</td>
-                            <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', verticalAlign: 'top' }}>{item.quantity} {item.unit}</td>
-                            <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', verticalAlign: 'top' }}>{formatNumber(item.unitPrice)}</td>
-                            <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', verticalAlign: 'top' }}>{formatNumber(item.amount)}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={7} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>No items</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </Box>
-
-                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                  <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography component="span" fontWeight={600}>Shipping:</Typography>
-                      <Typography component="span">{formatNumber(viewDialog.data.shippingCost || 0)}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
-                      <Typography component="span">{formatNumber(viewDialog.data.totalAmount || 0)}</Typography>
-                    </Box>
-                    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic' }}>
-                      Rupees {numberToWords(viewDialog.data.totalAmount || 0)}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                {viewDialog.data.notes && (
-                  <Box sx={{ mb: 3, border: '1px solid #ccc', p: 2, fontSize: '0.9rem' }}>
-                    <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>Notes</Typography>
-                    <Typography sx={{ whiteSpace: 'pre-wrap' }}>{viewDialog.data.notes}</Typography>
-                  </Box>
-                )}
-
-                <Box sx={{ mt: 4 }}>
-                  {(() => {
-                    const indent = viewDialog.data?.indent || {};
-                    const approvals = indent?.comparativeStatementApprovals || {};
-                    const personName = (user, fallback = '') => (
-                      [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
-                      user?.email ||
-                      fallback ||
-                      '—'
-                    );
-                    const rows = [
-                      { key: 'preparedBy', label: 'Prepared By', user: approvals.preparedByUser, fallback: viewDialog.data.approvalAuthorities?.preparedBy || approvals.preparedBy || '' },
-                      { key: 'verifiedBy', label: 'Verified By (Procurement Committee)', user: approvals.verifiedByUser, fallback: viewDialog.data.approvalAuthorities?.verifiedBy || approvals.verifiedBy || '' },
-                      { key: 'authorisedRep', label: 'Authorised Rep.', user: approvals.authorisedRepUser, fallback: viewDialog.data.approvalAuthorities?.authorisedRep || approvals.authorisedRep || '' },
-                      { key: 'financeRep', label: 'Finance Rep.', user: approvals.financeRepUser, fallback: viewDialog.data.approvalAuthorities?.financeRep || approvals.financeRep || '' },
-                      { key: 'managerProcurement', label: 'Manager Procurement', user: approvals.managerProcurementUser, fallback: viewDialog.data.approvalAuthorities?.managerProcurement || approvals.managerProcurement || '' }
-                    ];
-                    if (viewDialog.data?.preAuditInitialApprovedBy || viewDialog.data?.preAuditInitialApprovedAt) {
-                      rows.push({
-                        label: 'Pre-Audit Initial Approval',
-                        user: viewDialog.data.preAuditInitialApprovedBy || null,
-                        actedAt: viewDialog.data.preAuditInitialApprovedAt || null,
-                        fallback: '—',
-                        directApproval: true
-                      });
-                    }
-                    if (viewDialog.data?.auditApprovedBy || viewDialog.data?.auditApprovedAt) {
-                      rows.push({
-                        label: 'Audit Final Approval',
-                        user: viewDialog.data.auditApprovedBy || null,
-                        actedAt: viewDialog.data.auditApprovedAt || null,
-                        fallback: '—',
-                        directApproval: true
-                      });
-                    }
-                    const authorityApprovalHistory = Array.isArray(viewDialog.data?.workflowHistory)
-                      ? [...viewDialog.data.workflowHistory]
-                        .reverse()
-                        .find((h) => h?.fromStatus === 'Pending Approval' && h?.toStatus === 'Pending Audit')
-                      : null;
-                    const authorityApprovedBy = viewDialog.data?.authorityApprovedBy || authorityApprovalHistory?.changedBy || null;
-                    const authorityApprovedAt = viewDialog.data?.authorityApprovedAt || authorityApprovalHistory?.changedAt || null;
-                    const authorityApprovals = Array.isArray(viewDialog.data?.authorityApprovals) ? viewDialog.data.authorityApprovals : [];
-                    const authorityApprovalByKey = new Map(
-                      authorityApprovals
-                        .map((approval) => [String(approval?.authorityKey || '').trim(), approval])
-                        .filter(([key]) => Boolean(key))
-                    );
-                    const normalizeToken = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
-                    const getUserTokens = (u) => {
-                      if (!u || typeof u !== 'object') return [];
-                      return [
-                        [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
-                        u.email,
-                        u.employeeId
-                      ].map(normalizeToken).filter(Boolean);
-                    };
-                    const authorityTokens = getUserTokens(authorityApprovedBy);
-                    const matchesAuthority = (value) => {
-                      const token = normalizeToken(value);
-                      if (!token || authorityTokens.length === 0) return false;
-                      return authorityTokens.some((at) => at === token || at.includes(token) || token.includes(at));
-                    };
-                    let legacyAuthorityApplied = false;
-                    return (
-                      <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow sx={{ bgcolor: 'grey.100' }}>
-                              <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Digital Signature</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Date &amp; Time</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {rows.map((row) => {
-                              const slotApproval = row?.key ? authorityApprovalByKey.get(row.key) : null;
-                              let approvalUser = row.user;
-                              let actedAt = row?.actedAt || null;
-                              if (!row?.directApproval && slotApproval) {
-                                approvalUser = slotApproval?.approver && typeof slotApproval.approver === 'object'
-                                  ? slotApproval.approver
-                                  : row.user;
-                                actedAt = slotApproval?.approvedAt || null;
-                              }
-                              const rowAuthorityText = viewDialog.data?.approvalAuthorities?.[row.key] || approvals?.[row.key] || row.fallback || '';
-                              const rowMatchesApprovedAuthority = matchesAuthority(rowAuthorityText) || matchesAuthority(personName(row.user, ''));
-                              if (!row?.directApproval && !slotApproval && !legacyAuthorityApplied && (authorityApprovedBy || authorityApprovedAt) && rowMatchesApprovedAuthority) {
-                                approvalUser = authorityApprovedBy || approvalUser;
-                                actedAt = authorityApprovedAt || actedAt;
-                                legacyAuthorityApplied = true;
-                              }
-                              return (
-                                <TableRow key={row.label}>
-                                  <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
-                                  <TableCell>{personName(approvalUser, row.fallback)}</TableCell>
-                                  <TableCell>
-                                    {actedAt && approvalUser?.digitalSignature ? (
-                                      <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
-                                    ) : (
-                                      <Typography variant="caption" color="text.secondary">—</Typography>
-                                    )}
-                                  </TableCell>
-                                  <TableCell>{actedAt ? formatDateTime(actedAt) : '—'}</TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    );
-                  })()}
-                </Box>
-              </Paper>
+              <CashApprovalDetailTabsView
+                cashApproval={viewDialog.data}
+                tabValue={viewDialog.tab}
+                onTabChange={(tab) => setViewDialog((prev) => ({ ...prev, tab }))}
+                quotations={viewDialog.quotations || []}
+                linkedDocs={viewDialog.linkedDocs || []}
+                showFinanceOnlyTabs={canViewFinanceOnlyTabs}
+              />
 
               <Box className="app-print-hide" sx={{ px: 2, pb: 2 }}>
-                {(viewDialog.data.advanceAmount > 0 || viewDialog.data.evidenceActualAmount > 0 || viewDialog.data.actualAmountSpent > 0) && (
-                  <Grid container spacing={2} sx={{ mt: 1 }}>
-                    {/* Finance Advance block */}
-                    {viewDialog.data.advanceAmount > 0 && (
-                      <>
-                        <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary" fontWeight={600}>Finance — Advance Issued</Typography></Divider></Grid>
-                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Advance Amount</Typography><Typography fontWeight={600} color="primary">{formatPKR(viewDialog.data.advanceAmount)}</Typography></Grid>
-                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Payment Method</Typography><Typography>{viewDialog.data.advancePaymentMethod}</Typography></Grid>
-                        {viewDialog.data.advanceVoucherNo && <Grid item xs={6}><Typography variant="caption" color="text.secondary">Voucher No.</Typography><Typography>{viewDialog.data.advanceVoucherNo}</Typography></Grid>}
-                        {viewDialog.data.advanceIssuedBy && <Grid item xs={6}><Typography variant="caption" color="text.secondary">Issued By</Typography><Typography>{viewDialog.data.advanceIssuedBy?.firstName} {viewDialog.data.advanceIssuedBy?.lastName}</Typography></Grid>}
-                      </>
-                    )}
-                    {/* Procurement evidence block */}
-                    {viewDialog.data.evidenceActualAmount > 0 && (
-                      <>
-                        <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary" fontWeight={600}>Procurement — Purchase Evidence</Typography></Divider></Grid>
-                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Amount Spent (reported)</Typography><Typography fontWeight={600} color="secondary.main">{formatPKR(viewDialog.data.evidenceActualAmount)}</Typography></Grid>
-                        {viewDialog.data.purchaseInvoiceNo && <Grid item xs={6}><Typography variant="caption" color="text.secondary">Invoice / Receipt No.</Typography><Typography>{viewDialog.data.purchaseInvoiceNo}</Typography></Grid>}
-                        {viewDialog.data.evidenceSubmittedBy && <Grid item xs={6}><Typography variant="caption" color="text.secondary">Submitted By</Typography><Typography>{viewDialog.data.evidenceSubmittedBy?.firstName} {viewDialog.data.evidenceSubmittedBy?.lastName}</Typography></Grid>}
-                        {viewDialog.data.evidenceRemarks && <Grid item xs={12}><Typography variant="caption" color="text.secondary">Evidence Remarks</Typography><Typography variant="body2" sx={{ p: 1, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider', mt: 0.5 }}>{viewDialog.data.evidenceRemarks}</Typography></Grid>}
-                      </>
-                    )}
-                    {/* Finance settlement block */}
-                    {viewDialog.data.actualAmountSpent > 0 && (
-                      <>
-                        <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary" fontWeight={600}>Finance — Settlement Confirmed</Typography></Divider></Grid>
-                        <Grid item xs={4}><Typography variant="caption" color="text.secondary">Actual Spent</Typography><Typography fontWeight={600}>{formatPKR(viewDialog.data.actualAmountSpent)}</Typography></Grid>
-                        <Grid item xs={4}><Typography variant="caption" color="text.secondary">Excess Returned</Typography><Typography color="success.main">{formatPKR(viewDialog.data.excessReturned)}</Typography></Grid>
-                        <Grid item xs={4}><Typography variant="caption" color="text.secondary">Additional Paid</Typography><Typography color="error.main">{formatPKR(viewDialog.data.additionalPaid)}</Typography></Grid>
-                        {viewDialog.data.financeVerificationNotes && <Grid item xs={12}><Typography variant="caption" color="text.secondary">Finance Verification Notes</Typography><Typography variant="body2">{viewDialog.data.financeVerificationNotes}</Typography></Grid>}
-                      </>
-                    )}
-                  </Grid>
-                )}
-
                 {getAvailableActions(viewDialog.data).length > 0 && (
                   <>
                     <Divider sx={{ my: 2 }} />
                     <Typography variant="subtitle2" fontWeight={600} mb={1}>Available Actions</Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap">
                       {getAvailableActions(viewDialog.data).map((action) => (
-                        <Button key={action.type} size="small" variant="outlined" color={action.color} startIcon={action.icon}
+                        <Button
+                          key={action.type}
+                          size="small"
+                          variant={['approve', 'audit-approve', 'ceo-approve', 'reject', 'audit-reject', 'ceo-reject'].includes(action.type) ? 'contained' : 'outlined'}
+                          color={action.color}
+                          startIcon={action.icon}
                           onClick={() => openAction(action.type, viewDialog.data)}>
                           {action.label}
                         </Button>
@@ -1329,7 +1357,7 @@ const CashApprovalsPage = () => {
             </Box>
           </DialogContent>
           <DialogActions sx={{ '@media print': { display: 'none' } }}>
-            <Button onClick={() => setViewDialog({ open: false, data: null })}>Close</Button>
+            <Button onClick={() => setViewDialog({ open: false, data: null, tab: 0, quotations: [], linkedDocs: [] })}>Close</Button>
           </DialogActions>
         </Dialog>
       )}
@@ -1371,7 +1399,7 @@ const CashApprovalsPage = () => {
       />
 
       {/* ─── Action Dialogs ───────────────────────────────────────────────────── */}
-      <Dialog open={actionDialog.open && !['issue-advance'].includes(actionDialog.type)} onClose={closeAction} maxWidth="sm" fullWidth>
+      <Dialog open={actionDialog.open && !['create-voucher', 'issue-advance'].includes(actionDialog.type)} onClose={closeAction} maxWidth="sm" fullWidth>
         <DialogTitle>
           {actionDialog.type === 'send-to-audit' && 'Send to Audit'}
           {actionDialog.type === 'approve' && 'Approve Cash Approval'}
@@ -1385,6 +1413,11 @@ const CashApprovalsPage = () => {
           {actionDialog.type === 'ceo-approve' && 'CEO Approval'}
           {actionDialog.type === 'ceo-reject' && 'CEO Reject'}
           {actionDialog.type === 'ceo-return' && 'CEO Return'}
+          {actionDialog.type === 'create-voucher' && 'Create Voucher'}
+          {actionDialog.type === 'finance-approve' && 'Finance Authority Approval'}
+          {actionDialog.type === 'finance-reject' && 'Finance Authority Reject'}
+          {actionDialog.type === 'submit-settlement-bill' && 'Create Settlement Bill'}
+          {actionDialog.type === 'settle-payment' && 'Finance Settlement'}
           {actionDialog.type === 'send-to-procurement' && 'Send to Procurement'}
           {actionDialog.type === 'complete' && 'Mark as Completed'}
           {actionDialog.type === 'cancel' && 'Cancel Cash Approval'}
@@ -1410,6 +1443,92 @@ const CashApprovalsPage = () => {
               ))}
             </Stack>
           )}
+          {actionDialog.type === 'submit-settlement-bill' && (
+            <Grid container spacing={2} sx={{ mt: 0.5 }}>
+              <Grid item xs={12}>
+                <Alert severity="info">Advance Issued: <strong>{formatPKR(resolveIssuedAdvanceAmount(actionDialog.ca))}</strong></Alert>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Purchase Invoice / Receipt No."
+                  value={settlementBillForm.purchaseInvoiceNo}
+                  onChange={(e) => setSettlementBillForm((prev) => ({ ...prev, purchaseInvoiceNo: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  type="number"
+                  label="Actual Utilized Amount *"
+                  value={settlementBillForm.evidenceActualAmount}
+                  onChange={(e) => setSettlementBillForm((prev) => ({ ...prev, evidenceActualAmount: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button variant="outlined" component="label" disabled={purchaseEvidenceUploadLoading} fullWidth>
+                  {purchaseEvidenceUploadLoading ? 'Uploading...' : 'Upload Purchase Evidence (Bill/Receipts)'}
+                  <input type="file" hidden multiple accept="image/*,.pdf" onChange={(e) => uploadPurchaseEvidence(e.target.files)} />
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  Uploaded evidence files: {purchaseEvidenceAttachments.length}
+                </Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  multiline
+                  rows={2}
+                  label="Evidence Remarks"
+                  value={settlementBillForm.evidenceRemarks}
+                  onChange={(e) => setSettlementBillForm((prev) => ({ ...prev, evidenceRemarks: e.target.value }))}
+                />
+              </Grid>
+            </Grid>
+          )}
+          {actionDialog.type === 'settle-payment' && (
+            <Grid container spacing={2} sx={{ mt: 0.5 }}>
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  Advance Issued: <strong>{formatPKR(resolveIssuedAdvanceAmount(actionDialog.ca))}</strong>
+                  {' '}| Evidence Amount: <strong>{formatPKR(actionDialog.ca?.evidenceActualAmount || 0)}</strong>
+                </Alert>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  type="number"
+                  label="Actual Amount Spent *"
+                  value={settlementFinanceForm.actualAmountSpent}
+                  onChange={(e) => setSettlementFinanceForm((prev) => ({ ...prev, actualAmountSpent: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Settlement Remarks"
+                  value={settlementFinanceForm.settlementRemarks}
+                  onChange={(e) => setSettlementFinanceForm((prev) => ({ ...prev, settlementRemarks: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  multiline
+                  rows={2}
+                  label="Finance Verification Notes"
+                  value={settlementFinanceForm.financeVerificationNotes}
+                  onChange={(e) => setSettlementFinanceForm((prev) => ({ ...prev, financeVerificationNotes: e.target.value }))}
+                />
+              </Grid>
+            </Grid>
+          )}
           <TextField fullWidth multiline rows={3} label="Comments / Remarks" value={actionComments}
             onChange={(e) => setActionComments(e.target.value)} sx={{ mt: 1 }} />
         </DialogContent>
@@ -1417,52 +1536,368 @@ const CashApprovalsPage = () => {
           <Button onClick={closeAction}>Cancel</Button>
           <Button variant="contained"
             color={['reject', 'audit-reject', 'ceo-reject', 'cancel'].includes(actionDialog.type) ? 'error' : ['audit-return', 'ceo-return', 'ceo-secretariat-return'].includes(actionDialog.type) ? 'warning' : 'primary'}
-            onClick={() => handleAction()} disabled={actionLoading}>
+            onClick={() => {
+              if (actionDialog.type === 'submit-settlement-bill') {
+                handleAction({
+                  purchaseInvoiceNo: settlementBillForm.purchaseInvoiceNo,
+                  evidenceActualAmount: parseFloat(settlementBillForm.evidenceActualAmount || 0),
+                  evidenceRemarks: settlementBillForm.evidenceRemarks || actionComments,
+                  purchaseReceipts: purchaseEvidenceAttachments
+                });
+                return;
+              }
+              if (actionDialog.type === 'settle-payment') {
+                handleAction({
+                  actualAmountSpent: parseFloat(settlementFinanceForm.actualAmountSpent || 0),
+                  settlementRemarks: settlementFinanceForm.settlementRemarks || actionComments,
+                  financeVerificationNotes: settlementFinanceForm.financeVerificationNotes
+                });
+                return;
+              }
+              handleAction();
+            }} disabled={actionLoading}>
             {actionLoading ? <CircularProgress size={20} /> : 'Confirm'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Issue Advance Dialog */}
-      <Dialog open={actionDialog.open && actionDialog.type === 'issue-advance'} onClose={closeAction} maxWidth="sm" fullWidth>
-        <DialogTitle>Issue Advance — {actionDialog.ca?.caNumber}</DialogTitle>
+      {/* Finance Advance Dialog (Create Voucher / Issue Advance) */}
+      <Dialog open={actionDialog.open && ['create-voucher', 'issue-advance'].includes(actionDialog.type)} onClose={closeAction} maxWidth="sm" fullWidth>
+        <DialogTitle>{actionDialog.type === 'issue-advance' ? 'Issue Advance' : 'Create Voucher'} — {actionDialog.ca?.caNumber}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12}>
               <Alert severity="info">Total CA Amount: <strong>{formatPKR(actionDialog.ca?.totalAmount)}</strong></Alert>
             </Grid>
+            {actionDialog.type === 'create-voucher' && (
             <Grid item xs={12}>
               <Autocomplete
                 options={employees}
-                getOptionLabel={(e) => `${e.firstName || ''} ${e.lastName || ''} — ${e.designation || e.department || ''}`.trim()}
-                onChange={(_, v) => setAdvanceForm({ ...advanceForm, advanceTo: v?._id || null, advanceToName: v ? `${v.firstName} ${v.lastName}` : '' })}
+                getOptionLabel={(e) => `${e?.firstName || ''} ${e?.lastName || ''} — ${e?.department || ''}`.trim()}
+                onChange={(_, v) => setAdvanceForm({ ...advanceForm, advanceTo: (v?._id || v?.id || null), advanceToName: v ? `${v.firstName || ''} ${v.lastName || ''}`.trim() : '' })}
                 renderInput={(params) => <TextField {...params} label="Advance To (Procurement Officer) *" size="small" />}
               />
             </Grid>
+            )}
+            {actionDialog.type === 'create-voucher' && (
             <Grid item xs={12} md={6}>
               <TextField fullWidth size="small" type="number" label="Advance Amount *"
                 value={advanceForm.advanceAmount} onChange={(e) => setAdvanceForm({ ...advanceForm, advanceAmount: e.target.value })} />
             </Grid>
+            )}
+            {actionDialog.type === 'create-voucher' && (
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                size="small"
+                select
+                label="Voucher Type"
+                value={advanceForm.voucherType || 'PAYMENT'}
+                onChange={(e) => setAdvanceForm({ ...advanceForm, voucherType: e.target.value })}
+              >
+                {['PAYMENT', 'RECEIPT', 'ADJUSTMENT', 'MANUAL'].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+              </TextField>
+            </Grid>
+            )}
+            {actionDialog.type === 'create-voucher' && (
             <Grid item xs={12} md={6}>
               <TextField fullWidth size="small" select label="Payment Method" value={advanceForm.advancePaymentMethod}
                 onChange={(e) => setAdvanceForm({ ...advanceForm, advancePaymentMethod: e.target.value })}>
                 {['Cash', 'Bank Transfer', 'Cheque', 'Online Transfer'].map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
               </TextField>
             </Grid>
+            )}
             <Grid item xs={12} md={6}>
-              <TextField fullWidth size="small" label="Voucher No." value={advanceForm.advanceVoucherNo}
-                onChange={(e) => setAdvanceForm({ ...advanceForm, advanceVoucherNo: e.target.value })} />
+              <TextField
+                fullWidth
+                size="small"
+                label="Voucher No."
+                value={advanceForm.advanceVoucherNo}
+                InputProps={{ readOnly: true }}
+                helperText={actionDialog.type === 'create-voucher'
+                  ? (advanceForm.advanceVoucherNo ? 'Linked voucher number (same as voucher list)' : 'Will be assigned when voucher is created')
+                  : 'Linked voucher number (same as voucher list)'}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 0.5, mb: 1 }}>
+                Approval Authority
+              </Typography>
+              <Grid container spacing={1} sx={{ mb: 1.5 }}>
+                {[
+                  { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
+                  { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+                  { key: 'financeControllerUser', label: 'GM Finance' }
+                ].map((slot) => (
+                  <Grid item xs={12} md={4} key={slot.key}>
+                    <Autocomplete
+                      options={financeAuthorityUsers}
+                      value={
+                        financeAuthorityUsers.find((u) => String(u?._id || u?.id || '') === String(financeAuthoritiesForm[slot.key] || ''))
+                        || (
+                          slot.key === 'accountsOfficerUser'
+                          && String(financeAuthoritiesForm[slot.key] || '') === String(user?.id || user?._id || '')
+                          && (user?._id || user?.id)
+                          ? {
+                            _id: String(user?._id || user?.id),
+                            id: String(user?._id || user?.id),
+                            firstName: user?.firstName || '',
+                            lastName: user?.lastName || '',
+                            email: user?.email || '',
+                            employeeId: user?.employeeId || '',
+                            department: user?.department || ''
+                          }
+                          : null
+                        )
+                      }
+                      getOptionLabel={(u) => `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || u.employeeId || ''}
+                      ListboxProps={{
+                        style: {
+                          maxHeight: 280,
+                          overflow: 'auto'
+                        }
+                      }}
+                      renderOption={(props, option) => (
+                        <Box component="li" {...props} sx={{ py: 0.5 }}>
+                          <Typography sx={{ fontSize: '0.82rem', lineHeight: 1.2 }}>
+                            {`${option.firstName || ''} ${option.lastName || ''}`.trim() || option.email || option.employeeId || 'User'}
+                          </Typography>
+                        </Box>
+                      )}
+                      onChange={(_, v) => setFinanceAuthoritiesForm((prev) => ({ ...prev, [slot.key]: String(v?._id || v?.id || '').trim() || null }))}
+                      renderInput={(params) => <TextField {...params} label={slot.label} size="small" helperText="Finance/Accounts users from User Management" />}
+                    />
+                  </Grid>
+                ))}
+                <Grid item xs={12}>
+                  <Button size="small" variant="outlined" onClick={saveFinanceAuthorities} disabled={actionLoading}>
+                    Save Finance Authorities
+                  </Button>
+                </Grid>
+              </Grid>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Date &amp; Time</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }} align="center">Digital Signature</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(() => {
+                      const fmt = (d) => {
+                        if (!d) return '—';
+                        const dt = new Date(d);
+                        return Number.isNaN(dt.getTime()) ? '—' : dt.toLocaleString();
+                      };
+                      const financeSlots = [
+                        { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
+                        { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+                        { key: 'financeControllerUser', label: 'GM Finance' }
+                      ];
+                      const financeApprovals = Array.isArray(actionDialog?.ca?.financeAuthorityApprovals) ? actionDialog.ca.financeAuthorityApprovals : [];
+                      const financeByKey = new Map(
+                        financeApprovals
+                          .map((a) => [String(a?.authorityKey || '').trim(), a])
+                          .filter(([k]) => Boolean(k))
+                      );
+                      return financeSlots.map((slot) => {
+                        const explicit = financeByKey.get(slot.key);
+                        const assignedUser = actionDialog?.ca?.financeApprovalAuthorities?.[slot.key];
+                        const approver = explicit?.approver && typeof explicit.approver === 'object' ? explicit.approver : assignedUser;
+                        const approvedAt = explicit?.approvedAt;
+                        const decision = String(explicit?.decision || '').trim().toLowerCase();
+                        const isRejected = decision === 'rejected';
+                        const approverName = approver
+                          ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
+                          : '—';
+                        const isApproved = Boolean(approvedAt) && !isRejected;
+                        return (
+                        <TableRow key={`issue-auth-${slot.key}`}>
+                          <TableCell>{slot.label}</TableCell>
+                          <TableCell>{approverName}</TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={isRejected ? 'Rejected' : (isApproved ? 'Approved' : 'Pending')}
+                              color={isRejected ? 'error' : (isApproved ? 'success' : 'warning')}
+                              variant={isRejected || isApproved ? 'filled' : 'outlined'}
+                            />
+                          </TableCell>
+                          <TableCell>{fmt(approvedAt)}</TableCell>
+                          <TableCell align="center">
+                            {isApproved && approver?.digitalSignature ? (
+                              <DigitalSignatureImage userOrPath={approver} alt={`${slot.label} signature`} />
+                            ) : isApproved ? (
+                              <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">—</Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );});
+                    })()}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              {(() => {
+                const me = String(user?.id || user?._id || '');
+                const authorities = actionDialog?.ca?.financeApprovalAuthorities || {};
+                const approvals = Array.isArray(actionDialog?.ca?.financeAuthorityApprovals) ? actionDialog.ca.financeAuthorityApprovals : [];
+                const decidedKeys = new Set(approvals.map((a) => String(a?.authorityKey || '').trim()).filter(Boolean));
+                const mine = [
+                  { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
+                  { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+                  { key: 'financeControllerUser', label: 'GM Finance' }
+                ].filter((s) => String(authorities?.[s.key]?._id || authorities?.[s.key] || '') === me && !decidedKeys.has(s.key));
+                if (!mine.length) return null;
+                return (
+                  <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="success"
+                      startIcon={<ApproveIcon />}
+                      onClick={approveMyFinanceAuthority}
+                      disabled={actionLoading}
+                    >
+                      Approve My Finance Authority
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="error"
+                      startIcon={<RejectIcon />}
+                      onClick={rejectMyFinanceAuthority}
+                      disabled={actionLoading}
+                    >
+                      Reject My Finance Authority
+                    </Button>
+                  </Box>
+                );
+              })()}
             </Grid>
             <Grid item xs={12}>
               <TextField fullWidth size="small" multiline rows={2} label="Remarks"
                 value={advanceForm.advanceRemarks} onChange={(e) => setAdvanceForm({ ...advanceForm, advanceRemarks: e.target.value })} />
             </Grid>
+            {actionDialog.type === 'issue-advance' && (
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Signed Check Number *"
+                value={advanceForm.signedCheckNumber || ''}
+                onChange={(e) => setAdvanceForm({ ...advanceForm, signedCheckNumber: e.target.value })}
+              />
+            </Grid>
+            )}
+            {actionDialog.type === 'issue-advance' && (
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                size="small"
+                type="date"
+                label="Signed Check Date"
+                InputLabelProps={{ shrink: true }}
+                value={advanceForm.signedCheckDate || ''}
+                onChange={(e) => setAdvanceForm({ ...advanceForm, signedCheckDate: e.target.value })}
+              />
+            </Grid>
+            )}
+            {actionDialog.type === 'issue-advance' && (
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Bank Name"
+                value={advanceForm.signedCheckBankName || ''}
+                onChange={(e) => setAdvanceForm({ ...advanceForm, signedCheckBankName: e.target.value })}
+              />
+            </Grid>
+            )}
+            {actionDialog.type === 'issue-advance' && (
+            <Grid item xs={12} md={6}>
+              <Button
+                variant="outlined"
+                component="label"
+                disabled={signedCheckUploadLoading}
+                fullWidth
+              >
+                {signedCheckUploadLoading ? 'Uploading...' : 'Upload Signed Check Evidence'}
+                <input
+                  type="file"
+                  hidden
+                  multiple
+                  accept="image/*,.pdf"
+                  onChange={(e) => uploadSignedCheckEvidence(e.target.files)}
+                />
+              </Button>
+            </Grid>
+            )}
+            {actionDialog.type === 'issue-advance' && (
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                size="small"
+                multiline
+                rows={2}
+                label="Signed Check Remarks"
+                value={advanceForm.signedCheckRemarks || ''}
+                onChange={(e) => setAdvanceForm({ ...advanceForm, signedCheckRemarks: e.target.value })}
+              />
+            </Grid>
+            )}
+            {actionDialog.type === 'issue-advance' && (
+            <Grid item xs={12}>
+              <Typography variant="caption" color="text.secondary">
+                Uploaded evidence files: {signedCheckAttachments.length}
+              </Typography>
+            </Grid>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeAction}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={() => handleAction({ ...advanceForm, advanceAmount: parseFloat(advanceForm.advanceAmount) })} disabled={actionLoading || !advanceForm.advanceAmount}>
-            {actionLoading ? <CircularProgress size={20} /> : 'Issue Advance'}
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => {
+              if (actionDialog.type === 'issue-advance') {
+                handleAction({
+                  advanceTo: advanceForm.advanceTo || null,
+                  advanceToName: advanceForm.advanceToName || '',
+                  advanceAmount: parseFloat(advanceForm.advanceAmount || 0),
+                  advancePaymentMethod: advanceForm.advancePaymentMethod || 'Cash',
+                  advanceVoucherNo: advanceForm.advanceVoucherNo || '',
+                  advanceRemarks: advanceForm.advanceRemarks || actionComments,
+                  signedCheckNumber: advanceForm.signedCheckNumber || '',
+                  signedCheckDate: advanceForm.signedCheckDate || '',
+                  signedCheckBankName: advanceForm.signedCheckBankName || '',
+                  signedCheckRemarks: advanceForm.signedCheckRemarks || '',
+                  signedCheckAttachments
+                });
+                return;
+              }
+              handleAction();
+            }}
+            disabled={
+              actionLoading
+              || (actionDialog.type === 'create-voucher' && (
+                !financeAuthoritiesForm.accountsOfficerUser
+                || !financeAuthoritiesForm.accountsManagerUser
+                || !financeAuthoritiesForm.financeControllerUser
+              ))
+              || (actionDialog.type === 'issue-advance' && (
+                !advanceForm.advanceAmount
+                || !signedCheckAttachments.length
+              ))
+            }
+          >
+            {actionLoading ? <CircularProgress size={20} /> : (actionDialog.type === 'issue-advance' ? 'Issue Advance' : 'Create Voucher')}
           </Button>
         </DialogActions>
       </Dialog>

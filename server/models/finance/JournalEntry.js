@@ -150,6 +150,26 @@ const journalEntrySchema = new mongoose.Schema({
     ref: 'User'
   },
   postedDate: Date,
+  clearanceStatus: {
+    type: String,
+    enum: ['pending', 'cleared'],
+    default: 'pending'
+  },
+  signedDocumentStatus: {
+    type: String,
+    enum: ['not_signed', 'signed'],
+    default: 'not_signed'
+  },
+  signedDocumentAt: Date,
+  clearedAt: Date,
+  clearanceRemarks: {
+    type: String,
+    trim: true
+  },
+  clearedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   notes: String,
   attachments: [{
     filename: String,
