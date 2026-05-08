@@ -241,6 +241,7 @@ export const SUBMODULES = {
     'organizational_development',
     'fbr_tax_management',
     'evaluation_appraisal',
+    'kpi_management',
     'reports'
   ],
   [MODULE_KEYS.FINANCE]: [
@@ -561,6 +562,16 @@ export const MODULES = {
           { name: 'Dashboard', path: '/hr/evaluation-appraisal/dashboard' },
           { name: 'Documents', path: '/hr/evaluation-appraisal/documents' },
           { name: 'Authorities', path: '/hr/evaluation-appraisal/authorities' }
+        ]
+      },
+      {
+        name: 'KPI Management',
+        path: '/hr/kpi/dashboard',
+        subItems: [
+          { name: 'KPI Dashboard', path: '/hr/kpi/dashboard' },
+          { name: 'KPI Templates', path: '/hr/kpi/templates' },
+          { name: 'Evaluation Cycles', path: '/hr/kpi/cycles' },
+          { name: 'Manager Review', path: '/hr/kpi/review' }
         ]
       },
       { name: 'Reports', path: '/hr/reports' }

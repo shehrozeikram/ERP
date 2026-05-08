@@ -452,6 +452,11 @@ const employeeSchema = new mongoose.Schema({
     enum: ['blue_collar', 'white_collar'],
     required: false
   },
+  jobDescription: {
+    type: String,
+    trim: true,
+    required: false
+  },
   oldDesignation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Designation',

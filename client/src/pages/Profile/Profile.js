@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Box, 
   Typography, 
@@ -20,7 +21,7 @@ import {
   FormControlLabel,
   Switch
 } from '@mui/material';
-import { Person as PersonIcon, Email, Phone, Work, LocationOn, CameraAlt as CameraIcon, Draw as DrawIcon } from '@mui/icons-material';
+import { Person as PersonIcon, Email, Phone, Work, LocationOn, CameraAlt as CameraIcon, Draw as DrawIcon, EventAvailable } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { authService } from '../../services/authService';
 import api from '../../services/api';
@@ -266,11 +267,22 @@ const Profile = () => {
     return employeeId.toString().padStart(4, '0');
   };
 
+  const navigate = useNavigate();
+
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
-        User Profile
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
+          User Profile
+        </Typography>
+        <Button 
+          variant="contained" 
+          color="primary" 
+          onClick={() => navigate('/profile/kpis')}
+        >
+          My Performance KPIs
+        </Button>
+      </Box>
       
       <Grid container spacing={3}>
         {/* Profile Image and Basic Info */}
@@ -445,6 +457,96 @@ const Profile = () => {
             </CardContent>
           </Card>
         </Grid>
+
+        {/* Job Description Card */}
+        {user?.jobDescription && (
+          <Grid item xs={12}>
+            <Card sx={{ 
+              background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.05)} 0%, ${alpha(theme.palette.info.main, 0.02)} 100%)`,
+              border: `1px solid ${alpha(theme.palette.info.main, 0.1)}`
+            }}>
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <Work color="info" />
+                  <Typography variant="h6" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
+                    Job Description (JD)
+                  </Typography>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: theme.palette.text.primary, lineHeight: 1.6 }}>
+                  {user.jobDescription}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {/* Leave Balance Card */}
+        {user?.leaveBalance && (
+          <Grid item xs={12}>
+            <Card sx={{ 
+              background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.05)} 0%, ${alpha(theme.palette.success.main, 0.02)} 100%)`,
+              border: `1px solid ${alpha(theme.palette.success.main, 0.1)}`
+            }}>
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <EventAvailable color="success" />
+                  <Typography variant="h6" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
+                    Leave Balance
+                  </Typography>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+                <Grid container spacing={2}>
+                  {Object.entries(user.leaveBalance).map(([type, balance]) => {
+                    if (!balance || typeof balance !== 'object' || type === '_id' || type === 'medical' || type === 'maternity' || type === 'paternity') {
+                      if (balance && balance.allocated > 0) {
+                        // Show if explicitly allocated
+                      } else {
+                        return null;
+                      }
+                    }
+                    return (
+                      <Grid item xs={12} sm={4} key={type}>
+                        <Box sx={{ p: 2, bgcolor: alpha(theme.palette.success.main, 0.05), borderRadius: 2 }}>
+                          <Typography variant="subtitle1" sx={{ textTransform: 'capitalize', fontWeight: 'bold', color: theme.palette.success.main, mb: 1 }}>
+                            {type} Leave
+                          </Typography>
+                          <Divider sx={{ mb: 2, opacity: 0.5 }} />
+                          <Grid container spacing={1}>
+                            <Grid item xs={6}>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', fontWeight: 'bold', letterSpacing: 0.5 }}>REMAINING</Typography>
+                              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{balance.remaining}</Typography>
+                            </Grid>
+                            <Grid item xs={6} sx={{ borderLeft: `1px solid ${alpha(theme.palette.divider, 0.5)}`, pl: 2 }}>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', fontWeight: 'bold', letterSpacing: 0.5 }}>USED</Typography>
+                              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{balance.used}</Typography>
+                            </Grid>
+                            <Grid item xs={12} sx={{ mt: 1 }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="caption" color="textSecondary">Total Quota: {balance.allocated}</Typography>
+                                <Typography variant="caption" sx={{ fontWeight: 'bold', color: theme.palette.success.main }}>
+                                  {Math.round((balance.used / balance.allocated) * 100) || 0}% Used
+                                </Typography>
+                              </Box>
+                              <Box sx={{ width: '100%', height: 6, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 3, overflow: 'hidden' }}>
+                                <Box sx={{ 
+                                  width: `${Math.min(100, (balance.used / balance.allocated) * 100)}%`, 
+                                  height: '100%', 
+                                  bgcolor: theme.palette.success.main,
+                                  transition: 'width 1s ease-in-out'
+                                }} />
+                              </Box>
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
 
         <Grid item xs={12} md={6}>
           <Card sx={{ height: '100%' }}>

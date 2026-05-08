@@ -2162,56 +2162,93 @@ router.get('/reports/inventory-valuation',
 router.get('/reports/trial-balance-v2',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { asOfDate } = req.query;
+    const round2 = (n) => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+    const { asOfDate, fromDate } = req.query;
     const asOf = asOfDate ? new Date(asOfDate) : new Date();
     // For date-only filters, include the full day so same-day posted entries
     // (with non-midnight timestamps) are not accidentally excluded.
     if (asOfDate) asOf.setHours(23, 59, 59, 999);
 
-    // Aggregate all posted JE lines up to asOfDate, summing debit/credit per account
-    const rows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $lte: asOf } } },
+    const from = fromDate ? new Date(fromDate) : new Date(asOf.getFullYear(), 0, 1);
+    from.setHours(0, 0, 0, 0);
+
+    // Opening = balance before period start
+    const openingRows = await JournalEntry.aggregate([
+      { $match: { status: 'posted', date: { $lt: from } } },
       { $unwind: '$lines' },
       {
         $group: {
           _id: '$lines.account',
-          totalDebit:  { $sum: '$lines.debit' },
-          totalCredit: { $sum: '$lines.credit' }
+          openingDebit: { $sum: '$lines.debit' },
+          openingCredit: { $sum: '$lines.credit' }
         }
       },
-      {
-        $lookup: {
-          from: 'accounts',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'accountDoc'
-        }
-      },
-      { $unwind: '$accountDoc' },
       {
         $project: {
-          accountNumber: '$accountDoc.accountNumber',
-          accountName:   '$accountDoc.name',
-          accountType:   '$accountDoc.type',
-          totalDebit:  1,
-          totalCredit: 1,
-          netBalance: { $subtract: ['$totalDebit', '$totalCredit'] }
+          openingBalance: { $subtract: ['$openingDebit', '$openingCredit'] }
         }
-      },
-      { $sort: { accountNumber: 1 } }
+      }
     ]);
 
-    const totalDebits  = rows.reduce((s, r) => s + r.totalDebit, 0);
-    const totalCredits = rows.reduce((s, r) => s + r.totalCredit, 0);
+    // Movement = debit/credit within selected period
+    const movementRows = await JournalEntry.aggregate([
+      { $match: { status: 'posted', date: { $gte: from, $lte: asOf } } },
+      { $unwind: '$lines' },
+      {
+        $group: {
+          _id: '$lines.account',
+          totalDebit: { $sum: '$lines.debit' },
+          totalCredit: { $sum: '$lines.credit' }
+        }
+      }
+    ]);
+
+    const openingByAccount = new Map(openingRows.map((r) => [String(r._id), r.openingBalance || 0]));
+    const movementByAccount = new Map(
+      movementRows.map((r) => [String(r._id), { totalDebit: r.totalDebit || 0, totalCredit: r.totalCredit || 0 }])
+    );
+
+    const accountIds = Array.from(
+      new Set([...openingByAccount.keys(), ...movementByAccount.keys()])
+    );
+    const accounts = await Account.find({ _id: { $in: accountIds } })
+      .select('accountNumber name type')
+      .lean();
+
+    const rows = accounts
+      .map((acc) => {
+        const accountId = String(acc._id);
+        const openingBalance = round2(openingByAccount.get(accountId) || 0);
+        const movement = movementByAccount.get(accountId) || { totalDebit: 0, totalCredit: 0 };
+        const totalDebit = round2(movement.totalDebit);
+        const totalCredit = round2(movement.totalCredit);
+        const closingBalance = round2(openingBalance + totalDebit - totalCredit);
+        return {
+          _id: acc._id,
+          accountNumber: acc.accountNumber,
+          accountName: acc.name,
+          accountType: acc.type,
+          openingBalance,
+          totalDebit,
+          totalCredit,
+          closingBalance,
+          netBalance: closingBalance
+        };
+      })
+      .sort((a, b) => String(a.accountNumber || '').localeCompare(String(b.accountNumber || '')));
+
+    const totalDebits  = round2(rows.reduce((s, r) => s + r.totalDebit, 0));
+    const totalCredits = round2(rows.reduce((s, r) => s + r.totalCredit, 0));
 
     res.json({
       success: true,
       data: {
+        fromDate: from,
         asOfDate: asOf,
         rows,
         totals: {
-          totalDebits:  Math.round(totalDebits * 100) / 100,
-          totalCredits: Math.round(totalCredits * 100) / 100,
+          totalDebits,
+          totalCredits,
           isBalanced: Math.abs(totalDebits - totalCredits) < 0.01
         }
       }

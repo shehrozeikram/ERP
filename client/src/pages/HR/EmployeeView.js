@@ -1093,6 +1093,24 @@ const EmployeeView = () => {
           </Grid>
         )}
 
+        {/* Job Description Section */}
+        {employee.jobDescription && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <WorkIcon />
+                  Job Description (JD)
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: 'text.primary', lineHeight: 1.6 }}>
+                  {employee.jobDescription}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
         {/* Academic Background Section */}
         {employee.academicBackground && employee.academicBackground.length > 0 && (
           <Grid item xs={12}>

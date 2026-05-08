@@ -663,6 +663,7 @@ app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationD
 app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);
 app.use('/api/stores', authMiddleware, activityLogger, storesRoutes);
 app.use('/api/project-management', authMiddleware, activityLogger, projectManagementRoutes);
+app.use('/api/kpi', authMiddleware, activityLogger, require('./routes/kpi'));
 app.use('/api/items', authMiddleware, activityLogger, require('./routes/items'));
 app.use('/api/evaluation-level0-authorities', authMiddleware, activityLogger, evaluationLevel0AuthoritiesRoutes);
 app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activityLogger to tracking routes to avoid recursion

@@ -7,6 +7,7 @@ const permissions = require('../middleware/permissions');
 const User = require('../models/User');
 const Department = require('../models/hr/Department');
 const SubRole = require('../models/SubRole');
+const Employee = require('../models/hr/Employee');
 const { ROLE_VALUES, ROLE_MODULE_ACCESS } = require('../config/permissions');
 const multer = require('multer');
 const path = require('path');
@@ -349,10 +350,25 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
   // Populate subRoles (legacy system) before returning user profile
   await req.user.populate('subRoles', 'name module permissions description');
   
+  const userProfile = req.user.getProfile();
+  
+  // Fetch employee specific data (Job Description, Leave Balance)
+  const employeeData = await Employee.findOne({ 
+    $or: [
+      { user: req.user._id },
+      { employeeId: req.user.employeeId }
+    ]
+  }).select('jobDescription leaveBalance');
+
+  if (employeeData) {
+    userProfile.jobDescription = employeeData.jobDescription;
+    userProfile.leaveBalance = employeeData.leaveBalance;
+  }
+  
   res.json({
     success: true,
     data: {
-      user: req.user.getProfile()
+      user: userProfile
     }
   });
 }));

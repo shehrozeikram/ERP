@@ -144,6 +144,7 @@ import Campaigns from './pages/CRM/Campaigns';
 import Opportunities from './pages/CRM/Opportunities';
 import Reports from './pages/CRM/Reports';
 import Profile from './pages/Profile/Profile';
+import MyKPIs from './pages/Profile/MyKPIs';
 import ChatPage from './pages/Chat/ChatPage';
 import ChatModerationPage from './pages/Chat/ChatModerationPage';
 import ChatFloatingButton from './components/ChatFloatingButton';
@@ -291,6 +292,12 @@ import IncrementList from './pages/Increments/IncrementList';
 import CreateIncrement from './pages/Increments/CreateIncrement';
 import IncrementHistory from './pages/Increments/IncrementHistory';
 import IncrementDetail from './pages/Increments/IncrementDetail';
+
+// KPI Management
+import KPIDashboard from './pages/HR/KPI/KPIDashboard';
+import KPITemplates from './pages/HR/KPI/KPITemplates';
+import KPICycles from './pages/HR/KPI/KPICycles';
+import ReviewKPIs from './pages/HR/KPI/ReviewKPIs';
 
 // Leave Management Pages
 import LeaveManagement from './pages/HR/Leaves/LeaveManagement';
@@ -664,6 +671,24 @@ function App() {
             <Route
               path="/documents-tracking"
               element={<ProtectedRoute><DocumentsTracking /></ProtectedRoute>}
+            />
+
+            {/* KPI Management Routes */}
+            <Route
+              path="/hr/kpi/dashboard"
+              element={<ProtectedRoute><KPIDashboard /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/kpi/templates"
+              element={<ProtectedRoute><KPITemplates /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/kpi/cycles"
+              element={<ProtectedRoute><KPICycles /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/kpi/review"
+              element={<ProtectedRoute><ReviewKPIs /></ProtectedRoute>}
             />
 
             {/* Indents Routes */}
@@ -1541,6 +1566,10 @@ function App() {
             <Route 
               path="/profile" 
               element={<ProtectedRoute><Profile /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/profile/kpis" 
+              element={<ProtectedRoute><MyKPIs /></ProtectedRoute>} 
             />
             <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
             <Route path="/chat/moderation" element={<ProtectedRoute><ChatModerationPage /></ProtectedRoute>} />

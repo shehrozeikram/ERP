@@ -15,12 +15,12 @@ const FinanceHelper = {
   ACCOUNTS: {
     CASH: '1001',
     BANK: '1002',
-    INVENTORY: '1100',       // Stock Valuation Asset — DR on GRN
+    INVENTORY: '1200',       // Stock Valuation Asset — DR on GRN
     VENDOR_ADVANCE: '1110',  // Advance to Suppliers (asset) — vendor prepayments
     STAFF_ADVANCE: '1120',   // Cash Advance to Staff — petty cash / cash purchase advances
-    RECEIVABLE: '1200',
+    RECEIVABLE: '1100',
     PAYABLE: '2001',
-    GRNI: '2100',            // Goods Received Not Invoiced — CR on GRN, DR on AP Bill (THE KEY CLEARING ACCOUNT)
+    GRNI: '2140',            // Goods Received Not Invoiced — CR on GRN, DR on AP Bill (THE KEY CLEARING ACCOUNT)
     SALARIES_PAYABLE: '2200',
     REVENUE_CAM: '4010',
     REVENUE_ELECTRICITY: '4020',
@@ -37,6 +37,31 @@ const FinanceHelper = {
    */
   resolveInventoryAccounts: async (inventoryItem) => {
     const InventoryCategory = mongoose.model('InventoryCategory');
+    const findByNumber = async (num) => Account.findOne({ accountNumber: String(num) });
+    const findGrniFallback = async () => {
+      // Prefer semantic GRNI head first (safer when account numbers vary by environment).
+      let acc = await Account.findOne({
+        type: 'Liability',
+        name: { $regex: 'goods\\s*received\\s*not\\s*invoiced|\\bgrni\\b', $options: 'i' }
+      });
+      // Then fallback to canonical configured number.
+      if (!acc) acc = await findByNumber(FinanceHelper.ACCOUNTS.GRNI);
+      // Final guard: must be liability and not AP.
+      const looksLikeAp = /\baccounts?\s*payable\b|\bap\b/i.test(String(acc?.name || ''));
+      if (acc && (String(acc.type || '').toLowerCase() !== 'liability' || looksLikeAp)) return null;
+      return acc;
+    };
+    const findInventoryFallback = async () => {
+      // Prefer configured inventory code, but reject non-asset mappings.
+      let acc = await findByNumber(FinanceHelper.ACCOUNTS.INVENTORY);
+      const looksLikeReceivable = /\baccounts?\s*receivable\b|\bar\b/i.test(String(acc?.name || ''));
+      if (acc && String(acc.type || '').toLowerCase() === 'asset' && !looksLikeReceivable) return acc;
+      // Try a semantic inventory asset fallback if account numbers differ by environment.
+      return Account.findOne({
+        type: 'Asset',
+        name: { $regex: 'inventory|stock|raw material', $options: 'i' }
+      });
+    };
 
     let inventoryAccountId = inventoryItem.inventoryAccount;
     let grniAccountId = inventoryItem.grniAccount;
@@ -55,16 +80,35 @@ const FinanceHelper = {
 
     // Final fallback: find by well-known account numbers
     if (!inventoryAccountId) {
-      const acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.INVENTORY });
+      const acc = await findInventoryFallback();
       inventoryAccountId = acc?._id;
     }
     if (!grniAccountId) {
-      const acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.GRNI });
+      const acc = await findGrniFallback();
       grniAccountId = acc?._id;
     }
     if (!cogsAccountId) {
       const acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.COGS });
       cogsAccountId = acc?._id;
+    }
+
+    // Safety guards: if item/category has wrong account head linked, auto-correct at posting time.
+    if (inventoryAccountId) {
+      const invAcc = await Account.findById(inventoryAccountId).select('type name');
+      const looksLikeAr = /\baccounts?\s*receivable\b|\bar\b/i.test(String(invAcc?.name || ''));
+      if (!invAcc || String(invAcc.type || '').toLowerCase() !== 'asset' || looksLikeAr) {
+        const fallback = await findInventoryFallback();
+        inventoryAccountId = fallback?._id || null;
+      }
+    }
+    if (grniAccountId) {
+      const grniAcc = await Account.findById(grniAccountId).select('type name');
+      const looksLikeAr = /\baccounts?\s*receivable\b|\bar\b/i.test(String(grniAcc?.name || ''));
+      const looksLikeAp = /\baccounts?\s*payable\b|\bap\b/i.test(String(grniAcc?.name || ''));
+      if (!grniAcc || String(grniAcc.type || '').toLowerCase() !== 'liability' || looksLikeAr || looksLikeAp) {
+        const fallback = await findGrniFallback();
+        grniAccountId = fallback?._id || null;
+      }
     }
 
     return { inventoryAccountId, grniAccountId, cogsAccountId };
@@ -88,6 +132,8 @@ const FinanceHelper = {
       const { grniAccountId } = await FinanceHelper.resolveInventoryAccounts(inv);
       if (!grniAccountId) return null;
       const acc = await Account.findById(grniAccountId);
+      const looksLikeAp = /\baccounts?\s*payable\b|\bap\b/i.test(String(acc?.name || ''));
+      if (looksLikeAp) return null;
       return acc || null;
     };
 

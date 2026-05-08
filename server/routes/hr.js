@@ -439,6 +439,7 @@ router.post('/employees', [
   body('appointmentDate').notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').isNumeric().withMessage('Probation period must be a number'),
   body('hireDate').notEmpty().withMessage('Hire date is required'),
+  body('jobDescription').optional().trim(),
   body('salary.gross').optional({ nullable: true, checkFalsy: true }).isFloat({ min: 0 }).withMessage('Gross salary must be a valid positive number')
 ], asyncHandler(async (req, res) => {
   console.log('📥 POST /hr/employees - Request received');
@@ -918,6 +919,7 @@ router.put('/employees/:id', [
   body('appointmentDate').optional().notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').optional().isNumeric().withMessage('Probation period must be a number'),
   body('hireDate').optional().notEmpty().withMessage('Hire date is required'),
+  body('jobDescription').optional().trim(),
   // body('salary.gross').optional().custom((value) => {
   //   // Allow empty, null, undefined values
   //   if (value === undefined || value === null || value === '') {

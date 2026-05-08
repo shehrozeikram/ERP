@@ -166,24 +166,30 @@ export function exportProfitLossExcel(data, filters) {
 // ─── Trial Balance ───────────────────────────────────────────────────────────
 export function exportTrialBalancePDF(data, asOfDate) {
   const doc = baseDoc('Trial Balance', `As of ${asOfDate}`);
+  const totalOpening = data.accounts?.reduce((s, a) => s + (a.openingBalance || 0), 0) || 0;
+  const totalDebits = data.accounts?.reduce((s, a) => s + (a.totalDebit || 0), 0) || 0;
+  const totalCredits = data.accounts?.reduce((s, a) => s + (a.totalCredit || 0), 0) || 0;
+  const totalClosing = data.accounts?.reduce((s, a) => s + (a.closingBalance || 0), 0) || 0;
   autoTable(doc, {
     startY: 42,
-    head: [['Account #', 'Account Name', 'Type', 'Debit (PKR)', 'Credit (PKR)', 'Balance (PKR)']],
+    head: [['Account #', 'Account Name', 'Type', 'Opening (PKR)', 'Debit (PKR)', 'Credit (PKR)', 'Closing (PKR)']],
     body: (data.accounts || []).map(a => [
       a.accountNumber || '', a.accountName || '', a.accountType || '',
+      fmtPKR(a.openingBalance || 0),
       a.totalDebit ? fmtPKR(a.totalDebit) : '',
       a.totalCredit ? fmtPKR(a.totalCredit) : '',
-      fmtPKR(a.balance)
+      fmtPKR(a.closingBalance ?? a.balance ?? 0)
     ]),
     foot: [['', '', 'TOTALS',
-      fmtPKR(data.accounts?.reduce((s, a) => s + (a.totalDebit || 0), 0)),
-      fmtPKR(data.accounts?.reduce((s, a) => s + (a.totalCredit || 0), 0)),
-      ''
+      fmtPKR(totalOpening),
+      fmtPKR(totalDebits),
+      fmtPKR(totalCredits),
+      fmtPKR(totalClosing)
     ]],
     styles: { fontSize: 7.5, cellPadding: 1.8 },
     headStyles: { fillColor: [245, 245, 245], textColor: [60, 60, 60], fontStyle: 'bold' },
     footStyles: { fillColor: [240, 240, 240], fontStyle: 'bold' },
-    columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
   });
   doc.save(`Trial-Balance-${asOfDate}.pdf`);
 }
@@ -195,17 +201,18 @@ export function exportTrialBalanceExcel(data, asOfDate) {
     [`As of: ${asOfDate}`],
     [`Generated: ${todayStr()}`],
     [],
-    ['Account #', 'Account Name', 'Type', 'Debit (PKR)', 'Credit (PKR)', 'Balance (PKR)'],
-    ...(data.accounts || []).map(a => [a.accountNumber, a.accountName, a.accountType, a.totalDebit || 0, a.totalCredit || 0, a.balance || 0]),
+    ['Account #', 'Account Name', 'Type', 'Opening (PKR)', 'Debit (PKR)', 'Credit (PKR)', 'Closing (PKR)'],
+    ...(data.accounts || []).map(a => [a.accountNumber, a.accountName, a.accountType, a.openingBalance || 0, a.totalDebit || 0, a.totalCredit || 0, a.closingBalance ?? a.balance ?? 0]),
     [],
     ['', '', 'TOTALS',
+      data.accounts?.reduce((s, a) => s + (a.openingBalance || 0), 0),
       data.accounts?.reduce((s, a) => s + (a.totalDebit || 0), 0),
       data.accounts?.reduce((s, a) => s + (a.totalCredit || 0), 0),
-      ''
+      data.accounts?.reduce((s, a) => s + (a.closingBalance || 0), 0)
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 14 }, { wch: 36 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+  ws['!cols'] = [{ wch: 14 }, { wch: 36 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, ws, 'Trial Balance');
   XLSX.writeFile(wb, `Trial-Balance-${asOfDate}.xlsx`);
 }

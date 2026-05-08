@@ -164,6 +164,10 @@ const Sidebar = () => {
       '/hr/evaluation-appraisal/dashboard': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
+      '/hr/kpi/dashboard': 'kpi_management',
+      '/hr/kpi/templates': 'kpi_management',
+      '/hr/kpi/cycles': 'kpi_management',
+      '/hr/kpi/review': 'kpi_management',
       '/hr/reports': 'reports',
       
       // General Module - Documents Tracking

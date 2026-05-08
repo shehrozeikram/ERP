@@ -191,6 +191,7 @@ const EmployeeForm = () => {
       .min(0, 'Probation period cannot be negative')
       .max(24, 'Probation period cannot exceed 24 months'),
     hireDate: Yup.date().required('Hire date is required'),
+    jobDescription: Yup.string().optional(),
     // Employment status
     employmentStatus: Yup.string().oneOf(['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'], 'Invalid employment status'),
     // Placement fields
@@ -778,6 +779,7 @@ const EmployeeForm = () => {
         isActive: employeeData.isActive !== undefined ? employeeData.isActive : true,
         employmentStatus: employeeData.employmentStatus || 'Draft',
         profileImage: employeeData.profileImage || '',
+        jobDescription: employeeData.jobDescription || '',
         academicBackground: (employeeData.academicBackground || []).map(bg => ({
           ...bg,
           graduationYear: bg.graduationYear || ''
@@ -915,6 +917,7 @@ const EmployeeForm = () => {
       hrSignature: '',
       hrSignatureDate: ''
     },
+      jobDescription: '',
       firstName: '',
       lastName: '',
       email: '',
@@ -2336,6 +2339,21 @@ const EmployeeForm = () => {
                 onChange={formik.handleChange}
                 error={formik.touched.hireDate && Boolean(formik.errors.hireDate)}
                 helperText={formik.touched.hireDate && formik.errors.hireDate}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                name="jobDescription"
+                label="Job Description (JD)"
+                multiline
+                rows={4}
+                value={formik.values.jobDescription || ''}
+                onChange={formik.handleChange}
+                error={formik.touched.jobDescription && Boolean(formik.errors.jobDescription)}
+                helperText={formik.touched.jobDescription && formik.errors.jobDescription}
+                placeholder="Enter detailed job description, responsibilities, and requirements..."
               />
             </Grid>
 
