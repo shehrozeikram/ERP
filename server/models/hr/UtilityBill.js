@@ -7,6 +7,17 @@ const utilityBillSchema = new mongoose.Schema({
     unique: true,
     default: () => `UB${Date.now().toString().slice(-6)}`
   },
+  accountHead: {
+    type: String,
+    enum: ['President Personal', 'Head Office', 'Boly.pk', 'Usman Solar', ''],
+    default: '',
+    trim: true
+  },
+  site: {
+    type: String,
+    trim: true,
+    maxlength: [200, 'Site cannot exceed 200 characters']
+  },
   utilityType: {
     type: String,
     required: true,
@@ -46,6 +57,20 @@ const utilityBillSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  lastMonthAmount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  balanceAmount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  grandTotal: {
+    type: Number,
+    min: 0
+  },
   paidAmount: {
     type: Number,
     default: 0,
@@ -55,6 +80,91 @@ const utilityBillSchema = new mongoose.Schema({
     type: String,
     enum: ['Pending', 'Paid', 'Overdue', 'Partial'],
     default: 'Pending'
+  },
+  approvalStatus: {
+    type: String,
+    enum: ['Draft', 'Submitted', 'Approved', 'Rejected'],
+    default: 'Draft',
+    index: true
+  },
+  approvalChain: [{
+    approver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    actedAt: {
+      type: Date
+    },
+    comment: {
+      type: String,
+      trim: true
+    }
+  }],
+  draftApproverIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  approvedAt: {
+    type: Date
+  },
+  rejectedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  rejectedAt: {
+    type: Date
+  },
+  rejectionReason: {
+    type: String,
+    trim: true
+  },
+  workflowHistory: [{
+    fromStatus: { type: String, trim: true },
+    toStatus: { type: String, trim: true },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedAt: { type: Date, default: Date.now },
+    comments: { type: String, trim: true },
+    module: { type: String, trim: true },
+    stampUsed: { type: Boolean, default: false },
+    stampImage: { type: String, trim: true }
+  }],
+  auditStatus: {
+    type: String,
+    enum: [
+      'Not Sent',
+      'Send to Audit',
+      'Forwarded to Audit Director',
+      'Approved (from Send to Audit)',
+      'Approved (from Forwarded to Audit Director)',
+      'Returned from Audit',
+      'Rejected (from Send to Audit)'
+    ],
+    default: 'Not Sent',
+    index: true
+  },
+  observations: [{
+    observation: { type: String, trim: true },
+    severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    addedAt: { type: Date, default: Date.now },
+    answer: { type: String, trim: true },
+    answeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    answeredAt: { type: Date },
+    resolved: { type: Boolean, default: false }
+  }],
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   },
   paymentDate: {
     type: Date
@@ -69,6 +179,11 @@ const utilityBillSchema = new mongoose.Schema({
     trim: true,
     maxlength: 500
   },
+  forWhat: {
+    type: String,
+    trim: true,
+    maxlength: [1000, 'For what cannot exceed 1000 characters']
+  },
   attachment: {
     type: String, // File path for bill attachment
     default: null
@@ -81,6 +196,16 @@ const utilityBillSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: 'Main Office'
+  },
+  department: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Department cannot exceed 100 characters']
+  },
+  custodian: {
+    type: String,
+    trim: true,
+    maxlength: [200, 'Custodian cannot exceed 200 characters']
   },
   // Additional fields for better management
   billingPeriod: {
@@ -124,10 +249,15 @@ const utilityBillSchema = new mongoose.Schema({
 utilityBillSchema.index({ billId: 1 });
 utilityBillSchema.index({ utilityType: 1 });
 utilityBillSchema.index({ status: 1 });
+utilityBillSchema.index({ approvalStatus: 1 });
 utilityBillSchema.index({ billDate: -1 });
 utilityBillSchema.index({ dueDate: 1 });
 utilityBillSchema.index({ provider: 1 });
+utilityBillSchema.index({ accountHead: 1 });
+utilityBillSchema.index({ site: 1 });
 utilityBillSchema.index({ location: 1 });
+utilityBillSchema.index({ department: 1 });
+utilityBillSchema.index({ custodian: 1 });
 utilityBillSchema.index({ createdBy: 1 });
 
 // Virtual for remaining amount
@@ -188,9 +318,12 @@ utilityBillSchema.virtual('utilityTypeDescription').get(function() {
 utilityBillSchema.methods.getBillDetails = function() {
   return {
     billId: this.billId,
+    site: this.site,
     utilityType: this.utilityType,
     utilityTypeDescription: this.utilityTypeDescription,
     provider: this.provider,
+    department: this.department,
+    custodian: this.custodian,
     amount: this.amount,
     paidAmount: this.paidAmount,
     remainingAmount: this.remainingAmount,

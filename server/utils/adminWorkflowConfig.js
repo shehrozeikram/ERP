@@ -16,6 +16,32 @@ const ADMIN_WORKFLOW_MODULES = {
     dateField: 'date',
     routePath: '/admin/payment-settlement',
     icon: 'Payment'
+  },
+  utility_bills_management: {
+    name: 'Utility Bill',
+    modelPath: '../models/hr/UtilityBill',
+    collection: 'utilitybills',
+    apiPath: '/api/utility-bills',
+    workflowStatusField: 'auditStatus',
+    titleField: 'billId',
+    descriptionField: 'provider',
+    amountField: 'grandTotal',
+    dateField: 'billDate',
+    routePath: '/admin/utility-bills',
+    icon: 'Receipt'
+  },
+  rental_management: {
+    name: 'Rental Management',
+    modelPath: '../models/hr/RentalManagement',
+    collection: 'rentalmanagements',
+    apiPath: '/api/rental-management',
+    workflowStatusField: 'workflowStatus',
+    titleField: 'parentCompanyName',
+    descriptionField: 'forWhat',
+    amountField: 'grandTotal',
+    dateField: 'date',
+    routePath: '/admin/rental-management',
+    icon: 'Home'
   }
   // Future submodules can be added here:
   // rental_agreements: {

@@ -96,7 +96,15 @@ const notifyAuditDirectorQueue = async ({ actorId, title, message, entityId, ent
 };
 
 const notifyPreAuditStakeholders = async ({ actorId, title, message, entityId, recipientIds = [], metadata = {} }) => {
-  const ids = [...new Set((recipientIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  const normalizeRecipientId = (value) => {
+    if (!value) return '';
+    if (typeof value === 'object') {
+      const resolved = value._id || value.id || value.userId || value.recipient;
+      return resolved ? String(resolved).trim() : '';
+    }
+    return String(value).trim();
+  };
+  const ids = [...new Set((recipientIds || []).map(normalizeRecipientId).filter(Boolean))];
   if (!ids.length) return;
   await createAndEmitNotification({
     recipientIds: ids,
@@ -262,12 +270,37 @@ router.get('/',
           ];
         }
         
-        const docs = await Model.find(workflowQuery)
+        let docsQuery = Model.find(workflowQuery)
           .populate('createdBy', 'firstName lastName email')
           .populate('updatedBy', 'firstName lastName email')
-          .populate('workflowHistory.changedBy', 'firstName lastName email')
+          .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
           .populate('observations.addedBy', 'firstName lastName email')
-          .populate('observations.answeredBy', 'firstName lastName email')
+          .populate('observations.answeredBy', 'firstName lastName email');
+
+        if (submodule === 'utility_bills_management') {
+          docsQuery = docsQuery
+            .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp');
+        }
+        if (submodule === 'payment_settlement') {
+          docsQuery = docsQuery
+            .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp');
+        }
+        if (submodule === 'rental_management') {
+          docsQuery = docsQuery
+            .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp');
+        }
+
+        const docs = await docsQuery
           .sort({ createdAt: -1 })
           .lean();
         
@@ -390,7 +423,7 @@ router.get('/',
         .populate('vendor', 'name email phone')
         .populate('createdBy', 'firstName lastName email')
         .populate('auditObservations.addedBy', 'firstName lastName email')
-        .populate('workflowHistory.changedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .sort({ createdAt: -1 })
         .lean();
       for (const doc of poDocs) {
@@ -453,7 +486,7 @@ router.get('/',
         .populate('vendor', 'name email phone')
         .populate('createdBy', 'firstName lastName email')
         .populate('auditObservations.addedBy', 'firstName lastName email')
-        .populate('workflowHistory.changedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .sort({ createdAt: -1 })
         .lean();
       for (const doc of caDocs) {
@@ -574,7 +607,7 @@ router.get('/:id',
         .populate('auditReturnedBy', 'firstName lastName email')
         .populate('auditObservations.addedBy', 'firstName lastName email')
         .populate('auditObservations.answeredBy', 'firstName lastName email')
-        .populate('workflowHistory.changedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .lean();
       const auditVisibleStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Pending Finance', 'Returned from Audit', 'Sent to Audit'];
       if (po && auditVisibleStatuses.includes(po.status)) {
@@ -612,7 +645,7 @@ router.get('/:id',
         .populate('indent', 'title indentNumber erpRef')
         .populate('auditObservations.addedBy', 'firstName lastName email')
         .populate('auditObservations.answeredBy', 'firstName lastName email')
-        .populate('workflowHistory.changedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .lean();
       const caAuditVisible = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'];
       if (ca && caAuditVisible.includes(ca.status)) {
@@ -643,6 +676,84 @@ router.get('/:id',
             initialAuditApproved: Boolean(ca.preAuditInitialApprovedAt)
           }
         });
+      }
+      const workflowModules = getWorkflowModules();
+      for (const submodule of workflowModules) {
+        const config = getModuleConfig(submodule);
+        if (!config) continue;
+
+        try {
+          const Model = require(config.modelPath);
+          let workflowQuery = Model.findById(req.params.id)
+            .populate('createdBy', 'firstName lastName email')
+            .populate('updatedBy', 'firstName lastName email')
+            .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('observations.addedBy', 'firstName lastName email')
+            .populate('observations.answeredBy', 'firstName lastName email');
+
+          if (submodule === 'utility_bills_management') {
+            workflowQuery = workflowQuery
+              .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp');
+          }
+          if (submodule === 'payment_settlement') {
+            workflowQuery = workflowQuery
+              .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp');
+          }
+          if (submodule === 'rental_management') {
+            workflowQuery = workflowQuery
+              .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature approvalStamp');
+          }
+
+          const workflowDoc = await workflowQuery.lean();
+          const workflowStatus = workflowDoc?.[config.workflowStatusField];
+          const auditVisibleStatuses = [
+            'Send to Audit',
+            'Forwarded to Audit Director',
+            'Returned from Audit',
+            'Approved (from Send to Audit)',
+            'Approved (from Forwarded to Audit Director)'
+          ];
+          if (workflowDoc && auditVisibleStatuses.includes(workflowStatus)) {
+            let preAuditStatus = 'pending';
+            if (workflowStatus === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+            else if (workflowStatus === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
+            else if (String(workflowStatus || '').startsWith('Approved')) preAuditStatus = 'approved';
+
+            return res.json({
+              success: true,
+              data: {
+                _id: workflowDoc._id,
+                documentNumber: workflowDoc[config.titleField] || workflowDoc._id.toString(),
+                title: `${config.name}: ${workflowDoc[config.titleField] || 'Untitled'}`,
+                description: workflowDoc[config.descriptionField] || '',
+                sourceModule: 'admin',
+                sourceDepartmentName: 'Admin',
+                documentType: 'other',
+                documentDate: workflowDoc[config.dateField] || workflowDoc.createdAt,
+                amount: workflowDoc[config.amountField] || 0,
+                referenceNumber: workflowDoc[config.titleField] || '',
+                status: preAuditStatus,
+                workflowStatus,
+                isWorkflowDocument: true,
+                workflowSubmodule: submodule,
+                originalDocument: workflowDoc,
+                workflowHistory: workflowDoc.workflowHistory || []
+              }
+            });
+          }
+        } catch (workflowErr) {
+          console.error(`Error fetching workflow document ${submodule}:`, workflowErr.message);
+        }
       }
       return res.status(404).json({
         success: false,
@@ -810,7 +921,7 @@ router.put('/:id/forward',
         po.updatedBy = req.user.id;
         await po.save();
         const updated = await PurchaseOrderModel.findById(po._id)
-          .populate('workflowHistory.changedBy', 'firstName lastName email');
+          .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp');
 
         await notifyAuditDirectorQueue({
           actorId: req.user.id,
@@ -861,7 +972,7 @@ router.put('/:id/forward',
         caFwd.updatedBy = req.user.id;
         await caFwd.save();
         const updatedCa = await CashApprovalForward.findById(caFwd._id)
-          .populate('workflowHistory.changedBy', 'firstName lastName email');
+          .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp');
 
         await notifyAuditDirectorQueue({
           actorId: req.user.id,
@@ -1021,6 +1132,10 @@ router.put('/:id/approve',
       });
     }
     const { approvalComments } = req.body;
+    // Auto-apply stamp on audit approvals whenever approver has uploaded one.
+    const stampMeta = (req.user?.approvalStamp)
+      ? { stampUsed: true, stampImage: req.user.approvalStamp }
+      : { stampUsed: false };
 
     // Check if it's a workflow document by trying to find it in workflow modules
     let isWorkflowDocument = false;
@@ -1063,7 +1178,8 @@ router.put('/:id/approve',
           toStatus: 'Initial Audit Approval',
           changedBy: req.user.id,
           changedAt: new Date(),
-          comments: approvalComments || 'Initial pre-audit approval recorded'
+          comments: approvalComments || 'Initial pre-audit approval recorded',
+          ...stampMeta
         });
         workflowDocument.updatedBy = req.user.id;
         await workflowDocument.save();
@@ -1124,7 +1240,8 @@ router.put('/:id/approve',
           toStatus: `Approved (from ${sourceStatus})`,
           changedBy: req.user.id,
           changedAt: new Date(),
-          comments: approvalComments || 'Document approved'
+          comments: approvalComments || 'Document approved',
+          ...stampMeta
         });
       }
 
@@ -1274,7 +1391,7 @@ router.put('/:id/add-observation',
       try {
         const Model = require(config.modelPath);
         const doc = await Model.findById(req.params.id);
-        if (doc && doc[config.workflowStatusField] === 'Send to Audit') {
+        if (doc && ['Send to Audit', 'Forwarded to Audit Director'].includes(doc[config.workflowStatusField])) {
           isWorkflowDocument = true;
           workflowDocument = doc;
           workflowConfig = config;
@@ -1286,6 +1403,7 @@ router.put('/:id/add-observation',
     }
 
     if (isWorkflowDocument) {
+      const sourceStatus = workflowDocument[workflowConfig.workflowStatusField] || 'Send to Audit';
       // For workflow documents, add observation to observations field
       workflowDocument.observations = workflowDocument.observations || [];
       workflowDocument.observations.push({
@@ -1299,8 +1417,8 @@ router.put('/:id/add-observation',
       // Also add observation as a comment in workflow history for tracking
       workflowDocument.workflowHistory = workflowDocument.workflowHistory || [];
       workflowDocument.workflowHistory.push({
-        fromStatus: workflowDocument[workflowConfig.workflowStatusField],
-        toStatus: workflowDocument[workflowConfig.workflowStatusField],
+        fromStatus: sourceStatus,
+        toStatus: sourceStatus,
         changedBy: req.user.id,
         changedAt: new Date(),
         comments: `Observation (${severity || 'medium'}): ${observation}`
@@ -1310,7 +1428,7 @@ router.put('/:id/add-observation',
       await workflowDocument.save();
       
       await workflowDocument.populate([
-        { path: 'workflowHistory.changedBy', select: 'firstName lastName email' },
+        { path: 'workflowHistory.changedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
         { path: 'createdBy', select: 'firstName lastName email' },
         { path: 'observations.addedBy', select: 'firstName lastName email' }
       ]);
@@ -1438,7 +1556,7 @@ router.put('/:id/return',
       try {
         const Model = require(config.modelPath);
         const doc = await Model.findById(req.params.id);
-        if (doc && doc[config.workflowStatusField] === 'Send to Audit') {
+        if (doc && ['Send to Audit', 'Forwarded to Audit Director'].includes(doc[config.workflowStatusField])) {
           isWorkflowDocument = true;
           workflowDocument = doc;
           workflowConfig = config;
@@ -1450,6 +1568,7 @@ router.put('/:id/return',
     }
 
     if (isWorkflowDocument) {
+      const sourceStatus = workflowDocument[workflowConfig.workflowStatusField] || 'Send to Audit';
       // For workflow documents, set status to "Returned from Audit" so initiator can see it in Admin Dashboard
       workflowDocument[workflowConfig.workflowStatusField] = 'Returned from Audit';
       workflowDocument.workflowHistory = workflowDocument.workflowHistory || [];
@@ -1469,7 +1588,7 @@ router.put('/:id/return',
       }
       
       workflowDocument.workflowHistory.push({
-        fromStatus: 'Send to Audit',
+        fromStatus: sourceStatus,
         toStatus: 'Returned from Audit',
         changedBy: req.user.id,
         changedAt: new Date(),
@@ -1480,7 +1599,7 @@ router.put('/:id/return',
       await workflowDocument.save();
       
       await workflowDocument.populate([
-        { path: 'workflowHistory.changedBy', select: 'firstName lastName email' },
+        { path: 'workflowHistory.changedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
         { path: 'createdBy', select: 'firstName lastName email' }
       ]);
 
@@ -1629,6 +1748,9 @@ router.put('/:id/reject',
   authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { rejectionComments, observations } = req.body;
+    const stampMeta = (req.user?.approvalStamp)
+      ? { stampUsed: true, stampImage: req.user.approvalStamp }
+      : { stampUsed: false };
 
     if (!rejectionComments) {
       return res.status(400).json({
@@ -1650,7 +1772,7 @@ router.put('/:id/reject',
       try {
         const Model = require(config.modelPath);
         const doc = await Model.findById(req.params.id);
-        if (doc && doc[config.workflowStatusField] === 'Send to Audit') {
+        if (doc && ['Send to Audit', 'Forwarded to Audit Director'].includes(doc[config.workflowStatusField])) {
           isWorkflowDocument = true;
           workflowDocument = doc;
           workflowConfig = config;
@@ -1662,30 +1784,33 @@ router.put('/:id/reject',
     }
 
     if (isWorkflowDocument) {
+      const sourceStatus = workflowDocument[workflowConfig.workflowStatusField] || 'Send to Audit';
       // For workflow documents, reject and return to Draft
-      workflowDocument[workflowConfig.workflowStatusField] = 'Rejected (from Send to Audit)';
+      workflowDocument[workflowConfig.workflowStatusField] = `Rejected (from ${sourceStatus})`;
       workflowDocument.workflowHistory = workflowDocument.workflowHistory || [];
       
       // Add observations to workflow history
       if (observations && Array.isArray(observations)) {
         observations.forEach(obs => {
           workflowDocument.workflowHistory.push({
-            fromStatus: 'Send to Audit',
-            toStatus: 'Rejected (from Send to Audit)',
+            fromStatus: sourceStatus,
+            toStatus: `Rejected (from ${sourceStatus})`,
             changedBy: req.user.id,
             changedAt: new Date(),
-            comments: `Observation (${obs.severity || 'medium'}): ${obs.observation || obs}`
+            comments: `Observation (${obs.severity || 'medium'}): ${obs.observation || obs}`,
+            ...stampMeta
           });
         });
       }
       
       // Add rejection comment
       workflowDocument.workflowHistory.push({
-        fromStatus: 'Rejected (from Send to Audit)',
-        toStatus: 'Draft',
+        fromStatus: `Rejected (from ${sourceStatus})`,
+        toStatus: 'Returned from Audit',
         changedBy: req.user.id,
         changedAt: new Date(),
-        comments: `Rejected with observations: ${rejectionComments}`
+        comments: `Rejected with observations: ${rejectionComments}`,
+        ...stampMeta
       });
       
       // Set status to "Returned from Audit" so initiator can see it in Admin Dashboard
@@ -1695,7 +1820,7 @@ router.put('/:id/reject',
       await workflowDocument.save();
       
       await workflowDocument.populate([
-        { path: 'workflowHistory.changedBy', select: 'firstName lastName email' },
+        { path: 'workflowHistory.changedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
         { path: 'createdBy', select: 'firstName lastName email' }
       ]);
 

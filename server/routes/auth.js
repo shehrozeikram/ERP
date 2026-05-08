@@ -75,6 +75,32 @@ const uploadSignature = multer({
   }
 });
 
+const stampStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'approval-stamps');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename(req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'stamp-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const uploadApprovalStamp = multer({
+  storage: stampStorage,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter(req, file, cb) {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for approval stamp'), false);
+    }
+  }
+});
+
 // @route   POST /api/auth/register
 // @desc    Register a new user
 // @access  Public
@@ -404,7 +430,7 @@ router.put('/profile', [
     });
   }
 
-  const { firstName, lastName, phone, address, profileImage, digitalSignature } = req.body;
+  const { firstName, lastName, phone, address, profileImage, digitalSignature, approvalStamp } = req.body;
 
   // Update user profile
   const updateData = {};
@@ -414,6 +440,7 @@ router.put('/profile', [
   if (address !== undefined) updateData.address = address;
   if (profileImage !== undefined) updateData.profileImage = profileImage;
   if (digitalSignature !== undefined) updateData.digitalSignature = digitalSignature;
+  if (approvalStamp !== undefined) updateData.approvalStamp = approvalStamp;
 
   const updatedUser = await User.findByIdAndUpdate(
     req.user.id,
@@ -512,6 +539,49 @@ router.post(
       res.status(500).json({
         success: false,
         message: 'Error uploading digital signature',
+        error: error.message
+      });
+    }
+  })
+);
+
+// @route   POST /api/auth/upload-approval-stamp
+// @desc    Upload approval stamp image for current user
+// @access  Private
+router.post(
+  '/upload-approval-stamp',
+  authMiddleware,
+  uploadApprovalStamp.single('approvalStamp'),
+  asyncHandler(async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No approval stamp image provided'
+        });
+      }
+
+      const imagePath = `/uploads/approval-stamps/${req.file.filename}`;
+      const updatedUser = await User.findByIdAndUpdate(
+        req.user.id,
+        { approvalStamp: imagePath },
+        { new: true, runValidators: true }
+      );
+
+      res.json({
+        success: true,
+        message: 'Approval stamp saved successfully',
+        data: {
+          imagePath,
+          filename: req.file.filename,
+          user: updatedUser.getProfile()
+        }
+      });
+    } catch (error) {
+      console.error('Error uploading approval stamp:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error uploading approval stamp',
         error: error.message
       });
     }

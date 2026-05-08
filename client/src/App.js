@@ -1763,7 +1763,6 @@ function App() {
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><LocationManagement /></ProtectedRoute>}
             />
 
-
             {/* Utility Bills Management Routes */}
             <Route 
               path="/admin/utility-bills" 

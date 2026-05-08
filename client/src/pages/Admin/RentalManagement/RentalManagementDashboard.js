@@ -26,22 +26,25 @@ import {
   FormControl,
   InputLabel,
   Select,
-  CircularProgress
+  CircularProgress,
+  Autocomplete
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Visibility as ViewIcon,
-  ArrowForward as ArrowForwardIcon
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
-import { useNavigate } from 'react-router-dom';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import api from '../../../services/api';
+import { useAuth } from '../../../contexts/AuthContext';
 import RentalManagementDetail from './RentalManagementDetail';
 
 const RentalManagementDashboard = () => {
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -59,6 +62,7 @@ const RentalManagementDashboard = () => {
     fromDepartment: '',
     custodian: '',
     date: '',
+    referenceNumber: '',
     toWhomPaid: '',
     forWhat: '',
     amount: '',
@@ -83,10 +87,17 @@ const RentalManagementDashboard = () => {
   const [success, setSuccess] = useState('');
   const [viewDialog, setViewDialog] = useState({ open: false, record: null });
   const [rentalAgreements, setRentalAgreements] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [dateValue, setDateValue] = useState(null);
+  const [approverOptions, setApproverOptions] = useState([]);
+  const [managerApprover, setManagerApprover] = useState(null);
+  const [hodApprover, setHodApprover] = useState(null);
 
   useEffect(() => {
     fetchRecords();
     fetchRentalAgreements();
+    fetchDepartments();
+    fetchApproverOptions();
   }, []);
 
   const fetchRecords = async () => {
@@ -110,6 +121,34 @@ const RentalManagementDashboard = () => {
     }
   };
 
+  const fetchDepartments = async () => {
+    try {
+      const response = await api.get('/hr/departments');
+      setDepartments(response.data?.data || []);
+    } catch {
+      setDepartments([]);
+    }
+  };
+
+  const fetchApproverOptions = async () => {
+    try {
+      const response = await api.get('/rental-management/approver-candidates', { params: { limit: 50 } });
+      setApproverOptions(response.data?.data || []);
+    } catch {
+      setApproverOptions([]);
+    }
+  };
+
+  const getUserId = (value) => {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    return String(value._id || value.id || value.userId || '');
+  };
+  const userDisplayName = (u) => {
+    if (!u) return '';
+    return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.employeeId || '';
+  };
+
 
   const handleOpenDialog = (record = null) => {
     if (record) {
@@ -122,6 +161,7 @@ const RentalManagementDashboard = () => {
         fromDepartment: record.fromDepartment || '',
         custodian: record.custodian || '',
         date: record.date || '',
+        referenceNumber: record.referenceNumber || '',
         toWhomPaid: record.toWhomPaid || '',
         forWhat: record.forWhat || '',
         amount: record.amount || '',
@@ -133,11 +173,26 @@ const RentalManagementDashboard = () => {
         verifiedByDesignation: record.verifiedByDesignation || '',
         approvedBy: record.approvedBy || '',
         approvedByDesignation: record.approvedByDesignation || '',
-        status: record.status || 'Draft'
+        status: record.status || 'Draft',
+        draftApproverIds: record.draftApproverIds || []
       });
+      if (record.date) {
+        const parsed = new Date(record.date);
+        setDateValue(Number.isNaN(parsed.getTime()) ? null : parsed);
+      } else {
+        setDateValue(null);
+      }
+      const draftApprovers = record.draftApproverIds || [];
+      const chainApprovers = (record.approvalChain || []).map((step) => step.approver).filter(Boolean);
+      const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
+      setManagerApprover(approvers[0] && typeof approvers[0] === 'object' ? approvers[0] : null);
+      setHodApprover(approvers[1] && typeof approvers[1] === 'object' ? approvers[1] : null);
     } else {
       setEditingRecord(null);
       setFormData(defaultFormData);
+      setDateValue(null);
+      setManagerApprover(null);
+      setHodApprover(null);
     }
     setDialogOpen(true);
     setError('');
@@ -160,9 +215,32 @@ const RentalManagementDashboard = () => {
     }));
   };
 
+  const handleDateChange = (newValue) => {
+    setDateValue(newValue);
+    setFormData((prev) => ({
+      ...prev,
+      date: newValue ? format(newValue, 'yyyy-MM-dd') : ''
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+    const managerApproverId = getUserId(managerApprover);
+    const hodApproverId = getUserId(hodApprover);
+    const requesterId = getUserId(user);
+    if (!managerApproverId || !hodApproverId) {
+      setError('Please select Manager Approver and Head Of Department Approver.');
+      return;
+    }
+    if (managerApproverId === hodApproverId) {
+      setError('Manager Approver and Head Of Department Approver must be different.');
+      return;
+    }
+    if ([managerApproverId, hodApproverId].includes(requesterId)) {
+      setError('Requester cannot be selected as Manager or Head Of Department approver.');
+      return;
+    }
+
     // Prevent multiple submissions
     if (submitting) {
       return;
@@ -173,11 +251,15 @@ const RentalManagementDashboard = () => {
     setSuccess('');
     
     try {
+      const payload = {
+        ...formData,
+        draftApproverIds: JSON.stringify([managerApproverId, hodApproverId])
+      };
       if (editingRecord) {
-        await api.put(`/rental-management/${editingRecord._id}`, formData);
+        await api.put(`/rental-management/${editingRecord._id}`, payload);
         setSuccess('Rental management record updated successfully');
       } else {
-        await api.post('/rental-management', formData);
+        await api.post('/rental-management', payload);
         setSuccess('Rental management record created successfully');
       }
       fetchRecords();
@@ -223,36 +305,17 @@ const RentalManagementDashboard = () => {
       default: return 'default';
     }
   };
-
-  const getNextStatus = (currentStatus) => {
-    const statusFlow = {
-      'Draft': 'Submitted',
-      'Submitted': 'Approved',
-      'Approved': 'Paid'
-    };
-    return statusFlow[currentStatus];
+  const getWorkflowLabel = (record) => {
+    if (record?.workflowStatus && record.workflowStatus !== 'Draft') return record.workflowStatus;
+    return record?.approvalStatus || record?.status || 'Draft';
   };
-
-  const handleStatusChange = async (recordId, currentStatus) => {
-    const nextStatus = getNextStatus(currentStatus);
-    
-    if (!nextStatus) {
-      setError('This record is already at the final status');
-      return;
-    }
-
-    if (window.confirm(`Move this record from "${currentStatus}" to "${nextStatus}"?`)) {
-      try {
-        await api.put(`/rental-management/${recordId}/status`, { status: nextStatus });
-        setSuccess(`Status updated to ${nextStatus}`);
-        fetchRecords();
-      } catch (error) {
-        console.error('Error updating status:', error);
-        setError(error.response?.data?.message || 'Failed to update status');
-      }
-    }
+  const getWorkflowColor = (record) => {
+    const label = getWorkflowLabel(record);
+    if (String(label).includes('Approved')) return 'success';
+    if (label === 'Submitted' || label === 'Send to Audit' || label === 'Forwarded to Audit Director') return 'warning';
+    if (String(label).includes('Rejected') || label === 'Returned from Audit') return 'error';
+    return 'default';
   };
-
 
   if (loading) {
     return (
@@ -382,8 +445,8 @@ const RentalManagementDashboard = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={record.status}
-                        color={getStatusColor(record.status)}
+                        label={getWorkflowLabel(record)}
+                        color={getWorkflowColor(record)}
                         size="small"
                       />
                     </TableCell>
@@ -396,16 +459,6 @@ const RentalManagementDashboard = () => {
                       >
                         <ViewIcon />
                       </IconButton>
-                      {record.status !== 'Paid' && record.status !== 'Rejected' && (
-                        <IconButton
-                          size="small"
-                          onClick={() => handleStatusChange(record._id, record.status)}
-                          color="success"
-                          title={`Move to ${getNextStatus(record.status)}`}
-                        >
-                          <ArrowForwardIcon />
-                        </IconButton>
-                      )}
                       <IconButton
                         size="small"
                         onClick={() => handleOpenDialog(record)}
@@ -436,6 +489,7 @@ const RentalManagementDashboard = () => {
         <DialogTitle>
           {editingRecord ? 'Edit Rental Management Record' : 'Add New Rental Management Record'}
         </DialogTitle>
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
         <form onSubmit={handleSubmit}>
           <DialogContent>
             <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -500,14 +554,24 @@ const RentalManagementDashboard = () => {
                 </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="From Department"
-                  name="fromDepartment"
-                  value={formData.fromDepartment}
-                  onChange={handleInputChange}
-                  placeholder="Enter department name"
-                />
+                <FormControl fullWidth>
+                  <InputLabel>From Department</InputLabel>
+                  <Select
+                    name="fromDepartment"
+                    value={formData.fromDepartment}
+                    onChange={handleInputChange}
+                    label="From Department"
+                  >
+                    <MenuItem value="">
+                      <em>Select department</em>
+                    </MenuItem>
+                    {departments.map((department) => (
+                      <MenuItem key={department._id} value={department.name || ''}>
+                        {department.name || 'N/A'}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
@@ -520,14 +584,27 @@ const RentalManagementDashboard = () => {
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
+                <DatePicker
+                  label="Date"
+                  value={dateValue}
+                  onChange={handleDateChange}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      required: true,
+                      placeholder: 'DD/MM/YYYY'
+                    }
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Date"
-                  name="date"
-                  value={formData.date}
+                  label="Reference Number"
+                  name="referenceNumber"
+                  value={formData.referenceNumber}
                   onChange={handleInputChange}
-                  required
-                  placeholder="DD/MM/YYYY"
+                  placeholder="Enter reference number"
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -584,7 +661,7 @@ const RentalManagementDashboard = () => {
                     label="Rental Agreement"
                   >
                     <MenuItem value="">
-                      <em>Select a rental agreement</em>
+                      <em>None (Optional)</em>
                     </MenuItem>
                     {rentalAgreements.map((agreement) => (
                       <MenuItem key={agreement._id} value={agreement._id}>
@@ -595,90 +672,48 @@ const RentalManagementDashboard = () => {
                 </FormControl>
               </Grid>
 
-              {/* Authorization Details Section */}
+              {/* Approval Authority Section */}
               <Grid item xs={12}>
                 <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1, color: 'text.secondary' }}>
-                  Authorization Details
+                  Approval Authority
                 </Typography>
               </Grid>
-              <Grid item xs={12} sm={6}>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Prepared By"
-                  name="preparedBy"
-                  value={formData.preparedBy}
-                  onChange={handleInputChange}
-                  placeholder="Enter preparer name"
+                  value={userDisplayName(user) || 'Current User'}
+                  InputProps={{ readOnly: true }}
+                  helperText="Auto-filled from logged in user"
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Prepared By Designation"
-                  name="preparedByDesignation"
-                  value={formData.preparedByDesignation}
-                  onChange={handleInputChange}
-                  placeholder="Enter designation"
+                <Autocomplete
+                  options={approverOptions}
+                  value={managerApprover}
+                  onChange={(_, value) => setManagerApprover(value)}
+                  getOptionLabel={(option) =>
+                    [option?.firstName, option?.lastName].filter(Boolean).join(' ') || option?.email || ''
+                  }
+                  isOptionEqualToValue={(option, value) => option?._id === value?._id}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Manager Approver" required placeholder="Select manager approver" />
+                  )}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Verified By"
-                  name="verifiedBy"
-                  value={formData.verifiedBy}
-                  onChange={handleInputChange}
-                  placeholder="Enter verifier name"
+                <Autocomplete
+                  options={approverOptions}
+                  value={hodApprover}
+                  onChange={(_, value) => setHodApprover(value)}
+                  getOptionLabel={(option) =>
+                    [option?.firstName, option?.lastName].filter(Boolean).join(' ') || option?.email || ''
+                  }
+                  isOptionEqualToValue={(option, value) => option?._id === value?._id}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Head Of Department Approver" required placeholder="Select HOD approver" />
+                  )}
                 />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Verified By Designation"
-                  name="verifiedByDesignation"
-                  value={formData.verifiedByDesignation}
-                  onChange={handleInputChange}
-                  placeholder="Enter designation"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Approved By"
-                  name="approvedBy"
-                  value={formData.approvedBy}
-                  onChange={handleInputChange}
-                  placeholder="Enter approver name"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Approved By Designation"
-                  name="approvedByDesignation"
-                  value={formData.approvedByDesignation}
-                  onChange={handleInputChange}
-                  placeholder="Enter designation"
-                />
-              </Grid>
-
-              {/* Status */}
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Status</InputLabel>
-                  <Select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleInputChange}
-                    label="Status"
-                  >
-                    <MenuItem value="Draft">Draft</MenuItem>
-                    <MenuItem value="Submitted">Submitted</MenuItem>
-                    <MenuItem value="Approved">Approved</MenuItem>
-                    <MenuItem value="Rejected">Rejected</MenuItem>
-                    <MenuItem value="Paid">Paid</MenuItem>
-                  </Select>
-                </FormControl>
               </Grid>
             </Grid>
           </DialogContent>
@@ -696,6 +731,7 @@ const RentalManagementDashboard = () => {
             </Button>
           </DialogActions>
         </form>
+        </LocalizationProvider>
       </Dialog>
 
       {/* View Details Modal */}
@@ -703,6 +739,14 @@ const RentalManagementDashboard = () => {
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, record: null })}
         recordId={viewDialog.record?._id}
+        onStatusChange={(updatedRecord) => {
+          if (updatedRecord?._id) {
+            setRecords((prev) => prev.map((item) => (item._id === updatedRecord._id ? updatedRecord : item)));
+            setViewDialog((prev) => ({ ...prev, record: updatedRecord }));
+          } else {
+            fetchRecords();
+          }
+        }}
         onEdit={(record) => {
           setViewDialog({ open: false, record: null });
           handleOpenDialog(record);

@@ -91,6 +91,19 @@ const UtilityBillList = () => {
     return colors[status] || 'default';
   };
 
+  const getWorkflowLabel = (bill) => {
+    if (bill.auditStatus && bill.auditStatus !== 'Not Sent') return bill.auditStatus;
+    return bill.approvalStatus || 'Draft';
+  };
+
+  const getWorkflowColor = (bill) => {
+    const label = getWorkflowLabel(bill);
+    if (label.includes('Approved')) return 'success';
+    if (label === 'Send to Audit' || label === 'Forwarded to Audit Director' || label === 'Submitted') return 'warning';
+    if (label.includes('Rejected') || label === 'Returned from Audit') return 'error';
+    return 'default';
+  };
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
@@ -222,6 +235,7 @@ const UtilityBillList = () => {
               InputProps={{
                 startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
               }}
+              placeholder="Search by bill ID, site, provider, department..."
             />
             
             <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -270,12 +284,16 @@ const UtilityBillList = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>Bill ID</TableCell>
+                  <TableCell>Site</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Provider</TableCell>
+                  <TableCell>Department</TableCell>
+                  <TableCell>Custodian</TableCell>
                   <TableCell>Image</TableCell>
                   <TableCell>Amount</TableCell>
                   <TableCell>Paid</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>Workflow Status</TableCell>
                   <TableCell>Due Date</TableCell>
                   <TableCell>Actions</TableCell>
                 </TableRow>
@@ -283,7 +301,7 @@ const UtilityBillList = () => {
               <TableBody>
                 {bills.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">
                         No utility bills found. Create your first bill to get started.
                       </Typography>
@@ -293,6 +311,7 @@ const UtilityBillList = () => {
                   bills.map((bill) => (
                     <TableRow key={bill._id} hover>
                       <TableCell>{bill.billId}</TableCell>
+                      <TableCell>{bill.site || 'N/A'}</TableCell>
                       <TableCell>{bill.utilityType}</TableCell>
                       <TableCell>
                         <Typography variant="subtitle2" fontWeight="bold">
@@ -304,6 +323,8 @@ const UtilityBillList = () => {
                           </Typography>
                         )}
                       </TableCell>
+                      <TableCell>{bill.department || 'N/A'}</TableCell>
+                      <TableCell>{bill.custodian || 'N/A'}</TableCell>
                       <TableCell>
                         {bill.billImage ? (
                           <Avatar
@@ -335,6 +356,14 @@ const UtilityBillList = () => {
                           label={bill.status}
                           color={getStatusColor(bill.status)}
                           size="small"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={getWorkflowLabel(bill)}
+                          color={getWorkflowColor(bill)}
+                          size="small"
+                          variant="outlined"
                         />
                       </TableCell>
                       <TableCell>{formatDate(bill.dueDate)}</TableCell>
@@ -375,6 +404,7 @@ const UtilityBillList = () => {
           </TableContainer>
         </CardContent>
       </Card>
+
     </Box>
   );
 };

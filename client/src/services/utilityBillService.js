@@ -25,6 +25,26 @@ const utilityBillService = {
     return response.data;
   },
 
+  getApproverCandidates: async (params = {}) => {
+    const response = await api.get('/utility-bills/approver-candidates', { params });
+    return response.data;
+  },
+
+  submitUtilityBill: async (id, body = {}) => {
+    const response = await api.post(`/utility-bills/${id}/submit`, body);
+    return response.data;
+  },
+
+  approveUtilityBill: async (id, body = {}) => {
+    const response = await api.post(`/utility-bills/${id}/approve`, body);
+    return response.data;
+  },
+
+  rejectUtilityBill: async (id, rejectionReason) => {
+    const response = await api.post(`/utility-bills/${id}/reject`, { rejectionReason });
+    return response.data;
+  },
+
   // Record payment
   recordPayment: async (id, paymentData) => {
     const response = await api.put(`/utility-bills/${id}/payment`, paymentData);

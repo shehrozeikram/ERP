@@ -448,7 +448,7 @@ const PERMISSION_MAPPINGS = {
   'admin.payment_settlement.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.payment_settlement.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   'admin.payment_settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  
+
   // Audit Module Permissions
   'audit.schedule.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, 'Audit Director', 'audit_director'],
   'audit.schedule.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],

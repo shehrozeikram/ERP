@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -33,7 +33,8 @@ import {
   DialogContent,
   DialogActions,
   DialogContentText,
-  Avatar
+  Avatar,
+  LinearProgress
 } from '@mui/material';
 import {
   Add,
@@ -80,6 +81,7 @@ const Candidates = () => {
     source: '',
     availability: ''
   });
+  const hasInitializedSearch = useRef(false);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, candidate: null });
   const [approvalDialog, setApprovalDialog] = useState({ open: false, candidate: null });
   const [approvalData, setApprovalData] = useState({
@@ -162,6 +164,11 @@ const Candidates = () => {
 
   // Debounced search effect
   useEffect(() => {
+    if (!hasInitializedSearch.current) {
+      hasInitializedSearch.current = true;
+      return;
+    }
+
     const timeoutId = setTimeout(() => {
       if (filters.search !== undefined) {
         loadCandidates();
@@ -391,16 +398,6 @@ const Candidates = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <PageLoading 
-        message="Loading candidates..." 
-        showSkeleton={true}
-        skeletonType="cards"
-      />
-    );
-  }
-
   return (
     <Container maxWidth="xl">
       {/* Header */}
@@ -534,6 +531,9 @@ const Candidates = () => {
           </Grid>
         </CardContent>
       </Card>
+      {loading && (
+        <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />
+      )}
 
       {/* Candidates Table */}
       <Card>

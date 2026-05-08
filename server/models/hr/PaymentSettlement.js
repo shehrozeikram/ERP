@@ -148,6 +148,53 @@ const paymentSettlementSchema = new mongoose.Schema({
     enum: ['Draft', 'Submitted', 'Approved', 'Rejected', 'Paid'],
     default: 'Draft'
   },
+  approvalStatus: {
+    type: String,
+    enum: ['Draft', 'Submitted', 'Approved', 'Rejected'],
+    default: 'Draft',
+    index: true
+  },
+  approvalChain: [{
+    approver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    actedAt: {
+      type: Date
+    },
+    comment: {
+      type: String,
+      trim: true
+    }
+  }],
+  draftApproverIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  approvedByUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  approvedAt: {
+    type: Date
+  },
+  rejectedByUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  rejectedAt: {
+    type: Date
+  },
+  rejectionReason: {
+    type: String,
+    trim: true
+  },
   // Workflow Status for role-based routing
   workflowStatus: {
     type: String,
@@ -205,7 +252,15 @@ const paymentSettlementSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     },
-    comments: String
+    comments: String,
+    stampUsed: {
+      type: Boolean,
+      default: false
+    },
+    stampImage: {
+      type: String,
+      trim: true
+    }
   }]
 }, {
   timestamps: true
@@ -216,6 +271,7 @@ paymentSettlementSchema.index({ parentCompanyName: 1 });
 paymentSettlementSchema.index({ subsidiaryName: 1 });
 paymentSettlementSchema.index({ referenceNumber: 1 });
 paymentSettlementSchema.index({ status: 1 });
+paymentSettlementSchema.index({ approvalStatus: 1 });
 paymentSettlementSchema.index({ workflowStatus: 1 });
 paymentSettlementSchema.index({ createdAt: -1 });
 paymentSettlementSchema.index({ 'workflowHistory.changedBy': 1 });

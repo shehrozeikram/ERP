@@ -9,7 +9,7 @@ router.get('/', async (req, res) => {
       status: 'published',
       isActive: true 
     })
-    .select('title description requirements location type salaryRange department company')
+    .select('description qualificationExperience responsibilities location type salaryRange department company position')
     .sort({ createdAt: -1 });
 
     res.json({
@@ -78,9 +78,8 @@ router.get('/search', async (req, res) => {
 
     if (q) {
       searchQuery.$or = [
-        { title: { $regex: q, $options: 'i' } },
         { description: { $regex: q, $options: 'i' } },
-        { requirements: { $regex: q, $options: 'i' } }
+        { qualificationExperience: { $regex: q, $options: 'i' } }
       ];
     }
 
@@ -97,7 +96,7 @@ router.get('/search', async (req, res) => {
     }
 
     const jobPostings = await JobPosting.find(searchQuery)
-      .select('title description requirements location type salaryRange department company')
+      .select('description qualificationExperience responsibilities location type salaryRange department company position')
       .sort({ createdAt: -1 });
 
     res.json({

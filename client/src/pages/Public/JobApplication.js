@@ -387,7 +387,7 @@ const JobApplication = () => {
     <Card>
       <CardContent>
         <Typography variant="h5" gutterBottom sx={{ color: theme.palette.primary.main }}>
-          {jobPosting.title}
+          {jobPosting.position?.title || 'Job Opening'}
         </Typography>
         
         <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -460,10 +460,10 @@ const JobApplication = () => {
         </Typography>
 
         <Typography variant="h6" gutterBottom>
-          Requirements
+          Qualification&Experience
         </Typography>
         <Typography variant="body2" paragraph>
-          {jobPosting.requirements}
+          {jobPosting.qualificationExperience}
         </Typography>
 
         <Typography variant="h6" gutterBottom>

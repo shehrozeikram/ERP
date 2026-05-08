@@ -36,10 +36,9 @@ router.get('/',
     if (experienceLevel) filter.experienceLevel = experienceLevel;
     if (search) {
       filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
         { jobCode: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
-        { requirements: { $regex: search, $options: 'i' } }
+        { qualificationExperience: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -101,14 +100,12 @@ router.post('/',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const {
-      title,
       department,
       position,
       location,
       description,
-      requirements,
       responsibilities,
-      qualifications,
+      qualificationExperience,
       employmentType,
       experienceLevel,
       educationLevel,
@@ -119,8 +116,8 @@ router.post('/',
     } = req.body;
 
     // Validate required fields
-    if (!title || !department || !position || !description || !requirements || 
-        !responsibilities || !qualifications || !experienceLevel || !educationLevel || 
+    if (!department || !position || !description ||
+        !responsibilities || !qualificationExperience || !experienceLevel || !educationLevel ||
         !applicationDeadline) {
       return res.status(400).json({
         success: false,
@@ -145,14 +142,12 @@ router.post('/',
     }
 
     const jobPosting = new JobPosting({
-      title,
       department,
       position,
       location,
       description,
-      requirements,
       responsibilities,
-      qualifications,
+      qualificationExperience,
       employmentType: employmentType || 'full_time',
       experienceLevel,
       educationLevel,

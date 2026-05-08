@@ -4,18 +4,28 @@ const realtimeNotificationGateway = require('./realtimeNotificationGateway');
 
 const toObjectIdOrNull = (value) => {
   if (!value) return null;
+  const rawValue = typeof value === 'object' ? (value._id || value.id || value.userId || value.recipient || null) : value;
+  if (!rawValue) return null;
   try {
-    return new mongoose.Types.ObjectId(String(value));
+    return new mongoose.Types.ObjectId(String(rawValue));
   } catch {
     return null;
   }
 };
 
 const uniqueRecipientIds = (recipientIds = [], excludeUserId = null) => {
-  const blocked = excludeUserId ? String(excludeUserId) : null;
+  const normalizeRecipient = (value) => {
+    if (!value) return '';
+    if (typeof value === 'object') {
+      const resolved = value._id || value.id || value.userId || value.recipient;
+      return resolved ? String(resolved).trim() : '';
+    }
+    return String(value).trim();
+  };
+  const blocked = excludeUserId ? normalizeRecipient(excludeUserId) : null;
   const unique = new Set();
   recipientIds.forEach((id) => {
-    const normalized = String(id || '').trim();
+    const normalized = normalizeRecipient(id);
     if (!normalized) return;
     if (blocked && normalized === blocked) return;
     unique.add(normalized);
@@ -37,13 +47,20 @@ async function createAndEmitNotification({
 }) {
   const recipients = uniqueRecipientIds(recipientIds, excludeUserId);
   if (recipients.length === 0) return [];
+  const validRecipients = recipients
+    .map((recipientId) => ({
+      raw: recipientId,
+      objectId: toObjectIdOrNull(recipientId)
+    }))
+    .filter((entry) => entry.objectId);
+  if (validRecipients.length === 0) return [];
 
-  const createdByObjectId = toObjectIdOrNull(createdBy) || toObjectIdOrNull(recipients[0]);
+  const createdByObjectId = toObjectIdOrNull(createdBy) || validRecipients[0].objectId;
   const docs = [];
 
-  for (const recipientId of recipients) {
+  for (const recipient of validRecipients) {
     const notification = await Notification.create({
-      recipient: toObjectIdOrNull(recipientId),
+      recipient: recipient.objectId,
       title,
       message,
       priority,
@@ -55,7 +72,7 @@ async function createAndEmitNotification({
     });
 
     docs.push(notification);
-    realtimeNotificationGateway.emitToUser(recipientId, 'notification:new', notification);
+    realtimeNotificationGateway.emitToUser(recipient.raw, 'notification:new', notification);
   }
 
   return docs;

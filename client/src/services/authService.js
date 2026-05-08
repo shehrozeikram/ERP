@@ -39,6 +39,14 @@ export const authService = {
     });
   },
 
+  uploadApprovalStamp: async (file) => {
+    const formData = new FormData();
+    formData.append('approvalStamp', file);
+    return api.post('/auth/upload-approval-stamp', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+
   // Forgot password
   forgotPassword: async (email) => {
     return api.post('/auth/forgot-password', { email });

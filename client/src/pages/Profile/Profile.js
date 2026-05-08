@@ -34,11 +34,14 @@ const Profile = () => {
   const { user, updateProfile, changePassword, refreshUser } = useAuth();
   const [profileImage, setProfileImage] = useState(null);
   const [signaturePreview, setSignaturePreview] = useState(null);
+  const [stampPreview, setStampPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [signatureUploading, setSignatureUploading] = useState(false);
+  const [stampUploading, setStampUploading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const fileInputRef = useRef(null);
   const signatureInputRef = useRef(null);
+  const stampInputRef = useRef(null);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -56,6 +59,11 @@ const Profile = () => {
       setSignaturePreview(getImageUrl(user.digitalSignature));
     } else {
       setSignaturePreview(null);
+    }
+    if (user?.approvalStamp) {
+      setStampPreview(getImageUrl(user.approvalStamp));
+    } else {
+      setStampPreview(null);
     }
   }, [user]);
 
@@ -268,6 +276,59 @@ const Profile = () => {
   };
 
   const navigate = useNavigate();
+
+  const handleStampFileChange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setSnackbar({ open: true, message: 'Please select an image file for stamp', severity: 'error' });
+      return;
+    }
+    const maxSize = 2 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setSnackbar({ open: true, message: 'Approval stamp image must be 2MB or smaller', severity: 'error' });
+      return;
+    }
+    try {
+      setStampUploading(true);
+      setStampPreview(URL.createObjectURL(file));
+      const response = await authService.uploadApprovalStamp(file);
+      if (response.data?.success) {
+        await refreshUser();
+        setSnackbar({ open: true, message: 'Approval stamp saved successfully', severity: 'success' });
+      } else {
+        throw new Error(response.data?.message || 'Upload failed');
+      }
+    } catch (error) {
+      if (user?.approvalStamp) {
+        setStampPreview(getImageUrl(user.approvalStamp));
+      } else {
+        setStampPreview(null);
+      }
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || error.message || 'Failed to upload approval stamp',
+        severity: 'error'
+      });
+    } finally {
+      setStampUploading(false);
+      if (stampInputRef.current) {
+        stampInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveStamp = async () => {
+    try {
+      setStampUploading(true);
+      const result = await updateProfile({ approvalStamp: '' });
+      if (result.success) {
+        setStampPreview(null);
+      }
+    } finally {
+      setStampUploading(false);
+    }
+  };
 
   return (
     <Box sx={{ p: 3 }}>
@@ -593,6 +654,60 @@ const Profile = () => {
                 >
                   {passwordSubmitting ? <CircularProgress size={22} color="inherit" /> : 'Update password'}
                 </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <DrawIcon color="secondary" />
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
+                  Approval stamp
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Upload your official approval stamp. In Pre-Audit, you can choose to apply this stamp on approve/reject actions.
+              </Typography>
+              <Box
+                sx={{
+                  border: `1px dashed ${alpha(theme.palette.secondary.main, 0.4)}`,
+                  borderRadius: 1,
+                  p: 2,
+                  minHeight: 100,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  bgcolor: alpha(theme.palette.secondary.main, 0.04),
+                  mb: 2
+                }}
+              >
+                {stampPreview ? (
+                  <Box component="img" src={stampPreview} alt="Your approval stamp" sx={{ maxHeight: 96, maxWidth: '100%', objectFit: 'contain' }} />
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No approval stamp on file
+                  </Typography>
+                )}
+              </Box>
+              <input
+                ref={stampInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleStampFileChange}
+                style={{ display: 'none' }}
+              />
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                <Button variant="contained" color="secondary" onClick={() => stampInputRef.current?.click()} disabled={stampUploading}>
+                  {stampUploading ? <CircularProgress size={22} color="inherit" /> : 'Upload stamp'}
+                </Button>
+                {user?.approvalStamp ? (
+                  <Button variant="outlined" color="error" onClick={handleRemoveStamp} disabled={stampUploading}>
+                    Remove
+                  </Button>
+                ) : null}
               </Box>
             </CardContent>
           </Card>

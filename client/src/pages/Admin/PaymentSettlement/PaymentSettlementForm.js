@@ -6,6 +6,7 @@ import {
   TextField,
   Button,
   Grid,
+  Autocomplete,
   FormControl,
   InputLabel,
   Select,
@@ -28,6 +29,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format } from 'date-fns';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const PaymentSettlementForm = ({ 
   settlement = null, 
@@ -36,11 +38,16 @@ const PaymentSettlementForm = ({
   onCancel, 
   isEdit = false 
 }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [currentSettlement, setCurrentSettlement] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [dateValue, setDateValue] = useState(null);
+  const [managerApprover, setManagerApprover] = useState(null);
+  const [hodApprover, setHodApprover] = useState(null);
+  const [approverOptions, setApproverOptions] = useState([]);
+  const [approverLoading, setApproverLoading] = useState(false);
   
   const [formData, setFormData] = useState({
     // Company Details
@@ -71,13 +78,15 @@ const PaymentSettlementForm = ({
     status: 'Draft'
   });
 
-  const statusOptions = [
-    { value: 'Draft', label: 'Draft' },
-    { value: 'Submitted', label: 'Submitted' },
-    { value: 'Approved', label: 'Approved' },
-    { value: 'Rejected', label: 'Rejected' },
-    { value: 'Paid', label: 'Paid' }
-  ];
+  const getUserId = (value) => {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    return String(value._id || value.id || value.userId || '');
+  };
+  const userDisplayName = (u) => {
+    if (!u) return '';
+    return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.employeeId || '';
+  };
 
   // Fetch settlement data when settlementId is provided
   useEffect(() => {
@@ -144,6 +153,11 @@ const PaymentSettlementForm = ({
       if (settlementData.attachments && settlementData.attachments.length > 0) {
         setAttachments(settlementData.attachments);
       }
+      const draftApprovers = settlementData.draftApproverIds || [];
+      const chainApprovers = (settlementData.approvalChain || []).map((step) => step.approver).filter(Boolean);
+      const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
+      setManagerApprover(approvers[0] && typeof approvers[0] === 'object' ? approvers[0] : null);
+      setHodApprover(approvers[1] && typeof approvers[1] === 'object' ? approvers[1] : null);
     } else if (!isEdit) {
       // Reset form and date when creating new record
       setFormData({
@@ -169,8 +183,26 @@ const PaymentSettlementForm = ({
       });
       setDateValue(null);
       setAttachments([]);
+      setManagerApprover(null);
+      setHodApprover(null);
     }
   }, [settlement, currentSettlement, isEdit]);
+
+  const loadApproverOptions = async (search = '') => {
+    try {
+      setApproverLoading(true);
+      const response = await paymentSettlementService.getApproverCandidates({ search, limit: 50 });
+      setApproverOptions(response.data || []);
+    } catch {
+      setApproverOptions([]);
+    } finally {
+      setApproverLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadApproverOptions('');
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -292,6 +324,25 @@ const PaymentSettlementForm = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    handleSave('draft');
+  };
+
+  const handleSave = async (mode = 'draft') => {
+    if (mode === 'submit' && (!managerApprover?._id || !hodApprover?._id)) {
+      toast.error('Please select Manager Approver and Head Of Department Approver before submitting.');
+      return;
+    }
+    const managerApproverId = getUserId(managerApprover);
+    const hodApproverId = getUserId(hodApprover);
+    const requesterId = getUserId(user);
+    if (mode === 'submit' && [managerApproverId, hodApproverId].includes(requesterId)) {
+      toast.error('Requester cannot be selected as Manager or Head Of Department approver.');
+      return;
+    }
+    if (mode === 'submit' && managerApproverId === hodApproverId) {
+      toast.error('Manager Approver and Head Of Department Approver must be different.');
+      return;
+    }
     
     // Prevent multiple submissions
     if (loading) {
@@ -307,16 +358,33 @@ const PaymentSettlementForm = ({
     try {
       // Filter out existing attachments (those with _id) and get only new files
       const newAttachments = attachments.filter(att => !att._id);
+      const approverIds = [managerApproverId, hodApproverId].filter(Boolean);
+      const payloadData = {
+        ...formData,
+        draftApproverIds: JSON.stringify(approverIds)
+      };
       
       if (isEdit) {
         const id = settlement?._id || settlementId;
-        await paymentSettlementService.updatePaymentSettlement(id, formData, newAttachments);
+        const saved = await paymentSettlementService.updatePaymentSettlement(id, payloadData, newAttachments);
+        if (mode === 'submit') {
+          await paymentSettlementService.submitPaymentSettlement(id, { approverIds });
+          toast.success('Payment settlement submitted for approval');
+          onSave && onSave(saved?.data);
+          return;
+        }
         toast.success('Payment settlement updated successfully');
-        onSave && onSave();
+        onSave && onSave(saved?.data);
       } else {
-        await paymentSettlementService.createPaymentSettlement(formData, newAttachments);
+        const saved = await paymentSettlementService.createPaymentSettlement(payloadData, newAttachments);
+        if (mode === 'submit') {
+          await paymentSettlementService.submitPaymentSettlement(saved?.data?._id, { approverIds });
+          toast.success('Payment settlement submitted for approval');
+          onSave && onSave(saved?.data);
+          return;
+        }
         toast.success('Payment settlement created successfully');
-        onSave && onSave();
+        onSave && onSave(saved?.data);
       }
     } catch (error) {
       if (error.response?.data?.errors) {
@@ -527,98 +595,43 @@ const PaymentSettlementForm = ({
 
           <Divider sx={{ my: 3 }} />
 
-          {/* Authorization Details Section */}
+          {/* Approval Authority Section */}
           <Typography variant="h6" gutterBottom sx={{ mb: 2, color: 'text.secondary' }}>
-            Authorization Details
+            Approval Authority
           </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
+          <Grid container spacing={3} sx={{ mb: 1 }}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
-                label="Prepared By"
-                name="preparedBy"
-                value={formData.preparedBy}
-                onChange={handleInputChange}
-                error={!!errors.preparedBy}
-                helperText={errors.preparedBy}
+                label="Sig of Requester"
+                value={userDisplayName(user)}
+                InputProps={{ readOnly: true }}
+                helperText="Auto-filled from logged-in user"
               />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Prepared By Designation"
-                name="preparedByDesignation"
-                value={formData.preparedByDesignation}
-                onChange={handleInputChange}
-                error={!!errors.preparedByDesignation}
-                helperText={errors.preparedByDesignation}
+            <Grid item xs={12} md={4}>
+              <Autocomplete
+                options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                value={managerApprover}
+                loading={approverLoading}
+                onChange={(_, value) => setManagerApprover(value)}
+                onInputChange={(_, value) => loadApproverOptions(value)}
+                getOptionLabel={(option) => userDisplayName(option)}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                renderInput={(params) => <TextField {...params} label="Manager Approver" placeholder="Search manager approver" />}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Verified By"
-                name="verifiedBy"
-                value={formData.verifiedBy}
-                onChange={handleInputChange}
-                error={!!errors.verifiedBy}
-                helperText={errors.verifiedBy}
+            <Grid item xs={12} md={4}>
+              <Autocomplete
+                options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                value={hodApprover}
+                loading={approverLoading}
+                onChange={(_, value) => setHodApprover(value)}
+                onInputChange={(_, value) => loadApproverOptions(value)}
+                getOptionLabel={(option) => userDisplayName(option)}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                renderInput={(params) => <TextField {...params} label="Head Of Department Approver" placeholder="Search HOD approver" />}
               />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Verified By Designation"
-                name="verifiedByDesignation"
-                value={formData.verifiedByDesignation}
-                onChange={handleInputChange}
-                error={!!errors.verifiedByDesignation}
-                helperText={errors.verifiedByDesignation}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Approved By"
-                name="approvedBy"
-                value={formData.approvedBy}
-                onChange={handleInputChange}
-                error={!!errors.approvedBy}
-                helperText={errors.approvedBy}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Approved By Designation"
-                name="approvedByDesignation"
-                value={formData.approvedByDesignation}
-                onChange={handleInputChange}
-                error={!!errors.approvedByDesignation}
-                helperText={errors.approvedByDesignation}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth error={!!errors.status}>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  label="Status"
-                >
-                  {statusOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              {errors.status && (
-                <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
-                  {errors.status}
-                </Typography>
-              )}
             </Grid>
           </Grid>
 
@@ -727,7 +740,17 @@ const PaymentSettlementForm = ({
               startIcon={loading ? <CircularProgress size={20} /> : <Save />}
               disabled={loading}
             >
-              {loading ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update' : 'Create')}
+              {loading ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update Draft' : 'Create Draft')}
+            </Button>
+            <Button
+              type="button"
+              variant="contained"
+              color="success"
+              startIcon={loading ? <CircularProgress size={20} /> : <Save />}
+              disabled={loading}
+              onClick={() => handleSave('submit')}
+            >
+              Submit for Approval
             </Button>
           </Box>
         </form>

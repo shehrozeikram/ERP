@@ -1,66 +1,107 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  Button,
-  Grid,
-  Chip,
   Alert,
-  Skeleton,
-  Divider,
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
-  TextField,
+  DialogContent,
+  DialogTitle,
   FormControl,
+  Grid,
+  IconButton,
   InputLabel,
-  Select,
   MenuItem,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  IconButton
+  Paper,
+  Select,
+  Skeleton,
+  Snackbar,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography
 } from '@mui/material';
 import {
+  ArrowBack as ArrowBackIcon,
+  Cancel as CancelIcon,
+  CheckCircle as CheckCircleIcon,
+  Close as CloseIcon,
   Edit as EditIcon,
   Payment as PaymentIcon,
-  ArrowBack as ArrowBackIcon,
-  Receipt as ReceiptIcon,
-  CalendarToday as CalendarIcon,
-  AccountBalance as AccountIcon,
-  LocationOn as LocationIcon,
-  Description as DescriptionIcon,
-  CheckCircle as CheckCircleIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-  Close as CloseIcon,
-  Visibility as ViewIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  Send as SendIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext';
 import utilityBillService from '../../../services/utilityBillService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
+import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
+
+const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Credit Card', 'Other'];
+
+const formatMemoDate = (date) => {
+  if (!date) return '';
+  return new Date(date).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: '2-digit'
+  }).replace(/ /g, '-');
+};
+
+const formatDateTime = (date) => {
+  if (!date) return '';
+  return new Date(date).toLocaleString('en-PK', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+const formatMemoAmount = (amount) => new Intl.NumberFormat('en-PK', {
+  maximumFractionDigits: 0
+}).format(Number(amount || 0));
+
+const displayValue = (value) => value || '';
+const userDisplayName = (user) => {
+  if (!user) return '';
+  return [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email || user.employeeId || '';
+};
+const getUserId = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return String(value._id || value.id || value.userId || '');
+};
+const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
 
 const UtilityBillDetails = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { user } = useAuth();
   const [bill, setBill] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [paymentDialog, setPaymentDialog] = useState(false);
+  const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
+  const [managerApprover, setManagerApprover] = useState(null);
+  const [hodApprover, setHodApprover] = useState(null);
+  const [approverOptions, setApproverOptions] = useState([]);
+  const [approverLoading, setApproverLoading] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [paymentData, setPaymentData] = useState({
     paidAmount: 0,
     paymentMethod: '',
     paymentDate: new Date().toISOString().split('T')[0],
     notes: ''
   });
-
-  const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Credit Card', 'Other'];
 
   useEffect(() => {
     fetchBill();
@@ -79,9 +120,213 @@ const UtilityBillDetails = () => {
     }
   };
 
+  const getGrandTotal = () => bill?.grandTotal ?? ((Number(bill?.amount) || 0) + (Number(bill?.balanceAmount) || 0));
+  const getRemainingAmount = () => Math.max((Number(getGrandTotal()) || 0) - (Number(bill?.paidAmount) || 0), 0);
+  const getBalanceToPay = () => (
+    Number(bill?.balanceAmount) || Math.max((Number(getGrandTotal()) || 0) - (Number(bill?.lastMonthAmount) || 0), 0)
+  );
+  const getForWhat = () => bill?.forWhat || bill?.description || '';
+  const getPreparedBy = () => (
+    userDisplayName(bill?.createdBy)
+  );
+  const getApprovedBy = () => userDisplayName(bill?.approvedBy);
+  const getApprovalRows = () => {
+    const chain = bill?.approvalChain || [];
+    const workflowHistory = bill?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findLatestAuditEntry = (keywords = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      const fromStatus = normalize(entry?.fromStatus);
+      return keywords.some((keyword) => toStatus.includes(keyword) || fromStatus.includes(keyword));
+    });
+    const findLatestByToStatus = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return accepted.some((status) => (
+        toStatus === status || toStatus.startsWith(status)
+      ));
+    });
+
+    const findPreferredAuditEntry = (accepted = []) => {
+      const entries = history.filter((entry) => {
+        const toStatus = normalize(entry?.toStatus);
+        return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+      });
+      return entries.find((e) => e?.stampUsed && e?.stampImage)
+        || entries.find((e) => e?.changedBy?.digitalSignature)
+        || entries[0];
+    };
+    const preAuditActorEntry = findPreferredAuditEntry([
+      'forwarded to audit director',
+      'initial audit approval'
+    ]) || findLatestAuditEntry([
+      'forwarded to audit director',
+      'initial audit approval'
+    ]);
+    const directorApproval = findLatestByToStatus([
+      'approved (from forwarded to audit director)',
+      'approved (from send to audit)'
+    ]) || findLatestAuditEntry([
+      'approved (from forwarded to audit director)',
+      'approved (from send to audit)'
+    ]);
+
+    const rows = [
+      {
+        authority: 'Sig of Requester',
+        name: getPreparedBy(),
+        signature: '',
+        signatureUser: bill?.createdBy,
+        dateTime: formatDateTime(bill?.createdAt)
+      },
+      {
+        authority: 'Manager Approver',
+        name: userDisplayName(chain[0]?.approver),
+        signature: chain[0]?.status === 'approved' ? userDisplayName(chain[0]?.approver) : '',
+        signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null,
+        dateTime: chain[0]?.status === 'approved' ? formatDateTime(chain[0]?.actedAt) : ''
+      },
+      {
+        authority: 'Head Of Department Approver',
+        name: userDisplayName(chain[1]?.approver),
+        signature: chain[1]?.status === 'approved' ? userDisplayName(chain[1]?.approver) : '',
+        signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null,
+        dateTime: chain[1]?.status === 'approved' ? formatDateTime(chain[1]?.actedAt) : ''
+      }
+    ];
+
+    rows.push(
+      {
+        authority: 'Pre-Audit Authority',
+        name: userDisplayName(preAuditActorEntry?.changedBy),
+        signature: preAuditActorEntry?.changedBy ? userDisplayName(preAuditActorEntry.changedBy) : '',
+        signatureUser: preAuditActorEntry?.changedBy || null,
+        signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage
+          ? preAuditActorEntry.stampImage
+          : preAuditActorEntry?.changedBy?.digitalSignature || '',
+        dateTime: formatDateTime(preAuditActorEntry?.changedAt)
+      },
+      {
+        authority: 'Audit Director',
+        name: userDisplayName(directorApproval?.changedBy),
+        signature: directorApproval?.changedBy ? userDisplayName(directorApproval.changedBy) : '',
+        signatureUser: directorApproval?.changedBy || null,
+        signaturePath: directorApproval?.stampUsed && directorApproval?.stampImage
+          ? directorApproval.stampImage
+          : directorApproval?.changedBy?.digitalSignature || '',
+        dateTime: formatDateTime(directorApproval?.changedAt)
+      }
+    );
+
+    return rows;
+  };
+  const getStampRows = () => {
+    const workflowHistory = bill?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findStampedEntry = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return (entry?.stampUsed && entry?.stampImage)
+        && accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const preAuditStamp = findStampedEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorStamp = findStampedEntry(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+    return [
+      { authority: 'Pre-Audit Authority Stamp', stampImage: preAuditStamp?.stampImage || '', dateTime: formatDateTime(preAuditStamp?.changedAt) },
+      { authority: 'Audit Director Stamp', stampImage: directorStamp?.stampImage || '', dateTime: formatDateTime(directorStamp?.changedAt) }
+    ].filter((row) => row.stampImage);
+  };
+  const getPrimaryHeading = () => (bill?.accountHead || bill?.site || bill?.location || bill?.provider || bill?.utilityType || 'Utility Bill').toUpperCase();
+  const getSecondaryHeading = () => [bill?.provider, bill?.utilityType].filter(Boolean).join(' - ');
+  const approvalStatus = bill?.approvalStatus || 'Draft';
+  const pendingApproval = (bill?.approvalChain || []).find((step) => step.status === 'pending');
+  const pendingApproverId = getUserId(pendingApproval?.approver);
+  const userId = getUserId(user);
+  const requesterId = getUserId(bill?.createdBy);
+  const isRequester = requesterId && userId && requesterId === userId;
+  const isPendingApprover = pendingApproverId && userId && pendingApproverId === userId && !isRequester;
+  const canSubmitForApproval = ['Draft', 'Rejected'].includes(approvalStatus);
+  const canApproveReject = approvalStatus === 'Submitted' && isPendingApprover;
+
+  const getApprovalColor = (status) => {
+    switch (status) {
+      case 'Approved': return 'success';
+      case 'Submitted': return 'warning';
+      case 'Rejected': return 'error';
+      default: return 'default';
+    }
+  };
+
+  const loadApproverOptions = async (search = '') => {
+    try {
+      setApproverLoading(true);
+      const response = await utilityBillService.getApproverCandidates({ search, limit: 50 });
+      setApproverOptions(response.data || []);
+    } catch {
+      setApproverOptions([]);
+    } finally {
+      setApproverLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (submitDialogOpen) loadApproverOptions('');
+  }, [submitDialogOpen]);
+
+  const handleSubmitForApproval = async () => {
+    if (!managerApprover?._id || !hodApprover?._id) {
+      setSnackbar({ open: true, message: 'Select Manager and Head Of Department approvers', severity: 'error' });
+      return;
+    }
+
+    if ([getUserId(managerApprover), getUserId(hodApprover)].includes(getUserId(user))) {
+      setSnackbar({ open: true, message: 'Requester cannot be selected as Manager or Head Of Department approver', severity: 'error' });
+      return;
+    }
+
+    if (managerApprover._id === hodApprover._id) {
+      setSnackbar({ open: true, message: 'Manager and Head Of Department approvers must be different', severity: 'error' });
+      return;
+    }
+
+    try {
+      const response = await utilityBillService.submitUtilityBill(bill._id, { approverIds: [managerApprover._id, hodApprover._id] });
+      setBill(response.data);
+      setSubmitDialogOpen(false);
+      setManagerApprover(null);
+      setHodApprover(null);
+      setSnackbar({ open: true, message: 'Utility bill submitted for approval', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to submit utility bill', severity: 'error' });
+    }
+  };
+
+  const handleApprove = async () => {
+    try {
+      const response = await utilityBillService.approveUtilityBill(bill._id);
+      setBill(response.data);
+      setSnackbar({ open: true, message: 'Utility bill approved', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to approve utility bill', severity: 'error' });
+    }
+  };
+
+  const handleReject = async () => {
+    const reason = window.prompt('Please enter rejection reason:');
+    if (!reason) return;
+
+    try {
+      const response = await utilityBillService.rejectUtilityBill(bill._id, reason);
+      setBill(response.data);
+      setSnackbar({ open: true, message: 'Utility bill rejected', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to reject utility bill', severity: 'error' });
+    }
+  };
+
   const handlePayment = () => {
     setPaymentData({
-      paidAmount: bill.amount - bill.paidAmount,
+      paidAmount: getRemainingAmount(),
       paymentMethod: '',
       paymentDate: new Date().toISOString().split('T')[0],
       notes: ''
@@ -100,857 +345,520 @@ const UtilityBillDetails = () => {
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Paid': return 'success';
-      case 'Pending': return 'warning';
-      case 'Overdue': return 'error';
-      case 'Partial': return 'info';
-      default: return 'default';
-    }
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'Paid': return <CheckCircleIcon />;
-      case 'Pending': return <WarningIcon />;
-      case 'Overdue': return <WarningIcon />;
-      case 'Partial': return <InfoIcon />;
-      default: return <InfoIcon />;
-    }
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-PK', {
-      style: 'currency',
-      currency: 'PKR'
-    }).format(amount);
-  };
-
-  const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
+  const getPrintContent = () => `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Utility Bill - ${displayValue(bill?.billId)}</title>
+        <style>
+          body { font-family: Georgia, "Times New Roman", serif; color: #141414; margin: 20px; font-size: 12px; background: #fff; }
+          .memo-paper { max-width: 960px; margin: 0 auto; padding: 38px 30px 30px; }
+          .header { text-align: center; line-height: 1.15; margin-bottom: 14px; }
+          .company { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: .35px; }
+          .title { font-size: 16px; font-weight: 700; margin-top: 2px; }
+          .top-meta { display: grid; grid-template-columns: 1fr 170px; align-items: start; margin-bottom: 26px; }
+          .left-meta { display: grid; grid-template-columns: 62px 1fr; width: 360px; margin-left: 150px; line-height: 1.35; font-weight: 700; }
+          .right-meta { text-align: right; line-height: 2; font-weight: 700; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th { font-size: 10.5px; font-weight: 800; text-align: center; border-bottom: 1px solid #c7c7c7; padding: 7px 8px; color: #333; background: #f8f8f8; }
+          td { padding: 9px 8px; vertical-align: top; }
+          .main-table { margin-top: 6px; border-top: 1px solid #c7c7c7; border-bottom: 1px solid #c7c7c7; }
+          .date-col { width: 9%; }
+          .ref-col { width: 13%; }
+          .paid-col { width: 22%; }
+          .for-col { width: 30%; }
+          .amount-col { width: 11%; text-align: right; }
+          .last-col { width: 15%; text-align: right; }
+          .main-table th, .main-table td { border-right: 1px solid #ededed; }
+          .main-table th:last-child, .main-table td:last-child { border-right: 0; }
+          .body-row td { border-top: 1px solid #d9d9d9; }
+          .totals td { padding-top: 4px; padding-bottom: 4px; font-weight: 700; }
+          .total-label { text-align: right; }
+          .approval-table { margin-top: 56px; border: 1px solid #d8d8d8; }
+          .approval-table th { text-align: left; font-size: 12px; background: #f5f5f5; border-bottom: 1px solid #d8d8d8; }
+          .approval-table td { border-bottom: 1px solid #e0e0e0; }
+          .approval-table tr:last-child td { border-bottom: 0; }
+          .authority { font-weight: 800; }
+          @media print { body { margin: 0; } .memo-paper { padding-top: 26px; } }
+        </style>
+      </head>
+      <body>
+        <div class="memo-paper">
+          <div class="header">
+            <div class="company">${getPrimaryHeading()}</div>
+            <div class="title">${getSecondaryHeading()}</div>
+          </div>
+          <div class="top-meta">
+            <div class="left-meta">
+              <span>SITE :</span><span>${displayValue(bill?.site || bill?.location)}</span>
+              <span>From:</span><span>${displayValue(bill?.department)}</span>
+              <span>Custodian:</span><span>${displayValue(bill?.custodian)}</span>
+            </div>
+            <div class="right-meta">
+              <div>${formatMemoDate(bill?.billDate)}</div>
+              <div>${displayValue(bill?.billId)}</div>
+            </div>
+          </div>
+          <table class="main-table">
+            <colgroup>
+              <col class="date-col" />
+              <col class="ref-col" />
+              <col class="paid-col" />
+              <col class="for-col" />
+              <col class="amount-col" />
+              <col class="last-col" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Reference<br />No</th>
+                <th>To Whom Paid</th>
+                <th class="for-col">For What</th>
+                <th>Amount</th>
+                <th>Last Month Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="body-row">
+                <td>${formatMemoDate(bill?.billDate)}</td>
+                <td>${displayValue(bill?.accountNumber)}</td>
+                <td>${displayValue(bill?.provider)}</td>
+                <td>${getForWhat()}</td>
+                <td class="amount-col">${formatMemoAmount(bill?.amount)}</td>
+                <td class="last-col">${formatMemoAmount(bill?.lastMonthAmount)}</td>
+              </tr>
+              <tr class="totals"><td colspan="4" class="total-label">Grand Total</td><td class="amount-col">${formatMemoAmount(getGrandTotal())}</td><td></td></tr>
+              <tr class="totals"><td colspan="4" class="total-label">Cash Deposit Last Month</td><td class="amount-col">${formatMemoAmount(bill?.lastMonthAmount)}</td><td></td></tr>
+              <tr class="totals"><td colspan="4" class="total-label">Balance Amount to be Paid</td><td class="amount-col">${formatMemoAmount(getBalanceToPay())}</td><td></td></tr>
+            </tbody>
+          </table>
+          <table class="approval-table">
+            <thead>
+              <tr>
+                <th>Authority</th>
+                <th>Name</th>
+                <th>Digital Signature</th>
+                <th>Date &amp; Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${getApprovalRows().map((row) => `
+                <tr>
+                  <td class="authority">${row.authority}</td>
+                  <td>${row.name || '-'}</td>
+                  <td>${
+                    getSignatureSource(row)
+                      ? `<img src="${getImageUrl(getSignatureSource(row))}" alt="${row.authority} signature" style="max-height:42px;max-width:135px;object-fit:contain;" />`
+                      : row.signature || '-'
+                  }</td>
+                  <td>${row.dateTime || '-'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </body>
+    </html>
+  `;
 
   const handlePrint = () => {
     if (!bill) return;
-    
-    // Create a new window for printing
     const printWindow = window.open('', '_blank');
-    
-    // Get the current date and time for the print header
-    const printDate = new Date().toLocaleString();
-    
-    // Create the print content HTML with comprehensive styling
-    const printContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Utility Bill - ${bill?.billNumber || 'N/A'}</title>
-          <style>
-            body {
-              font-family: 'Arial', sans-serif;
-              margin: 15px;
-              color: #000;
-              line-height: 1.5;
-              font-size: 14px;
-            }
-            .header {
-              text-align: center;
-              border: 3px solid #000;
-              padding: 20px;
-              margin-bottom: 25px;
-              background-color: #f9f9f9;
-            }
-            .header h1 {
-              margin: 0 0 10px 0;
-              color: #000;
-              font-size: 24px;
-              font-weight: bold;
-            }
-            .header .subtitle {
-              color: #333;
-              font-size: 16px;
-              margin-bottom: 8px;
-              font-weight: bold;
-            }
-            .print-date {
-              color: #666;
-              font-size: 12px;
-            }
-            .section {
-              margin-bottom: 25px;
-              page-break-inside: avoid;
-              border: 1px solid #ccc;
-              padding: 15px;
-            }
-            .section-title {
-              background-color: #e0e0e0;
-              padding: 10px 15px;
-              margin: -15px -15px 15px -15px;
-              border-bottom: 2px solid #000;
-              font-weight: bold;
-              font-size: 16px;
-              color: #000;
-              text-transform: uppercase;
-            }
-            .field-row {
-              display: flex;
-              margin-bottom: 8px;
-              border-bottom: 1px dotted #999;
-              padding-bottom: 5px;
-              min-height: 20px;
-            }
-            .field-label {
-              font-weight: bold;
-              min-width: 180px;
-              color: #000;
-              font-size: 13px;
-            }
-            .field-value {
-              flex: 1;
-              color: #000;
-              font-size: 13px;
-              word-wrap: break-word;
-            }
-            .status-chip {
-              display: inline-block;
-              padding: 3px 8px;
-              border: 1px solid #000;
-              font-size: 11px;
-              font-weight: bold;
-              text-transform: uppercase;
-              background-color: #f0f0f0;
-            }
-            .status-paid { background-color: #e8f5e8; }
-            .status-pending { background-color: #fff3cd; }
-            .status-overdue { background-color: #f8d7da; }
-            .footer {
-              margin-top: 30px;
-              padding-top: 15px;
-              border-top: 2px solid #000;
-              text-align: center;
-              color: #333;
-              font-size: 11px;
-            }
-            .important-info {
-              background-color: #fff3cd;
-              border: 1px solid #ffeaa7;
-              padding: 10px;
-              margin: 10px 0;
-              font-weight: bold;
-            }
-            .record-id {
-              font-family: monospace;
-              background-color: #f8f9fa;
-              padding: 2px 5px;
-              border: 1px solid #ccc;
-            }
-            .bill-image {
-              max-width: 300px;
-              max-height: 200px;
-              border: 1px solid #ccc;
-              margin: 10px 0;
-            }
-            @media print {
-              body { margin: 0; }
-              .no-print { display: none; }
-              .section { page-break-inside: avoid; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>UTILITY BILL</h1>
-            <div class="subtitle">Bill Number: ${bill?.billNumber || 'N/A'}</div>
-            <div class="print-date">Printed on: ${printDate}</div>
-          </div>
+    if (!printWindow) {
+      setError('Unable to open print window. Please allow pop-ups and try again.');
+      return;
+    }
 
-          <!-- Bill Summary -->
-          <div class="section">
-            <div class="section-title">📋 Bill Summary</div>
-            <div class="field-row">
-              <div class="field-label">Bill ID:</div>
-              <div class="field-value"><span class="record-id">${bill?._id || 'N/A'}</span></div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Status:</div>
-              <div class="field-value">
-                <span class="status-chip status-${bill?.status?.toLowerCase() || 'pending'}">${bill?.status || 'N/A'}</span>
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Bill Number:</div>
-              <div class="field-value">${bill?.billNumber || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Utility Type:</div>
-              <div class="field-value">${bill?.utilityType || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Total Amount:</div>
-              <div class="field-value">${bill?.amount ? formatCurrency(bill.amount) : 'N/A'}</div>
-            </div>
-          </div>
-
-          <!-- Bill Details -->
-          <div class="section">
-            <div class="section-title">💡 Bill Details</div>
-            <div class="field-row">
-              <div class="field-label">Provider:</div>
-              <div class="field-value">${bill?.provider || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Account Number:</div>
-              <div class="field-value">${bill?.accountNumber || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Location:</div>
-              <div class="field-value">${bill?.location || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Bill Date:</div>
-              <div class="field-value">${bill?.billDate ? formatDate(bill.billDate) : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Due Date:</div>
-              <div class="field-value">${bill?.dueDate ? formatDate(bill.dueDate) : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Description:</div>
-              <div class="field-value">${bill?.description || 'N/A'}</div>
-            </div>
-          </div>
-
-          <!-- Reading Information -->
-          ${bill?.previousReading !== undefined ? `
-          <div class="section">
-            <div class="section-title">📊 Reading Information</div>
-            <div class="field-row">
-              <div class="field-label">Previous Reading:</div>
-              <div class="field-value">${bill.previousReading || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Current Reading:</div>
-              <div class="field-value">${bill.currentReading || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Units Consumed:</div>
-              <div class="field-value">${bill.unitsConsumed || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Rate Per Unit:</div>
-              <div class="field-value">${bill.ratePerUnit ? formatCurrency(bill.ratePerUnit) : 'N/A'}</div>
-            </div>
-          </div>
-          ` : ''}
-
-          <!-- Payment Information -->
-          <div class="section">
-            <div class="section-title">💳 Payment Information</div>
-            <div class="field-row">
-              <div class="field-label">Total Amount:</div>
-              <div class="field-value">${bill?.amount ? formatCurrency(bill.amount) : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Paid Amount:</div>
-              <div class="field-value">${bill?.paidAmount ? formatCurrency(bill.paidAmount) : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Remaining Amount:</div>
-              <div class="field-value">${bill?.amount && bill?.paidAmount ? formatCurrency(bill.amount - bill.paidAmount) : 'N/A'}</div>
-            </div>
-            ${bill?.paymentMethod ? `
-            <div class="field-row">
-              <div class="field-label">Payment Method:</div>
-              <div class="field-value">${bill.paymentMethod}</div>
-            </div>
-            ` : ''}
-            ${bill?.paymentDate ? `
-            <div class="field-row">
-              <div class="field-label">Payment Date:</div>
-              <div class="field-value">${formatDate(bill.paymentDate)}</div>
-            </div>
-            ` : ''}
-          </div>
-
-          <!-- Tax Information -->
-          ${bill?.taxes && (bill.taxes.gst > 0 || bill.taxes.other > 0) ? `
-          <div class="section">
-            <div class="section-title">💰 Tax Breakdown</div>
-            ${bill.taxes.gst > 0 ? `
-            <div class="field-row">
-              <div class="field-label">GST:</div>
-              <div class="field-value">${formatCurrency(bill.taxes.gst)}</div>
-            </div>
-            ` : ''}
-            ${bill.taxes.other > 0 ? `
-            <div class="field-row">
-              <div class="field-label">Other Taxes:</div>
-              <div class="field-value">${formatCurrency(bill.taxes.other)}</div>
-            </div>
-            ` : ''}
-          </div>
-          ` : ''}
-
-          <!-- Bill Image -->
-          ${bill?.billImage ? `
-          <div class="section">
-            <div class="section-title">📷 Bill Image</div>
-            <div class="field-row">
-              <div class="field-label">Image:</div>
-              <div class="field-value">
-                <img src="${getImageUrl(bill.billImage)}" alt="Bill Image" class="bill-image" />
-              </div>
-            </div>
-          </div>
-          ` : ''}
-
-          <!-- System Information -->
-          <div class="section">
-            <div class="section-title">ℹ️ System Information</div>
-            <div class="field-row">
-              <div class="field-label">Created Date:</div>
-              <div class="field-value">${bill?.createdAt ? new Date(bill.createdAt).toLocaleString() : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Last Updated:</div>
-              <div class="field-value">${bill?.updatedAt ? new Date(bill.updatedAt).toLocaleString() : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Record Version:</div>
-              <div class="field-value">${bill?.__v || '0'}</div>
-            </div>
-          </div>
-
-          <!-- Additional Information -->
-          <div class="section">
-            <div class="section-title">📝 Additional Information</div>
-            <div class="important-info">
-              This document contains all available information for Utility Bill ${bill?.billNumber || bill?._id || 'N/A'}
-            </div>
-            <div class="field-row">
-              <div class="field-label">Total Fields:</div>
-              <div class="field-value">${Object.keys(bill || {}).length} data fields</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Document Status:</div>
-              <div class="field-value">Complete - All available data included</div>
-            </div>
-          </div>
-
-          <div class="footer">
-            <p><strong>Generated from SGC ERP System - Utility Bill Management Module</strong></p>
-            <p>Bill ID: <span class="record-id">${bill?._id || 'N/A'}</span> | Printed: ${printDate}</p>
-            <p>This is a complete record printout containing all available information</p>
-          </div>
-        </body>
-      </html>
-    `;
-
-    // Write the content to the new window
-    printWindow.document.write(printContent);
+    printWindow.document.write(getPrintContent());
     printWindow.document.close();
-
-    // Wait for content to load, then trigger print
-    printWindow.onload = function() {
+    setTimeout(() => {
       printWindow.focus();
       printWindow.print();
       printWindow.close();
-    };
+    }, 500);
   };
 
   if (loading) {
     return (
       <Box sx={{ p: 3 }}>
-        {/* Header Skeleton */}
-        <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
-          <Box display="flex" alignItems="center" gap={2}>
-            <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
-            <Skeleton variant="text" width="40%" height={40} />
-          </Box>
-          <Box display="flex" gap={1}>
-            <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
-            <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
-          </Box>
-        </Box>
-
-        <Grid container spacing={3}>
-          {/* Main Bill Info Skeleton */}
-          <Grid item xs={12} md={8}>
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Skeleton variant="text" width="30%" height={28} sx={{ mb: 2 }} />
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Skeleton variant="circular" width={24} height={24} />
-                      <Box flexGrow={1}>
-                        <Skeleton variant="text" height={16} width="30%" />
-                        <Skeleton variant="text" height={20} width="50%" />
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Skeleton variant="circular" width={24} height={24} />
-                      <Box flexGrow={1}>
-                        <Skeleton variant="text" height={16} width="25%" />
-                        <Skeleton variant="rectangular" height={24} width={80} />
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Skeleton variant="circular" width={24} height={24} />
-                      <Box flexGrow={1}>
-                        <Skeleton variant="text" height={16} width="35%" />
-                        <Skeleton variant="text" height={20} width="60%" />
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Skeleton variant="circular" width={24} height={24} />
-                      <Box flexGrow={1}>
-                        <Skeleton variant="text" height={16} width="30%" />
-                        <Skeleton variant="text" height={20} width="55%" />
-                      </Box>
-                    </Box>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-
-            {/* Payments History Skeleton */}
-            <Card>
-              <CardContent>
-                <Skeleton variant="text" width="25%" height={28} sx={{ mb: 2 }} />
-                {[1, 2, 3].map((item) => (
-                  <Grid container key={item} sx={{ mb: 2 }}>
-                    <Grid item xs={3}>
-                      <Skeleton variant="text" height={16} width="80%" />
-                      <Skeleton variant="text" height={14} width="60%" />
-                    </Grid>
-                    <Grid item xs={3}>
-                      <Skeleton variant="text" height={16} width="70%" />
-                    </Grid>
-                    <Grid item xs={3}>
-                      <Skeleton variant="rectangular" height={24} width={60} />
-                    </Grid>
-                    <Grid item xs={3}>
-                      <Skeleton variant="text" height={16} width="50%" />
-                    </Grid>
-                  </Grid>
-                ))}
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Side Panel Skeleton */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
-                <Box sx={{ textAlign: 'center' }}>
-                  <Skeleton variant="text" height={48} width="80%" sx={{ mx: 'auto', mb: 1 }} />
-                  <Skeleton variant="rectangular" height={24} width={100} sx={{ mx: 'auto' }} />
-                </Box>
-              </CardContent>
-            </Card>
-
-            {/* Bill Summary Skeleton */}
-            <Card>
-              <CardContent>
-                <Skeleton variant="text" width="35%" height={28} sx={{ mb: 2 }} />
-                <Box>
-                  <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                    <Skeleton variant="text" height={16} width="40%" />
-                    <Skeleton variant="text" height={16} width="30%" />
-                  </Box>
-                  <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                    <Skeleton variant="text" height={16} width="35%" />
-                    <Skeleton variant="text" height={16} width="25%" />
-                  </Box>
-                  <Divider sx={{ my: 2 }} />
-                  <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Skeleton variant="text" height={20} width="30%" />
-                    <Skeleton variant="text" height={20} width="40%" />
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box>
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-        <Button
-          variant="outlined"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/admin/utility-bills')}
-        >
-          Back to Bills
-        </Button>
+        <Skeleton variant="text" width="30%" height={48} />
+        <Skeleton variant="rectangular" height={620} sx={{ mt: 2 }} />
       </Box>
     );
   }
 
   if (!bill) {
     return (
-      <Box>
-        <Typography variant="h6" color="textSecondary">
-          Utility bill not found
-        </Typography>
-        <Button
-          variant="outlined"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/admin/utility-bills')}
-          sx={{ mt: 2 }}
-        >
-          Back to Bills
-        </Button>
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">{error || 'Utility bill not found'}</Alert>
       </Box>
     );
   }
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" component="h1">
-          Utility Bill Details
-        </Typography>
-        <Box display="flex" gap={2}>
-          <Button
-            variant="outlined"
-            startIcon={<PrintIcon />}
-            onClick={handlePrint}
-          >
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} gap={2} flexWrap="wrap">
+        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/admin/utility-bills')}>
+          Back to Bills
+        </Button>
+        <Stack direction="row" spacing={1}>
+          <Chip label={`Approval: ${approvalStatus}`} color={getApprovalColor(approvalStatus)} sx={{ alignSelf: 'center' }} />
+          {canSubmitForApproval && (
+            <Button variant="contained" color="info" startIcon={<SendIcon />} onClick={() => setSubmitDialogOpen(true)}>
+              Submit
+            </Button>
+          )}
+          {canApproveReject && (
+            <>
+              <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={handleApprove}>
+                Approve
+              </Button>
+              <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={handleReject}>
+                Reject
+              </Button>
+            </>
+          )}
+          <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print
           </Button>
-          <Button
-            variant="outlined"
-            startIcon={<ArrowBackIcon />}
-            onClick={() => navigate('/admin/utility-bills')}
-          >
-            Back to Bills
+          <Button variant="outlined" startIcon={<PaymentIcon />} onClick={handlePayment} disabled={bill.status === 'Paid'}>
+            Record Payment
           </Button>
-          <Button
-            variant="contained"
-            startIcon={<EditIcon />}
-            onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}
-          >
+          <Button variant="contained" startIcon={<EditIcon />} onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}>
             Edit Bill
           </Button>
-        </Box>
+        </Stack>
       </Box>
 
-      <Grid container spacing={3}>
-        {/* Bill Information */}
-        <Grid item xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Bill Information
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Bill ID
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {bill.billId}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Utility Type
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {bill.utilityType}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Provider
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {bill.provider}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Account Number
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {bill.accountNumber || 'N/A'}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Bill Date
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {formatDate(bill.billDate)}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Due Date
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {formatDate(bill.dueDate)}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Location
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {bill.location}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="textSecondary">
-                    Status
-                  </Typography>
-                  <Chip
-                    label={bill.status}
-                    color={getStatusColor(bill.status)}
-                    size="small"
-                    icon={getStatusIcon(bill.status)}
-                  />
-                </Grid>
-                {bill.description && (
-                  <Grid item xs={12}>
-                    <Typography variant="body2" color="textSecondary">
-                      Description
-                    </Typography>
-                    <Typography variant="body1">
-                      {bill.description}
-                    </Typography>
-                  </Grid>
-                )}
-                {bill.notes && (
-                  <Grid item xs={12}>
-                    <Typography variant="body2" color="textSecondary">
-                      Notes
-                    </Typography>
-                    <Typography variant="body1">
-                      {bill.notes}
-                    </Typography>
-                  </Grid>
-                )}
-              </Grid>
-            </CardContent>
-          </Card>
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
 
-          {/* Bill Image Section */}
-          {bill.billImage && (
-            <Card sx={{ mt: 3 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Bill Image
-                </Typography>
-                <Divider sx={{ mb: 2 }} />
-                
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Box
-                    component="img"
-                    src={getImageUrl(bill.billImage)}
-                    alt="Bill Image"
-                    sx={{
-                      width: 200,
-                      height: 200,
-                      objectFit: 'cover',
-                      borderRadius: 1,
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      cursor: 'pointer'
-                    }}
-                    onError={(e) => handleImageError(e)}
-                    onClick={() => setImageModalOpen(true)}
-                  />
-                  <Box>
-                    <Button
-                      variant="outlined"
-                      startIcon={<ViewIcon />}
-                      onClick={() => setImageModalOpen(true)}
-                    >
-                      View Full Image
-                    </Button>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          )}
+      <Paper
+        elevation={2}
+        sx={{
+          maxWidth: 1050,
+          mx: 'auto',
+          p: { xs: 2.25, md: 5 },
+          bgcolor: 'background.paper',
+          color: '#151515',
+          borderRadius: 1.5,
+          border: '1px solid',
+          borderColor: 'grey.200',
+          boxShadow: '0 12px 30px rgba(15, 23, 42, 0.08)'
+        }}
+      >
+        <Box
+          textAlign="center"
+          sx={{
+            lineHeight: 1.12,
+            mb: 1.75,
+            pb: 1.25,
+            borderBottom: '1px solid',
+            borderColor: 'grey.200'
+          }}
+        >
+          <Typography
+            variant="h6"
+            sx={{
+              fontFamily: 'Georgia, "Times New Roman", serif',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+              fontSize: { xs: 17, md: 19 }
+            }}
+          >
+            {getPrimaryHeading()}
+          </Typography>
+          <Typography
+            variant="subtitle1"
+            sx={{
+              fontFamily: 'Georgia, "Times New Roman", serif',
+              fontWeight: 700,
+              fontSize: { xs: 15, md: 17 }
+            }}
+          >
+            {getSecondaryHeading()}
+          </Typography>
+        </Box>
 
-          {/* Reading Information */}
-          {bill.previousReading !== undefined && (
-            <Card sx={{ mt: 3 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Reading Information
-                </Typography>
-                <Divider sx={{ mb: 2 }} />
-                
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={4}>
-                    <Typography variant="body2" color="textSecondary">
-                      Previous Reading
-                    </Typography>
-                    <Typography variant="h6" fontWeight="bold">
-                      {bill.previousReading}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <Typography variant="body2" color="textSecondary">
-                      Current Reading
-                    </Typography>
-                    <Typography variant="h6" fontWeight="bold">
-                      {bill.currentReading}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <Typography variant="body2" color="textSecondary">
-                      Units Consumed
-                    </Typography>
-                    <Typography variant="h6" fontWeight="bold" color="primary">
-                      {bill.units}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="body2" color="textSecondary">
-                      Rate Per Unit
-                    </Typography>
-                    <Typography variant="h6" fontWeight="bold">
-                      {formatCurrency(bill.ratePerUnit)}
-                    </Typography>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', md: '1fr 170px' },
+            alignItems: 'start',
+            mb: 3
+          }}
+        >
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '80px 1fr',
+              width: { xs: '100%', md: 390 },
+              ml: { xs: 0, md: 18 },
+              lineHeight: 1.45,
+              fontSize: 13
+            }}
+          >
+            <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 13 }}>SITE :</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{displayValue(bill.site || bill.location)}</Typography>
+            <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 13 }}>From:</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{displayValue(bill.department)}</Typography>
+            <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 13 }}>Custodian:</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{displayValue(bill.custodian)}</Typography>
+          </Box>
+          <Box
+            sx={{
+              textAlign: { xs: 'left', md: 'right' },
+              lineHeight: 2,
+              mt: { xs: 2, md: 0 },
+              color: 'grey.800'
+            }}
+          >
+            <Typography sx={{ fontWeight: 800, fontSize: 13 }}>{formatMemoDate(bill.billDate)}</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: 13 }}>{bill.billId}</Typography>
+          </Box>
+        </Box>
 
-        {/* Payment Information */}
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Payment Information
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              
-              <Box mb={2}>
-                <Typography variant="body2" color="textSecondary">
-                  Total Amount
-                </Typography>
-                <Typography variant="h5" color="primary.main" fontWeight="bold">
-                  {formatCurrency(bill.amount)}
-                </Typography>
-              </Box>
-              
-              <Box mb={2}>
-                <Typography variant="body2" color="textSecondary">
-                  Paid Amount
-                </Typography>
-                <Typography variant="h6" color="success.main" fontWeight="bold">
-                  {formatCurrency(bill.paidAmount)}
-                </Typography>
-              </Box>
-              
-              <Box mb={2}>
-                <Typography variant="body2" color="textSecondary">
-                  Remaining Amount
-                </Typography>
-                <Typography variant="h6" color="error.main" fontWeight="bold">
-                  {formatCurrency(bill.amount - bill.paidAmount)}
-                </Typography>
-              </Box>
-
-              {bill.paymentMethod && (
-                <Box mb={2}>
-                  <Typography variant="body2" color="textSecondary">
-                    Payment Method
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {bill.paymentMethod}
-                  </Typography>
-                </Box>
-              )}
-
-              {bill.paymentDate && (
-                <Box mb={2}>
-                  <Typography variant="body2" color="textSecondary">
-                    Payment Date
-                  </Typography>
-                  <Typography variant="body1" fontWeight="medium">
-                    {formatDate(bill.paymentDate)}
-                  </Typography>
-                </Box>
-              )}
-
-              {bill.status !== 'Paid' && (
-                <Button
-                  fullWidth
-                  variant="contained"
-                  startIcon={<PaymentIcon />}
-                  onClick={handlePayment}
-                  sx={{ mt: 2 }}
+        <Table
+          size="small"
+          sx={{
+            width: '100%',
+            tableLayout: 'fixed',
+            mt: 1,
+            borderTop: '1px solid',
+            borderBottom: '1px solid',
+            borderColor: 'grey.300',
+            '& th': {
+              bgcolor: 'grey.50',
+              borderBottom: '1px solid',
+              borderRight: '1px solid',
+              borderColor: 'grey.300',
+              p: 1,
+              fontSize: 12,
+              fontWeight: 800,
+              textAlign: 'center',
+              color: 'grey.700',
+              lineHeight: 1.25
+            },
+            '& th:last-of-type': {
+              borderRight: 0
+            },
+            '& td': {
+              borderBottom: 0,
+              borderTop: '1px solid',
+              borderRight: '1px solid',
+              borderColor: 'grey.200',
+              p: 1.25,
+              fontSize: 13,
+              verticalAlign: 'top'
+            },
+            '& td:last-of-type': {
+              borderRight: 0
+            }
+          }}
+        >
+          <colgroup>
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '15%' }} />
+          </colgroup>
+          <TableHead>
+            <TableRow>
+              {[
+                'Date',
+                'Reference No',
+                'To Whom Paid',
+                'For What',
+                'Amount',
+                'Last Month Amount'
+              ].map((label) => (
+                <TableCell
+                  key={label}
+                  sx={{
+                    textAlign: label.includes('Amount') ? 'right' : 'center'
+                  }}
                 >
-                  Record Payment
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+                  {label === 'Reference No' ? <>Reference<br />No</> : label}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>
+                {formatMemoDate(bill.billDate)}
+              </TableCell>
+              <TableCell sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.accountNumber)}</TableCell>
+              <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
+              <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                {getForWhat()}
+              </TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                {formatMemoAmount(bill.amount)}
+              </TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                {formatMemoAmount(bill.lastMonthAmount)}
+              </TableCell>
+            </TableRow>
 
-          {/* Tax Information */}
-          {(bill.taxes?.gst > 0 || bill.taxes?.other > 0) && (
-            <Card sx={{ mt: 3 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Tax Breakdown
-                </Typography>
-                <Divider sx={{ mb: 2 }} />
-                
-                <List dense>
-                  {bill.taxes.gst > 0 && (
-                    <ListItem>
-                      <ListItemText
-                        primary="GST"
-                        secondary={formatCurrency(bill.taxes.gst)}
-                      />
-                    </ListItem>
-                  )}
-                  {bill.taxes.other > 0 && (
-                    <ListItem>
-                      <ListItemText
-                        primary="Other Taxes"
-                        secondary={formatCurrency(bill.taxes.other)}
-                      />
-                    </ListItem>
-                  )}
-                </List>
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
-      </Grid>
+            {[
+              ['Grand Total', formatMemoAmount(getGrandTotal())],
+              ['Cash Deposit Last Month', formatMemoAmount(bill.lastMonthAmount)],
+              ['Balance Amount to be Paid', formatMemoAmount(getBalanceToPay())]
+            ].map(([label, value]) => (
+              <TableRow key={label}>
+                <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                  {label}
+                </TableCell>
+                <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                  {value}
+                </TableCell>
+                <TableCell sx={{ borderTop: 0 }} />
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {getStampRows().length > 0 && (
+          <Box sx={{ mt: 3, p: 2.5, border: '2px solid', borderColor: 'grey.300', borderRadius: 1.5, backgroundColor: 'grey.50' }}>
+            <Typography sx={{ fontWeight: 900, fontSize: 17, mb: 2 }}>Approval Stamp</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {getStampRows().map((stampRow) => (
+                <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
+                  <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
+                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
 
-      {/* Payment Dialog */}
+        {bill.notes && (
+          <Box sx={{ mt: 2, p: 1.5, borderTop: '1px solid', borderColor: 'grey.200', bgcolor: 'grey.50' }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 13 }}>Notes</Typography>
+            <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{bill.notes}</Typography>
+          </Box>
+        )}
+
+        <Table
+          size="small"
+          sx={{
+            mt: 7,
+            border: '1px solid',
+            borderColor: 'grey.300',
+            '& th': {
+              bgcolor: 'grey.100',
+              fontWeight: 800,
+              fontSize: 14,
+              borderBottom: '1px solid',
+              borderColor: 'grey.300'
+            },
+            '& td': {
+              fontSize: 14,
+              borderBottom: '1px solid',
+              borderColor: 'grey.200',
+              py: 1.4
+            },
+            '& tr:last-child td': {
+              borderBottom: 0
+            }
+          }}
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell>Authority</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Digital Signature</TableCell>
+              <TableCell>Date &amp; Time</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {getApprovalRows().map((row) => (
+              <TableRow key={row.authority}>
+                <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                <TableCell>{row.name || '-'}</TableCell>
+                <TableCell>
+                  {getSignatureSource(row) ? (
+                    <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                  ) : (
+                    row.signature || '-'
+                  )}
+                </TableCell>
+                <TableCell>{row.dateTime || '-'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+
+        <Box sx={{ mt: 5, minHeight: 120 }} />
+
+        {bill.billImage && (
+          <Box sx={{ mt: 3 }}>
+            <Typography fontWeight="bold" gutterBottom>Attached Bill Image</Typography>
+            <Box
+              component="img"
+              src={getImageUrl(bill.billImage)}
+              alt="Utility Bill"
+              onClick={() => setImageModalOpen(true)}
+              onError={(e) => handleImageError(e)}
+              sx={{ maxWidth: 220, maxHeight: 220, border: '1px solid', borderColor: 'divider', cursor: 'pointer' }}
+            />
+          </Box>
+        )}
+      </Paper>
+
+      <Dialog open={submitDialogOpen} onClose={() => setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Select Approval Authorities</DialogTitle>
+        <DialogContent>
+          <Autocomplete
+            options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+            value={managerApprover}
+            loading={approverLoading}
+            onChange={(_, value) => setManagerApprover(value)}
+            onInputChange={(_, value) => loadApproverOptions(value)}
+            getOptionLabel={(option) => userDisplayName(option)}
+            isOptionEqualToValue={(option, value) => option._id === value._id}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Manager Approver"
+                placeholder="Search manager approver"
+                margin="normal"
+              />
+            )}
+          />
+          <Autocomplete
+            options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+            value={hodApprover}
+            loading={approverLoading}
+            onChange={(_, value) => setHodApprover(value)}
+            onInputChange={(_, value) => loadApproverOptions(value)}
+            getOptionLabel={(option) => userDisplayName(option)}
+            isOptionEqualToValue={(option, value) => option._id === value._id}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Head Of Department Approver"
+                placeholder="Search HOD approver"
+                margin="normal"
+              />
+            )}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSubmitDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" startIcon={<SendIcon />} onClick={handleSubmitForApproval}>
+            Submit for Approval
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Record Payment</DialogTitle>
         <DialogContent>
@@ -961,7 +869,7 @@ const UtilityBillDetails = () => {
                 label="Payment Amount"
                 type="number"
                 value={paymentData.paidAmount}
-                onChange={(e) => setPaymentData({ ...paymentData, paidAmount: parseFloat(e.target.value) })}
+                onChange={(e) => setPaymentData({ ...paymentData, paidAmount: parseFloat(e.target.value) || 0 })}
                 inputProps={{ min: 0, step: 0.01 }}
               />
             </Grid>
@@ -973,7 +881,7 @@ const UtilityBillDetails = () => {
                   onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
                   label="Payment Method"
                 >
-                  {paymentMethods.map(method => (
+                  {paymentMethods.map((method) => (
                     <MenuItem key={method} value={method}>{method}</MenuItem>
                   ))}
                 </Select>
@@ -1007,62 +915,36 @@ const UtilityBillDetails = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Image Modal */}
-      <Dialog
-        open={imageModalOpen}
-        onClose={() => setImageModalOpen(false)}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: 'transparent',
-            boxShadow: 'none'
-          }
-        }}
-      >
-        <DialogTitle sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          color: 'white'
-        }}>
-          <Typography variant="h6">Bill Image</Typography>
-          <IconButton
-            onClick={() => setImageModalOpen(false)}
-            sx={{ color: 'white' }}
-          >
+      <Dialog open={imageModalOpen} onClose={() => setImageModalOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          Bill Image
+          <IconButton onClick={() => setImageModalOpen(false)} sx={{ position: 'absolute', right: 8, top: 8 }}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ p: 0, backgroundColor: 'rgba(0,0,0,0.8)' }}>
-          <Box
-            component="img"
-            src={getImageUrl(bill?.billImage)}
-            alt="Bill Image"
-            sx={{
-              width: '100%',
-              height: 'auto',
-              maxHeight: '80vh',
-              objectFit: 'contain',
-              display: 'block'
-            }}
-            onError={(e) => handleImageError(e)}
-          />
+        <DialogContent>
+          {bill.billImage && (
+            <Box
+              component="img"
+              src={getImageUrl(bill.billImage)}
+              alt="Utility Bill"
+              onError={(e) => handleImageError(e)}
+              sx={{ width: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+            />
+          )}
         </DialogContent>
-        <DialogActions sx={{
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          justifyContent: 'center'
-        }}>
-          <Button
-            onClick={() => setImageModalOpen(false)}
-            variant="contained"
-            color="primary"
-          >
-            Close
-          </Button>
-        </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -32,7 +32,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  DialogContentText
+  DialogContentText,
+  LinearProgress
 } from '@mui/material';
 import {
   Add,
@@ -70,6 +71,7 @@ const JobPostings = () => {
     employmentType: '',
     experienceLevel: ''
   });
+  const hasInitializedSearch = useRef(false);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, jobPosting: null });
   const [linkDialog, setLinkDialog] = useState({ open: false, jobPosting: null });
 
@@ -103,6 +105,11 @@ const JobPostings = () => {
 
   // Debounced search effect
   useEffect(() => {
+    if (!hasInitializedSearch.current) {
+      hasInitializedSearch.current = true;
+      return;
+    }
+
     const timeoutId = setTimeout(() => {
       if (filters.search !== undefined) {
         loadJobPostings();
@@ -204,14 +211,6 @@ const JobPostings = () => {
     if (days <= 30) return { color: 'info', label: 'Soon' };
     return { color: 'success', label: 'Normal' };
   };
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
 
   return (
     <Container maxWidth="xl">
@@ -337,6 +336,9 @@ const JobPostings = () => {
           </Grid>
         </CardContent>
       </Card>
+      {loading && (
+        <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />
+      )}
 
       {/* Job Postings Table */}
       <Card>
@@ -345,7 +347,7 @@ const JobPostings = () => {
             <Table>
               <TableHead>
                 <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
-                  <TableCell><strong>Job Title</strong></TableCell>
+                  <TableCell><strong>Position</strong></TableCell>
                   <TableCell><strong>Department</strong></TableCell>
                   <TableCell><strong>Location</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
@@ -364,7 +366,7 @@ const JobPostings = () => {
                       <TableCell>
                         <Box>
                           <Typography variant="subtitle2" fontWeight="bold">
-                            {jobPosting.title}
+                            {jobPosting.position?.title || 'N/A'}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {jobPosting.jobCode}
@@ -547,16 +549,16 @@ const JobPostings = () => {
               <>
                 <strong>Warning:</strong> This job posting is currently published and may have received applications.
                 <br /><br />
-                Are you sure you want to delete "{deleteDialog.jobPosting?.title}"? This action cannot be undone and will remove all associated data.
+                Are you sure you want to delete "{deleteDialog.jobPosting?.position?.title || 'this job posting'}"? This action cannot be undone and will remove all associated data.
               </>
             ) : deleteDialog.jobPosting?.status === 'closed' ? (
               <>
                 <strong>Note:</strong> This job posting is currently closed.
                 <br /><br />
-                Are you sure you want to delete "{deleteDialog.jobPosting?.title}"? This action cannot be undone.
+                Are you sure you want to delete "{deleteDialog.jobPosting?.position?.title || 'this job posting'}"? This action cannot be undone.
               </>
             ) : (
-              `Are you sure you want to delete "${deleteDialog.jobPosting?.title}"? This action cannot be undone.`
+              `Are you sure you want to delete "${deleteDialog.jobPosting?.position?.title || 'this job posting'}"? This action cannot be undone.`
             )}
           </DialogContentText>
         </DialogContent>
@@ -581,7 +583,7 @@ const JobPostings = () => {
         <DialogContent>
           <Box sx={{ mb: 3 }}>
             <Typography variant="h6" gutterBottom>
-              {linkDialog.jobPosting?.title}
+              {linkDialog.jobPosting?.position?.title || 'Job Posting'}
             </Typography>
             <Typography variant="body2" color="text.secondary" gutterBottom>
               Share this link with candidates to apply for this position

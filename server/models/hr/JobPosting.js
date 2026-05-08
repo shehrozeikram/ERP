@@ -3,11 +3,6 @@ const mongoosePaginate = require('mongoose-paginate-v2');
 
 const jobPostingSchema = new mongoose.Schema({
   // Basic Information
-  title: {
-    type: String,
-    required: true,
-    trim: true
-  },
   jobCode: {
     type: String,
     required: false,
@@ -34,15 +29,11 @@ const jobPostingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  requirements: {
-    type: String,
-    required: true
-  },
   responsibilities: {
     type: String,
     required: true
   },
-  qualifications: {
+  qualificationExperience: {
     type: String,
     required: true
   },
@@ -189,6 +180,22 @@ jobPostingSchema.virtual('formattedSalaryRange').get(function() {
   return `${formatter.format(this.salaryRange.min)} - ${formatter.format(this.salaryRange.max)}`;
 });
 
+// Backward compatibility virtuals for legacy consumers.
+jobPostingSchema.virtual('title').get(function() {
+  if (this.populated('position') && this.position && this.position.title) {
+    return this.position.title;
+  }
+  return '';
+});
+
+jobPostingSchema.virtual('requirements').get(function() {
+  return this.qualificationExperience || '';
+});
+
+jobPostingSchema.virtual('qualifications').get(function() {
+  return this.qualificationExperience || '';
+});
+
 // Virtual for employment type label
 jobPostingSchema.virtual('employmentTypeLabel').get(function() {
   const labels = {
@@ -286,5 +293,8 @@ jobPostingSchema.pre('save', function(next) {
 
 // Add pagination plugin
 jobPostingSchema.plugin(mongoosePaginate);
+
+jobPostingSchema.set('toJSON', { virtuals: true });
+jobPostingSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('JobPosting', jobPostingSchema); 

@@ -37,7 +37,9 @@ import {
   CircularProgress,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -64,6 +66,7 @@ import api from '../../services/api';
 import paymentSettlementService from '../../services/paymentSettlementService';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
+import { getImageUrl } from '../../utils/imageService';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
@@ -118,6 +121,7 @@ const PreAudit = () => {
   const [rejectDialog, setRejectDialog] = useState({ open: false, document: null });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [approvalComments, setApprovalComments] = useState('');
+  const [useStampForAction, setUseStampForAction] = useState(false);
   const [forwardComments, setForwardComments] = useState('');
   const [observation, setObservation] = useState({ text: '', severity: 'medium' });
   const [returnComments, setReturnComments] = useState('');
@@ -239,23 +243,26 @@ const PreAudit = () => {
         });
       } else if (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') {
         await api.put(`/pre-audit/${doc._id}/approve`, {
-          approvalComments
+          approvalComments,
+          useStamp: useStampForAction
         });
       } else if (doc.isWorkflowDocument) {
-        // For workflow documents that are not forwarded, use payment settlement API
-        await api.patch(`/payment-settlements/${doc._id}/approve`, {
-          comments: approvalComments
+        await api.put(`/pre-audit/${doc._id}/approve`, {
+          approvalComments,
+          useStamp: useStampForAction
         });
       } else {
         // For regular Pre Audit documents
         await api.put(`/pre-audit/${doc._id}/approve`, {
-          approvalComments
+          approvalComments,
+          useStamp: useStampForAction
         });
       }
       
       setSuccess('Document approved successfully');
       setApproveDialog({ open: false, document: null });
       setApprovalComments('');
+      setUseStampForAction(false);
       fetchDocuments();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to approve document');
@@ -365,13 +372,15 @@ const PreAudit = () => {
       } else {
         await api.put(`/pre-audit/${doc._id}/reject`, {
           rejectionComments: rejectionComments || 'Rejected with observations',
-          observations: observations.length > 0 ? observations : undefined
+          observations: observations.length > 0 ? observations : undefined,
+          useStamp: useStampForAction
         });
         setSuccess('Document rejected and returned to initiator. They can correct and resend.');
       }
       setRejectDialog({ open: false, document: null });
       setRejectionComments('');
       setRejectObservations([{ observation: '', severity: 'medium' }]);
+      setUseStampForAction(false);
       fetchDocuments();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to reject document');
@@ -437,6 +446,801 @@ const PreAudit = () => {
     } catch {
       return dateString;
     }
+  };
+
+  const displayValue = (value) => value || '';
+  const userDisplayName = (userObj) => {
+    if (!userObj) return '';
+    return [userObj.firstName, userObj.lastName].filter(Boolean).join(' ').trim() || userObj.email || userObj.employeeId || '';
+  };
+  const formatUtilityAmount = (amount) => new Intl.NumberFormat('en-PK', {
+    maximumFractionDigits: 0
+  }).format(Number(amount || 0));
+  const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
+  const getUtilityGrandTotal = (bill) => bill?.grandTotal ?? ((Number(bill?.amount) || 0) + (Number(bill?.balanceAmount) || 0));
+  const getUtilityBalanceToPay = (bill) => (
+    Number(bill?.balanceAmount) || Math.max((Number(getUtilityGrandTotal(bill)) || 0) - (Number(bill?.lastMonthAmount) || 0), 0)
+  );
+  const getPaymentSettlementApprovalRows = (document) => {
+    const chain = document?.approvalChain || [];
+    const workflowHistory = document?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findLatestByToStatus = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const findPreferredAuditEntry = (accepted = []) => {
+      const entries = history.filter((entry) => {
+        const toStatus = normalize(entry?.toStatus);
+        return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+      });
+      return entries.find((e) => e?.stampUsed && e?.stampImage)
+        || entries.find((e) => e?.changedBy?.digitalSignature)
+        || entries[0];
+    };
+    const preAuditActorEntry = findPreferredAuditEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorApproval = findLatestByToStatus(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+
+    return [
+      {
+        authority: 'Sig of Requester',
+        name: userDisplayName(document?.createdBy),
+        signatureUser: document?.createdBy,
+        dateTime: document?.createdAt ? formatDateTime(document.createdAt) : ''
+      },
+      {
+        authority: 'Manager Approver',
+        name: userDisplayName(chain[0]?.approver),
+        signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null,
+        dateTime: chain[0]?.status === 'approved' && chain[0]?.actedAt ? formatDateTime(chain[0].actedAt) : ''
+      },
+      {
+        authority: 'Head Of Department Approver',
+        name: userDisplayName(chain[1]?.approver),
+        signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null,
+        dateTime: chain[1]?.status === 'approved' && chain[1]?.actedAt ? formatDateTime(chain[1].actedAt) : ''
+      },
+      {
+        authority: 'Pre-Audit Authority',
+        name: userDisplayName(preAuditActorEntry?.changedBy),
+        signatureUser: preAuditActorEntry?.changedBy || null,
+        signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage
+          ? preAuditActorEntry.stampImage
+          : preAuditActorEntry?.changedBy?.digitalSignature || '',
+        dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : ''
+      },
+      {
+        authority: 'Audit Director',
+        name: userDisplayName(directorApproval?.changedBy),
+        signatureUser: directorApproval?.changedBy || null,
+        signaturePath: directorApproval?.stampUsed && directorApproval?.stampImage
+          ? directorApproval.stampImage
+          : directorApproval?.changedBy?.digitalSignature || '',
+        dateTime: directorApproval?.changedAt ? formatDateTime(directorApproval.changedAt) : ''
+      }
+    ];
+  };
+  const getPaymentSettlementStampRows = (document) => {
+    const workflowHistory = document?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findStampedEntry = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return (entry?.stampUsed && entry?.stampImage)
+        && accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const preAuditStamp = findStampedEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorStamp = findStampedEntry(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+    return [
+      { authority: 'Pre-Audit Authority Stamp', stampImage: preAuditStamp?.stampImage || '', dateTime: preAuditStamp?.changedAt ? formatDateTime(preAuditStamp.changedAt) : '' },
+      { authority: 'Audit Director Stamp', stampImage: directorStamp?.stampImage || '', dateTime: directorStamp?.changedAt ? formatDateTime(directorStamp.changedAt) : '' }
+    ].filter((row) => row.stampImage);
+  };
+  const getRentalManagementApprovalRows = (document) => {
+    const chain = document?.approvalChain || [];
+    const workflowHistory = document?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findLatestByToStatus = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const findPreferredAuditEntry = (accepted = []) => {
+      const entries = history.filter((entry) => {
+        const toStatus = normalize(entry?.toStatus);
+        return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+      });
+      return entries.find((e) => e?.stampUsed && e?.stampImage)
+        || entries.find((e) => e?.changedBy?.digitalSignature)
+        || entries[0];
+    };
+    const preAuditActorEntry = findPreferredAuditEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorApproval = findLatestByToStatus(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+
+    return [
+      { authority: 'Sig of Requester', name: userDisplayName(document?.createdBy), signatureUser: document?.createdBy, dateTime: document?.createdAt ? formatDateTime(document.createdAt) : '' },
+      { authority: 'Manager Approver', name: userDisplayName(chain[0]?.approver), signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null, dateTime: chain[0]?.status === 'approved' && chain[0]?.actedAt ? formatDateTime(chain[0].actedAt) : '' },
+      { authority: 'Head Of Department Approver', name: userDisplayName(chain[1]?.approver), signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null, dateTime: chain[1]?.status === 'approved' && chain[1]?.actedAt ? formatDateTime(chain[1].actedAt) : '' },
+      { authority: 'Pre-Audit Authority', name: userDisplayName(preAuditActorEntry?.changedBy), signatureUser: preAuditActorEntry?.changedBy || null, signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage ? preAuditActorEntry.stampImage : preAuditActorEntry?.changedBy?.digitalSignature || '', dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : '' },
+      { authority: 'Audit Director', name: userDisplayName(directorApproval?.changedBy), signatureUser: directorApproval?.changedBy || null, signaturePath: directorApproval?.stampUsed && directorApproval?.stampImage ? directorApproval.stampImage : directorApproval?.changedBy?.digitalSignature || '', dateTime: directorApproval?.changedAt ? formatDateTime(directorApproval.changedAt) : '' }
+    ];
+  };
+  const getRentalManagementStampRows = (document) => {
+    const workflowHistory = document?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findStampedEntry = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return (entry?.stampUsed && entry?.stampImage)
+        && accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const preAuditStamp = findStampedEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorStamp = findStampedEntry(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+    return [
+      { authority: 'Pre-Audit Authority Stamp', stampImage: preAuditStamp?.stampImage || '', dateTime: preAuditStamp?.changedAt ? formatDateTime(preAuditStamp.changedAt) : '' },
+      { authority: 'Audit Director Stamp', stampImage: directorStamp?.stampImage || '', dateTime: directorStamp?.changedAt ? formatDateTime(directorStamp.changedAt) : '' }
+    ].filter((row) => row.stampImage);
+  };
+  const getUtilityApprovalRows = (bill) => {
+    const chain = bill?.approvalChain || [];
+    const workflowHistory = bill?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findLatestAuditEntry = (keywords = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      const fromStatus = normalize(entry?.fromStatus);
+      return keywords.some((keyword) => toStatus.includes(keyword) || fromStatus.includes(keyword));
+    });
+    const findLatestByToStatus = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return accepted.some((status) => (
+        toStatus === status || toStatus.startsWith(status)
+      ));
+    });
+
+    const preAuditActorEntry = findLatestByToStatus([
+      'forwarded to audit director',
+      'initial audit approval'
+    ]) || findLatestAuditEntry([
+      'forwarded to audit director',
+      'initial audit approval'
+    ]);
+    const directorApproval = findLatestByToStatus([
+      'approved (from forwarded to audit director)',
+      'approved (from send to audit)'
+    ]) || findLatestAuditEntry([
+      'approved (from forwarded to audit director)',
+      'approved (from send to audit)'
+    ]);
+
+    return [
+      {
+        authority: 'Sig of Requester',
+        name: userDisplayName(bill?.createdBy),
+        signatureUser: bill?.createdBy,
+        dateTime: bill?.createdAt ? formatDateTime(bill.createdAt) : ''
+      },
+      {
+        authority: 'Manager Approver',
+        name: userDisplayName(chain[0]?.approver),
+        signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null,
+        dateTime: chain[0]?.status === 'approved' && chain[0]?.actedAt ? formatDateTime(chain[0].actedAt) : ''
+      },
+      {
+        authority: 'Head Of Department Approver',
+        name: userDisplayName(chain[1]?.approver),
+        signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null,
+        dateTime: chain[1]?.status === 'approved' && chain[1]?.actedAt ? formatDateTime(chain[1].actedAt) : ''
+      },
+      {
+        authority: 'Pre-Audit Authority',
+        name: userDisplayName(preAuditActorEntry?.changedBy),
+        signatureUser: preAuditActorEntry?.changedBy || null,
+        signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage
+          ? preAuditActorEntry.stampImage
+          : preAuditActorEntry?.changedBy?.digitalSignature || '',
+        dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : ''
+      },
+      {
+        authority: 'Audit Director',
+        name: userDisplayName(directorApproval?.changedBy),
+        signatureUser: directorApproval?.changedBy || null,
+        signaturePath: directorApproval?.stampUsed && directorApproval?.stampImage
+          ? directorApproval.stampImage
+          : directorApproval?.changedBy?.digitalSignature || '',
+        dateTime: directorApproval?.changedAt ? formatDateTime(directorApproval.changedAt) : ''
+      }
+    ];
+  };
+  const getUtilityStampRows = (bill) => {
+    const workflowHistory = bill?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findStampedEntry = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return (entry?.stampUsed && entry?.stampImage)
+        && accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const preAuditStamp = findStampedEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorStamp = findStampedEntry(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+    return [
+      { authority: 'Pre-Audit Authority Stamp', stampImage: preAuditStamp?.stampImage || '', dateTime: preAuditStamp?.changedAt ? formatDateTime(preAuditStamp.changedAt) : '' },
+      { authority: 'Audit Director Stamp', stampImage: directorStamp?.stampImage || '', dateTime: directorStamp?.changedAt ? formatDateTime(directorStamp.changedAt) : '' }
+    ].filter((row) => row.stampImage);
+  };
+
+  const renderUtilityBillMemoView = (bill) => {
+    if (!bill) return null;
+    const primaryHeading = (bill.accountHead || bill.site || bill.location || bill.provider || bill.utilityType || 'Utility Bill').toUpperCase();
+    const secondaryHeading = [bill.provider, bill.utilityType].filter(Boolean).join(' - ');
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          maxWidth: 1050,
+          mx: 'auto',
+          p: { xs: 2.25, md: 5 },
+          bgcolor: 'background.paper',
+          color: '#151515',
+          borderRadius: 1.5,
+          border: '1px solid',
+          borderColor: 'grey.200'
+        }}
+      >
+        <Box
+          textAlign="center"
+          sx={{ lineHeight: 1.12, mb: 1.75, pb: 1.25, borderBottom: '1px solid', borderColor: 'grey.200' }}
+        >
+          <Typography
+            variant="h6"
+            sx={{
+              fontFamily: 'Georgia, "Times New Roman", serif',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+              fontSize: { xs: 17, md: 19 }
+            }}
+          >
+            {primaryHeading}
+          </Typography>
+          <Typography
+            variant="subtitle1"
+            sx={{ fontFamily: 'Georgia, "Times New Roman", serif', fontWeight: 700, fontSize: { xs: 15, md: 17 } }}
+          >
+            {secondaryHeading}
+          </Typography>
+        </Box>
+
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 170px' }, alignItems: 'start', mb: 3 }}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '80px 1fr',
+              width: { xs: '100%', md: 390 },
+              ml: { xs: 0, md: 18 },
+              lineHeight: 1.45,
+              fontSize: 13
+            }}
+          >
+            <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 13 }}>SITE :</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{displayValue(bill.site || bill.location)}</Typography>
+            <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 13 }}>From:</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{displayValue(bill.department)}</Typography>
+            <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 13 }}>Custodian:</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{displayValue(bill.custodian)}</Typography>
+          </Box>
+          <Box sx={{ textAlign: { xs: 'left', md: 'right' }, lineHeight: 2, mt: { xs: 2, md: 0 }, color: 'grey.800' }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 13 }}>{formatDateForDocument(bill.billDate)}</Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: 13 }}>{bill.billId}</Typography>
+          </Box>
+        </Box>
+
+        <Table
+          size="small"
+          sx={{
+            width: '100%',
+            tableLayout: 'fixed',
+            mt: 1,
+            borderTop: '1px solid',
+            borderBottom: '1px solid',
+            borderColor: 'grey.300',
+            '& th': {
+              bgcolor: 'grey.50',
+              borderBottom: '1px solid',
+              borderRight: '1px solid',
+              borderColor: 'grey.300',
+              p: 1,
+              fontSize: 12,
+              fontWeight: 800,
+              textAlign: 'center',
+              color: 'grey.700',
+              lineHeight: 1.25
+            },
+            '& th:last-of-type': { borderRight: 0 },
+            '& td': {
+              borderBottom: 0,
+              borderTop: '1px solid',
+              borderRight: '1px solid',
+              borderColor: 'grey.200',
+              p: 1.25,
+              fontSize: 13,
+              verticalAlign: 'top'
+            },
+            '& td:last-of-type': { borderRight: 0 }
+          }}
+        >
+          <colgroup>
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '15%' }} />
+          </colgroup>
+          <TableHead>
+            <TableRow>
+              {['Date', 'Reference No', 'To Whom Paid', 'For What', 'Amount', 'Last Month Amount'].map((label) => (
+                <TableCell key={label} sx={{ textAlign: label.includes('Amount') ? 'right' : 'center' }}>
+                  {label === 'Reference No' ? <>Reference<br />No</> : label}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>
+                {formatDateForDocument(bill.billDate)}
+              </TableCell>
+              <TableCell sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.accountNumber)}</TableCell>
+              <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
+              <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                {bill.forWhat || bill.description || ''}
+              </TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatUtilityAmount(bill.amount)}</TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatUtilityAmount(bill.lastMonthAmount)}</TableCell>
+            </TableRow>
+            {[
+              ['Grand Total', formatUtilityAmount(getUtilityGrandTotal(bill))],
+              ['Cash Deposit Last Month', formatUtilityAmount(bill.lastMonthAmount)],
+              ['Balance Amount to be Paid', formatUtilityAmount(getUtilityBalanceToPay(bill))]
+            ].map(([label, value]) => (
+              <TableRow key={label}>
+                <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                  {label}
+                </TableCell>
+                <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                  {value}
+                </TableCell>
+                <TableCell sx={{ borderTop: 0 }} />
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+
+        <Table
+          size="small"
+          sx={{
+            mt: 7,
+            border: '1px solid',
+            borderColor: 'grey.300',
+            '& th': { bgcolor: 'grey.100', fontWeight: 800, fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.300' },
+            '& td': { fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.200', py: 1.4 },
+            '& tr:last-child td': { borderBottom: 0 }
+          }}
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell>Authority</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Digital Signature</TableCell>
+              <TableCell>Date &amp; Time</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {getUtilityApprovalRows(bill).map((row) => (
+              <TableRow key={row.authority}>
+                <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                <TableCell>{row.name || '-'}</TableCell>
+                <TableCell>
+                  {getSignatureSource(row) ? (
+                    <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                  ) : (
+                    '-'
+                  )}
+                </TableCell>
+                <TableCell>{row.dateTime || '-'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {getUtilityStampRows(bill).length > 0 && (
+          <Box sx={{ mt: 3, p: 2.5, border: '2px solid', borderColor: 'grey.300', borderRadius: 1.5, backgroundColor: 'grey.50' }}>
+            <Typography sx={{ fontWeight: 900, fontSize: 17, mb: 2 }}>Approval Stamp</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {getUtilityStampRows(bill).map((stampRow) => (
+                <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
+                  <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
+                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
+      </Paper>
+    );
+  };
+
+  const renderPaymentSettlementMemoView = (document) => {
+    if (!document) return null;
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          maxWidth: 1050,
+          mx: 'auto',
+          p: { xs: 2.25, md: 5 },
+          bgcolor: 'background.paper',
+          color: '#151515',
+          borderRadius: 1.5,
+          border: '1px solid',
+          borderColor: 'grey.200'
+        }}
+      >
+        <Box
+          textAlign="center"
+          sx={{ lineHeight: 1.12, mb: 1.75, pb: 1.25, borderBottom: '1px solid', borderColor: 'grey.200' }}
+        >
+          <Typography
+            variant="h6"
+            sx={{
+              fontFamily: 'Georgia, "Times New Roman", serif',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+              fontSize: { xs: 17, md: 19 }
+            }}
+          >
+            {document.parentCompanyName || 'PAYMENT SETTLEMENT'}
+          </Typography>
+          <Typography
+            variant="subtitle1"
+            sx={{ fontFamily: 'Georgia, "Times New Roman", serif', fontWeight: 700, fontSize: { xs: 15, md: 17 } }}
+          >
+            {document.subsidiaryName || 'Payment Settlement'}
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            mb: 3.5,
+            p: { xs: 1.5, md: 2 },
+            border: '1px solid',
+            borderColor: 'grey.200',
+            borderRadius: 1.5,
+            background: 'linear-gradient(180deg, #fafafa 0%, #ffffff 100%)'
+          }}
+        >
+          <Grid container spacing={1.25}>
+            <Grid item xs={12} md={8}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '100px 1fr', sm: '120px 1fr' }, rowGap: 0.75, columnGap: 1 }}>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>SITE</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{document.site || 'Head Office'}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>FROM</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{document.fromDepartment || 'Administration'}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>CUSTODIAN</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{document.custodian || 'N/A'}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>NOTE</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>
+                  {document.attachments && document.attachments.length > 0 ? 'All Supportings Attached' : 'No Attachments'}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Box
+                sx={{
+                  height: '100%',
+                  p: 1.25,
+                  border: '2px dashed',
+                  borderColor: 'grey.300',
+                  borderRadius: 1,
+                  backgroundColor: 'grey.50',
+                  display: 'grid',
+                  alignContent: 'center',
+                  rowGap: 0.9
+                }}
+              >
+                <Box>
+                  <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 11.5, letterSpacing: 0.4 }}>DATE</Typography>
+                  <Typography sx={{ fontWeight: 800, fontSize: 13.5, color: 'grey.900' }}>
+                    {formatDateForDocument(document.date)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 11.5, letterSpacing: 0.4 }}>DOCUMENT NO.</Typography>
+                  <Typography sx={{ fontWeight: 800, fontSize: 13.5, color: 'grey.900' }}>
+                    {document.referenceNumber || 'N/A'}
+                  </Typography>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </Box>
+
+        <Table
+          size="small"
+          sx={{
+            width: '100%',
+            tableLayout: 'fixed',
+            mt: 1,
+            borderTop: '1px solid',
+            borderBottom: '1px solid',
+            borderColor: 'grey.300',
+            '& th': {
+              bgcolor: 'grey.50',
+              borderBottom: '1px solid',
+              borderRight: '1px solid',
+              borderColor: 'grey.300',
+              p: 1,
+              fontSize: 12,
+              fontWeight: 800,
+              textAlign: 'center',
+              color: 'grey.700',
+              lineHeight: 1.25
+            },
+            '& th:last-of-type': { borderRight: 0 },
+            '& td': {
+              borderBottom: 0,
+              borderTop: '1px solid',
+              borderRight: '1px solid',
+              borderColor: 'grey.200',
+              p: 1.25,
+              fontSize: 13,
+              verticalAlign: 'top'
+            },
+            '& td:last-of-type': { borderRight: 0 }
+          }}
+        >
+          <colgroup>
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '24%' }} />
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '16%' }} />
+          </colgroup>
+          <TableHead>
+            <TableRow>
+              <TableCell>Date</TableCell>
+              <TableCell>Reference No</TableCell>
+              <TableCell>To Whom Paid</TableCell>
+              <TableCell>For What</TableCell>
+              <TableCell sx={{ textAlign: 'right' }}>Amount</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>{formatDateForDocument(document.date)}</TableCell>
+              <TableCell sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{document.referenceNumber || 'N/A'}</TableCell>
+              <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{document.toWhomPaid || 'N/A'}</TableCell>
+              <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{document.forWhat || ''}</TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatPKR(document.amount || document.grandTotal || 0)}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                Grand Total
+              </TableCell>
+              <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                {formatPKR(document.grandTotal || document.amount || 0)}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+
+        <Table
+          size="small"
+          sx={{
+            mt: 7,
+            border: '1px solid',
+            borderColor: 'grey.300',
+            '& th': { bgcolor: 'grey.100', fontWeight: 800, fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.300' },
+            '& td': { fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.200', py: 1.4 },
+            '& tr:last-child td': { borderBottom: 0 }
+          }}
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell>Authority</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Digital Signature</TableCell>
+              <TableCell>Date &amp; Time</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {getPaymentSettlementApprovalRows(document).map((row) => (
+              <TableRow key={row.authority}>
+                <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                <TableCell>{row.name || '-'}</TableCell>
+                <TableCell>
+                  {getSignatureSource(row) ? (
+                    <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                  ) : (
+                    '-'
+                  )}
+                </TableCell>
+                <TableCell>{row.dateTime || '-'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {getPaymentSettlementStampRows(document).length > 0 && (
+          <Box sx={{ mt: 3, p: 2.5, border: '2px solid', borderColor: 'grey.300', borderRadius: 1.5, backgroundColor: 'grey.50' }}>
+            <Typography sx={{ fontWeight: 900, fontSize: 17, mb: 2 }}>Approval Stamp</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {getPaymentSettlementStampRows(document).map((stampRow) => (
+                <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
+                  <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
+                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
+      </Paper>
+    );
+  };
+
+  const renderRentalManagementMemoView = (document) => {
+    if (!document) return null;
+    const statusLabel = (document.workflowStatus && document.workflowStatus !== 'Draft')
+      ? document.workflowStatus
+      : (document.approvalStatus || document.status || 'Draft');
+    const statusColor = String(statusLabel).includes('Approved')
+      ? 'success'
+      : (statusLabel === 'Submitted' || statusLabel === 'Send to Audit' || statusLabel === 'Forwarded to Audit Director')
+        ? 'warning'
+        : (String(statusLabel).includes('Rejected') || statusLabel === 'Returned from Audit')
+          ? 'error'
+          : 'default';
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          maxWidth: 1050,
+          mx: 'auto',
+          p: { xs: 2.25, md: 5 },
+          bgcolor: 'background.paper',
+          color: '#151515',
+          borderRadius: 1.5,
+          border: '1px solid',
+          borderColor: 'grey.200'
+        }}
+      >
+        <Box textAlign="center" sx={{ lineHeight: 1.12, mb: 1.75, pb: 1.25, borderBottom: '1px solid', borderColor: 'grey.200' }}>
+          <Typography
+            variant="h6"
+            sx={{
+              fontFamily: 'Georgia, "Times New Roman", serif',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+              fontSize: { xs: 17, md: 19 }
+            }}
+          >
+            {document.parentCompanyName || 'RENTAL MANAGEMENT'}
+          </Typography>
+          <Typography
+            variant="subtitle1"
+            sx={{ fontFamily: 'Georgia, "Times New Roman", serif', fontWeight: 700, fontSize: { xs: 15, md: 17 } }}
+          >
+            {document.subsidiaryName || 'Rental Management'}
+          </Typography>
+        </Box>
+
+        <Box sx={{ mb: 3.5, p: { xs: 1.5, md: 2 }, border: '1px solid', borderColor: 'grey.200', borderRadius: 1.5, background: 'linear-gradient(180deg, #fafafa 0%, #ffffff 100%)' }}>
+          <Grid container spacing={1.25}>
+            <Grid item xs={12} md={8}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '100px 1fr', sm: '120px 1fr' }, rowGap: 0.75, columnGap: 1 }}>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>SITE</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{document.site || 'N/A'}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>FROM</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{document.fromDepartment || 'N/A'}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>CUSTODIAN</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{document.custodian || 'N/A'}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>STATUS</Typography>
+                <Box>
+                  <Chip label={statusLabel} color={statusColor} size="small" />
+                </Box>
+              </Box>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Box sx={{ height: '100%', p: 1.25, border: '2px dashed', borderColor: 'grey.300', borderRadius: 1, backgroundColor: 'grey.50', display: 'grid', alignContent: 'center', rowGap: 0.9 }}>
+                <Box>
+                  <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 11.5, letterSpacing: 0.4 }}>DATE</Typography>
+                  <Typography sx={{ fontWeight: 800, fontSize: 13.5, color: 'grey.900' }}>{formatDateForDocument(document.date)}</Typography>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 11.5, letterSpacing: 0.4 }}>DOCUMENT NO.</Typography>
+                  <Typography sx={{ fontWeight: 800, fontSize: 13.5, color: 'grey.900' }}>{document.referenceNumber || document.referenceNo || document.voucherNumber || document._id}</Typography>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </Box>
+
+        <Table size="small" sx={{ width: '100%', tableLayout: 'fixed', mt: 1, borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'grey.300', '& th': { bgcolor: 'grey.50', borderBottom: '1px solid', borderRight: '1px solid', borderColor: 'grey.300', p: 1, fontSize: 12, fontWeight: 800, textAlign: 'center', color: 'grey.700', lineHeight: 1.25 }, '& th:last-of-type': { borderRight: 0 }, '& td': { borderBottom: 0, borderTop: '1px solid', borderRight: '1px solid', borderColor: 'grey.200', p: 1.25, fontSize: 13, verticalAlign: 'top' }, '& td:last-of-type': { borderRight: 0 } }}>
+          <colgroup>
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '24%' }} />
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '16%' }} />
+          </colgroup>
+          <TableHead>
+            <TableRow>
+              <TableCell>Date</TableCell>
+              <TableCell>Reference No</TableCell>
+              <TableCell>To Whom Paid</TableCell>
+              <TableCell>For What</TableCell>
+              <TableCell sx={{ textAlign: 'right' }}>Amount</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>{formatDateForDocument(document.date)}</TableCell>
+              <TableCell sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{document.referenceNumber || document.referenceNo || document.voucherNumber || 'N/A'}</TableCell>
+              <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{document.toWhomPaid || 'N/A'}</TableCell>
+              <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{document.forWhat || ''}</TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatPKR(document.amount || document.grandTotal || 0)}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>Grand Total</TableCell>
+              <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>{formatPKR(document.grandTotal || document.amount || 0)}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+
+        <Table size="small" sx={{ mt: 7, border: '1px solid', borderColor: 'grey.300', '& th': { bgcolor: 'grey.100', fontWeight: 800, fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.300' }, '& td': { fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.200', py: 1.4 }, '& tr:last-child td': { borderBottom: 0 } }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Authority</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Digital Signature</TableCell>
+              <TableCell>Date &amp; Time</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {getRentalManagementApprovalRows(document).map((row) => (
+              <TableRow key={row.authority}>
+                <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                <TableCell>{row.name || '-'}</TableCell>
+                <TableCell>
+                  {getSignatureSource(row) ? (
+                    <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} sx={{ maxHeight: 42, maxWidth: 135, objectFit: 'contain' }} />
+                  ) : '-'}
+                </TableCell>
+                <TableCell>{row.dateTime || '-'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {getRentalManagementStampRows(document).length > 0 && (
+          <Box sx={{ mt: 3, p: 2.5, border: '2px solid', borderColor: 'grey.300', borderRadius: 1.5, backgroundColor: 'grey.50' }}>
+            <Typography sx={{ fontWeight: 900, fontSize: 17, mb: 2 }}>Approval Stamp</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {getRentalManagementStampRows(document).map((stampRow) => (
+                <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
+                  <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
+                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
+      </Paper>
+    );
   };
 
   // Number to words converter for Purchase Orders
@@ -1549,81 +2353,66 @@ const PreAudit = () => {
                                                           setViewDialog({ open: true, document: { ...doc, isCashApproval: true }, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 });
                                                         }
                                                       }
-                                                      // If it's a workflow document (payment settlement), check if it's related to a PO
+                                                      // Utility Bills should show the same memo/detail view used in Utility Bills Management.
+                                                      else if (doc.isWorkflowDocument && doc.workflowSubmodule === 'utility_bills_management') {
+                                                        try {
+                                                          const response = await api.get(`/pre-audit/${doc._id}`);
+                                                          const utilityBillData = response.data?.data?.originalDocument || doc.originalDocument || null;
+                                                          setViewDialog({
+                                                            open: true,
+                                                            document: doc,
+                                                            fullDocument: utilityBillData,
+                                                            loading: false
+                                                          });
+                                                        } catch (error) {
+                                                          console.error('Error fetching utility bill:', error);
+                                                          setViewDialog({
+                                                            open: true,
+                                                            document: doc,
+                                                            fullDocument: doc.originalDocument || null,
+                                                            loading: false
+                                                          });
+                                                        }
+                                                      }
+                                                      // Payment Settlement: open dedicated settlement memo/detail view
                                                       else if (doc.isWorkflowDocument && doc.workflowSubmodule === 'payment_settlement') {
                                                         try {
                                                           const response = await paymentSettlementService.getPaymentSettlement(doc._id);
                                                           const settlementData = response.data?.data || response.data;
-                                                          
-                                                          // Check if this payment settlement is related to a Purchase Order
-                                                          // Check for isPurchaseOrder flag or try to find PO by referenceNumber
-                                                          if (settlementData.isPurchaseOrder || (settlementData.referenceNumber && settlementData.referenceNumber.startsWith('P'))) {
-                                                            // Try to find the PO by referenceNumber or _id
-                                                            try {
-                                                              let poResponse;
-                                                              if (settlementData.isPurchaseOrder && doc._id) {
-                                                                // If settlement has isPurchaseOrder flag, use the doc._id to fetch PO
-                                                                poResponse = await api.get(`/procurement/purchase-orders/${doc._id}`);
-                                                              } else if (settlementData.referenceNumber) {
-                                                                // Try to find PO by orderNumber
-                                                                const searchResponse = await api.get(`/procurement/purchase-orders?search=${settlementData.referenceNumber}`);
-                                                                if (searchResponse.data?.data?.length > 0) {
-                                                                  poResponse = await api.get(`/procurement/purchase-orders/${searchResponse.data.data[0]._id}`);
-                                                                }
-                                                              }
-                                                              
-                                                              if (poResponse?.data?.success) {
-                                                                let quotations = [];
-                                                                const poData = poResponse.data.data;
-                                                                if (poData?.indent?._id) {
-                                                                  try {
-                                                                    const qRes = await api.get(`/procurement/quotations/by-indent/${poData.indent._id}`);
-                                                                    if (qRes.data?.success && Array.isArray(qRes.data.data)) quotations = qRes.data.data;
-                                                                  } catch (_) {}
-                                                                }
-                                                                setViewDialog({ 
-                                                                  open: true, 
-                                                                  document: { ...doc, isPurchaseOrder: true }, 
-                                                                  fullDocument: poData,
-                                                                  loading: false,
-                                                                  quotations,
-                                                                  poAuditTab: 0
-                                                                });
-                                                              } else {
-                                                                // Fallback to payment settlement view
-                                                                setViewDialog({ 
-                                                                  open: true, 
-                                                                  document: doc, 
-                                                                  fullDocument: settlementData,
-                                                                  loading: false 
-                                                                });
-                                                              }
-                                                            } catch (poError) {
-                                                              console.error('Error fetching related purchase order:', poError);
-                                                              // Fallback to payment settlement view
-                                                              setViewDialog({ 
-                                                                open: true, 
-                                                                document: doc, 
-                                                                fullDocument: settlementData,
-                                                                loading: false 
-                                                              });
-                                                            }
-                                                          } else {
-                                                            // Regular payment settlement - show payment settlement view
-                                                            setViewDialog({ 
-                                                              open: true, 
-                                                              document: doc, 
-                                                              fullDocument: settlementData,
-                                                              loading: false 
-                                                            });
-                                                          }
+                                                          setViewDialog({
+                                                            open: true,
+                                                            document: doc,
+                                                            fullDocument: settlementData,
+                                                            loading: false
+                                                          });
                                                         } catch (error) {
-                                                          console.error('Error fetching full document:', error);
-                                                          setViewDialog({ 
-                                                            open: true, 
-                                                            document: doc, 
+                                                          console.error('Error fetching payment settlement:', error);
+                                                          setViewDialog({
+                                                            open: true,
+                                                            document: doc,
                                                             fullDocument: doc.originalDocument || null,
-                                                            loading: false 
+                                                            loading: false
+                                                          });
+                                                        }
+                                                      }
+                                                      // Rental Management: open dedicated rental memo/detail view
+                                                      else if (doc.isWorkflowDocument && doc.workflowSubmodule === 'rental_management') {
+                                                        try {
+                                                          const response = await api.get(`/rental-management/${doc._id}`);
+                                                          const rentalData = response.data;
+                                                          setViewDialog({
+                                                            open: true,
+                                                            document: doc,
+                                                            fullDocument: rentalData,
+                                                            loading: false
+                                                          });
+                                                        } catch (error) {
+                                                          console.error('Error fetching rental management:', error);
+                                                          setViewDialog({
+                                                            open: true,
+                                                            document: doc,
+                                                            fullDocument: doc.originalDocument || null,
+                                                            loading: false
                                                           });
                                                         }
                                                       } else {
@@ -1785,14 +2574,14 @@ const PreAudit = () => {
       <Dialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 })}
-        maxWidth={(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? false : "md"}
+        maxWidth={(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) ? false : "md"}
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 0,
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             background: '#ffffff',
-            ...((viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && {
+            ...((viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) && {
               width: '90%',
               maxWidth: '210mm',
               maxHeight: '95vh',
@@ -1811,7 +2600,7 @@ const PreAudit = () => {
         <DialogTitle sx={{ 
           p: 0,
           m: 0,
-          '@media print': { display: (viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'none' : 'block' }
+          '@media print': { display: (viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) ? 'none' : 'block' }
         }}>
           <Box sx={{ 
             display: 'flex', 
@@ -1825,10 +2614,14 @@ const PreAudit = () => {
                 ? `${isCashApprovalBillDoc(viewDialog.document) ? 'Cash Approval Bill' : 'Cash Approval'} Details`
                 : (viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder))
                   ? 'Purchase Order Details'
-                  : 'PAYMENT SETTLEMENT'}
+                  : viewDialog.document?.workflowSubmodule === 'utility_bills_management'
+                    ? 'UTILITY BILL'
+                    : viewDialog.document?.workflowSubmodule === 'rental_management'
+                      ? 'RENTAL MANAGEMENT'
+                      : 'PAYMENT SETTLEMENT'}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
-              {(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && (
+              {(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) && (
                 <Button
                   variant="contained"
                   startIcon={<PrintIcon />}
@@ -1857,10 +2650,10 @@ const PreAudit = () => {
             </Box>
           ) : viewDialog.document && (
             <Box sx={{ 
-              p: (viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 0 : 4, 
+              p: (viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) ? 0 : 4,
               background: '#ffffff',
-              fontFamily: (viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'Arial, sans-serif' : '"Times New Roman", serif'
-            }} className={(viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? "print-content" : ""}>
+              fontFamily: (viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) ? 'Arial, sans-serif' : '"Times New Roman", serif'
+            }} className={(viewDialog.document.isPurchaseOrder || viewDialog.document.isCashApproval || (viewDialog.document.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) ? "print-content" : ""}>
               {/* Show Purchase Order + Comparative Statement + Quotations when it's a PO (for audit) */}
               {(viewDialog.document.isPurchaseOrder && viewDialog.fullDocument) ? (
                 <>
@@ -2087,7 +2880,7 @@ const PreAudit = () => {
                                 <Typography variant="caption" color="textSecondary">Prepared By</Typography>
                                 <Typography variant="body2" fontWeight="medium">{grn.preparedByName || (grn.receivedBy?.firstName && grn.receivedBy?.lastName ? `${grn.receivedBy.firstName} ${grn.receivedBy.lastName}` : '—')}</Typography>
                               </Box>
-                              <Box sx={{ width: 120, height: 40, border: '1px dashed', borderColor: 'divider' }} />
+                              <Box sx={{ width: 120, height: 40, border: '2px dashed', borderColor: 'divider' }} />
                             </Box>
                           </Paper>
                         ))
@@ -2095,6 +2888,12 @@ const PreAudit = () => {
                     </Box>
                   )}
                 </>
+              ) : viewDialog.document.isWorkflowDocument && viewDialog.document.workflowSubmodule === 'utility_bills_management' && viewDialog.fullDocument ? (
+                renderUtilityBillMemoView(viewDialog.fullDocument)
+              ) : viewDialog.document.isWorkflowDocument && viewDialog.document.workflowSubmodule === 'payment_settlement' && viewDialog.fullDocument ? (
+                renderPaymentSettlementMemoView(viewDialog.fullDocument)
+              ) : viewDialog.document.isWorkflowDocument && viewDialog.document.workflowSubmodule === 'rental_management' && viewDialog.fullDocument ? (
+                renderRentalManagementMemoView(viewDialog.fullDocument)
               ) : viewDialog.document.isWorkflowDocument && viewDialog.fullDocument ? (
                 <>
                   {/* Document Header */}
@@ -2110,7 +2909,7 @@ const PreAudit = () => {
                       fontSize: '24px',
                       letterSpacing: '1px'
                     }}>
-                      {viewDialog.fullDocument.parentCompanyName || 'PAYMENT SETTLEMENT'}
+                      {viewDialog.fullDocument.accountHead || viewDialog.fullDocument.parentCompanyName || (viewDialog.document?.workflowSubmodule === 'utility_bills_management' ? 'UTILITY BILL' : viewDialog.document?.workflowSubmodule === 'rental_management' ? 'RENTAL MANAGEMENT' : 'PAYMENT SETTLEMENT')}
                     </Typography>
                     
                     <Grid container spacing={2} sx={{ mb: 2 }}>
@@ -2127,7 +2926,7 @@ const PreAudit = () => {
                           FROM:
                         </Typography>
                         <Typography variant="body2">
-                          {viewDialog.fullDocument.fromDepartment || 'Administration'}
+                          {viewDialog.fullDocument.department || viewDialog.fullDocument.fromDepartment || 'Administration'}
                         </Typography>
                       </Grid>
                       <Grid item xs={6}>
@@ -2143,7 +2942,7 @@ const PreAudit = () => {
                           DATE:
                         </Typography>
                         <Typography variant="body2">
-                          {formatDateForDocument(viewDialog.fullDocument.date)}
+                          {formatDateForDocument(viewDialog.fullDocument.date || viewDialog.fullDocument.billDate)}
                         </Typography>
                       </Grid>
                       <Grid item xs={6}>
@@ -2151,7 +2950,7 @@ const PreAudit = () => {
                           DOCUMENT NUMBER:
                         </Typography>
                         <Typography variant="body2">
-                          {viewDialog.fullDocument.referenceNumber || viewDialog.document?.documentNumber || 'N/A'}
+                          {viewDialog.fullDocument.referenceNumber || viewDialog.fullDocument.accountNumber || viewDialog.document?.documentNumber || 'N/A'}
                         </Typography>
                       </Grid>
                       <Grid item xs={6}>
@@ -2226,21 +3025,21 @@ const PreAudit = () => {
                               py: 2,
                               fontSize: '13px'
                             }}>
-                              {formatDateForDocument(viewDialog.fullDocument.date)}
+                              {formatDateForDocument(viewDialog.fullDocument.date || viewDialog.fullDocument.billDate)}
                             </TableCell>
                             <TableCell sx={{ 
                               border: '1px solid #000',
                               py: 2,
                               fontSize: '13px'
                             }}>
-                              {viewDialog.fullDocument.referenceNumber || 'N/A'}
+                              {viewDialog.fullDocument.referenceNumber || viewDialog.fullDocument.accountNumber || 'N/A'}
                             </TableCell>
                             <TableCell sx={{ 
                               border: '1px solid #000',
                               py: 2,
                               fontSize: '13px'
                             }}>
-                              {viewDialog.fullDocument.toWhomPaid || 'N/A'}
+                              {viewDialog.fullDocument.toWhomPaid || viewDialog.fullDocument.provider || 'N/A'}
                             </TableCell>
                             <TableCell sx={{ 
                               border: '1px solid #000',
@@ -2257,7 +3056,7 @@ const PreAudit = () => {
                               textAlign: 'right',
                               fontWeight: 600
                             }}>
-                              {formatPKR(viewDialog.fullDocument.amount)}
+                              {formatPKR(viewDialog.fullDocument.grandTotal || viewDialog.fullDocument.amount)}
                             </TableCell>
                           </TableRow>
                         </TableBody>
@@ -3473,6 +4272,7 @@ const PreAudit = () => {
         onClose={() => {
           setApproveDialog({ open: false, document: null });
           setApprovalComments('');
+          setUseStampForAction(false);
         }}
       >
         <DialogTitle>
@@ -3496,11 +4296,17 @@ const PreAudit = () => {
             onChange={(e) => setApprovalComments(e.target.value)}
             sx={{ mt: 2, minWidth: 400 }}
           />
+          <FormControlLabel
+            sx={{ mt: 1 }}
+            control={<Checkbox checked={useStampForAction} onChange={(e) => setUseStampForAction(e.target.checked)} />}
+            label="Use my approval stamp (if uploaded)"
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => {
             setApproveDialog({ open: false, document: null });
             setApprovalComments('');
+            setUseStampForAction(false);
           }}>Cancel</Button>
           <Button onClick={handleApprove} variant="contained" color="success">
             {approveDialog.document?.status === 'forwarded_to_director' ||
@@ -3599,6 +4405,7 @@ const PreAudit = () => {
           setRejectDialog({ open: false, document: null });
           setRejectionComments('');
           setRejectObservations([{ observation: '', severity: 'medium' }]);
+          setUseStampForAction(false);
         }}
         maxWidth="md"
         fullWidth
@@ -3618,6 +4425,11 @@ const PreAudit = () => {
             onChange={(e) => setRejectionComments(e.target.value)}
             sx={{ mb: 3 }}
             required
+          />
+          <FormControlLabel
+            sx={{ mb: 2 }}
+            control={<Checkbox checked={useStampForAction} onChange={(e) => setUseStampForAction(e.target.checked)} />}
+            label="Use my approval stamp (if uploaded)"
           />
 
           <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>

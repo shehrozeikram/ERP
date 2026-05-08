@@ -87,7 +87,7 @@ router.get('/:candidateId/applications', async (req, res) => {
     const applications = await Application.find({ 
       candidate: req.params.candidateId 
     })
-    .populate('jobPosting', 'title company department location')
+    .populate('jobPosting', 'position company department location')
     .select('status jobPosting appliedAt')
     .sort({ appliedAt: -1 });
 

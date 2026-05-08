@@ -6,6 +6,7 @@ import {
   Typography,
   TextField,
   Button,
+  Autocomplete,
   Grid,
   FormControl,
   InputLabel,
@@ -14,46 +15,92 @@ import {
   Alert,
   Skeleton,
   Avatar,
-  IconButton
+  IconButton,
+  Stack
 } from '@mui/material';
 import {
   CloudUpload as CloudUploadIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Save as SaveIcon,
+  Send as SendIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
+import api from '../../../services/api';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
+import { useAuth } from '../../../contexts/AuthContext';
+
+const userDisplayName = (user) => {
+  if (!user) return '';
+  return [user.firstName, user.lastName].filter(Boolean).join(' ') || user.fullName || user.email || user.employeeId || '';
+};
+const getUserId = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return String(value._id || value.id || value.userId || '');
+};
 
 const UtilityBillForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
   const defaultType = searchParams.get('type') || 'Electricity';
+  const accountHeadOptions = ['President Personal', 'Head Office', 'Boly.pk', 'Usman Solar'];
 
   const [formData, setFormData] = useState({
+    accountHead: '',
+    site: 'Head Office',
     utilityType: defaultType,
     provider: '',
     accountNumber: '',
     billDate: new Date().toISOString().split('T')[0],
     dueDate: '',
     amount: 0,
-    paidAmount: 0,
-    description: '',
+    lastMonthAmount: 0,
+    forWhat: '',
     location: 'Main Office',
-    notes: ''
+    department: '',
+    custodian: 'Lt.Col.Safeer Ahmed'
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [masterDataLoading, setMasterDataLoading] = useState(false);
+  const [managerApprover, setManagerApprover] = useState(null);
+  const [hodApprover, setHodApprover] = useState(null);
+  const [approverOptions, setApproverOptions] = useState([]);
+  const [approverLoading, setApproverLoading] = useState(false);
 
   useEffect(() => {
+    fetchMasterData();
     if (isEdit) {
       fetchBill();
     }
   }, [id, isEdit]);
+
+  const fetchMasterData = async () => {
+    try {
+      setMasterDataLoading(true);
+      const [departmentsResponse, employeesResponse] = await Promise.all([
+        api.get('/hr/departments'),
+        api.get('/hr/employees', { params: { getAll: true, active: true } })
+      ]);
+
+      setDepartments(departmentsResponse.data.data || []);
+      setEmployees(employeesResponse.data.data || []);
+    } catch (err) {
+      console.error('Error fetching utility bill master data:', err);
+      setError('Failed to load department and custodian lists');
+    } finally {
+      setMasterDataLoading(false);
+    }
+  };
 
   const fetchBill = async () => {
     try {
@@ -62,22 +109,31 @@ const UtilityBillForm = () => {
       const bill = response.data;
       
       setFormData({
+        accountHead: bill.accountHead || '',
+        site: bill.site || '',
         utilityType: bill.utilityType || defaultType,
         provider: bill.provider || '',
         accountNumber: bill.accountNumber || '',
         billDate: bill.billDate ? new Date(bill.billDate).toISOString().split('T')[0] : '',
         dueDate: bill.dueDate ? new Date(bill.dueDate).toISOString().split('T')[0] : '',
         amount: bill.amount || 0,
-        paidAmount: bill.paidAmount || 0,
-        description: bill.description || '',
+        lastMonthAmount: bill.lastMonthAmount || 0,
+        forWhat: bill.forWhat || '',
         location: bill.location || 'Main Office',
-        notes: bill.notes || ''
+        department: bill.department || '',
+        custodian: bill.custodian || ''
       });
 
       // Set image preview if bill has an image
       if (bill.billImage) {
         setImagePreview(getImageUrl(bill.billImage));
       }
+
+      const draftApprovers = bill.draftApproverIds || [];
+      const chainApprovers = (bill.approvalChain || []).map((step) => step.approver).filter(Boolean);
+      const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
+      setManagerApprover(approvers[0] && typeof approvers[0] === 'object' ? approvers[0] : null);
+      setHodApprover(approvers[1] && typeof approvers[1] === 'object' ? approvers[1] : null);
     } catch (err) {
       setError('Failed to fetch utility bill details');
       console.error('Error fetching bill:', err);
@@ -87,9 +143,10 @@ const UtilityBillForm = () => {
   };
 
   const handleChange = (field) => (event) => {
+    const value = event.target.value;
     setFormData(prev => ({
       ...prev,
-      [field]: event.target.value
+      [field]: value
     }));
   };
 
@@ -112,6 +169,44 @@ const UtilityBillForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    await saveBill('draft');
+  };
+
+  const loadApproverOptions = async (search = '') => {
+    try {
+      setApproverLoading(true);
+      const response = await utilityBillService.getApproverCandidates({ search, limit: 50 });
+      setApproverOptions(response.data || []);
+    } catch {
+      setApproverOptions([]);
+    } finally {
+      setApproverLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadApproverOptions('');
+  }, []);
+
+  const saveBill = async (mode = 'draft') => {
+    if (mode === 'submit' && (!managerApprover?._id || !hodApprover?._id)) {
+      setError('Please select Manager Approver and Head Of Department Approver before submitting.');
+      return;
+    }
+
+    const managerApproverId = getUserId(managerApprover);
+    const hodApproverId = getUserId(hodApprover);
+    const requesterId = getUserId(user);
+
+    if (mode === 'submit' && [managerApproverId, hodApproverId].includes(requesterId)) {
+      setError('Requester cannot be selected as Manager or Head Of Department approver.');
+      return;
+    }
+
+    if (mode === 'submit' && managerApproverId === hodApproverId) {
+      setError('Manager Approver and Head Of Department Approver must be different.');
+      return;
+    }
     
     try {
       setLoading(true);
@@ -126,20 +221,32 @@ const UtilityBillForm = () => {
         }
       });
 
+      const approverIds = [managerApproverId, hodApproverId].filter(Boolean);
+      submitData.append('draftApproverIds', JSON.stringify(approverIds));
+
       // Add image if selected
       if (selectedImage) {
         submitData.append('billImage', selectedImage);
       }
 
+      let savedBill;
       if (isEdit) {
-        await utilityBillService.updateUtilityBill(id, submitData);
+        const response = await utilityBillService.updateUtilityBill(id, submitData);
+        savedBill = response.data;
       } else {
-        await utilityBillService.createUtilityBill(submitData);
+        const response = await utilityBillService.createUtilityBill(submitData);
+        savedBill = response.data;
+      }
+
+      if (mode === 'submit') {
+        await utilityBillService.submitUtilityBill(savedBill._id, { approverIds });
+        navigate(`/admin/utility-bills/${savedBill._id}`);
+        return;
       }
 
       navigate('/admin/utility-bills');
     } catch (err) {
-      setError(isEdit ? 'Failed to update utility bill' : 'Failed to create utility bill');
+      setError(err.response?.data?.message || (isEdit ? 'Failed to update utility bill' : 'Failed to create utility bill'));
       console.error('Error saving bill:', err);
     } finally {
       setLoading(false);
@@ -157,6 +264,18 @@ const UtilityBillForm = () => {
     'Cleaning',
     'Other'
   ];
+
+  const getEmployeeName = (employee) => (
+    employee.fullName ||
+    [employee.firstName, employee.lastName].filter(Boolean).join(' ') ||
+    employee.employeeId ||
+    'Unnamed Employee'
+  );
+
+  const getEmployeeOptionValue = (employee) => {
+    const employeeName = getEmployeeName(employee);
+    return employee.employeeId ? `${employeeName} (${employee.employeeId})` : employeeName;
+  };
 
   if (loading && isEdit) {
     return (
@@ -263,6 +382,36 @@ const UtilityBillForm = () => {
               </Grid>
 
               <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Account Head</InputLabel>
+                  <Select
+                    value={formData.accountHead}
+                    onChange={handleChange('accountHead')}
+                    label="Account Head"
+                  >
+                    <MenuItem value="">
+                      <em>Select account head</em>
+                    </MenuItem>
+                    {accountHeadOptions.map((option) => (
+                      <MenuItem key={option} value={option}>
+                        {option}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Site"
+                  value={formData.site}
+                  onChange={handleChange('site')}
+                  placeholder="Enter site location"
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
                 <FormControl fullWidth required>
                   <InputLabel>Utility Type</InputLabel>
                   <Select
@@ -293,10 +442,10 @@ const UtilityBillForm = () => {
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Account Number"
+                  label="Reference No"
                   value={formData.accountNumber}
                   onChange={handleChange('accountNumber')}
-                  placeholder="Optional account number"
+                  placeholder="Optional reference number"
                 />
               </Grid>
 
@@ -308,6 +457,60 @@ const UtilityBillForm = () => {
                   onChange={handleChange('location')}
                   placeholder="e.g., Main Office"
                 />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth disabled={masterDataLoading}>
+                  <InputLabel>Department</InputLabel>
+                  <Select
+                    value={formData.department}
+                    onChange={handleChange('department')}
+                    label="Department"
+                  >
+                    <MenuItem value="">
+                      <em>Select department</em>
+                    </MenuItem>
+                    {formData.department && !departments.some((department) => department.name === formData.department) && (
+                      <MenuItem value={formData.department}>
+                        {formData.department}
+                      </MenuItem>
+                    )}
+                    {departments.map((department) => (
+                      <MenuItem key={department._id} value={department.name}>
+                        {department.code ? `${department.name} (${department.code})` : department.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth disabled={masterDataLoading}>
+                  <InputLabel>Custodian</InputLabel>
+                  <Select
+                    value={formData.custodian}
+                    onChange={handleChange('custodian')}
+                    label="Custodian"
+                  >
+                    <MenuItem value="">
+                      <em>Select custodian</em>
+                    </MenuItem>
+                    {formData.custodian && !employees.some((employee) => getEmployeeOptionValue(employee) === formData.custodian) && (
+                      <MenuItem value={formData.custodian}>
+                        {formData.custodian}
+                      </MenuItem>
+                    )}
+                    {employees.map((employee) => {
+                      const optionValue = getEmployeeOptionValue(employee);
+                      return (
+                        <MenuItem key={employee._id} value={optionValue}>
+                          {optionValue}
+                          {employee.placementDepartment?.name ? ` - ${employee.placementDepartment.name}` : ''}
+                        </MenuItem>
+                      );
+                    })}
+                  </Select>
+                </FormControl>
               </Grid>
 
               {/* Date Information */}
@@ -351,7 +554,7 @@ const UtilityBillForm = () => {
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Total Amount"
+                  label="Amount"
                   type="number"
                   value={formData.amount}
                   onChange={handleChange('amount')}
@@ -363,10 +566,10 @@ const UtilityBillForm = () => {
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Paid Amount"
+                  label="Last Month Amount"
                   type="number"
-                  value={formData.paidAmount}
-                  onChange={handleChange('paidAmount')}
+                  value={formData.lastMonthAmount}
+                  onChange={handleChange('lastMonthAmount')}
                   inputProps={{ min: 0, step: 0.01 }}
                 />
               </Grid>
@@ -381,24 +584,12 @@ const UtilityBillForm = () => {
               <Grid item xs={12}>
                 <TextField
                   fullWidth
-                  label="Description"
-                  value={formData.description}
-                  onChange={handleChange('description')}
+                  label="For What"
+                  value={formData.forWhat}
+                  onChange={handleChange('forWhat')}
                   multiline
                   rows={3}
-                  placeholder="Additional details about the bill..."
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Notes"
-                  value={formData.notes}
-                  onChange={handleChange('notes')}
-                  multiline
-                  rows={2}
-                  placeholder="Internal notes..."
+                  placeholder="Explain what this utility bill is for..."
                 />
               </Grid>
 
@@ -456,9 +647,67 @@ const UtilityBillForm = () => {
                 )}
               </Grid>
 
+              {/* Approval Section */}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
+                  Approvals
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Choose Manager and Head Of Department approvers before submitting. You can also save as draft.
+                </Typography>
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Sig of Requester"
+                  value={userDisplayName(user)}
+                  InputProps={{ readOnly: true }}
+                  helperText="Auto-filled from logged-in user"
+                />
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Autocomplete
+                  options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                  value={managerApprover}
+                  loading={approverLoading}
+                  onChange={(_, value) => setManagerApprover(value)}
+                  onInputChange={(_, value) => loadApproverOptions(value)}
+                  getOptionLabel={(option) => userDisplayName(option)}
+                  isOptionEqualToValue={(option, value) => option._id === value._id}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Manager Approver"
+                      placeholder="Search manager approver"
+                    />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Autocomplete
+                  options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                  value={hodApprover}
+                  loading={approverLoading}
+                  onChange={(_, value) => setHodApprover(value)}
+                  onInputChange={(_, value) => loadApproverOptions(value)}
+                  getOptionLabel={(option) => userDisplayName(option)}
+                  isOptionEqualToValue={(option, value) => option._id === value._id}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Head Of Department Approver"
+                      placeholder="Search HOD approver"
+                    />
+                  )}
+                />
+              </Grid>
+
               {/* Submit Button */}
               <Grid item xs={12}>
-                <Box display="flex" gap={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+                <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
                   <Button
                     variant="outlined"
                     onClick={() => navigate('/admin/utility-bills')}
@@ -469,11 +718,22 @@ const UtilityBillForm = () => {
                   <Button
                     type="submit"
                     variant="contained"
+                    startIcon={<SaveIcon />}
                     disabled={loading}
                   >
-                    {loading ? 'Saving...' : (isEdit ? 'Update Bill' : 'Create Bill')}
+                    {loading ? 'Saving...' : 'Save Draft'}
                   </Button>
-                </Box>
+                  <Button
+                    type="button"
+                    variant="contained"
+                    color="success"
+                    startIcon={<SendIcon />}
+                    disabled={loading}
+                    onClick={() => saveBill('submit')}
+                  >
+                    Submit for Approval
+                  </Button>
+                </Stack>
               </Grid>
             </Grid>
           </form>

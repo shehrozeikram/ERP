@@ -104,7 +104,8 @@ class ApplicationEvaluationService {
   // Evaluate requirements match
   evaluateRequirements(application, jobPosting) {
     let score = 0;
-    const requirements = jobPosting.requirements.toLowerCase();
+    const requirementsSource = jobPosting.qualificationExperience || jobPosting.requirements || '';
+    const requirements = String(requirementsSource).toLowerCase();
     const candidateInfo = this.getCandidateInfo(application).toLowerCase();
 
     // Check education level
@@ -161,7 +162,9 @@ class ApplicationEvaluationService {
     // Check current position relevance
     if (application.professionalInfo?.currentPosition) {
       const currentPosition = application.professionalInfo.currentPosition.toLowerCase();
-      const jobTitle = jobPosting.title.toLowerCase();
+      const jobTitle = String(
+        jobPosting.position?.title || jobPosting.title || ''
+      ).toLowerCase();
       
       if (this.isPositionRelevant(currentPosition, jobTitle)) {
         score += 30;
@@ -194,7 +197,9 @@ class ApplicationEvaluationService {
     }
 
     const candidateSkills = application.skills.technicalSkills.toLowerCase();
-    const jobRequirements = jobPosting.requirements.toLowerCase();
+    const jobRequirements = String(
+      jobPosting.qualificationExperience || jobPosting.requirements || ''
+    ).toLowerCase();
     
     // Extract technical skills from job requirements
     const requiredSkills = this.extractTechnicalSkills(jobRequirements);
@@ -205,7 +210,9 @@ class ApplicationEvaluationService {
       candidateSkillList.includes(skill)
     );
     
-    score = (matchedSkills.length / requiredSkills.length) * 80;
+    score = requiredSkills.length > 0
+      ? (matchedSkills.length / requiredSkills.length) * 80
+      : 40;
     
     // Bonus for additional relevant skills
     const additionalSkills = candidateSkillList.filter(skill => 

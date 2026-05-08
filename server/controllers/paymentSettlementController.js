@@ -18,6 +18,32 @@ const {
 } = require('../utils/paymentSettlementWorkflow');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
+const normalizeApproverIds = (value) => {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      return [value].map(String).filter(Boolean);
+    }
+  }
+  return [];
+};
+
+const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
+
+const addWorkflowHistory = (document, fromStatus, toStatus, changedBy, comments = '') => {
+  if (!Array.isArray(document.workflowHistory)) document.workflowHistory = [];
+  document.workflowHistory.push({
+    fromStatus,
+    toStatus,
+    changedBy,
+    changedAt: new Date(),
+    comments
+  });
+};
+
 const getUserIdsByRoles = async (roles = []) => {
   const users = await User.find({
     isActive: true,
@@ -67,6 +93,35 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024 // 10MB limit
   }
 });
+
+const notifyAuditQueue = async ({ actorId, settlement }) => {
+  const users = await User.find({
+    isActive: true,
+    role: { $in: ['audit_manager', 'auditor', 'audit_director', 'super_admin', 'admin'] }
+  }).select('_id');
+  const recipientIds = users.map((user) => String(user._id));
+  if (!recipientIds.length) return;
+
+  await createAndEmitNotification({
+    recipientIds,
+    title: 'Payment settlement pending Pre Audit',
+    message: `Payment Settlement ${settlement.referenceNumber || settlement._id} moved to Audit queue. Please review in Pre-Audit.`,
+    type: 'info',
+    category: 'approval',
+    priority: 'high',
+    actionUrl: '/audit',
+    createdBy: actorId,
+    excludeUserId: actorId,
+    metadata: {
+      module: 'audit',
+      entityId: settlement._id,
+      entityType: 'PaymentSettlement',
+      queueStage: 'pending_audit',
+      targetModule: 'audit',
+      targetTab: 'pre_audit'
+    }
+  });
+};
 
 // @desc    Get all payment settlements with pagination and filters
 // @route   GET /api/payment-settlements
@@ -155,11 +210,15 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
 
     // Execute query with pagination
     const settlements = await PaymentSettlement.find(query)
-      .populate('createdBy', 'firstName lastName email')
-      .populate('updatedBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email')
-      .populate('observations.addedBy', 'firstName lastName email')
-      .populate('observations.answeredBy', 'firstName lastName email')
+      .populate('createdBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('updatedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature')
+      .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('observations.addedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('observations.answeredBy', 'firstName lastName email employeeId digitalSignature')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
@@ -194,11 +253,15 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
 const getPaymentSettlement = asyncHandler(async (req, res) => {
   try {
     const settlement = await PaymentSettlement.findById(req.params.id)
-      .populate('createdBy', 'firstName lastName email')
-      .populate('updatedBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email')
-      .populate('observations.addedBy', 'firstName lastName email')
-      .populate('observations.answeredBy', 'firstName lastName email');
+      .populate('createdBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('updatedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature')
+      .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('observations.addedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('observations.answeredBy', 'firstName lastName email employeeId digitalSignature');
 
     if (!settlement) {
       return res.status(404).json({
@@ -220,6 +283,169 @@ const getPaymentSettlement = asyncHandler(async (req, res) => {
   }
 });
 
+const getApproverCandidates = asyncHandler(async (req, res) => {
+  const search = String(req.query.search || '').trim();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const filter = { isActive: true };
+
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escaped, 'i');
+    filter.$or = [
+      { firstName: rx },
+      { lastName: rx },
+      { email: rx },
+      { employeeId: rx }
+    ];
+  }
+
+  const users = await User.find(filter)
+    .select('firstName lastName email employeeId department digitalSignature')
+    .sort({ firstName: 1, lastName: 1 })
+    .limit(limit)
+    .lean();
+
+  res.json({ success: true, data: users });
+});
+
+const submitPaymentSettlement = asyncHandler(async (req, res) => {
+  const settlement = await PaymentSettlement.findById(req.params.id);
+  if (!settlement) {
+    return res.status(404).json({ success: false, message: 'Payment settlement not found' });
+  }
+
+  if (!['Draft', 'Rejected'].includes(settlement.approvalStatus || 'Draft')) {
+    return res.status(400).json({ success: false, message: 'Only draft or rejected settlements can be submitted' });
+  }
+
+  const fromBody = normalizeApproverIds(req.body?.approverIds);
+  const fromDraft = normalizeApproverIds(settlement.draftApproverIds || []);
+  const approverIds = uniqueApproverIds(fromBody.length ? fromBody : fromDraft);
+  if (approverIds.length !== 2) {
+    return res.status(400).json({ success: false, message: 'Select Manager Approver and Head Of Department Approver' });
+  }
+
+  if (approverIds.includes(String(req.user.id))) {
+    return res.status(400).json({ success: false, message: 'Requester cannot be selected as Manager or Head Of Department approver' });
+  }
+
+  const approvers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');
+  if (approvers.length !== 2) {
+    return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });
+  }
+
+  const previousStatus = settlement.approvalStatus || 'Draft';
+  settlement.approvalStatus = 'Submitted';
+  settlement.status = 'Submitted';
+  settlement.approvalChain = approverIds.map((approverId) => ({ approver: approverId, status: 'pending' }));
+  settlement.draftApproverIds = [];
+  settlement.approvedByUser = undefined;
+  settlement.approvedAt = undefined;
+  settlement.rejectedByUser = undefined;
+  settlement.rejectedAt = undefined;
+  settlement.rejectionReason = '';
+  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, req.user.id, 'Submitted for approval');
+  await settlement.save();
+
+  const populated = await PaymentSettlement.findById(settlement._id)
+    .populate('createdBy', 'firstName lastName email employeeId digitalSignature')
+    .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+    .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature')
+    .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature');
+
+  res.json({ success: true, message: 'Payment settlement submitted for approval', data: populated });
+});
+
+const approveSettlementAuthority = asyncHandler(async (req, res) => {
+  const settlement = await PaymentSettlement.findById(req.params.id);
+  if (!settlement) return res.status(404).json({ success: false, message: 'Payment settlement not found' });
+  if (settlement.approvalStatus !== 'Submitted') {
+    return res.status(400).json({ success: false, message: 'Only submitted settlements can be approved' });
+  }
+
+  const userId = String(req.user.id);
+  if (String(settlement.createdBy) === userId) {
+    return res.status(403).json({ success: false, message: 'Requester cannot approve Manager or Head Of Department approval authority' });
+  }
+  const pendingIndex = (settlement.approvalChain || []).findIndex((step) => (
+    String(step.approver) === userId && step.status === 'pending'
+  ));
+  if (pendingIndex === -1) {
+    return res.status(403).json({ success: false, message: 'You are not the pending approval authority for this settlement' });
+  }
+
+  settlement.approvalChain[pendingIndex].status = 'approved';
+  settlement.approvalChain[pendingIndex].actedAt = new Date();
+
+  const previousStatus = settlement.approvalStatus;
+  const allApproved = (settlement.approvalChain || []).every((step) => step.status === 'approved');
+  if (allApproved) {
+    settlement.approvalStatus = 'Approved';
+    settlement.status = 'Approved';
+    settlement.approvedByUser = req.user.id;
+    settlement.approvedAt = new Date();
+    const previousWorkflowStatus = settlement.workflowStatus || 'Draft';
+    settlement.workflowStatus = 'Send to Audit';
+    addWorkflowHistory(settlement, previousWorkflowStatus, settlement.workflowStatus, req.user.id, 'Sent to Pre-Audit after approval authority completed');
+  }
+  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, req.user.id, allApproved ? 'Approved' : 'Approval authority approved');
+  await settlement.save();
+  if (allApproved) {
+    await notifyAuditQueue({ actorId: req.user.id, settlement });
+  }
+
+  const populated = await PaymentSettlement.findById(settlement._id)
+    .populate('createdBy', 'firstName lastName email employeeId digitalSignature')
+    .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+    .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature')
+    .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature')
+    .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature');
+  res.json({ success: true, message: 'Payment settlement approved', data: populated });
+});
+
+const rejectSettlementAuthority = asyncHandler(async (req, res) => {
+  const reason = String(req.body?.rejectionReason || '').trim();
+  if (!reason) return res.status(400).json({ success: false, message: 'Rejection reason is required' });
+
+  const settlement = await PaymentSettlement.findById(req.params.id);
+  if (!settlement) return res.status(404).json({ success: false, message: 'Payment settlement not found' });
+  if (settlement.approvalStatus !== 'Submitted') {
+    return res.status(400).json({ success: false, message: 'Only submitted settlements can be rejected' });
+  }
+
+  const userId = String(req.user.id);
+  if (String(settlement.createdBy) === userId) {
+    return res.status(403).json({ success: false, message: 'Requester cannot reject Manager or Head Of Department approval authority' });
+  }
+  const pendingIndex = (settlement.approvalChain || []).findIndex((step) => (
+    String(step.approver) === userId && step.status === 'pending'
+  ));
+  if (pendingIndex === -1) {
+    return res.status(403).json({ success: false, message: 'You are not the pending approval authority for this settlement' });
+  }
+
+  settlement.approvalChain[pendingIndex].status = 'rejected';
+  settlement.approvalChain[pendingIndex].actedAt = new Date();
+  settlement.approvalChain[pendingIndex].comment = reason;
+
+  const previousStatus = settlement.approvalStatus;
+  settlement.approvalStatus = 'Rejected';
+  settlement.status = 'Rejected';
+  settlement.rejectedByUser = req.user.id;
+  settlement.rejectedAt = new Date();
+  settlement.rejectionReason = reason;
+  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, req.user.id, reason);
+  await settlement.save();
+
+  const populated = await PaymentSettlement.findById(settlement._id)
+    .populate('createdBy', 'firstName lastName email employeeId digitalSignature')
+    .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+    .populate('approvedByUser', 'firstName lastName email employeeId digitalSignature')
+    .populate('rejectedByUser', 'firstName lastName email employeeId digitalSignature')
+    .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature');
+  res.json({ success: true, message: 'Payment settlement rejected', data: populated });
+});
+
 // @desc    Create new payment settlement
 // @route   POST /api/payment-settlements
 // @access  Private (Admin)
@@ -229,6 +455,14 @@ const createPaymentSettlement = asyncHandler(async (req, res) => {
       ...req.body,
       createdBy: req.user.id
     };
+    delete settlementData.approvalChain;
+    delete settlementData.approvalStatus;
+    delete settlementData.approvedByUser;
+    delete settlementData.approvedAt;
+    delete settlementData.rejectedByUser;
+    delete settlementData.rejectedAt;
+    delete settlementData.rejectionReason;
+    settlementData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
 
     // Handle file attachments if any
     if (req.files && req.files.length > 0) {
@@ -246,7 +480,10 @@ const createPaymentSettlement = asyncHandler(async (req, res) => {
     await settlement.save();
 
     // Populate the created settlement
-    await settlement.populate('createdBy', 'firstName lastName email');
+    await settlement.populate([
+      { path: 'createdBy', select: 'firstName lastName email employeeId digitalSignature' },
+      { path: 'draftApproverIds', select: 'firstName lastName email employeeId digitalSignature' }
+    ]);
 
     res.status(201).json({
       success: true,
@@ -285,6 +522,16 @@ const updatePaymentSettlement = asyncHandler(async (req, res) => {
       ...req.body,
       updatedBy: req.user.id
     };
+    delete updateData.approvalChain;
+    delete updateData.approvalStatus;
+    delete updateData.approvedByUser;
+    delete updateData.approvedAt;
+    delete updateData.rejectedByUser;
+    delete updateData.rejectedAt;
+    delete updateData.rejectionReason;
+    if (req.body.draftApproverIds !== undefined) {
+      updateData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
+    }
 
     // Handle file attachments if any
     if (req.files && req.files.length > 0) {
@@ -311,8 +558,10 @@ const updatePaymentSettlement = asyncHandler(async (req, res) => {
       updateData,
       { new: true, runValidators: true }
     )
-      .populate('createdBy', 'firstName lastName email')
-      .populate('updatedBy', 'firstName lastName email');
+      .populate('createdBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('updatedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature');
 
     if (!settlement) {
       return res.status(404).json({
@@ -981,6 +1230,10 @@ const deleteAttachment = asyncHandler(async (req, res) => {
 module.exports = {
   getPaymentSettlements,
   getPaymentSettlement,
+  getApproverCandidates,
+  submitPaymentSettlement,
+  approveSettlementAuthority,
+  rejectSettlementAuthority,
   createPaymentSettlement,
   updatePaymentSettlement,
   deletePaymentSettlement,

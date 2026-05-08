@@ -8,6 +8,10 @@ const PaymentSettlement = require('../models/hr/PaymentSettlement');
 const {
   getPaymentSettlements,
   getPaymentSettlement,
+  getApproverCandidates,
+  submitPaymentSettlement,
+  approveSettlementAuthority,
+  rejectSettlementAuthority,
   createPaymentSettlement,
   updatePaymentSettlement,
   deletePaymentSettlement,
@@ -70,6 +74,7 @@ router.get('/stats', permissions.checkSubRolePermission('admin', 'payment_settle
 // @route   GET /api/payment-settlements
 // @access  Private (Admin)
 router.get('/', permissions.checkSubRolePermission('admin', 'payment_settlement', 'read'), getPaymentSettlements);
+router.get('/approver-candidates', permissions.checkSubRolePermission('admin', 'payment_settlement', 'read'), getApproverCandidates);
 
 // @desc    Get single payment settlement by ID
 // @route   GET /api/payment-settlements/:id
@@ -128,6 +133,9 @@ router.patch('/:id/approve',
 // @route   PATCH /api/payment-settlements/:id/reject
 // @access  Private (Admin)
 router.patch('/:id/reject', permissions.checkSubRolePermission('admin', 'payment_settlement', 'approve'), rejectDocument);
+router.post('/:id/submit', permissions.checkSubRolePermission('admin', 'payment_settlement', 'update'), submitPaymentSettlement);
+router.post('/:id/approve-authority', permissions.checkSubRolePermission('admin', 'payment_settlement', 'update'), approveSettlementAuthority);
+router.post('/:id/reject-authority', permissions.checkSubRolePermission('admin', 'payment_settlement', 'update'), rejectSettlementAuthority);
 
 // @desc    Delete payment settlement
 // @route   DELETE /api/payment-settlements/:id

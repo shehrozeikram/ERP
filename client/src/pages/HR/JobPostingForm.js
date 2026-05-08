@@ -23,7 +23,11 @@ import {
   StepLabel,
   Divider,
   Chip,
-  Stack
+  Stack,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import {
   Save,
@@ -35,7 +39,7 @@ import {
   Schedule,
   LocationOn
 } from '@mui/icons-material';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Formik, Form, Field } from 'formik';
 import * as Yup from 'yup';
 import jobPostingService from '../../services/jobPostingService';
@@ -44,7 +48,6 @@ import jobPostingService from '../../services/jobPostingService';
 const stepValidationSchemas = [
   // Step 1: Basic Information
   Yup.object({
-    title: Yup.string().required('Job title is required'),
     department: Yup.string().required('Department is required'),
     location: Yup.string().required('Location is required'),
     position: Yup.string().required('Position is required'),
@@ -66,7 +69,6 @@ const stepValidationSchemas = [
 
 // Complete validation schema for final submission
 const completeValidationSchema = Yup.object({
-  title: Yup.string().required('Job title is required'),
   department: Yup.string().required('Department is required'),
   location: Yup.string().required('Location is required'),
   position: Yup.string().required('Position is required'),
@@ -79,8 +81,10 @@ const completeValidationSchema = Yup.object({
 const JobPostingForm = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
-  const isEditing = Boolean(id);
+  const isViewMode = Boolean(id) && !location.pathname.endsWith('/edit');
+  const isEditing = Boolean(id) && location.pathname.endsWith('/edit');
   
   // State
   const [loading, setLoading] = useState(false);
@@ -91,6 +95,16 @@ const JobPostingForm = () => {
   const [positions, setPositions] = useState([]);
   const [activeStep, setActiveStep] = useState(0);
   const [editData, setEditData] = useState(null);
+  const [positionDialogOpen, setPositionDialogOpen] = useState(false);
+  const [locationDialogOpen, setLocationDialogOpen] = useState(false);
+  const [newPositionTitle, setNewPositionTitle] = useState('');
+  const [newLocationName, setNewLocationName] = useState('');
+  const [positionDialogError, setPositionDialogError] = useState('');
+  const [locationDialogError, setLocationDialogError] = useState('');
+  const [creatingPosition, setCreatingPosition] = useState(false);
+  const [creatingLocation, setCreatingLocation] = useState(false);
+  const ADD_NEW_POSITION_VALUE = '__add_new_position__';
+  const ADD_NEW_LOCATION_VALUE = '__add_new_location__';
 
   // Steps for the form
   const steps = ['Basic Information', 'Job Details', 'Application Details'];
@@ -150,14 +164,12 @@ const JobPostingForm = () => {
       
       // Format the data for the form
       const formattedData = {
-        title: response.data.title || '',
         department: response.data.department?._id || response.data.department || '',
         position: response.data.position?._id || response.data.position || '',
         location: response.data.location?._id || response.data.location || '',
         description: response.data.description || '',
-        requirements: response.data.requirements || '',
         responsibilities: response.data.responsibilities || '',
-        qualifications: response.data.qualifications || '',
+        qualificationExperience: response.data.qualificationExperience || '',
         employmentType: response.data.employmentType || '',
         experienceLevel: response.data.experienceLevel || '',
         educationLevel: response.data.educationLevel || '',
@@ -189,18 +201,21 @@ const JobPostingForm = () => {
 
   // Handle form submission
   const handleSubmit = async (values, { setSubmitting }) => {
+    if (isViewMode) {
+      setSubmitting(false);
+      return;
+    }
+
     setLoading(true);
     try {
       // Format data for API
       const jobPostingData = {
-        title: values.title,
         department: values.department,
         position: values.position,
         location: values.location,
         description: values.description || 'Job description',
-        requirements: values.requirements || 'Requirements will be specified',
         responsibilities: values.responsibilities || 'Responsibilities will be specified',
-        qualifications: values.qualifications || 'Qualifications will be specified',
+        qualificationExperience: values.qualificationExperience || 'Qualification & experience will be specified',
         employmentType: values.employmentType,
         experienceLevel: values.experienceLevel,
         educationLevel: values.educationLevel,
@@ -267,7 +282,7 @@ const JobPostingForm = () => {
     if (!departmentId) return;
     
     try {
-      const response = await fetch(`/api/hr/positions/${departmentId}`, {
+      const response = await fetch(`/api/positions?department=${departmentId}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -283,18 +298,136 @@ const JobPostingForm = () => {
     }
   };
 
+  const openPositionDialog = () => {
+    setPositionDialogError('');
+    setNewPositionTitle('');
+    setPositionDialogOpen(true);
+  };
+
+  const closePositionDialog = () => {
+    if (creatingPosition) return;
+    setPositionDialogOpen(false);
+    setPositionDialogError('');
+  };
+
+  const openLocationDialog = () => {
+    setLocationDialogError('');
+    setNewLocationName('');
+    setLocationDialogOpen(true);
+  };
+
+  const closeLocationDialog = () => {
+    if (creatingLocation) return;
+    setLocationDialogOpen(false);
+    setLocationDialogError('');
+  };
+
+  const handleCreatePosition = async (departmentId, setFieldValue) => {
+    if (!departmentId) {
+      setSnackbar({
+        open: true,
+        message: 'Please select a department before adding a new position',
+        severity: 'warning'
+      });
+      return;
+    }
+
+    const title = newPositionTitle.trim();
+    if (!title) {
+      setPositionDialogError('Position title is required');
+      return;
+    }
+
+    setCreatingPosition(true);
+    try {
+      const response = await fetch('/api/positions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          title,
+          department: departmentId
+        })
+      });
+
+      const responseData = await response.json();
+      if (!response.ok || !responseData?.success) {
+        throw new Error(responseData?.message || 'Failed to create position');
+      }
+
+      await handleDepartmentChange(departmentId, setFieldValue);
+      if (responseData?.data?._id) {
+        setFieldValue('position', responseData.data._id);
+      }
+      setPositionDialogOpen(false);
+      setSnackbar({
+        open: true,
+        message: 'Position added successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setPositionDialogError(error.message || 'Error adding position');
+    } finally {
+      setCreatingPosition(false);
+    }
+  };
+
+  const handleCreateLocation = async (setFieldValue) => {
+    const name = newLocationName.trim();
+    if (!name) {
+      setLocationDialogError('Location name is required');
+      return;
+    }
+
+    setCreatingLocation(true);
+    try {
+      const response = await fetch('/api/hr/locations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          name,
+          type: 'Office'
+        })
+      });
+
+      const responseData = await response.json();
+      if (!response.ok || !responseData?.success) {
+        throw new Error(responseData?.message || 'Failed to create location');
+      }
+
+      await loadDropdownData();
+      if (responseData?.data?._id) {
+        setFieldValue('location', responseData.data._id);
+      }
+      setLocationDialogOpen(false);
+      setSnackbar({
+        open: true,
+        message: 'Location added successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setLocationDialogError(error.message || 'Error adding location');
+    } finally {
+      setCreatingLocation(false);
+    }
+  };
+
   // Check if current step is valid
   const isCurrentStepValid = (values, errors) => {
     if (activeStep === 0) {
       // Step 1: Basic Information
-      const hasTitle = values.title && values.title.trim() !== '';
       const hasDepartment = values.department && values.department.trim() !== '';
       const hasLocation = values.location && values.location.trim() !== '';
       const hasPosition = values.position && values.position.trim() !== '';
       const hasNumberOfPositions = values.numberOfPositions && values.numberOfPositions > 0;
       
 
-      return hasTitle && hasDepartment && hasLocation && hasPosition && hasNumberOfPositions;
+      return hasDepartment && hasLocation && hasPosition && hasNumberOfPositions;
     }
     
     if (activeStep === 1) {
@@ -320,16 +453,14 @@ const JobPostingForm = () => {
 
   // Initial values
   const initialValues = {
-    title: '',
     department: '',
     location: '',
     position: '',
     employmentType: '',
     experienceLevel: '',
     educationLevel: '',
-    requirements: '',
     responsibilities: '',
-    qualifications: '',
+    qualificationExperience: '',
     applicationDeadline: '',
     numberOfPositions: 1,
     isRemote: false,
@@ -357,11 +488,20 @@ const JobPostingForm = () => {
             Back
           </Button>
           <Typography variant="h4" sx={{ color: theme.palette.primary.main, fontWeight: 'bold' }}>
-            {isEditing ? 'Edit Job Posting' : 'Create Job Posting'}
+            {isViewMode ? 'View Job Posting' : (isEditing ? 'Edit Job Posting' : 'Create Job Posting')}
           </Typography>
+          {isViewMode && (
+            <Button
+              variant="contained"
+              sx={{ ml: 2 }}
+              onClick={() => navigate(`/hr/talent-acquisition/job-postings/${id}/edit`)}
+            >
+              Edit
+            </Button>
+          )}
         </Box>
         <Typography variant="body1" color="text.secondary">
-          {isEditing ? 'Update job posting details' : 'Create a new job posting'}
+          {isViewMode ? 'Review job posting details' : (isEditing ? 'Update job posting details' : 'Create a new job posting')}
         </Typography>
       </Box>
 
@@ -389,9 +529,10 @@ const JobPostingForm = () => {
           <Form>
             <Card>
               <CardContent>
-                {/* Step 1: Basic Information */}
-                {activeStep === 0 && (
-                  <Box>
+                <Box component="fieldset" disabled={isViewMode} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
+                  {/* Step 1: Basic Information */}
+                  {activeStep === 0 && (
+                    <Box>
                     <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main }}>
                       <Work sx={{ mr: 1, verticalAlign: 'middle' }} />
                       Basic Information
@@ -399,19 +540,6 @@ const JobPostingForm = () => {
                     <Divider sx={{ mb: 3 }} />
                     
                     <Grid container spacing={3}>
-                      <Grid item xs={12} md={8}>
-                        <TextField
-                          fullWidth
-                          name="title"
-                          label="Job Title"
-                          value={values.title}
-                          onChange={handleChange}
-                          onBlur={handleBlur}
-                          error={touched.title && Boolean(errors.title)}
-                          helperText={touched.title && errors.title}
-                          placeholder="e.g., Senior Software Engineer"
-                        />
-                      </Grid>
                       <Grid item xs={12} md={4}>
                         <TextField
                           fullWidth
@@ -456,7 +584,14 @@ const JobPostingForm = () => {
                           <Select
                             name="location"
                             value={values.location}
-                            onChange={handleChange}
+                            onChange={(e) => {
+                              const selectedValue = e.target.value;
+                              if (selectedValue === ADD_NEW_LOCATION_VALUE) {
+                                openLocationDialog();
+                                return;
+                              }
+                              handleChange(e);
+                            }}
                             onBlur={handleBlur}
                             label="Location"
                           >
@@ -465,6 +600,10 @@ const JobPostingForm = () => {
                                 {loc.name}
                               </MenuItem>
                             ))}
+                            <Divider />
+                            <MenuItem value={ADD_NEW_LOCATION_VALUE} sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
+                              + Add New Location
+                            </MenuItem>
                           </Select>
                           {touched.location && errors.location && (
                             <FormHelperText>{errors.location}</FormHelperText>
@@ -478,7 +617,22 @@ const JobPostingForm = () => {
                           <Select
                             name="position"
                             value={values.position}
-                            onChange={handleChange}
+                            onChange={(e) => {
+                              const selectedValue = e.target.value;
+                              if (selectedValue === ADD_NEW_POSITION_VALUE) {
+                                if (!values.department) {
+                                  setSnackbar({
+                                    open: true,
+                                    message: 'Please select a department before adding a new position',
+                                    severity: 'warning'
+                                  });
+                                  return;
+                                }
+                                openPositionDialog();
+                                return;
+                              }
+                              handleChange(e);
+                            }}
                             onBlur={handleBlur}
                             label="Position"
                           >
@@ -487,6 +641,10 @@ const JobPostingForm = () => {
                                 {pos.title}
                               </MenuItem>
                             ))}
+                            <Divider />
+                            <MenuItem value={ADD_NEW_POSITION_VALUE} sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
+                              + Add New Position
+                            </MenuItem>
                           </Select>
                           {touched.position && errors.position && (
                             <FormHelperText>{errors.position}</FormHelperText>
@@ -508,12 +666,12 @@ const JobPostingForm = () => {
                         />
                       </Grid>
                     </Grid>
-                  </Box>
-                )}
+                    </Box>
+                  )}
 
-                {/* Step 2: Job Details */}
-                {activeStep === 1 && (
-                  <Box>
+                  {/* Step 2: Job Details */}
+                  {activeStep === 1 && (
+                    <Box>
                     <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main }}>
                       <Description sx={{ mr: 1, verticalAlign: 'middle' }} />
                       Job Details
@@ -594,20 +752,6 @@ const JobPostingForm = () => {
                       <Grid item xs={12}>
                         <TextField
                           fullWidth
-                          name="requirements"
-                          label="Requirements"
-                          multiline
-                          rows={3}
-                          value={values.requirements}
-                          onChange={handleChange}
-                          onBlur={handleBlur}
-                          placeholder="List the key requirements for this position..."
-                        />
-                      </Grid>
-                      
-                      <Grid item xs={12}>
-                        <TextField
-                          fullWidth
                           name="responsibilities"
                           label="Responsibilities"
                           multiline
@@ -622,23 +766,23 @@ const JobPostingForm = () => {
                       <Grid item xs={12}>
                         <TextField
                           fullWidth
-                          name="qualifications"
-                          label="Qualifications"
+                          name="qualificationExperience"
+                          label="Qualification&Experience"
                           multiline
                           rows={3}
-                          value={values.qualifications}
+                          value={values.qualificationExperience}
                           onChange={handleChange}
                           onBlur={handleBlur}
-                          placeholder="List preferred qualifications..."
+                          placeholder="List required qualification and relevant experience..."
                         />
                       </Grid>
                     </Grid>
-                  </Box>
-                )}
+                    </Box>
+                  )}
 
-                {/* Step 3: Application Details */}
-                {activeStep === 2 && (
-                  <Box>
+                  {/* Step 3: Application Details */}
+                  {activeStep === 2 && (
+                    <Box>
                     <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main }}>
                       <Schedule sx={{ mr: 1, verticalAlign: 'middle' }} />
                       Application Details
@@ -677,8 +821,9 @@ const JobPostingForm = () => {
                         </FormControl>
                       </Grid>
                     </Grid>
-                  </Box>
-                )}
+                    </Box>
+                  )}
+                </Box>
 
                 {/* Navigation Buttons */}
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
@@ -695,7 +840,7 @@ const JobPostingForm = () => {
                       <Button
                         type="submit"
                         variant="contained"
-                        disabled={loading || !isValid}
+                        disabled={isViewMode || loading || !isValid}
                         startIcon={loading ? <CircularProgress size={20} /> : <Save />}
                       >
                         {loading ? 'Saving...' : (isEditing ? 'Update Job Posting' : 'Create Job Posting')}
@@ -704,7 +849,7 @@ const JobPostingForm = () => {
                       <Button
                         variant="contained"
                         onClick={() => handleNext(values, { setFieldError, setTouched })}
-                        disabled={!isCurrentStepValid(values, errors)}
+                        disabled={isViewMode ? false : !isCurrentStepValid(values, errors)}
                       >
                         Next
                       </Button>
@@ -715,6 +860,71 @@ const JobPostingForm = () => {
 
               </CardContent>
             </Card>
+            {/* Add Position Dialog */}
+            <Dialog open={positionDialogOpen} onClose={closePositionDialog} fullWidth maxWidth="xs">
+              <DialogTitle>Add New Position</DialogTitle>
+              <DialogContent>
+                <TextField
+                  autoFocus
+                  margin="dense"
+                  fullWidth
+                  label="Position Title"
+                  value={newPositionTitle}
+                  onChange={(e) => {
+                    setNewPositionTitle(e.target.value);
+                    if (positionDialogError) setPositionDialogError('');
+                  }}
+                  error={Boolean(positionDialogError)}
+                  helperText={positionDialogError || ' '}
+                />
+              </DialogContent>
+              <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button onClick={closePositionDialog} disabled={creatingPosition}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => handleCreatePosition(values.department, setFieldValue)}
+                  disabled={creatingPosition}
+                  startIcon={creatingPosition ? <CircularProgress size={16} /> : null}
+                >
+                  {creatingPosition ? 'Saving...' : 'Save'}
+                </Button>
+              </DialogActions>
+            </Dialog>
+
+            {/* Add Location Dialog */}
+            <Dialog open={locationDialogOpen} onClose={closeLocationDialog} fullWidth maxWidth="xs">
+              <DialogTitle>Add New Location</DialogTitle>
+              <DialogContent>
+                <TextField
+                  autoFocus
+                  margin="dense"
+                  fullWidth
+                  label="Location Name"
+                  value={newLocationName}
+                  onChange={(e) => {
+                    setNewLocationName(e.target.value);
+                    if (locationDialogError) setLocationDialogError('');
+                  }}
+                  error={Boolean(locationDialogError)}
+                  helperText={locationDialogError || ' '}
+                />
+              </DialogContent>
+              <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button onClick={closeLocationDialog} disabled={creatingLocation}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => handleCreateLocation(setFieldValue)}
+                  disabled={creatingLocation}
+                  startIcon={creatingLocation ? <CircularProgress size={16} /> : null}
+                >
+                  {creatingLocation ? 'Saving...' : 'Save'}
+                </Button>
+              </DialogActions>
+            </Dialog>
           </Form>
         )}
       </Formik>

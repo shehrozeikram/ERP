@@ -21,6 +21,26 @@ const paymentSettlementService = {
     }
   },
 
+  getApproverCandidates: async (params = {}) => {
+    const response = await api.get('/payment-settlements/approver-candidates', { params });
+    return response.data;
+  },
+
+  submitPaymentSettlement: async (id, body = {}) => {
+    const response = await api.post(`/payment-settlements/${id}/submit`, body);
+    return response.data;
+  },
+
+  approveAuthority: async (id, body = {}) => {
+    const response = await api.post(`/payment-settlements/${id}/approve-authority`, body);
+    return response.data;
+  },
+
+  rejectAuthority: async (id, rejectionReason) => {
+    const response = await api.post(`/payment-settlements/${id}/reject-authority`, { rejectionReason });
+    return response.data;
+  },
+
   // Create new payment settlement
   createPaymentSettlement: async (settlementData, attachments = []) => {
     try {

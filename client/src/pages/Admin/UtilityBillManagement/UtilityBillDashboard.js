@@ -164,6 +164,19 @@ const UtilityBillDashboard = () => {
     }
   };
 
+  const getWorkflowLabel = (bill) => {
+    if (bill.auditStatus && bill.auditStatus !== 'Not Sent') return bill.auditStatus;
+    return bill.approvalStatus || 'Draft';
+  };
+
+  const getWorkflowColor = (bill) => {
+    const label = getWorkflowLabel(bill);
+    if (label.includes('Approved')) return 'success';
+    if (label === 'Send to Audit' || label === 'Forwarded to Audit Director' || label === 'Submitted') return 'warning';
+    if (label.includes('Rejected') || label === 'Returned from Audit') return 'error';
+    return 'default';
+  };
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
@@ -361,7 +374,7 @@ const UtilityBillDashboard = () => {
                 InputProps={{
                   startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
                 }}
-                placeholder="Search by bill ID, provider, account..."
+                placeholder="Search by bill ID, site, provider, department..."
               />
             </Grid>
             <Grid item xs={12} md={3}>
@@ -420,84 +433,99 @@ const UtilityBillDashboard = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>Bill ID</TableCell>
+                  <TableCell>Site</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Provider</TableCell>
+                  <TableCell>Department</TableCell>
+                  <TableCell>Custodian</TableCell>
                   <TableCell>Amount</TableCell>
                   <TableCell>Paid</TableCell>
                   <TableCell>Status</TableCell>
+                  <TableCell>Workflow Status</TableCell>
                   <TableCell>Due Date</TableCell>
                   <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {bills.map((bill) => (
-                  <TableRow key={bill._id}>
-                    <TableCell>{bill.billId}</TableCell>
-                    <TableCell>{bill.utilityType}</TableCell>
-                    <TableCell>{bill.provider}</TableCell>
-                    <TableCell>{formatCurrency(bill.amount)}</TableCell>
-                    <TableCell>{formatCurrency(bill.paidAmount)}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={bill.status}
-                        color={getStatusColor(bill.status)}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>{formatDate(bill.dueDate)}</TableCell>
-                    <TableCell>
-                      <Box display="flex" gap={1}>
-                        <Tooltip title="View Details">
-                          <IconButton
+                      <TableRow key={bill._id}>
+                        <TableCell>{bill.billId}</TableCell>
+                        <TableCell>{bill.site || 'N/A'}</TableCell>
+                        <TableCell>{bill.utilityType}</TableCell>
+                        <TableCell>{bill.provider}</TableCell>
+                        <TableCell>{bill.department || 'N/A'}</TableCell>
+                        <TableCell>{bill.custodian || 'N/A'}</TableCell>
+                        <TableCell>{formatCurrency(bill.amount)}</TableCell>
+                        <TableCell>{formatCurrency(bill.paidAmount)}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={bill.status}
+                            color={getStatusColor(bill.status)}
                             size="small"
-                            onClick={() => navigate(`/admin/utility-bills/${bill._id}`)}
-                          >
-                            <ViewIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Edit Bill">
-                          <IconButton
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={getWorkflowLabel(bill)}
+                            color={getWorkflowColor(bill)}
                             size="small"
-                            onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Record Payment">
-                          <IconButton
-                            size="small"
-                            color="success"
-                            onClick={() => {
-                              setSelectedBill(bill);
-                              setPaymentData({
-                                paidAmount: bill.amount - bill.paidAmount,
-                                paymentMethod: '',
-                                paymentDate: new Date().toISOString().split('T')[0]
-                              });
-                              setPaymentDialog(true);
-                            }}
-                          >
-                            <PaymentIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete Bill">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => {
-                              if (window.confirm('Are you sure you want to delete this utility bill?')) {
-                                utilityBillService.deleteUtilityBill(bill._id)
-                                  .then(() => fetchData())
-                                  .catch(err => setError('Failed to delete utility bill'));
-                              }
-                            }}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell>{formatDate(bill.dueDate)}</TableCell>
+                        <TableCell>
+                          <Box display="flex" gap={1}>
+                            <Tooltip title="View Details">
+                              <IconButton
+                                size="small"
+                                onClick={() => navigate(`/admin/utility-bills/${bill._id}`)}
+                              >
+                                <ViewIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Edit Bill">
+                              <IconButton
+                                size="small"
+                                onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}
+                              >
+                                <EditIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Record Payment">
+                              <IconButton
+                                size="small"
+                                color="success"
+                                onClick={() => {
+                                  setSelectedBill(bill);
+                                  setPaymentData({
+                                    paidAmount: bill.amount - bill.paidAmount,
+                                    paymentMethod: '',
+                                    paymentDate: new Date().toISOString().split('T')[0]
+                                  });
+                                  setPaymentDialog(true);
+                                }}
+                              >
+                                <PaymentIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete Bill">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  if (window.confirm('Are you sure you want to delete this utility bill?')) {
+                                    utilityBillService.deleteUtilityBill(bill._id)
+                                      .then(() => fetchData())
+                                      .catch(err => setError('Failed to delete utility bill'));
+                                  }
+                                }}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
                 ))}
               </TableBody>
             </Table>
@@ -551,6 +579,7 @@ const UtilityBillDashboard = () => {
           <Button onClick={handlePaymentSubmit} variant="contained">Record Payment</Button>
         </DialogActions>
       </Dialog>
+
     </Box>
   );
 };

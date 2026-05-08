@@ -117,6 +117,12 @@ const userSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  /** Uploaded image path for approval stamp usage in audit actions */
+  approvalStamp: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   lastLogin: {
     type: Date
   },
@@ -241,6 +247,7 @@ userSchema.methods.getProfile = function() {
     profileImage: this.profileImage,
     canAssignProcurementTasks: this.canAssignProcurementTasks,
     digitalSignature: this.digitalSignature,
+    approvalStamp: this.approvalStamp,
     lastLogin: this.lastLogin,
     permissions: this.permissions,
     createdAt: this.createdAt,

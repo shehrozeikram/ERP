@@ -41,6 +41,11 @@ const rentalManagementSchema = new mongoose.Schema({
     required: [true, 'Date is required'],
     trim: true
   },
+  referenceNumber: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Reference number cannot exceed 100 characters']
+  },
   toWhomPaid: {
     type: String,
     trim: true,
@@ -149,7 +154,78 @@ const rentalManagementSchema = new mongoose.Schema({
     type: String,
     enum: ['Draft', 'Submitted', 'Approved', 'Rejected', 'Paid'],
     default: 'Draft'
-  }
+  },
+  approvalStatus: {
+    type: String,
+    enum: ['Draft', 'Submitted', 'Approved', 'Rejected'],
+    default: 'Draft',
+    index: true
+  },
+  approvalChain: [{
+    approver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    actedAt: {
+      type: Date
+    },
+    comment: {
+      type: String,
+      trim: true
+    }
+  }],
+  draftApproverIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  approvedByUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  approvedAt: {
+    type: Date
+  },
+  rejectedByUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  rejectedAt: {
+    type: Date
+  },
+  rejectionReason: {
+    type: String,
+    trim: true
+  },
+  workflowStatus: {
+    type: String,
+    default: 'Draft',
+    index: true
+  },
+  observations: [{
+    observation: { type: String, trim: true },
+    severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    addedAt: { type: Date, default: Date.now },
+    answer: { type: String, trim: true },
+    answeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    answeredAt: { type: Date },
+    resolved: { type: Boolean, default: false }
+  }],
+  workflowHistory: [{
+    fromStatus: String,
+    toStatus: String,
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedAt: { type: Date, default: Date.now },
+    comments: String,
+    stampUsed: { type: Boolean, default: false },
+    stampImage: { type: String, trim: true }
+  }]
 }, {
   timestamps: true
 });
@@ -158,6 +234,8 @@ const rentalManagementSchema = new mongoose.Schema({
 rentalManagementSchema.index({ parentCompanyName: 1 });
 rentalManagementSchema.index({ subsidiaryName: 1 });
 rentalManagementSchema.index({ status: 1 });
+rentalManagementSchema.index({ approvalStatus: 1 });
+rentalManagementSchema.index({ workflowStatus: 1 });
 rentalManagementSchema.index({ createdAt: -1 });
 
 // Virtual fields for formatted amounts

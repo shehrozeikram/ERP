@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -33,7 +33,8 @@ import {
   DialogContent,
   DialogActions,
   DialogContentText,
-  Avatar
+  Avatar,
+  LinearProgress
 } from '@mui/material';
 import {
   Add,
@@ -76,6 +77,7 @@ const Applications = () => {
     jobPosting: '',
     candidate: ''
   });
+  const hasInitializedSearch = useRef(false);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, application: null });
 
   // Load applications
@@ -142,6 +144,11 @@ const Applications = () => {
 
   // Debounced search effect
   useEffect(() => {
+    if (!hasInitializedSearch.current) {
+      hasInitializedSearch.current = true;
+      return;
+    }
+
     const timeoutId = setTimeout(() => {
       if (filters.search !== undefined) {
         loadApplications();
@@ -287,14 +294,6 @@ const Applications = () => {
     return `${days} days ago`;
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   return (
     <Container maxWidth="xl">
       {/* Header */}
@@ -417,6 +416,9 @@ const Applications = () => {
           </Grid>
         </CardContent>
       </Card>
+      {loading && (
+        <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />
+      )}
 
       {/* Applications Table */}
       <Card>

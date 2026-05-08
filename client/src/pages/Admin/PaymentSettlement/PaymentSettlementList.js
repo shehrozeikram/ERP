@@ -45,7 +45,6 @@ import {
   Person as PersonIcon,
   Assignment as AssignmentIcon,
   CheckCircle as CheckCircleIcon,
-  Schedule as ScheduleIcon,
   AttachMoney as AttachMoneyIcon,
   AttachFile as AttachFileIcon,
   ArrowForward as ArrowForwardIcon,
@@ -61,6 +60,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
+import { getImageUrl } from '../../../utils/imageService';
 
 const PaymentSettlementList = () => {
   const navigate = useNavigate();
@@ -81,15 +81,6 @@ const PaymentSettlementList = () => {
   const [subsidiaryFilter, setSubsidiaryFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   
-  // Workflow status dialog
-  const [workflowStatusDialog, setWorkflowStatusDialog] = useState({ 
-    open: false, 
-    settlement: null,
-    workflowStatus: '',
-    comments: '',
-    observationAnswers: {} // Map of observationId -> answer
-  });
-  
   // Dialog state
   const [deleteDialog, setDeleteDialog] = useState({ open: false, settlement: null });
   const [viewDialog, setViewDialog] = useState({ open: false, settlement: null });
@@ -102,25 +93,28 @@ const PaymentSettlementList = () => {
   const workflowStatusOptions = [
     { value: '', label: 'All Workflow Statuses' },
     { value: 'Draft', label: 'Draft' },
-    { value: 'Active', label: 'Active' },
-    { value: 'Send to AM Admin', label: 'Send to AM Admin' },
-    { value: 'Send to HOD Admin', label: 'Send to HOD Admin' },
+    { value: 'Submitted', label: 'Submitted' },
+    { value: 'Approved', label: 'Approved' },
+    { value: 'Rejected', label: 'Rejected' },
     { value: 'Send to Audit', label: 'Send to Audit' },
-    { value: 'Send to Finance', label: 'Send to Finance' },
-    { value: 'Send to CEO Office', label: 'Send to CEO Office' }
+    { value: 'Forwarded to Audit Director', label: 'Forwarded to Audit Director' },
+    { value: 'Approved (from Send to Audit)', label: 'Approved (from Send to Audit)' },
+    { value: 'Approved (from Forwarded to Audit Director)', label: 'Approved (from Forwarded to Audit Director)' },
+    { value: 'Returned from Audit', label: 'Returned from Audit' },
+    { value: 'Rejected (from Send to Audit)', label: 'Rejected (from Send to Audit)' }
   ];
 
-  const getWorkflowStatusColor = (workflowStatus) => {
-    const colors = {
-      'Draft': 'default',
-      'Active': 'info',
-      'Send to AM Admin': 'warning',
-      'Send to HOD Admin': 'warning',
-      'Send to Audit': 'info',
-      'Send to Finance': 'primary',
-      'Send to CEO Office': 'success'
-    };
-    return colors[workflowStatus] || 'default';
+  const getWorkflowLabel = (settlement) => {
+    if (settlement?.workflowStatus && settlement.workflowStatus !== 'Draft') return settlement.workflowStatus;
+    return settlement?.approvalStatus || 'Draft';
+  };
+
+  const getWorkflowStatusColor = (settlement) => {
+    const label = getWorkflowLabel(settlement);
+    if (label.includes('Approved')) return 'success';
+    if (label === 'Send to Audit' || label === 'Forwarded to Audit Director' || label === 'Submitted') return 'warning';
+    if (label.includes('Rejected') || label === 'Returned from Audit') return 'error';
+    return 'default';
   };
 
   const loadSettlements = useCallback(async () => {
@@ -198,44 +192,6 @@ const PaymentSettlementList = () => {
     setPage(0);
   };
 
-  const handleWorkflowStatusChange = async () => {
-    if (!workflowStatusDialog.settlement || !workflowStatusDialog.workflowStatus) {
-      return;
-    }
-
-    try {
-      const payload = {
-        workflowStatus: workflowStatusDialog.workflowStatus,
-        comments: workflowStatusDialog.comments || ''
-      };
-
-      // If resubmitting from "Returned from Audit" to "Send to Audit", include observation answers
-      if (workflowStatusDialog.settlement.workflowStatus === 'Returned from Audit' && 
-          workflowStatusDialog.workflowStatus === 'Send to Audit' &&
-          workflowStatusDialog.settlement.observations &&
-          workflowStatusDialog.settlement.observations.length > 0) {
-        const observationAnswers = Object.entries(workflowStatusDialog.observationAnswers)
-          .filter(([_, answer]) => answer && answer.trim())
-          .map(([observationId, answer]) => ({
-            observationId,
-            answer: answer.trim()
-          }));
-        payload.observationAnswers = observationAnswers;
-      }
-
-      await paymentSettlementService.updateWorkflowStatus(
-        workflowStatusDialog.settlement._id,
-        payload
-      );
-      toast.success('Workflow status updated successfully');
-      setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '', observationAnswers: {} });
-      loadSettlements();
-      loadStats();
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to update workflow status');
-    }
-  };
-
   const handleDelete = async (settlement) => {
     try {
       await paymentSettlementService.deletePaymentSettlement(settlement._id);
@@ -266,6 +222,118 @@ const PaymentSettlementList = () => {
       return `${day}-${month}-${year}`;
     } catch {
       return dateString;
+    }
+  };
+
+  const formatDateTime = (date) => {
+    if (!date) return '';
+    return new Date(date).toLocaleString('en-PK', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const userDisplayName = (userObj) => {
+    if (!userObj) return '';
+    return [userObj.firstName, userObj.lastName].filter(Boolean).join(' ').trim() || userObj.email || userObj.employeeId || '';
+  };
+  const getUserId = (value) => {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    return String(value._id || value.id || value.userId || '');
+  };
+  const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
+
+  const getApprovalRows = (settlement) => {
+    const chain = settlement?.approvalChain || [];
+    const workflowHistory = settlement?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findLatestByToStatus = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const findPreferredAuditEntry = (accepted = []) => {
+      const entries = history.filter((entry) => {
+        const toStatus = normalize(entry?.toStatus);
+        return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+      });
+      return entries.find((e) => e?.stampUsed && e?.stampImage)
+        || entries.find((e) => e?.changedBy?.digitalSignature)
+        || entries[0];
+    };
+    const preAuditActorEntry = findPreferredAuditEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorApproval = findLatestByToStatus(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+
+    return [
+      { authority: 'Sig of Requester', name: userDisplayName(settlement?.createdBy), signatureUser: settlement?.createdBy, dateTime: formatDateTime(settlement?.createdAt) },
+      { authority: 'Manager Approver', name: userDisplayName(chain[0]?.approver), signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null, dateTime: chain[0]?.status === 'approved' ? formatDateTime(chain[0]?.actedAt) : '' },
+      { authority: 'Head Of Department Approver', name: userDisplayName(chain[1]?.approver), signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null, dateTime: chain[1]?.status === 'approved' ? formatDateTime(chain[1]?.actedAt) : '' },
+      { authority: 'Pre-Audit Authority', name: userDisplayName(preAuditActorEntry?.changedBy), signatureUser: preAuditActorEntry?.changedBy || null, signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage ? preAuditActorEntry.stampImage : preAuditActorEntry?.changedBy?.digitalSignature || '', dateTime: formatDateTime(preAuditActorEntry?.changedAt) },
+      { authority: 'Audit Director', name: userDisplayName(directorApproval?.changedBy), signatureUser: directorApproval?.changedBy || null, signaturePath: directorApproval?.stampUsed && directorApproval?.stampImage ? directorApproval.stampImage : directorApproval?.changedBy?.digitalSignature || '', dateTime: formatDateTime(directorApproval?.changedAt) }
+    ];
+  };
+  const getStampRows = (settlement) => {
+    const workflowHistory = settlement?.workflowHistory || [];
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+    const findStampedEntry = (accepted = []) => history.find((entry) => {
+      const toStatus = normalize(entry?.toStatus);
+      return (entry?.stampUsed && entry?.stampImage)
+        && accepted.some((status) => toStatus === status || toStatus.startsWith(status));
+    });
+    const preAuditStamp = findStampedEntry(['forwarded to audit director', 'initial audit approval']);
+    const directorStamp = findStampedEntry(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
+    return [
+      { authority: 'Pre-Audit Authority Stamp', stampImage: preAuditStamp?.stampImage || '', dateTime: formatDateTime(preAuditStamp?.changedAt) },
+      { authority: 'Audit Director Stamp', stampImage: directorStamp?.stampImage || '', dateTime: formatDateTime(directorStamp?.changedAt) }
+    ].filter((row) => row.stampImage);
+  };
+
+  const handleSubmitForApproval = async () => {
+    try {
+      const settlement = viewDialog.settlement;
+      const chain = settlement?.approvalChain || [];
+      const approverIds = chain.map((step) => getUserId(step.approver)).filter(Boolean);
+      if (approverIds.length !== 2) {
+        toast.error('Please edit settlement and select Manager/HOD approvers first');
+        return;
+      }
+      await paymentSettlementService.submitPaymentSettlement(settlement._id, { approverIds });
+      toast.success('Payment settlement submitted for approval');
+      setViewDialog({ open: false, settlement: null });
+      loadSettlements();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to submit settlement');
+    }
+  };
+
+  const handleApproveAuthority = async () => {
+    try {
+      await paymentSettlementService.approveAuthority(viewDialog.settlement._id);
+      toast.success('Payment settlement approved');
+      const refreshed = await paymentSettlementService.getPaymentSettlement(viewDialog.settlement._id);
+      setViewDialog({ open: true, settlement: refreshed.data });
+      loadSettlements();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to approve settlement');
+    }
+  };
+
+  const handleRejectAuthority = async () => {
+    const reason = window.prompt('Please enter rejection reason:');
+    if (!reason) return;
+    try {
+      await paymentSettlementService.rejectAuthority(viewDialog.settlement._id, reason);
+      toast.success('Payment settlement rejected');
+      const refreshed = await paymentSettlementService.getPaymentSettlement(viewDialog.settlement._id);
+      setViewDialog({ open: true, settlement: refreshed.data });
+      loadSettlements();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to reject settlement');
     }
   };
 
@@ -879,9 +947,10 @@ const PaymentSettlementList = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={settlement.workflowStatus || 'Draft'}
-                        color={getWorkflowStatusColor(settlement.workflowStatus || 'Draft')}
+                        label={getWorkflowLabel(settlement)}
+                        color={getWorkflowStatusColor(settlement)}
                         size="small"
+                        variant="outlined"
                       />
                     </TableCell>
                     <TableCell>
@@ -894,34 +963,6 @@ const PaymentSettlementList = () => {
                             <ViewIcon />
                           </IconButton>
                         </Tooltip>
-                        {(user?.role === 'super_admin' || user?.role === 'developer' || user?.role === 'admin' || user?.role === 'higher_management') && (
-                          <Tooltip title="Change Workflow Status">
-                            <IconButton
-                              size="small"
-                              onClick={() => {
-                                // Initialize observation answers if document has observations
-                                const observationAnswers = {};
-                                if (settlement.observations && settlement.observations.length > 0) {
-                                  settlement.observations.forEach(obs => {
-                                    if (obs.answer) {
-                                      observationAnswers[obs._id] = obs.answer;
-                                    }
-                                  });
-                                }
-                                setWorkflowStatusDialog({ 
-                                  open: true, 
-                                  settlement,
-                                  workflowStatus: settlement.workflowStatus || 'Draft',
-                                  comments: '',
-                                  observationAnswers
-                                });
-                              }}
-                              color="primary"
-                            >
-                              <ScheduleIcon />
-                            </IconButton>
-                          </Tooltip>
-                        )}
                         <Tooltip title="Edit">
                           <IconButton
                             size="small"
@@ -998,285 +1039,252 @@ const PaymentSettlementList = () => {
         <DialogContent sx={{ p: 0, background: '#ffffff' }}>
           {viewDialog.settlement && (
             <Box sx={{ 
-              p: 4, 
+              maxWidth: 1050,
+              mx: 'auto',
+              p: { xs: 2.25, md: 5 },
               background: '#ffffff',
-              fontFamily: '"Times New Roman", serif'
+              color: '#151515',
+              borderRadius: 1.5,
+              border: '1px solid',
+              borderColor: 'grey.200',
+              fontFamily: 'Georgia, "Times New Roman", serif'
             }}>
               {/* Document Header */}
               <Box sx={{ 
-                mb: 3, 
-                borderBottom: '2px solid #000',
-                pb: 2
+                textAlign: 'center',
+                lineHeight: 1.12,
+                mb: 2.5,
+                pb: 1.75,
+                borderBottom: '1px solid',
+                borderColor: 'grey.200'
               }}>
                 <Typography variant="h5" sx={{ 
-                  fontWeight: 700, 
-                  textAlign: 'center',
-                  mb: 3,
-                  fontSize: '24px',
-                  letterSpacing: '1px'
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.6,
+                  fontSize: { xs: 17, md: 19 },
+                  mb: 0.5
                 }}>
                   {viewDialog.settlement.parentCompanyName || 'PAYMENT SETTLEMENT'}
                 </Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, fontSize: { xs: 15, md: 17 } }}>
+                  {viewDialog.settlement.subsidiaryName || 'Payment Settlement'}
+                </Typography>
+              </Box>
                 
-                <Grid container spacing={2} sx={{ mb: 2 }}>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      SITE:
-                    </Typography>
-                    <Typography variant="body2">
-                      {viewDialog.settlement.site || 'Head Office'}
-                    </Typography>
+              <Box
+                sx={{
+                  mb: 3.5,
+                  p: { xs: 1.5, md: 2 },
+                  border: '1px solid',
+                  borderColor: 'grey.200',
+                  borderRadius: 1.5,
+                  background: 'linear-gradient(180deg, #fafafa 0%, #ffffff 100%)'
+                }}
+              >
+                <Grid container spacing={1.25}>
+                  <Grid item xs={12} md={8}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '100px 1fr', sm: '120px 1fr' }, rowGap: 0.75, columnGap: 1 }}>
+                      <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>SITE</Typography>
+                      <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{viewDialog.settlement.site || 'Head Office'}</Typography>
+
+                      <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>FROM</Typography>
+                      <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{viewDialog.settlement.fromDepartment || 'Administration'}</Typography>
+
+                      <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>CUSTODIAN</Typography>
+                      <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{viewDialog.settlement.custodian || 'N/A'}</Typography>
+
+                      <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 12.5, letterSpacing: 0.3 }}>NOTE</Typography>
+                      <Typography sx={{ fontWeight: 700, fontSize: 13 }}>
+                        {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 ? 'All Supportings Attached' : 'No Attachments'}
+                      </Typography>
+                    </Box>
                   </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      FROM:
-                    </Typography>
-                    <Typography variant="body2">
-                      {viewDialog.settlement.fromDepartment || 'Administration'}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      CUSTODIEN:
-                    </Typography>
-                    <Typography variant="body2">
-                      {viewDialog.settlement.custodian || 'N/A'}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      DATE:
-                    </Typography>
-                    <Typography variant="body2">
-                      {formatDate(viewDialog.settlement.date)}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      DOCUMENT NUMBER:
-                    </Typography>
-                    <Typography variant="body2">
-                      {viewDialog.settlement.referenceNumber || viewDialog.settlement.voucherNumber || 'N/A'}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      NOTE:
-                    </Typography>
-                    <Typography variant="body2">
-                      {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 
-                        ? 'All Supportings Attached' 
-                        : 'No Attachments'}
-                    </Typography>
+
+                  <Grid item xs={12} md={4}>
+                    <Box
+                      sx={{
+                        height: '100%',
+                        p: 1.25,
+                        border: '2px dashed',
+                        borderColor: 'grey.300',
+                        borderRadius: 1,
+                        backgroundColor: 'grey.50',
+                        display: 'grid',
+                        alignContent: 'center',
+                        rowGap: 0.9
+                      }}
+                    >
+                      <Box>
+                        <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 11.5, letterSpacing: 0.4 }}>
+                          DATE
+                        </Typography>
+                        <Typography sx={{ fontWeight: 800, fontSize: 13.5, color: 'grey.900' }}>
+                          {formatDate(viewDialog.settlement.date)}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography sx={{ fontWeight: 800, color: 'grey.700', fontSize: 11.5, letterSpacing: 0.4 }}>
+                          DOCUMENT NO.
+                        </Typography>
+                        <Typography sx={{ fontWeight: 800, fontSize: 13.5, color: 'grey.900' }}>
+                          {viewDialog.settlement.referenceNumber || viewDialog.settlement.voucherNumber || 'N/A'}
+                        </Typography>
+                      </Box>
+                    </Box>
                   </Grid>
                 </Grid>
               </Box>
 
               {/* Transaction Details Table */}
               <Box sx={{ mb: 3 }}>
-                <TableContainer component={Paper} sx={{ 
-                  boxShadow: 'none',
-                  border: '1px solid #000'
+                <Table size="small" sx={{
+                  width: '100%',
+                  tableLayout: 'fixed',
+                  mt: 1,
+                  borderTop: '1px solid',
+                  borderBottom: '1px solid',
+                  borderColor: 'grey.300',
+                  '& th': {
+                    bgcolor: 'grey.50',
+                    borderBottom: '1px solid',
+                    borderRight: '1px solid',
+                    borderColor: 'grey.300',
+                    p: 1,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    textAlign: 'center',
+                    color: 'grey.700',
+                    lineHeight: 1.25
+                  },
+                  '& th:last-of-type': { borderRight: 0 },
+                  '& td': {
+                    borderBottom: 0,
+                    borderTop: '1px solid',
+                    borderRight: '1px solid',
+                    borderColor: 'grey.200',
+                    p: 1.25,
+                    fontSize: 13,
+                    verticalAlign: 'top'
+                  },
+                  '& td:last-of-type': { borderRight: 0 }
                 }}>
-                  <Table>
+                  <colgroup>
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '24%' }} />
+                    <col style={{ width: '30%' }} />
+                    <col style={{ width: '16%' }} />
+                  </colgroup>
                     <TableHead>
-                      <TableRow sx={{ background: '#f5f5f5' }}>
-                        <TableCell sx={{ 
-                          border: '1px solid #000', 
-                          fontWeight: 700,
-                          py: 1.5,
-                          fontSize: '13px'
-                        }}>
-                          Date
-                        </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000', 
-                          fontWeight: 700,
-                          py: 1.5,
-                          fontSize: '13px'
-                        }}>
-                          Reference No
-                        </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000', 
-                          fontWeight: 700,
-                          py: 1.5,
-                          fontSize: '13px'
-                        }}>
-                          To Whom Paid
-                        </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000', 
-                          fontWeight: 700,
-                          py: 1.5,
-                          fontSize: '13px'
-                        }}>
-                          For What
-                        </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000', 
-                          fontWeight: 700,
-                          py: 1.5,
-                          fontSize: '13px',
-                          textAlign: 'right'
-                        }}>
-                          Amount
-                        </TableCell>
+                    <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Reference No</TableCell>
+                        <TableCell>To Whom Paid</TableCell>
+                        <TableCell>For What</TableCell>
+                        <TableCell sx={{ textAlign: 'right' }}>Amount</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       <TableRow>
-                        <TableCell sx={{ 
-                          border: '1px solid #000',
-                          py: 2,
-                          fontSize: '13px'
-                        }}>
+                        <TableCell sx={{ fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>
                           {formatDate(viewDialog.settlement.date)}
                         </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000',
-                          py: 2,
-                          fontSize: '13px'
-                        }}>
+                        <TableCell sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                           {viewDialog.settlement.referenceNumber || 'N/A'}
                         </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000',
-                          py: 2,
-                          fontSize: '13px'
-                        }}>
+                        <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                           {viewDialog.settlement.toWhomPaid || 'N/A'}
                         </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000',
-                          py: 2,
-                          fontSize: '13px',
-                          whiteSpace: 'pre-wrap'
-                        }}>
+                        <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
                           {viewDialog.settlement.forWhat || 'N/A'}
                         </TableCell>
-                        <TableCell sx={{ 
-                          border: '1px solid #000',
-                          py: 2,
-                          fontSize: '13px',
-                          textAlign: 'right',
-                          fontWeight: 600
-                        }}>
+                        <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
                           {formatPKR(viewDialog.settlement.amount)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                          Grand Total
+                        </TableCell>
+                        <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                          {formatPKR(viewDialog.settlement.grandTotal)}
                         </TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
-                </TableContainer>
               </Box>
 
-              {/* Grand Total */}
+
+              {/* Approval Authority */}
               <Box sx={{ 
-                mb: 4,
-                display: 'flex',
-                justifyContent: 'flex-end'
+                mt: 7,
+                border: '1px solid',
+                borderColor: 'grey.300'
               }}>
-                <Box sx={{ 
-                  border: '2px solid #000',
-                  p: 2,
-                  minWidth: '250px',
-                  background: '#f9f9f9'
-                }}>
-                  <Typography variant="h6" sx={{ 
-                    fontWeight: 700,
-                    textAlign: 'right',
-                    fontSize: '18px'
+                  <Table size="small" sx={{
+                    '& th': {
+                      bgcolor: 'grey.100',
+                      fontWeight: 800,
+                      fontSize: 14,
+                      borderBottom: '1px solid',
+                      borderColor: 'grey.300'
+                    },
+                    '& td': {
+                      fontSize: 14,
+                      borderBottom: '1px solid',
+                      borderColor: 'grey.200',
+                      py: 1.4
+                    },
+                    '& tr:last-child td': {
+                      borderBottom: 0
+                    }
                   }}>
-                    Grand Total: {formatPKR(viewDialog.settlement.grandTotal)}
-                  </Typography>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Authority</TableCell>
+                        <TableCell>Name</TableCell>
+                        <TableCell>Digital Signature</TableCell>
+                        <TableCell>Date & Time</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {getApprovalRows(viewDialog.settlement).map((row) => (
+                        <TableRow key={row.authority}>
+                          <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                          <TableCell>{row.name || '-'}</TableCell>
+                          <TableCell>
+                            {getSignatureSource(row) ? (
+                              <Box
+                                component="img"
+                                src={getImageUrl(getSignatureSource(row))}
+                                alt={`${row.authority} signature`}
+                                sx={{ maxHeight: 42, maxWidth: 135, objectFit: 'contain' }}
+                              />
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
+                          <TableCell>{row.dateTime || '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+              </Box>
+              {getStampRows(viewDialog.settlement).length > 0 && (
+                <Box sx={{ mt: 3, p: 2.5, border: '2px solid', borderColor: 'grey.300', borderRadius: 1.5, backgroundColor: 'grey.50' }}>
+                  <Typography sx={{ fontWeight: 900, fontSize: 17, mb: 2 }}>Approval Stamp</Typography>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                    {getStampRows(viewDialog.settlement).map((stampRow) => (
+                      <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
+                        <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
+                        <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                        <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
+                      </Box>
+                    ))}
+                  </Stack>
                 </Box>
-              </Box>
-
-
-              {/* Approval Section */}
-              <Box sx={{ 
-                mt: 4,
-                borderTop: '1px solid #000',
-                pt: 3
-              }}>
-                <Grid container spacing={4}>
-                  <Grid item xs={4}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 600, 
-                        mb: 2,
-                        fontSize: '13px',
-                        textDecoration: 'underline'
-                      }}>
-                        Prepared By:
-                      </Typography>
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 600,
-                        mb: 0.5,
-                        fontSize: '13px'
-                      }}>
-                        {viewDialog.settlement.preparedBy || 'N/A'}
-                      </Typography>
-                      <Typography variant="body2" sx={{ 
-                        fontSize: '12px',
-                        color: '#666'
-                      }}>
-                        {viewDialog.settlement.preparedByDesignation || 'Not specified'}
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={4}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 600, 
-                        mb: 2,
-                        fontSize: '13px',
-                        textDecoration: 'underline'
-                      }}>
-                        Verified By:
-                      </Typography>
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 600,
-                        mb: 0.5,
-                        fontSize: '13px'
-                      }}>
-                        {viewDialog.settlement.verifiedBy || 'N/A'}
-                      </Typography>
-                      <Typography variant="body2" sx={{ 
-                        fontSize: '12px',
-                        color: '#666'
-                      }}>
-                        {viewDialog.settlement.verifiedByDesignation || 'Not specified'}
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={4}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 600, 
-                        mb: 2,
-                        fontSize: '13px',
-                        textDecoration: 'underline'
-                      }}>
-                        Approved by:
-                      </Typography>
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 600,
-                        mb: 0.5,
-                        fontSize: '13px'
-                      }}>
-                        {viewDialog.settlement.approvedBy || 'N/A'}
-                      </Typography>
-                      <Typography variant="body2" sx={{ 
-                        fontSize: '12px',
-                        color: '#666'
-                      }}>
-                        {viewDialog.settlement.approvedByDesignation || 'Not specified'}
-                      </Typography>
-                    </Box>
-                  </Grid>
-                </Grid>
-              </Box>
+              )}
 
 
               {/* Observations Section */}
@@ -1519,8 +1527,22 @@ const PaymentSettlementList = () => {
         }}>
           <Box>
             <Chip
-              label={viewDialog.settlement?.workflowStatus || 'Draft'}
-              color={getWorkflowStatusColor(viewDialog.settlement?.workflowStatus || 'Draft')}
+              label={getWorkflowLabel(viewDialog.settlement)}
+              color={getWorkflowStatusColor(viewDialog.settlement)}
+              size="small"
+              sx={{ mr: 1 }}
+            />
+            <Chip
+              label={`Approval: ${viewDialog.settlement?.approvalStatus || 'Draft'}`}
+              color={
+                (viewDialog.settlement?.approvalStatus || 'Draft') === 'Approved'
+                  ? 'success'
+                  : (viewDialog.settlement?.approvalStatus || 'Draft') === 'Submitted'
+                    ? 'warning'
+                    : (viewDialog.settlement?.approvalStatus || 'Draft') === 'Rejected'
+                      ? 'error'
+                      : 'default'
+              }
               size="small"
               sx={{ mr: 1 }}
             />
@@ -1531,6 +1553,35 @@ const PaymentSettlementList = () => {
             />
           </Box>
           <Box>
+            {['Draft', 'Rejected'].includes(viewDialog.settlement?.approvalStatus || 'Draft') && (
+              <Button
+                variant="contained"
+                color="info"
+                onClick={handleSubmitForApproval}
+                sx={{ mr: 1 }}
+              >
+                Submit
+              </Button>
+            )}
+            {(() => {
+              const chain = viewDialog.settlement?.approvalChain || [];
+              const pending = chain.find((step) => step.status === 'pending');
+              const pendingApproverId = getUserId(pending?.approver);
+              const userId = getUserId(user);
+              const isRequester = getUserId(viewDialog.settlement?.createdBy) === userId;
+              const canApproveReject = (viewDialog.settlement?.approvalStatus === 'Submitted') && pendingApproverId === userId && !isRequester;
+              if (!canApproveReject) return null;
+              return (
+                <>
+                  <Button variant="contained" color="success" onClick={handleApproveAuthority} sx={{ mr: 1 }}>
+                    Approve
+                  </Button>
+                  <Button variant="outlined" color="error" onClick={handleRejectAuthority} sx={{ mr: 1 }}>
+                    Reject
+                  </Button>
+                </>
+              );
+            })()}
             <Button
               variant="outlined"
               startIcon={<HistoryIcon />}
@@ -1591,143 +1642,6 @@ const PaymentSettlementList = () => {
             onClick={() => handleDelete(deleteDialog.settlement)}
           >
             Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Workflow Status Dialog */}
-      <Dialog
-        open={workflowStatusDialog.open}
-        onClose={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '', observationAnswers: {} })}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>Change Workflow Status</DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 2 }}>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Workflow Status</InputLabel>
-              <Select
-                value={workflowStatusDialog.workflowStatus || ''}
-                onChange={(e) => setWorkflowStatusDialog({ 
-                  ...workflowStatusDialog, 
-                  workflowStatus: e.target.value 
-                })}
-                label="Workflow Status"
-              >
-                {workflowStatusOptions.filter(opt => opt.value !== '').map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            {/* Show Observations if document is returned from audit */}
-            {workflowStatusDialog.settlement?.workflowStatus === 'Returned from Audit' &&
-             workflowStatusDialog.settlement?.observations &&
-             workflowStatusDialog.settlement.observations.length > 0 && (
-              <Box sx={{ mb: 3, mt: 2 }}>
-                <Typography variant="h6" sx={{ mb: 2, color: 'error.main', fontWeight: 'bold' }}>
-                  {workflowStatusDialog.workflowStatus === 'Send to Audit' 
-                    ? 'Observations - Please provide answers:' 
-                    : 'Observations - Please review and provide answers when resubmitting:'}
-                </Typography>
-                {workflowStatusDialog.settlement.observations.map((obs, index) => (
-                  <Card key={obs._id || index} sx={{ mb: 2, border: '1px solid', borderColor: 'error.light' }}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                          Observation {index + 1}
-                        </Typography>
-                        <Chip 
-                          label={obs.severity || 'medium'} 
-                          size="small" 
-                          color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
-                        />
-                      </Box>
-                      <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-                        {obs.observation}
-                      </Typography>
-                      {obs.addedBy && (
-                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
-                          Added by: {obs.addedBy?.firstName} {obs.addedBy?.lastName} on {new Date(obs.addedAt).toLocaleDateString()}
-                        </Typography>
-                      )}
-                      {obs.answer && (
-                        <Box sx={{ mb: 2, p: 1.5, bgcolor: 'success.light', borderRadius: 1 }}>
-                          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
-                            Previous Answer:
-                          </Typography>
-                          <Typography variant="body2" sx={{ color: 'text.primary' }}>
-                            {obs.answer}
-                          </Typography>
-                          {obs.answeredBy && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                              Answered by: {obs.answeredBy?.firstName} {obs.answeredBy?.lastName} on {obs.answeredAt ? new Date(obs.answeredAt).toLocaleDateString() : 'N/A'}
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-                      {workflowStatusDialog.workflowStatus === 'Send to Audit' && (
-                        <TextField
-                          fullWidth
-                          multiline
-                          rows={3}
-                          label={`Answer to Observation ${index + 1}${obs.answer ? ' (Update existing answer)' : ''}`}
-                          value={workflowStatusDialog.observationAnswers[obs._id] || obs.answer || ''}
-                          onChange={(e) => setWorkflowStatusDialog({
-                            ...workflowStatusDialog,
-                            observationAnswers: {
-                              ...workflowStatusDialog.observationAnswers,
-                              [obs._id]: e.target.value
-                            }
-                          })}
-                          placeholder="Provide your answer/resolution to this observation..."
-                          required
-                          sx={{ mt: 1 }}
-                        />
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </Box>
-            )}
-
-            <TextField
-              fullWidth
-              multiline
-              rows={4}
-              label="Comments (Optional)"
-              value={workflowStatusDialog.comments || ''}
-              onChange={(e) => setWorkflowStatusDialog({ 
-                ...workflowStatusDialog, 
-                comments: e.target.value 
-              })}
-              placeholder="Add any comments about this status change..."
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '', observationAnswers: {} })}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleWorkflowStatusChange} 
-            variant="contained"
-            disabled={
-              !workflowStatusDialog.workflowStatus ||
-              // Require answers for all observations when resubmitting from "Returned from Audit" to "Send to Audit"
-              (workflowStatusDialog.settlement?.workflowStatus === 'Returned from Audit' && 
-               workflowStatusDialog.workflowStatus === 'Send to Audit' &&
-               workflowStatusDialog.settlement?.observations &&
-               workflowStatusDialog.settlement.observations.some(obs => 
-                 !workflowStatusDialog.observationAnswers[obs._id] || 
-                 !workflowStatusDialog.observationAnswers[obs._id].trim()
-               ))
-            }
-          >
-            Update Status
           </Button>
         </DialogActions>
       </Dialog>
