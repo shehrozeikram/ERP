@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -28,6 +28,12 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
 import { useAuth } from '../../../contexts/AuthContext';
+import {
+  approverSearchOnInputChange,
+  mergeApproverOptionList,
+  optionsForManagerApprover,
+  optionsForHodApprover
+} from '../../../utils/dualApproverAutocomplete';
 
 const userDisplayName = (user) => {
   if (!user) return '';
@@ -75,6 +81,20 @@ const UtilityBillForm = () => {
   const [hodApprover, setHodApprover] = useState(null);
   const [approverOptions, setApproverOptions] = useState([]);
   const [approverLoading, setApproverLoading] = useState(false);
+
+  const requesterId = getUserId(user);
+  const mergedApproverOptions = useMemo(
+    () => mergeApproverOptionList(approverOptions, managerApprover, hodApprover),
+    [approverOptions, managerApprover, hodApprover]
+  );
+  const managerApproverSelectOptions = useMemo(
+    () => optionsForManagerApprover({ optionsMerged: mergedApproverOptions, requesterId, hodApprover }),
+    [mergedApproverOptions, requesterId, hodApprover]
+  );
+  const hodApproverSelectOptions = useMemo(
+    () => optionsForHodApprover({ optionsMerged: mergedApproverOptions, requesterId, managerApprover }),
+    [mergedApproverOptions, requesterId, managerApprover]
+  );
 
   useEffect(() => {
     fetchMasterData();
@@ -666,11 +686,12 @@ const UtilityBillForm = () => {
 
               <Grid item xs={12} md={4}>
                 <Autocomplete
-                  options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                  options={managerApproverSelectOptions}
                   value={managerApprover}
                   loading={approverLoading}
                   onChange={(_, value) => setManagerApprover(value)}
-                  onInputChange={(_, value) => loadApproverOptions(value)}
+                  onOpen={() => loadApproverOptions('')}
+                  onInputChange={approverSearchOnInputChange(loadApproverOptions)}
                   getOptionLabel={(option) => userDisplayName(option)}
                   isOptionEqualToValue={(option, value) => option._id === value._id}
                   renderInput={(params) => (
@@ -685,11 +706,12 @@ const UtilityBillForm = () => {
 
               <Grid item xs={12} md={4}>
                 <Autocomplete
-                  options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                  options={hodApproverSelectOptions}
                   value={hodApprover}
                   loading={approverLoading}
                   onChange={(_, value) => setHodApprover(value)}
-                  onInputChange={(_, value) => loadApproverOptions(value)}
+                  onOpen={() => loadApproverOptions('')}
+                  onInputChange={approverSearchOnInputChange(loadApproverOptions)}
                   getOptionLabel={(option) => userDisplayName(option)}
                   isOptionEqualToValue={(option, value) => option._id === value._id}
                   renderInput={(params) => (

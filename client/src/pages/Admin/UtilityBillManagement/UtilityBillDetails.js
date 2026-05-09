@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Alert,
   Autocomplete,
@@ -42,6 +42,12 @@ import { useAuth } from '../../../contexts/AuthContext';
 import utilityBillService from '../../../services/utilityBillService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
 import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
+import {
+  approverSearchOnInputChange,
+  mergeApproverOptionList,
+  optionsForManagerApprover,
+  optionsForHodApprover
+} from '../../../utils/dualApproverAutocomplete';
 
 const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Credit Card', 'Other'];
 
@@ -94,6 +100,19 @@ const UtilityBillDetails = () => {
   const [hodApprover, setHodApprover] = useState(null);
   const [approverOptions, setApproverOptions] = useState([]);
   const [approverLoading, setApproverLoading] = useState(false);
+  const submitRequesterId = getUserId(user);
+  const mergedSubmitApprovers = useMemo(
+    () => mergeApproverOptionList(approverOptions, managerApprover, hodApprover),
+    [approverOptions, managerApprover, hodApprover]
+  );
+  const managerSubmitOptions = useMemo(
+    () => optionsForManagerApprover({ optionsMerged: mergedSubmitApprovers, requesterId: submitRequesterId, hodApprover }),
+    [mergedSubmitApprovers, submitRequesterId, hodApprover]
+  );
+  const hodSubmitOptions = useMemo(
+    () => optionsForHodApprover({ optionsMerged: mergedSubmitApprovers, requesterId: submitRequesterId, managerApprover }),
+    [mergedSubmitApprovers, submitRequesterId, managerApprover]
+  );
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [paymentData, setPaymentData] = useState({
@@ -820,11 +839,12 @@ const UtilityBillDetails = () => {
             Users are filtered by User Management department only (Administration / code ADMIN).
           </Typography>
           <Autocomplete
-            options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+            options={managerSubmitOptions}
             value={managerApprover}
             loading={approverLoading}
             onChange={(_, value) => setManagerApprover(value)}
-            onInputChange={(_, value) => loadApproverOptions(value)}
+            onOpen={() => loadApproverOptions('')}
+            onInputChange={approverSearchOnInputChange(loadApproverOptions)}
             getOptionLabel={(option) => userDisplayName(option)}
             isOptionEqualToValue={(option, value) => option._id === value._id}
             renderInput={(params) => (
@@ -837,11 +857,12 @@ const UtilityBillDetails = () => {
             )}
           />
           <Autocomplete
-            options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+            options={hodSubmitOptions}
             value={hodApprover}
             loading={approverLoading}
             onChange={(_, value) => setHodApprover(value)}
-            onInputChange={(_, value) => loadApproverOptions(value)}
+            onOpen={() => loadApproverOptions('')}
+            onInputChange={approverSearchOnInputChange(loadApproverOptions)}
             getOptionLabel={(option) => userDisplayName(option)}
             isOptionEqualToValue={(option, value) => option._id === value._id}
             renderInput={(params) => (

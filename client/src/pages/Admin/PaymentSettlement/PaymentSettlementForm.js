@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Paper,
@@ -30,6 +30,12 @@ import { format } from 'date-fns';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
+import {
+  approverSearchOnInputChange,
+  mergeApproverOptionList,
+  optionsForManagerApprover,
+  optionsForHodApprover
+} from '../../../utils/dualApproverAutocomplete';
 
 const PaymentSettlementForm = ({ 
   settlement = null, 
@@ -87,6 +93,20 @@ const PaymentSettlementForm = ({
     if (!u) return '';
     return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.employeeId || '';
   };
+
+  const requesterId = getUserId(user);
+  const mergedApproverOptions = useMemo(
+    () => mergeApproverOptionList(approverOptions, managerApprover, hodApprover),
+    [approverOptions, managerApprover, hodApprover]
+  );
+  const managerApproverSelectOptions = useMemo(
+    () => optionsForManagerApprover({ optionsMerged: mergedApproverOptions, requesterId, hodApprover }),
+    [mergedApproverOptions, requesterId, hodApprover]
+  );
+  const hodApproverSelectOptions = useMemo(
+    () => optionsForHodApprover({ optionsMerged: mergedApproverOptions, requesterId, managerApprover }),
+    [mergedApproverOptions, requesterId, managerApprover]
+  );
 
   // Fetch settlement data when settlementId is provided
   useEffect(() => {
@@ -614,11 +634,12 @@ const PaymentSettlementForm = ({
             </Grid>
             <Grid item xs={12} md={4}>
               <Autocomplete
-                options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                options={managerApproverSelectOptions}
                 value={managerApprover}
                 loading={approverLoading}
                 onChange={(_, value) => setManagerApprover(value)}
-                onInputChange={(_, value) => loadApproverOptions(value)}
+                onOpen={() => loadApproverOptions('')}
+                onInputChange={approverSearchOnInputChange(loadApproverOptions)}
                 getOptionLabel={(option) => userDisplayName(option)}
                 isOptionEqualToValue={(option, value) => option._id === value._id}
                 renderInput={(params) => <TextField {...params} label="Manager Approver" placeholder="Search manager approver" />}
@@ -626,11 +647,12 @@ const PaymentSettlementForm = ({
             </Grid>
             <Grid item xs={12} md={4}>
               <Autocomplete
-                options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
+                options={hodApproverSelectOptions}
                 value={hodApprover}
                 loading={approverLoading}
                 onChange={(_, value) => setHodApprover(value)}
-                onInputChange={(_, value) => loadApproverOptions(value)}
+                onOpen={() => loadApproverOptions('')}
+                onInputChange={approverSearchOnInputChange(loadApproverOptions)}
                 getOptionLabel={(option) => userDisplayName(option)}
                 isOptionEqualToValue={(option, value) => option._id === value._id}
                 renderInput={(params) => <TextField {...params} label="Head Of Department Approver" placeholder="Search HOD approver" />}

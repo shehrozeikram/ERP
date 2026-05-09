@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -42,6 +42,12 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import api from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import RentalManagementDetail from './RentalManagementDetail';
+import {
+  approverSearchOnInputChange,
+  mergeApproverOptionList,
+  optionsForManagerApprover,
+  optionsForHodApprover
+} from '../../../utils/dualApproverAutocomplete';
 
 const RentalManagementDashboard = () => {
   const { user } = useAuth();
@@ -130,9 +136,11 @@ const RentalManagementDashboard = () => {
     }
   };
 
-  const fetchApproverOptions = async () => {
+  const fetchApproverOptions = async (search = '') => {
     try {
-      const response = await api.get('/rental-management/approver-candidates', { params: { limit: 50 } });
+      const response = await api.get('/rental-management/approver-candidates', {
+        params: { limit: 50, search: search || undefined }
+      });
       setApproverOptions(response.data?.data || []);
     } catch {
       setApproverOptions([]);
@@ -148,6 +156,20 @@ const RentalManagementDashboard = () => {
     if (!u) return '';
     return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.employeeId || '';
   };
+
+  const requesterId = getUserId(user);
+  const mergedApproverOptions = useMemo(
+    () => mergeApproverOptionList(approverOptions, managerApprover, hodApprover),
+    [approverOptions, managerApprover, hodApprover]
+  );
+  const managerApproverSelectOptions = useMemo(
+    () => optionsForManagerApprover({ optionsMerged: mergedApproverOptions, requesterId, hodApprover }),
+    [mergedApproverOptions, requesterId, hodApprover]
+  );
+  const hodApproverSelectOptions = useMemo(
+    () => optionsForHodApprover({ optionsMerged: mergedApproverOptions, requesterId, managerApprover }),
+    [mergedApproverOptions, requesterId, managerApprover]
+  );
 
 
   const handleOpenDialog = (record = null) => {
@@ -197,6 +219,7 @@ const RentalManagementDashboard = () => {
     setDialogOpen(true);
     setError('');
     setSuccess('');
+    fetchApproverOptions('');
   };
 
   const handleCloseDialog = () => {
@@ -692,9 +715,11 @@ const RentalManagementDashboard = () => {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <Autocomplete
-                  options={approverOptions}
+                  options={managerApproverSelectOptions}
                   value={managerApprover}
                   onChange={(_, value) => setManagerApprover(value)}
+                  onOpen={() => fetchApproverOptions('')}
+                  onInputChange={approverSearchOnInputChange(fetchApproverOptions)}
                   getOptionLabel={(option) =>
                     [option?.firstName, option?.lastName].filter(Boolean).join(' ') || option?.email || ''
                   }
@@ -706,9 +731,11 @@ const RentalManagementDashboard = () => {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <Autocomplete
-                  options={approverOptions}
+                  options={hodApproverSelectOptions}
                   value={hodApprover}
                   onChange={(_, value) => setHodApprover(value)}
+                  onOpen={() => fetchApproverOptions('')}
+                  onInputChange={approverSearchOnInputChange(fetchApproverOptions)}
                   getOptionLabel={(option) =>
                     [option?.firstName, option?.lastName].filter(Boolean).join(' ') || option?.email || ''
                   }
