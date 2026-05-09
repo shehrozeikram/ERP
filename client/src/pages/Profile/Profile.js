@@ -30,6 +30,7 @@ import { getImageUrl } from '../../utils/imageService';
 const CHAT_SOUND_PREF_PREFIX = 'sgc:chat-sound-enabled:';
 
 const Profile = () => {
+  const showLeaveBalanceSection = false; // Temporarily hidden; keep code for easy re-enable
   const theme = useTheme();
   const { user, updateProfile, changePassword, refreshUser } = useAuth();
   const [profileImage, setProfileImage] = useState(null);
@@ -543,7 +544,7 @@ const Profile = () => {
         )}
 
         {/* Leave Balance Card */}
-        {user?.leaveBalance && (
+        {showLeaveBalanceSection && user?.leaveBalance && (
           <Grid item xs={12}>
             <Card sx={{ 
               background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.05)} 0%, ${alpha(theme.palette.success.main, 0.02)} 100%)`,
