@@ -24,6 +24,7 @@ const normalizeApproverIds = (value) => {
   return [];
 };
 const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
+const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
 const addWorkflowHistory = (record, fromStatus, toStatus, changedBy, comments = '') => {
   if (!Array.isArray(record.workflowHistory)) record.workflowHistory = [];
   record.workflowHistory.push({ fromStatus, toStatus, changedBy, changedAt: new Date(), comments });
@@ -158,7 +159,7 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
     }
     const record = new RentalManagement({
       ...payload,
-      createdBy: req.user.id
+      createdBy: getActorId(req)
     });
     
     await record.save();
@@ -199,7 +200,7 @@ router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
       req.params.id,
       {
         ...payload,
-        updatedBy: req.user.id
+        updatedBy: getActorId(req)
       },
       { new: true, runValidators: true }
     );
@@ -231,7 +232,8 @@ router.post('/:id/submit', authMiddleware, permissions.checkSubRolePermission('a
     if (approverIds.length !== 2) {
       return res.status(400).json({ success: false, message: 'Select Manager Approver and Head Of Department Approver' });
     }
-    if (approverIds.includes(String(req.user.id))) {
+    const actorId = getActorId(req);
+    if (actorId && approverIds.includes(actorId)) {
       return res.status(400).json({ success: false, message: 'Requester cannot be selected as Manager or Head Of Department approver' });
     }
     const approverDeptCheck = await assertUtilityBillApproversEligible(approverIds);
@@ -251,7 +253,7 @@ router.post('/:id/submit', authMiddleware, permissions.checkSubRolePermission('a
     record.rejectedByUser = undefined;
     record.rejectedAt = undefined;
     record.rejectionReason = '';
-    addWorkflowHistory(record, previousStatus, record.approvalStatus, req.user.id, 'Submitted for approval');
+    addWorkflowHistory(record, previousStatus, record.approvalStatus, actorId, 'Submitted for approval');
     await record.save();
     const populated = await populateRentalRecord(RentalManagement.findById(record._id));
     res.json({ success: true, message: 'Rental management record submitted for approval', data: populated });
@@ -265,7 +267,7 @@ router.post('/:id/approve-authority', authMiddleware, permissions.checkSubRolePe
     const record = await RentalManagement.findById(req.params.id);
     if (!record) return res.status(404).json({ success: false, message: 'Rental management record not found' });
     if (record.approvalStatus !== 'Submitted') return res.status(400).json({ success: false, message: 'Only submitted records can be approved' });
-    const userId = String(req.user.id);
+    const userId = getActorId(req);
     if (String(record.createdBy) === userId) {
       return res.status(403).json({ success: false, message: 'Requester cannot approve Manager or Head Of Department approval authority' });
     }
@@ -279,15 +281,15 @@ router.post('/:id/approve-authority', authMiddleware, permissions.checkSubRolePe
     if (allApproved) {
       record.approvalStatus = 'Approved';
       record.status = 'Approved';
-      record.approvedByUser = req.user.id;
+      record.approvedByUser = userId;
       record.approvedAt = new Date();
       const previousWorkflowStatus = record.workflowStatus || 'Draft';
       record.workflowStatus = 'Send to Audit';
-      addWorkflowHistory(record, previousWorkflowStatus, record.workflowStatus, req.user.id, 'Sent to Pre-Audit after approval authority completed');
+      addWorkflowHistory(record, previousWorkflowStatus, record.workflowStatus, userId, 'Sent to Pre-Audit after approval authority completed');
     }
-    addWorkflowHistory(record, previousStatus, record.approvalStatus, req.user.id, allApproved ? 'Approved' : 'Approval authority approved');
+    addWorkflowHistory(record, previousStatus, record.approvalStatus, userId, allApproved ? 'Approved' : 'Approval authority approved');
     await record.save();
-    if (allApproved) await notifyAuditQueue({ actorId: req.user.id, record });
+    if (allApproved) await notifyAuditQueue({ actorId: userId, record });
     const populated = await populateRentalRecord(RentalManagement.findById(record._id));
     res.json({ success: true, message: 'Rental management record approved', data: populated });
   } catch (error) {
@@ -302,7 +304,7 @@ router.post('/:id/reject-authority', authMiddleware, permissions.checkSubRolePer
     const record = await RentalManagement.findById(req.params.id);
     if (!record) return res.status(404).json({ success: false, message: 'Rental management record not found' });
     if (record.approvalStatus !== 'Submitted') return res.status(400).json({ success: false, message: 'Only submitted records can be rejected' });
-    const userId = String(req.user.id);
+    const userId = getActorId(req);
     if (String(record.createdBy) === userId) {
       return res.status(403).json({ success: false, message: 'Requester cannot reject Manager or Head Of Department approval authority' });
     }
@@ -315,10 +317,10 @@ router.post('/:id/reject-authority', authMiddleware, permissions.checkSubRolePer
     const previousStatus = record.approvalStatus;
     record.approvalStatus = 'Rejected';
     record.status = 'Rejected';
-    record.rejectedByUser = req.user.id;
+    record.rejectedByUser = userId;
     record.rejectedAt = new Date();
     record.rejectionReason = reason;
-    addWorkflowHistory(record, previousStatus, record.approvalStatus, req.user.id, reason);
+    addWorkflowHistory(record, previousStatus, record.approvalStatus, userId, reason);
     await record.save();
     const populated = await populateRentalRecord(RentalManagement.findById(record._id));
     res.json({ success: true, message: 'Rental management record rejected', data: populated });

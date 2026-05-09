@@ -36,6 +36,7 @@ const normalizeApproverIds = (value) => {
 };
 
 const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
+const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
 
 const addWorkflowHistory = (document, fromStatus, toStatus, changedBy, comments = '') => {
   if (!Array.isArray(document.workflowHistory)) document.workflowHistory = [];
@@ -336,7 +337,8 @@ const submitPaymentSettlement = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Select Manager Approver and Head Of Department Approver' });
   }
 
-  if (approverIds.includes(String(req.user.id))) {
+  const actorId = getActorId(req);
+  if (actorId && approverIds.includes(actorId)) {
     return res.status(400).json({ success: false, message: 'Requester cannot be selected as Manager or Head Of Department approver' });
   }
 
@@ -360,7 +362,7 @@ const submitPaymentSettlement = asyncHandler(async (req, res) => {
   settlement.rejectedByUser = undefined;
   settlement.rejectedAt = undefined;
   settlement.rejectionReason = '';
-  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, req.user.id, 'Submitted for approval');
+  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, actorId, 'Submitted for approval');
   await settlement.save();
 
   const populated = await PaymentSettlement.findById(settlement._id)
@@ -379,7 +381,7 @@ const approveSettlementAuthority = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Only submitted settlements can be approved' });
   }
 
-  const userId = String(req.user.id);
+  const userId = getActorId(req);
   if (String(settlement.createdBy) === userId) {
     return res.status(403).json({ success: false, message: 'Requester cannot approve Manager or Head Of Department approval authority' });
   }
@@ -398,16 +400,16 @@ const approveSettlementAuthority = asyncHandler(async (req, res) => {
   if (allApproved) {
     settlement.approvalStatus = 'Approved';
     settlement.status = 'Approved';
-    settlement.approvedByUser = req.user.id;
+    settlement.approvedByUser = userId;
     settlement.approvedAt = new Date();
     const previousWorkflowStatus = settlement.workflowStatus || 'Draft';
     settlement.workflowStatus = 'Send to Audit';
-    addWorkflowHistory(settlement, previousWorkflowStatus, settlement.workflowStatus, req.user.id, 'Sent to Pre-Audit after approval authority completed');
+    addWorkflowHistory(settlement, previousWorkflowStatus, settlement.workflowStatus, userId, 'Sent to Pre-Audit after approval authority completed');
   }
-  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, req.user.id, allApproved ? 'Approved' : 'Approval authority approved');
+  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, userId, allApproved ? 'Approved' : 'Approval authority approved');
   await settlement.save();
   if (allApproved) {
-    await notifyAuditQueue({ actorId: req.user.id, settlement });
+    await notifyAuditQueue({ actorId: userId, settlement });
   }
 
   const populated = await PaymentSettlement.findById(settlement._id)
@@ -429,7 +431,7 @@ const rejectSettlementAuthority = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Only submitted settlements can be rejected' });
   }
 
-  const userId = String(req.user.id);
+  const userId = getActorId(req);
   if (String(settlement.createdBy) === userId) {
     return res.status(403).json({ success: false, message: 'Requester cannot reject Manager or Head Of Department approval authority' });
   }
@@ -447,10 +449,10 @@ const rejectSettlementAuthority = asyncHandler(async (req, res) => {
   const previousStatus = settlement.approvalStatus;
   settlement.approvalStatus = 'Rejected';
   settlement.status = 'Rejected';
-  settlement.rejectedByUser = req.user.id;
+  settlement.rejectedByUser = userId;
   settlement.rejectedAt = new Date();
   settlement.rejectionReason = reason;
-  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, req.user.id, reason);
+  addWorkflowHistory(settlement, previousStatus, settlement.approvalStatus, userId, reason);
   await settlement.save();
 
   const populated = await PaymentSettlement.findById(settlement._id)
@@ -469,7 +471,7 @@ const createPaymentSettlement = asyncHandler(async (req, res) => {
   try {
     const settlementData = {
       ...req.body,
-      createdBy: req.user.id
+      createdBy: getActorId(req)
     };
     delete settlementData.approvalChain;
     delete settlementData.approvalStatus;
@@ -542,7 +544,7 @@ const updatePaymentSettlement = asyncHandler(async (req, res) => {
   try {
     const updateData = {
       ...req.body,
-      updatedBy: req.user.id
+      updatedBy: getActorId(req)
     };
     delete updateData.approvalChain;
     delete updateData.approvalStatus;

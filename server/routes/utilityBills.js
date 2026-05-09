@@ -93,6 +93,7 @@ const normalizeApproverIds = (value) => {
 };
 
 const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
+const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
 
 // Configure multer for image uploads
 const storage = multer.diskStorage({
@@ -436,7 +437,7 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
   try {
     const billData = {
       ...req.body,
-      createdBy: req.user._id
+      createdBy: getActorId(req)
     };
     delete billData.approvalChain;
     delete billData.approvalStatus;
@@ -589,7 +590,8 @@ router.post('/:id/submit', permissions.checkSubRolePermission('admin', 'utility_
       return res.status(400).json({ success: false, message: 'Select Manager Approver and Head Of Department Approver' });
     }
 
-    if (approverIds.includes(req.user._id.toString())) {
+    const actorId = getActorId(req);
+    if (actorId && approverIds.includes(actorId)) {
       return res.status(400).json({
         success: false,
         message: 'Requester cannot be selected as Manager or Head Of Department approver'
@@ -615,7 +617,7 @@ router.post('/:id/submit', permissions.checkSubRolePermission('admin', 'utility_
     bill.rejectedBy = undefined;
     bill.rejectedAt = undefined;
     bill.rejectionReason = '';
-    addWorkflowHistory(bill, previousStatus, bill.approvalStatus, req.user._id, 'Submitted for approval');
+    addWorkflowHistory(bill, previousStatus, bill.approvalStatus, actorId, 'Submitted for approval');
     await bill.save();
     await populateUtilityBillDocument(bill);
 
@@ -638,7 +640,7 @@ router.post('/:id/approve', permissions.checkSubRolePermission('admin', 'utility
       return res.status(400).json({ success: false, message: 'Only submitted bills can be approved' });
     }
 
-    const userId = req.user._id.toString();
+    const userId = getActorId(req);
     if (bill.createdBy?.toString() === userId) {
       return res.status(403).json({
         success: false,
@@ -660,16 +662,16 @@ router.post('/:id/approve', permissions.checkSubRolePermission('admin', 'utility
     const allApproved = (bill.approvalChain || []).every((step) => step.status === 'approved');
     if (allApproved) {
       bill.approvalStatus = 'Approved';
-      bill.approvedBy = req.user._id;
+      bill.approvedBy = userId;
       bill.approvedAt = new Date();
       const previousAuditStatus = bill.auditStatus || 'Not Sent';
       bill.auditStatus = 'Send to Audit';
-      addWorkflowHistory(bill, previousAuditStatus, bill.auditStatus, req.user._id, 'Sent to Pre-Audit after approval authority completed');
+      addWorkflowHistory(bill, previousAuditStatus, bill.auditStatus, userId, 'Sent to Pre-Audit after approval authority completed');
     }
-    addWorkflowHistory(bill, previousStatus, bill.approvalStatus, req.user._id, allApproved ? 'Approved' : 'Approval authority approved');
+    addWorkflowHistory(bill, previousStatus, bill.approvalStatus, userId, allApproved ? 'Approved' : 'Approval authority approved');
     await bill.save();
     if (allApproved) {
-      await notifyAuditQueue({ actorId: req.user._id, bill });
+      await notifyAuditQueue({ actorId: userId, bill });
     }
     await populateUtilityBillDocument(bill);
 
@@ -697,7 +699,7 @@ router.post('/:id/reject', permissions.checkSubRolePermission('admin', 'utility_
       return res.status(400).json({ success: false, message: 'Only submitted bills can be rejected' });
     }
 
-    const userId = req.user._id.toString();
+    const userId = getActorId(req);
     if (bill.createdBy?.toString() === userId) {
       return res.status(403).json({
         success: false,
@@ -718,10 +720,10 @@ router.post('/:id/reject', permissions.checkSubRolePermission('admin', 'utility_
 
     const previousStatus = bill.approvalStatus;
     bill.approvalStatus = 'Rejected';
-    bill.rejectedBy = req.user._id;
+    bill.rejectedBy = userId;
     bill.rejectedAt = new Date();
     bill.rejectionReason = reason;
-    addWorkflowHistory(bill, previousStatus, bill.approvalStatus, req.user._id, reason);
+    addWorkflowHistory(bill, previousStatus, bill.approvalStatus, userId, reason);
     await bill.save();
     await populateUtilityBillDocument(bill);
 
