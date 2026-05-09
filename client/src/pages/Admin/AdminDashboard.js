@@ -128,6 +128,22 @@ const AdminDashboard = () => {
     return icons[submodule] || icons.default;
   };
 
+  const getTaskDestination = (task) => {
+    if (!task?.id) return task?.routePath || '/admin/dashboard';
+
+    switch (task.submodule) {
+      case 'utility_bills_management':
+        return `/admin/utility-bills/${task.id}`;
+      case 'rental_management':
+        return `/admin/rental-management/${task.id}`;
+      case 'payment_settlement':
+        // Payment settlement has no dedicated view route; open edit/view page route
+        return `/admin/payment-settlement/edit/${task.id}`;
+      default:
+        return task.editPath || task.viewPath || task.routePath || '/admin/dashboard';
+    }
+  };
+
   // Get next possible statuses for a task (excluding current status and approval statuses)
   const getNextPossibleStatuses = (currentStatus) => {
     if (!currentStatus) return [];
@@ -641,7 +657,7 @@ const AdminDashboard = () => {
                         <Tooltip title="View Details">
                           <IconButton
                             size="small"
-                            onClick={() => navigate(task.editPath || task.routePath)}
+                            onClick={() => navigate(getTaskDestination(task))}
                           >
                             <ViewIcon fontSize="small" />
                           </IconButton>
@@ -758,7 +774,7 @@ const AdminDashboard = () => {
                             bgcolor: alpha(theme.palette.primary.main, 0.08)
                           }
                         }}
-                        onClick={() => navigate(task.editPath || task.routePath)}
+                        onClick={() => navigate(getTaskDestination(task))}
                       >
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                           <Box sx={{ flex: 1 }}>
@@ -771,7 +787,7 @@ const AdminDashboard = () => {
                           </Box>
                           <IconButton size="small" onClick={(e) => {
                             e.stopPropagation();
-                            navigate(task.editPath || task.routePath);
+                            navigate(getTaskDestination(task));
                           }}>
                             <ArrowForwardIcon fontSize="small" />
                           </IconButton>
@@ -853,7 +869,7 @@ const AdminDashboard = () => {
                             <TableCell>
                               <IconButton
                                 size="small"
-                                onClick={() => navigate(task.editPath || task.routePath)}
+                                onClick={() => navigate(getTaskDestination(task))}
                               >
                                 <ViewIcon fontSize="small" />
                               </IconButton>

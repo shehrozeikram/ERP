@@ -53,7 +53,10 @@ import {
   Warning as WarningIcon,
   Error as ErrorIcon,
   Info as InfoIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
+  RestartAlt as RestartAltIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -85,6 +88,9 @@ const PaymentSettlementList = () => {
   const [deleteDialog, setDeleteDialog] = useState({ open: false, settlement: null });
   const [viewDialog, setViewDialog] = useState({ open: false, settlement: null });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
+  const [dragState, setDragState] = useState({ active: false, startX: 0, startY: 0 });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, settlement: null });
   
   // Stats state
@@ -244,6 +250,28 @@ const PaymentSettlementList = () => {
     if (!value) return '';
     if (typeof value === 'string') return value;
     return String(value._id || value.id || value.userId || '');
+  };
+  const changeImageZoom = (delta) => {
+    setImageZoom((prev) => Math.min(3, Math.max(0.5, +(prev + delta).toFixed(2))));
+  };
+  const startImageDrag = (event) => {
+    if (imageZoom <= 1) return;
+    event.preventDefault();
+    setDragState({
+      active: true,
+      startX: event.clientX - imageOffset.x,
+      startY: event.clientY - imageOffset.y
+    });
+  };
+  const onImageDrag = (event) => {
+    if (!dragState.active) return;
+    setImageOffset({
+      x: event.clientX - dragState.startX,
+      y: event.clientY - dragState.startY
+    });
+  };
+  const stopImageDrag = () => {
+    if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
   };
   const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
 
@@ -1486,6 +1514,8 @@ const PaymentSettlementList = () => {
                                       imageName: attachment.originalName,
                                       isBlob: true
                                     });
+                                    setImageZoom(1);
+                                    setImageOffset({ x: 0, y: 0 });
                                   } catch (error) {
                                     toast.error('Failed to load image');
                                   }
@@ -1654,6 +1684,8 @@ const PaymentSettlementList = () => {
           if (imageViewer.isBlob && imageViewer.imageUrl) {
             URL.revokeObjectURL(imageViewer.imageUrl);
           }
+          setImageZoom(1);
+          setImageOffset({ x: 0, y: 0 });
           setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
         }}
         maxWidth="lg"
@@ -1680,12 +1712,49 @@ const PaymentSettlementList = () => {
           }}
         >
           {/* Close Button */}
+          <Box sx={{ position: 'absolute', top: 16, left: 16, display: 'flex', gap: 1, zIndex: 2 }}>
+            <IconButton
+              onClick={() => changeImageZoom(-0.2)}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.3)' }
+              }}
+              title="Zoom out"
+            >
+              <ZoomOutIcon />
+            </IconButton>
+            <IconButton
+              onClick={() => { setImageZoom(1); setImageOffset({ x: 0, y: 0 }); }}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.3)' }
+              }}
+              title="Reset zoom"
+            >
+              <RestartAltIcon />
+            </IconButton>
+            <IconButton
+              onClick={() => changeImageZoom(0.2)}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.3)' }
+              }}
+              title="Zoom in"
+            >
+              <ZoomInIcon />
+            </IconButton>
+          </Box>
           <IconButton
             onClick={() => {
               // Clean up blob URL if it's a blob
               if (imageViewer.isBlob && imageViewer.imageUrl) {
                 URL.revokeObjectURL(imageViewer.imageUrl);
               }
+              setImageZoom(1);
+              setImageOffset({ x: 0, y: 0 });
               setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
             }}
             sx={{
@@ -1710,18 +1779,27 @@ const PaymentSettlementList = () => {
               maxHeight: '80vh',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              cursor: imageZoom > 1 ? (dragState.active ? 'grabbing' : 'grab') : 'default'
             }}
+            onMouseMove={onImageDrag}
+            onMouseUp={stopImageDrag}
+            onMouseLeave={stopImageDrag}
           >
             <img
               src={imageViewer.imageUrl}
               alt={imageViewer.imageName}
+              onMouseDown={startImageDrag}
               style={{
                 maxWidth: '100%',
                 maxHeight: '100%',
                 objectFit: 'contain',
                 borderRadius: 8,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+                boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageZoom})`,
+                transformOrigin: 'center center',
+                transition: dragState.active ? 'none' : 'transform 0.15s ease',
+                userSelect: 'none'
               }}
               onError={(e) => {
                 e.target.style.display = 'none';

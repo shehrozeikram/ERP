@@ -45,7 +45,10 @@ import {
   Visibility as VisibilityIcon,
   Print as PrintIcon,
   Description as DescriptionIcon,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
+  RestartAlt as RestartAltIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -71,6 +74,9 @@ const RentalManagementDetail = ({
     imageName: '',
     isBlob: false
   });
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
+  const [dragState, setDragState] = useState({ active: false, startX: 0, startY: 0 });
 
   const fetchRecord = useCallback(async () => {
     if (!recordId) return;
@@ -199,6 +205,8 @@ const RentalManagementDetail = ({
     
     if (isImage) {
       // For images, we'll show them in a simple way for now
+      setImageZoom(1);
+      setImageOffset({ x: 0, y: 0 });
       setImageViewer({
         open: true,
         imageUrl: attachment.filePath,
@@ -218,6 +226,28 @@ const RentalManagementDetail = ({
       link.click();
       document.body.removeChild(link);
     }
+  };
+  const changeImageZoom = (delta) => {
+    setImageZoom((prev) => Math.min(3, Math.max(0.5, +(prev + delta).toFixed(2))));
+  };
+  const startImageDrag = (event) => {
+    if (imageZoom <= 1) return;
+    event.preventDefault();
+    setDragState({
+      active: true,
+      startX: event.clientX - imageOffset.x,
+      startY: event.clientY - imageOffset.y
+    });
+  };
+  const onImageDrag = (event) => {
+    if (!dragState.active) return;
+    setImageOffset({
+      x: event.clientX - dragState.startX,
+      y: event.clientY - dragState.startY
+    });
+  };
+  const stopImageDrag = () => {
+    if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
   };
 
   const refreshRecord = async () => {
@@ -536,7 +566,7 @@ const RentalManagementDetail = ({
                         <TableCell>{userDisplayName(row.signatureUser) || '-'}</TableCell>
                         <TableCell>
                           {getSignatureSource(row) ? (
-                            <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} sx={{ maxHeight: 42, maxWidth: 135, objectFit: 'contain' }} />
+                            <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
                           ) : '-'}
                         </TableCell>
                         <TableCell>{row.dateTime || '-'}</TableCell>
@@ -638,31 +668,59 @@ const RentalManagementDetail = ({
       {/* Image Viewer Dialog */}
       <Dialog
         open={imageViewer.open}
-        onClose={() => setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false })}
+        onClose={() => {
+          setImageZoom(1);
+          setImageOffset({ x: 0, y: 0 });
+          setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
+        }}
         maxWidth="lg"
         fullWidth
       >
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={2}>
             <Typography variant="h6">{imageViewer.imageName}</Typography>
+            <Stack direction="row" spacing={0.5} sx={{ ml: 'auto' }}>
+              <IconButton size="small" onClick={() => changeImageZoom(-0.2)} title="Zoom out">
+                <ZoomOutIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" onClick={() => { setImageZoom(1); setImageOffset({ x: 0, y: 0 }); }} title="Reset zoom">
+                <RestartAltIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" onClick={() => changeImageZoom(0.2)} title="Zoom in">
+                <ZoomInIcon fontSize="small" />
+              </IconButton>
+            </Stack>
             <IconButton
-              onClick={() => setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false })}
-              sx={{ ml: 'auto' }}
+              onClick={() => {
+                setImageZoom(1);
+                setImageOffset({ x: 0, y: 0 });
+                setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
+              }}
             >
               <CloseIcon />
             </IconButton>
           </Stack>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent
+          sx={{ overflow: 'auto', cursor: imageZoom > 1 ? (dragState.active ? 'grabbing' : 'grab') : 'default' }}
+          onMouseMove={onImageDrag}
+          onMouseUp={stopImageDrag}
+          onMouseLeave={stopImageDrag}
+        >
           <Box
             component="img"
             src={imageViewer.imageUrl}
             alt={imageViewer.imageName}
+            onMouseDown={startImageDrag}
             sx={{
               width: '100%',
               height: 'auto',
               maxHeight: '70vh',
-              objectFit: 'contain'
+              objectFit: 'contain',
+              transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageZoom})`,
+              transformOrigin: 'center center',
+              transition: dragState.active ? 'none' : 'transform 0.15s ease',
+              userSelect: 'none'
             }}
           />
         </DialogContent>

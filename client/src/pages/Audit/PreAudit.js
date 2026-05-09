@@ -58,7 +58,10 @@ import {
   Close as CloseIcon,
   ExpandMore as ExpandMoreIcon,
   History as HistoryIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
+  RestartAlt as RestartAltIcon
 } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -114,12 +117,37 @@ const PreAudit = () => {
   // Dialog states
   const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], caLinkedDocs: [], poAuditTab: 0 });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
+  const [dragState, setDragState] = useState({ active: false, startX: 0, startY: 0 });
   const [approveDialog, setApproveDialog] = useState({ open: false, document: null });
   const [forwardDialog, setForwardDialog] = useState({ open: false, document: null });
   const [observationDialog, setObservationDialog] = useState({ open: false, document: null });
   const [returnDialog, setReturnDialog] = useState({ open: false, document: null });
   const [rejectDialog, setRejectDialog] = useState({ open: false, document: null });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
+  const changeImageZoom = (delta) => {
+    setImageZoom((prev) => Math.min(3, Math.max(0.5, +(prev + delta).toFixed(2))));
+  };
+  const startImageDrag = (event) => {
+    if (imageZoom <= 1) return;
+    event.preventDefault();
+    setDragState({
+      active: true,
+      startX: event.clientX - imageOffset.x,
+      startY: event.clientY - imageOffset.y
+    });
+  };
+  const onImageDrag = (event) => {
+    if (!dragState.active) return;
+    setImageOffset({
+      x: event.clientX - dragState.startX,
+      y: event.clientY - dragState.startY
+    });
+  };
+  const stopImageDrag = () => {
+    if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
+  };
   const [approvalComments, setApprovalComments] = useState('');
   const [useStampForAction, setUseStampForAction] = useState(false);
   const [forwardComments, setForwardComments] = useState('');
@@ -669,9 +697,37 @@ const PreAudit = () => {
       { authority: 'Audit Director Stamp', stampImage: directorStamp?.stampImage || '', dateTime: directorStamp?.changedAt ? formatDateTime(directorStamp.changedAt) : '' }
     ].filter((row) => row.stampImage);
   };
+  const isImageLike = (value = '') => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(value || ''));
+  const getWorkflowDocImageAttachments = (doc = {}, submodule = '') => {
+    const images = [];
+    const pushImage = (src, name = 'Bill Image') => {
+      if (!src) return;
+      const resolved = getImageUrl(src);
+      if (!resolved) return;
+      if (!images.some((img) => img.src === resolved)) {
+        images.push({ src: resolved, name });
+      }
+    };
+
+    if (submodule === 'utility_bills_management') {
+      pushImage(doc.billImage, 'Bill Image');
+      pushImage(doc.attachment, 'Bill Attachment');
+    }
+
+    const list = Array.isArray(doc.attachments) ? doc.attachments : [];
+    list.forEach((att, idx) => {
+      const src = att?.filePath || att?.path || att?.url || '';
+      const mime = String(att?.mimeType || '').toLowerCase();
+      if (src && (mime.startsWith('image/') || isImageLike(src))) {
+        pushImage(src, att?.originalName || att?.fileName || `Attachment ${idx + 1}`);
+      }
+    });
+    return images;
+  };
 
   const renderUtilityBillMemoView = (bill) => {
     if (!bill) return null;
+    const billImages = getWorkflowDocImageAttachments(bill, 'utility_bills_management');
     const primaryHeading = (bill.accountHead || bill.site || bill.location || bill.provider || bill.utilityType || 'Utility Bill').toUpperCase();
     const secondaryHeading = [bill.provider, bill.utilityType].filter(Boolean).join(' - ');
     return (
@@ -817,6 +873,21 @@ const PreAudit = () => {
             ))}
           </TableBody>
         </Table>
+        {billImages.length > 0 && (
+          <Box sx={{ mt: 3 }}>
+            <Typography sx={{ fontWeight: 800, mb: 1.25 }}>Attached Bill Image{billImages.length > 1 ? 's' : ''}</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {billImages.map((img, idx) => (
+                <Box key={`${img.src}-${idx}`} sx={{ flex: 1, minWidth: 240, border: '1px solid', borderColor: 'grey.300', borderRadius: 1.25, p: 1.25, bgcolor: 'grey.50' }}>
+                  <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary' }}>
+                    {img.name}
+                  </Typography>
+                  <Box component="img" src={img.src} alt={img.name} sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1 }} />
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
 
         <Table
           size="small"
@@ -874,6 +945,7 @@ const PreAudit = () => {
 
   const renderPaymentSettlementMemoView = (document) => {
     if (!document) return null;
+    const billImages = getWorkflowDocImageAttachments(document, 'payment_settlement');
     return (
       <Paper
         elevation={0}
@@ -1036,6 +1108,21 @@ const PreAudit = () => {
             </TableRow>
           </TableBody>
         </Table>
+        {billImages.length > 0 && (
+          <Box sx={{ mt: 3 }}>
+            <Typography sx={{ fontWeight: 800, mb: 1.25 }}>Attached Bill Image{billImages.length > 1 ? 's' : ''}</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {billImages.map((img, idx) => (
+                <Box key={`${img.src}-${idx}`} sx={{ flex: 1, minWidth: 240, border: '1px solid', borderColor: 'grey.300', borderRadius: 1.25, p: 1.25, bgcolor: 'grey.50' }}>
+                  <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary' }}>
+                    {img.name}
+                  </Typography>
+                  <Box component="img" src={img.src} alt={img.name} sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1 }} />
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
 
         <Table
           size="small"
@@ -1093,6 +1180,7 @@ const PreAudit = () => {
 
   const renderRentalManagementMemoView = (document) => {
     if (!document) return null;
+    const billImages = getWorkflowDocImageAttachments(document, 'rental_management');
     const statusLabel = (document.workflowStatus && document.workflowStatus !== 'Draft')
       ? document.workflowStatus
       : (document.approvalStatus || document.status || 'Draft');
@@ -1200,6 +1288,21 @@ const PreAudit = () => {
             </TableRow>
           </TableBody>
         </Table>
+        {billImages.length > 0 && (
+          <Box sx={{ mt: 3 }}>
+            <Typography sx={{ fontWeight: 800, mb: 1.25 }}>Attached Bill Image{billImages.length > 1 ? 's' : ''}</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {billImages.map((img, idx) => (
+                <Box key={`${img.src}-${idx}`} sx={{ flex: 1, minWidth: 240, border: '1px solid', borderColor: 'grey.300', borderRadius: 1.25, p: 1.25, bgcolor: 'grey.50' }}>
+                  <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary' }}>
+                    {img.name}
+                  </Typography>
+                  <Box component="img" src={img.src} alt={img.name} sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1 }} />
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
 
         <Table size="small" sx={{ mt: 7, border: '1px solid', borderColor: 'grey.300', '& th': { bgcolor: 'grey.100', fontWeight: 800, fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.300' }, '& td': { fontSize: 14, borderBottom: '1px solid', borderColor: 'grey.200', py: 1.4 }, '& tr:last-child td': { borderBottom: 0 } }}>
           <TableHead>
@@ -1217,7 +1320,7 @@ const PreAudit = () => {
                 <TableCell>{row.name || '-'}</TableCell>
                 <TableCell>
                   {getSignatureSource(row) ? (
-                    <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} sx={{ maxHeight: 42, maxWidth: 135, objectFit: 'contain' }} />
+                    <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
                   ) : '-'}
                 </TableCell>
                 <TableCell>{row.dateTime || '-'}</TableCell>
@@ -1284,106 +1387,6 @@ const PreAudit = () => {
   const formatNumber = (num) => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
-  };
-
-  const renderComparativeApprovalProgress = (indent, { title = 'Comparative approval progress' } = {}) => {
-    if (!indent) return null;
-    const ca = indent.comparativeApproval || {};
-    const steps = Array.isArray(ca.approvers) ? ca.approvers : [];
-    const authorityUserMap = (() => {
-      const csa = indent?.comparativeStatementApprovals || {};
-      const slots = [
-        { key: 'preparedByUser', label: 'Prepared By' },
-        { key: 'verifiedByUser', label: 'Verified By (Procurement Committee)' },
-        { key: 'authorisedRepUser', label: 'Authorised Rep.' },
-        { key: 'financeRepUser', label: 'Finance Rep.' },
-        { key: 'managerProcurementUser', label: 'Manager Procurement' }
-      ];
-      const map = new Map();
-      slots.forEach((slot) => {
-        const id = csa?.[slot.key]?._id || csa?.[slot.key];
-        if (!id) return;
-        map.set(String(id), slot.label);
-      });
-      return map;
-    })();
-
-    return (
-      <Box sx={{ mt: 3 }}>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
-          {title}
-        </Typography>
-        {steps.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            No comparative approval chain is recorded for this requisition.
-          </Typography>
-        ) : (
-          <>
-            <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                  <TableCell sx={{ fontWeight: 700 }}>Authority / approver</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {steps.map((step, idx) => {
-                  const approver = step.approver;
-                  const aid = approver?._id || approver;
-                  const name =
-                    [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
-                    approver?.email ||
-                    (aid ? `User ${String(aid).slice(-6)}` : `Approver ${idx + 1}`);
-                  const authorityLabel = authorityUserMap.get(String(aid || ''));
-                  const status = step.status || 'pending';
-                  const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
-                  const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
-                  return (
-                    <TableRow key={String(aid || idx)}>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={600}>
-                          {authorityLabel || 'Approver'}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {name}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={chipLabel}
-                          color={chipColor}
-                          variant={status === 'pending' ? 'outlined' : 'filled'}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                        {step.actedAt ? new Date(step.actedAt).toLocaleString() : '—'}
-                      </TableCell>
-                      <TableCell align="center">
-                        {status === 'approved' && approver?.digitalSignature ? (
-                          <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
-                        ) : status === 'approved' ? (
-                          <Typography variant="caption" color="text.secondary">No signature on file</Typography>
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">—</Typography>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-            {ca?.status === 'rejected' && ca?.rejectionObservation ? (
-              <Typography variant="caption" color="error.main" display="block" sx={{ mt: 1 }}>
-                Observation: {ca.rejectionObservation}
-              </Typography>
-            ) : null}
-          </>
-        )}
-      </Box>
-    );
   };
 
   const renderIndentApprovalProgress = (indent, { title = 'Indent approval progress' } = {}) => {
@@ -3338,6 +3341,8 @@ const PreAudit = () => {
                                           imageName: attachment.originalName,
                                           isBlob: true
                                         });
+                                        setImageZoom(1);
+                                        setImageOffset({ x: 0, y: 0 });
                                       } catch (error) {
                                         toast.error('Failed to load image');
                                       }
@@ -4148,6 +4153,8 @@ const PreAudit = () => {
           if (imageViewer.isBlob && imageViewer.imageUrl) {
             URL.revokeObjectURL(imageViewer.imageUrl);
           }
+          setImageZoom(1);
+          setImageOffset({ x: 0, y: 0 });
           setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
         }}
         maxWidth="lg"
@@ -4173,11 +4180,48 @@ const PreAudit = () => {
             p: 2
           }}
         >
+          <Box sx={{ position: 'absolute', top: 16, left: 16, display: 'flex', gap: 1, zIndex: 2 }}>
+            <IconButton
+              onClick={() => changeImageZoom(-0.2)}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.3)' }
+              }}
+              title="Zoom out"
+            >
+              <ZoomOutIcon />
+            </IconButton>
+            <IconButton
+              onClick={() => { setImageZoom(1); setImageOffset({ x: 0, y: 0 }); }}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.3)' }
+              }}
+              title="Reset zoom"
+            >
+              <RestartAltIcon />
+            </IconButton>
+            <IconButton
+              onClick={() => changeImageZoom(0.2)}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                color: 'white',
+                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.3)' }
+              }}
+              title="Zoom in"
+            >
+              <ZoomInIcon />
+            </IconButton>
+          </Box>
           <IconButton
             onClick={() => {
               if (imageViewer.isBlob && imageViewer.imageUrl) {
                 URL.revokeObjectURL(imageViewer.imageUrl);
               }
+              setImageZoom(1);
+              setImageOffset({ x: 0, y: 0 });
               setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
             }}
             sx={{
@@ -4200,18 +4244,28 @@ const PreAudit = () => {
               maxHeight: '80vh',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              cursor: imageZoom > 1 ? (dragState.active ? 'grabbing' : 'grab') : 'default'
             }}
+            onMouseMove={onImageDrag}
+            onMouseUp={stopImageDrag}
+            onMouseLeave={stopImageDrag}
           >
             <img
               src={imageViewer.imageUrl}
               alt={imageViewer.imageName}
+              onMouseDown={startImageDrag}
               style={{
                 maxWidth: '100%',
                 maxHeight: '100%',
                 objectFit: 'contain',
                 borderRadius: 8,
                 boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+                ,
+                transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageZoom})`,
+                transformOrigin: 'center center',
+                transition: dragState.active ? 'none' : 'transform 0.15s ease',
+                userSelect: 'none'
               }}
             />
           </Box>

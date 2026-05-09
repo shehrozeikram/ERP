@@ -67,10 +67,6 @@ const UtilityBillDashboard = () => {
   const statuses = ['Pending', 'Paid', 'Overdue', 'Partial'];
   const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Credit Card', 'Other'];
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -94,10 +90,8 @@ const UtilityBillDashboard = () => {
   };
 
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      fetchData();
-    }, 500);
-    return () => clearTimeout(timeoutId);
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, filterType, filterStatus]);
 
   const handleMenuOpen = (event, bill) => {

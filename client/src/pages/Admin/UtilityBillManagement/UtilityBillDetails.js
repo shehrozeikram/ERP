@@ -35,7 +35,10 @@ import {
   Edit as EditIcon,
   Payment as PaymentIcon,
   Print as PrintIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
+  RestartAlt as RestartAltIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -114,6 +117,9 @@ const UtilityBillDetails = () => {
     [mergedSubmitApprovers, submitRequesterId, managerApprover]
   );
   const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
+  const [dragState, setDragState] = useState({ active: false, startX: 0, startY: 0 });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [paymentData, setPaymentData] = useState({
     paidAmount: 0,
@@ -351,6 +357,28 @@ const UtilityBillDetails = () => {
       notes: ''
     });
     setPaymentDialog(true);
+  };
+  const changeImageZoom = (delta) => {
+    setImageZoom((prev) => Math.min(3, Math.max(0.5, +(prev + delta).toFixed(2))));
+  };
+  const startImageDrag = (event) => {
+    if (imageZoom <= 1) return;
+    event.preventDefault();
+    setDragState({
+      active: true,
+      startX: event.clientX - imageOffset.x,
+      startY: event.clientY - imageOffset.y
+    });
+  };
+  const onImageDrag = (event) => {
+    if (!dragState.active) return;
+    setImageOffset({
+      x: event.clientX - dragState.startX,
+      y: event.clientY - dragState.startY
+    });
+  };
+  const stopImageDrag = () => {
+    if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
   };
 
   const handlePaymentSubmit = async () => {
@@ -824,7 +852,11 @@ const UtilityBillDetails = () => {
               component="img"
               src={getImageUrl(bill.billImage)}
               alt="Utility Bill"
-              onClick={() => setImageModalOpen(true)}
+              onClick={() => {
+                setImageZoom(1);
+                setImageOffset({ x: 0, y: 0 });
+                setImageModalOpen(true);
+              }}
               onError={(e) => handleImageError(e)}
               sx={{ maxWidth: 220, maxHeight: 220, border: '1px solid', borderColor: 'divider', cursor: 'pointer' }}
             />
@@ -942,18 +974,43 @@ const UtilityBillDetails = () => {
       <Dialog open={imageModalOpen} onClose={() => setImageModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
           Bill Image
+          <Box sx={{ position: 'absolute', right: 48, top: 8, display: 'flex', gap: 0.5 }}>
+            <IconButton size="small" onClick={() => changeImageZoom(-0.2)} title="Zoom out">
+              <ZoomOutIcon fontSize="small" />
+            </IconButton>
+            <IconButton size="small" onClick={() => { setImageZoom(1); setImageOffset({ x: 0, y: 0 }); }} title="Reset zoom">
+              <RestartAltIcon fontSize="small" />
+            </IconButton>
+            <IconButton size="small" onClick={() => changeImageZoom(0.2)} title="Zoom in">
+              <ZoomInIcon fontSize="small" />
+            </IconButton>
+          </Box>
           <IconButton onClick={() => setImageModalOpen(false)} sx={{ position: 'absolute', right: 8, top: 8 }}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent
+          sx={{ overflow: 'auto', cursor: imageZoom > 1 ? (dragState.active ? 'grabbing' : 'grab') : 'default' }}
+          onMouseMove={onImageDrag}
+          onMouseUp={stopImageDrag}
+          onMouseLeave={stopImageDrag}
+        >
           {bill.billImage && (
             <Box
               component="img"
               src={getImageUrl(bill.billImage)}
               alt="Utility Bill"
               onError={(e) => handleImageError(e)}
-              sx={{ width: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+              onMouseDown={startImageDrag}
+              sx={{
+                width: '100%',
+                maxHeight: '70vh',
+                objectFit: 'contain',
+                transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageZoom})`,
+                transformOrigin: 'center center',
+                transition: dragState.active ? 'none' : 'transform 0.15s ease',
+                userSelect: 'none'
+              }}
             />
           )}
         </DialogContent>
