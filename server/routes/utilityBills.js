@@ -8,6 +8,10 @@ const permissions = require('../middleware/permissions');
 const UtilityBill = require('../models/hr/UtilityBill');
 const User = require('../models/User');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const {
+  getEligibleUtilityBillApproverUserIds,
+  assertUtilityBillApproversEligible
+} = require('../utils/utilityBillApproverEligibility');
 
 const populateUtilityBill = (query) => query
   .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
@@ -342,17 +346,24 @@ router.get('/approver-candidates', permissions.checkSubRolePermission('admin', '
   try {
     const search = String(req.query.search || '').trim();
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-    const filter = { isActive: true };
+    const eligibleIds = await getEligibleUtilityBillApproverUserIds();
+    const filter = { isActive: true, _id: { $in: [...eligibleIds] } };
 
     if (search) {
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const rx = new RegExp(escaped, 'i');
-      filter.$or = [
-        { firstName: rx },
-        { lastName: rx },
-        { email: rx },
-        { employeeId: rx }
+      filter.$and = [
+        { _id: { $in: [...eligibleIds] } },
+        {
+          $or: [
+            { firstName: rx },
+            { lastName: rx },
+            { email: rx },
+            { employeeId: rx }
+          ]
+        }
       ];
+      delete filter._id;
     }
 
     const users = await User.find(filter)
@@ -402,6 +413,12 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
     delete billData.observations;
     delete billData.updatedBy;
     billData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
+    if (billData.draftApproverIds.length) {
+      const approverCheck = await assertUtilityBillApproversEligible(billData.draftApproverIds);
+      if (!approverCheck.ok) {
+        return res.status(400).json({ success: false, message: approverCheck.message });
+      }
+    }
 
     // Add image path if uploaded
     if (req.file) {
@@ -460,6 +477,12 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
     delete updateData.updatedBy;
     if (req.body.draftApproverIds !== undefined) {
       updateData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
+      if (updateData.draftApproverIds.length) {
+        const approverCheck = await assertUtilityBillApproversEligible(updateData.draftApproverIds);
+        if (!approverCheck.ok) {
+          return res.status(400).json({ success: false, message: approverCheck.message });
+        }
+      }
     }
 
     // Add image path if uploaded
@@ -535,6 +558,11 @@ router.post('/:id/submit', permissions.checkSubRolePermission('admin', 'utility_
         success: false,
         message: 'Requester cannot be selected as Manager or Head Of Department approver'
       });
+    }
+
+    const approverDeptCheck = await assertUtilityBillApproversEligible(approverIds);
+    if (!approverDeptCheck.ok) {
+      return res.status(400).json({ success: false, message: approverDeptCheck.message });
     }
 
     const approvers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');

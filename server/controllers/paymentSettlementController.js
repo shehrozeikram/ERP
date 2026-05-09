@@ -17,6 +17,10 @@ const {
   getSourceStatus
 } = require('../utils/paymentSettlementWorkflow');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const {
+  getEligibleUtilityBillApproverUserIds,
+  assertUtilityBillApproversEligible
+} = require('../utils/utilityBillApproverEligibility');
 
 const normalizeApproverIds = (value) => {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -286,17 +290,24 @@ const getPaymentSettlement = asyncHandler(async (req, res) => {
 const getApproverCandidates = asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-  const filter = { isActive: true };
+  const eligibleIds = await getEligibleUtilityBillApproverUserIds();
+  const filter = { isActive: true, _id: { $in: [...eligibleIds] } };
 
   if (search) {
     const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const rx = new RegExp(escaped, 'i');
-    filter.$or = [
-      { firstName: rx },
-      { lastName: rx },
-      { email: rx },
-      { employeeId: rx }
+    filter.$and = [
+      { _id: { $in: [...eligibleIds] } },
+      {
+        $or: [
+          { firstName: rx },
+          { lastName: rx },
+          { email: rx },
+          { employeeId: rx }
+        ]
+      }
     ];
+    delete filter._id;
   }
 
   const users = await User.find(filter)
@@ -327,6 +338,11 @@ const submitPaymentSettlement = asyncHandler(async (req, res) => {
 
   if (approverIds.includes(String(req.user.id))) {
     return res.status(400).json({ success: false, message: 'Requester cannot be selected as Manager or Head Of Department approver' });
+  }
+
+  const approverDeptCheck = await assertUtilityBillApproversEligible(approverIds);
+  if (!approverDeptCheck.ok) {
+    return res.status(400).json({ success: false, message: approverDeptCheck.message });
   }
 
   const approvers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');
@@ -463,6 +479,12 @@ const createPaymentSettlement = asyncHandler(async (req, res) => {
     delete settlementData.rejectedAt;
     delete settlementData.rejectionReason;
     settlementData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
+    if (settlementData.draftApproverIds.length) {
+      const approverCheck = await assertUtilityBillApproversEligible(settlementData.draftApproverIds);
+      if (!approverCheck.ok) {
+        return res.status(400).json({ success: false, message: approverCheck.message });
+      }
+    }
 
     // Handle file attachments if any
     if (req.files && req.files.length > 0) {
@@ -531,6 +553,12 @@ const updatePaymentSettlement = asyncHandler(async (req, res) => {
     delete updateData.rejectionReason;
     if (req.body.draftApproverIds !== undefined) {
       updateData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
+      if (updateData.draftApproverIds.length) {
+        const approverCheck = await assertUtilityBillApproversEligible(updateData.draftApproverIds);
+        if (!approverCheck.ok) {
+          return res.status(400).json({ success: false, message: approverCheck.message });
+        }
+      }
     }
 
     // Handle file attachments if any

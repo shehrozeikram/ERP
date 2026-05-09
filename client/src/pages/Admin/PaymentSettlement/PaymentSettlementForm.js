@@ -599,6 +599,9 @@ const PaymentSettlementForm = ({
           <Typography variant="h6" gutterBottom sx={{ mb: 2, color: 'text.secondary' }}>
             Approval Authority
           </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Manager and Head Of Department approvers: User Management department Administration only (code ADMIN).
+          </Typography>
           <Grid container spacing={3} sx={{ mb: 1 }}>
             <Grid item xs={12} md={4}>
               <TextField

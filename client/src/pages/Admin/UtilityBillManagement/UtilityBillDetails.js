@@ -816,6 +816,9 @@ const UtilityBillDetails = () => {
       <Dialog open={submitDialogOpen} onClose={() => setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Select Approval Authorities</DialogTitle>
         <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Users are filtered by User Management department only (Administration / code ADMIN).
+          </Typography>
           <Autocomplete
             options={approverOptions.filter((option) => getUserId(option) !== getUserId(user))}
             value={managerApprover}

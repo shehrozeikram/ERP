@@ -677,6 +677,9 @@ const RentalManagementDashboard = () => {
                 <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1, color: 'text.secondary' }}>
                   Approval Authority
                 </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Manager and Head Of Department approvers: User Management department Administration only (code ADMIN).
+                </Typography>
               </Grid>
               <Grid item xs={12}>
                 <TextField

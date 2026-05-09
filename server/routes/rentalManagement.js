@@ -4,6 +4,10 @@ const RentalManagement = require('../models/hr/RentalManagement');
 const RentalAgreement = require('../models/hr/RentalAgreement');
 const User = require('../models/User');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const {
+  getEligibleUtilityBillApproverUserIds,
+  assertUtilityBillApproversEligible
+} = require('../utils/utilityBillApproverEligibility');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 
@@ -94,11 +98,16 @@ router.get('/approver-candidates', authMiddleware, permissions.checkSubRolePermi
   try {
     const search = String(req.query.search || '').trim();
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-    const filter = { isActive: true };
+    const eligibleIds = await getEligibleUtilityBillApproverUserIds();
+    const filter = { isActive: true, _id: { $in: [...eligibleIds] } };
     if (search) {
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const rx = new RegExp(escaped, 'i');
-      filter.$or = [{ firstName: rx }, { lastName: rx }, { email: rx }, { employeeId: rx }];
+      filter.$and = [
+        { _id: { $in: [...eligibleIds] } },
+        { $or: [{ firstName: rx }, { lastName: rx }, { email: rx }, { employeeId: rx }] }
+      ];
+      delete filter._id;
     }
     const users = await User.find(filter)
       .select('firstName lastName email employeeId department digitalSignature approvalStamp')
@@ -141,6 +150,12 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
       delete payload.rentalAgreement;
     }
     payload.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
+    if (payload.draftApproverIds.length) {
+      const approverCheck = await assertUtilityBillApproversEligible(payload.draftApproverIds);
+      if (!approverCheck.ok) {
+        return res.status(400).json({ success: false, message: approverCheck.message });
+      }
+    }
     const record = new RentalManagement({
       ...payload,
       createdBy: req.user.id
@@ -173,6 +188,12 @@ router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
     }
     if (req.body.draftApproverIds !== undefined) {
       payload.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
+      if (payload.draftApproverIds.length) {
+        const approverCheck = await assertUtilityBillApproversEligible(payload.draftApproverIds);
+        if (!approverCheck.ok) {
+          return res.status(400).json({ success: false, message: approverCheck.message });
+        }
+      }
     }
     const record = await RentalManagement.findByIdAndUpdate(
       req.params.id,
@@ -212,6 +233,10 @@ router.post('/:id/submit', authMiddleware, permissions.checkSubRolePermission('a
     }
     if (approverIds.includes(String(req.user.id))) {
       return res.status(400).json({ success: false, message: 'Requester cannot be selected as Manager or Head Of Department approver' });
+    }
+    const approverDeptCheck = await assertUtilityBillApproversEligible(approverIds);
+    if (!approverDeptCheck.ok) {
+      return res.status(400).json({ success: false, message: approverDeptCheck.message });
     }
     const approvers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');
     if (approvers.length !== 2) return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });

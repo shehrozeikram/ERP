@@ -654,6 +654,7 @@ const UtilityBillForm = () => {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   Choose Manager and Head Of Department approvers before submitting. You can also save as draft.
+                  Only users whose department in User Management is Administration (code ADMIN) are listed.
                 </Typography>
               </Grid>
 
