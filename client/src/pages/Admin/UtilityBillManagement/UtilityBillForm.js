@@ -52,7 +52,7 @@ const UtilityBillForm = () => {
   const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
   const defaultType = searchParams.get('type') || 'Electricity';
-  const accountHeadOptions = ['President Personal', 'Head Office', 'Boly.pk', 'Usman Solar'];
+  const accountHeadOptions = ['President Personal', 'SGCHQ', 'Boly.pk', 'Usman Solar'];
 
   const [formData, setFormData] = useState({
     accountHead: '',
