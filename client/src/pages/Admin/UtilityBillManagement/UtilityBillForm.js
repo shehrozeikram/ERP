@@ -26,7 +26,6 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
-import api from '../../../services/api';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
 import { useAuth } from '../../../contexts/AuthContext';
 
@@ -87,16 +86,13 @@ const UtilityBillForm = () => {
   const fetchMasterData = async () => {
     try {
       setMasterDataLoading(true);
-      const [departmentsResponse, employeesResponse] = await Promise.all([
-        api.get('/hr/departments'),
-        api.get('/hr/employees', { params: { getAll: true, active: true } })
-      ]);
-
-      setDepartments(departmentsResponse.data.data || []);
-      setEmployees(employeesResponse.data.data || []);
+      const res = await utilityBillService.getFormMasterData();
+      const payload = res?.data || {};
+      setDepartments(payload.departments || []);
+      setEmployees(payload.employees || []);
     } catch (err) {
       console.error('Error fetching utility bill master data:', err);
-      setError('Failed to load department and custodian lists');
+      setError(err.response?.data?.message || 'Failed to load department and custodian lists');
     } finally {
       setMasterDataLoading(false);
     }

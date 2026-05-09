@@ -7,6 +7,8 @@ const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const UtilityBill = require('../models/hr/UtilityBill');
 const User = require('../models/User');
+const Department = require('../models/hr/Department');
+const Employee = require('../models/hr/Employee');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 const {
   getEligibleUtilityBillApproverUserIds,
@@ -376,6 +378,40 @@ router.get('/approver-candidates', permissions.checkSubRolePermission('admin', '
   } catch (error) {
     console.error('Error fetching utility bill approvers:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch approvers' });
+  }
+});
+
+// Department + custodian (employee) lists for create/edit — same data as HR dropdowns but allowed for utility_bills_management read (no HR manager role required)
+router.get('/form-master-data', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
+  try {
+    const departments = await Department.find({ isActive: true })
+      .populate('manager', 'firstName lastName employeeId')
+      .populate('parentDepartment', 'name code')
+      .sort({ name: 1 })
+      .lean();
+
+    const employeeQuery = { isDeleted: false, isActive: true };
+    const employees = await Employee.find(employeeQuery)
+      .select('firstName lastName employeeId placementDepartment email phone isActive employmentStatus')
+      .populate('placementDepartment', 'name code')
+      .sort({ isActive: -1, employmentStatus: 1, employeeId: 1 })
+      .lean();
+
+    const employeesWithVirtuals = employees.map((employee) => ({
+      ...employee,
+      fullName: `${employee.firstName || ''} ${employee.lastName || ''}`.trim()
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        departments,
+        employees: employeesWithVirtuals
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching utility bill form master data:', error);
+    res.status(500).json({ success: false, message: 'Failed to load form master data' });
   }
 });
 

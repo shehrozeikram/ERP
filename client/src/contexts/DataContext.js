@@ -2,6 +2,32 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useAuth } from './AuthContext';
 import api from '../services/api';
 
+/** Many roles (e.g. utility bills only) cannot call /hr/* — treat as empty lists, no error spam. */
+const isForbiddenOrUnauthorized = (error) => {
+  const s = error?.response?.status;
+  return s === 401 || s === 403;
+};
+
+const listFromApiResponse = (response) => {
+  if (!response?.data) return [];
+  if (Array.isArray(response.data.data)) return response.data.data;
+  if (Array.isArray(response.data)) return response.data;
+  return [];
+};
+
+/** Load HR/master list; returns [] on 401/403 without throwing. */
+const fetchHrListOrEmpty = async (requestFn, _label) => {
+  try {
+    const response = await requestFn();
+    return listFromApiResponse(response);
+  } catch (error) {
+    if (!isForbiddenOrUnauthorized(error) && process.env.NODE_ENV !== 'production') {
+      console.warn('DataContext preload:', error.config?.url, error.message);
+    }
+    return [];
+  }
+};
+
 const DataContext = createContext();
 
 export const useData = () => {
@@ -89,8 +115,13 @@ export const DataProvider = ({ children }) => {
       
       return data;
     } catch (error) {
-      console.error('Error fetching departments:', error);
-      setErrors(prev => ({ ...prev, departments: error.message }));
+      if (!isForbiddenOrUnauthorized(error)) {
+        console.error('Error fetching departments:', error);
+      }
+      setErrors(prev => ({
+        ...prev,
+        departments: isForbiddenOrUnauthorized(error) ? null : error.message
+      }));
       return [];
     } finally {
       setLoading(prev => ({ ...prev, departments: false }));
@@ -119,8 +150,12 @@ export const DataProvider = ({ children }) => {
       
       return data;
     } catch (error) {
-      console.error('❌ Error fetching employees:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to load employees';
+      if (!isForbiddenOrUnauthorized(error)) {
+        console.error('❌ Error fetching employees:', error);
+      }
+      const errorMessage = isForbiddenOrUnauthorized(error)
+        ? null
+        : (error.response?.data?.message || error.message || 'Failed to load employees');
       setErrors(prev => ({ ...prev, employees: errorMessage }));
       // Don't set lastFetched on error - allows retry
       return employees; // Return existing employees if any, or empty array
@@ -149,8 +184,13 @@ export const DataProvider = ({ children }) => {
       
       return data;
     } catch (error) {
-      console.error('Error fetching positions:', error);
-      setErrors(prev => ({ ...prev, positions: error.message }));
+      if (!isForbiddenOrUnauthorized(error)) {
+        console.error('Error fetching positions:', error);
+      }
+      setErrors(prev => ({
+        ...prev,
+        positions: isForbiddenOrUnauthorized(error) ? null : error.message
+      }));
       return [];
     } finally {
       setLoading(prev => ({ ...prev, positions: false }));
@@ -177,8 +217,13 @@ export const DataProvider = ({ children }) => {
       
       return data;
     } catch (error) {
-      console.error('Error fetching banks:', error);
-      setErrors(prev => ({ ...prev, banks: error.message }));
+      if (!isForbiddenOrUnauthorized(error)) {
+        console.error('Error fetching banks:', error);
+      }
+      setErrors(prev => ({
+        ...prev,
+        banks: isForbiddenOrUnauthorized(error) ? null : error.message
+      }));
       return [];
     } finally {
       setLoading(prev => ({ ...prev, banks: false }));
@@ -205,8 +250,13 @@ export const DataProvider = ({ children }) => {
       
       return data;
     } catch (error) {
-      console.error('Error fetching companies:', error);
-      setErrors(prev => ({ ...prev, companies: error.message }));
+      if (!isForbiddenOrUnauthorized(error)) {
+        console.error('Error fetching companies:', error);
+      }
+      setErrors(prev => ({
+        ...prev,
+        companies: isForbiddenOrUnauthorized(error) ? null : error.message
+      }));
       return [];
     } finally {
       setLoading(prev => ({ ...prev, companies: false }));
@@ -429,8 +479,13 @@ export const DataProvider = ({ children }) => {
       
       return data;
     } catch (error) {
-      console.error('Error fetching projects:', error);
-      setErrors(prev => ({ ...prev, projects: error.message }));
+      if (!isForbiddenOrUnauthorized(error)) {
+        console.error('Error fetching projects:', error);
+      }
+      setErrors(prev => ({
+        ...prev,
+        projects: isForbiddenOrUnauthorized(error) ? null : error.message
+      }));
       return [];
     } finally {
       setLoading(prev => ({ ...prev, projects: false }));
@@ -530,26 +585,24 @@ export const DataProvider = ({ children }) => {
         const loadData = async () => {
           try {
             console.log('📡 Fetching HR data from API...');
-            // Load non-employee data first (faster)
-            const [departmentsRes, positionsRes, banksRes, companiesRes, projectsRes] = await Promise.all([
-              api.get('/hr/departments'),
-              api.get('/positions'),
-              api.get('/hr/banks'),
-              api.get('/hr/companies'),
-              api.get('/projects')
+            const [depts, posits, bankList, comps, projs] = await Promise.all([
+              fetchHrListOrEmpty(() => api.get('/hr/departments'), 'departments'),
+              fetchHrListOrEmpty(() => api.get('/positions'), 'positions'),
+              fetchHrListOrEmpty(() => api.get('/hr/banks'), 'banks'),
+              fetchHrListOrEmpty(() => api.get('/hr/companies'), 'companies'),
+              fetchHrListOrEmpty(() => api.get('/projects'), 'projects')
             ]);
-            
+
             if (!isMounted) return;
-            
-            setDepartments(departmentsRes.data.data || []);
-            setPositions(positionsRes.data.data || []);
-            setBanks(banksRes.data.data || []);
-            setCompanies(companiesRes.data.data || []);
-            setProjects(projectsRes.data.data || []);
-            
-            // Set cache timestamps for non-employee data
+
+            setDepartments(depts);
+            setPositions(posits);
+            setBanks(bankList);
+            setCompanies(comps);
+            setProjects(projs);
+
             const now = Date.now();
-            setLastFetched(prev => ({
+            setLastFetched((prev) => ({
               ...prev,
               departments: now,
               positions: now,
@@ -557,9 +610,8 @@ export const DataProvider = ({ children }) => {
               companies: now,
               projects: now
             }));
-            
-            // Set loading states to false for non-employee data
-            setLoading(prev => ({
+
+            setLoading((prev) => ({
               ...prev,
               departments: false,
               positions: false,
@@ -567,59 +619,35 @@ export const DataProvider = ({ children }) => {
               companies: false,
               projects: false
             }));
-            
-            console.log(`✅ Essential HR data (non-employees) preloaded successfully: ${departmentsRes.data.data?.length || 0} departments, ${projectsRes.data.data?.length || 0} projects`);
-            
-            // Load employees separately (may take longer)
-            try {
-              console.log('📡 Fetching employees from API...');
-              const employeesRes = await api.get('/hr/employees?getAll=true');
-              
-              if (!isMounted) return;
-              
-              const employeesData = employeesRes.data.data || [];
-              setEmployees(employeesData);
-              setLastFetched(prev => ({ ...prev, employees: Date.now() }));
-              setLoading(prev => ({ ...prev, employees: false }));
-              setErrors(prev => ({ ...prev, employees: null }));
-              console.log(`✅ Employees preloaded successfully: ${employeesData.length} employees`);
-            } catch (employeeError) {
-              if (!isMounted) return;
-              
-              console.error('❌ Error preloading employees:', employeeError);
-              setErrors(prev => ({
-                ...prev,
-                employees: employeeError.response?.data?.message || employeeError.message || 'Failed to load employees. Please refresh the page.'
-              }));
-              setLoading(prev => ({ ...prev, employees: false }));
-              // Reset hasLoadedData to allow retry
-              hasLoadedData.current = false;
-            }
-            
+
+            console.log(
+              `✅ HR preload (non-employees): ${depts.length} departments, ${projs.length} projects (403 = no access, OK)`
+            );
+
+            console.log('📡 Fetching employees from API...');
+            const employeesData = await fetchHrListOrEmpty(() => api.get('/hr/employees?getAll=true'), 'employees');
+
+            if (!isMounted) return;
+
+            setEmployees(employeesData);
+            setLastFetched((prev) => ({ ...prev, employees: Date.now() }));
+            setLoading((prev) => ({ ...prev, employees: false }));
+            setErrors((prev) => ({ ...prev, employees: null }));
+            console.log(`✅ Employees preload: ${employeesData.length} rows`);
           } catch (error) {
             if (!isMounted) return;
-            
-            console.error('❌ Error preloading HR data:', error);
-            // Set error states for failed requests
-            setErrors(prev => ({
-              ...prev,
-              departments: error.response?.data?.message || error.message,
-              positions: error.response?.data?.message || error.message,
-              banks: error.response?.data?.message || error.message,
-              companies: error.response?.data?.message || error.message,
-              projects: error.response?.data?.message || error.message
-            }));
-            // Set loading states to false for failed requests
-            setLoading(prev => ({
+            if (!isForbiddenOrUnauthorized(error)) {
+              console.error('❌ Error preloading HR data:', error);
+            }
+            setLoading((prev) => ({
               ...prev,
               departments: false,
               positions: false,
               banks: false,
               companies: false,
-              projects: false
+              projects: false,
+              employees: false
             }));
-            // Reset hasLoadedData to allow retry
-            hasLoadedData.current = false;
           } finally {
             if (isMounted) {
               setIsPreloading(false);

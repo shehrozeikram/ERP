@@ -30,6 +30,11 @@ const utilityBillService = {
     return response.data;
   },
 
+  getFormMasterData: async () => {
+    const response = await api.get('/utility-bills/form-master-data');
+    return response.data;
+  },
+
   submitUtilityBill: async (id, body = {}) => {
     const response = await api.post(`/utility-bills/${id}/submit`, body);
     return response.data;
