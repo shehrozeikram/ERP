@@ -9,7 +9,7 @@ const utilityBillSchema = new mongoose.Schema({
   },
   accountHead: {
     type: String,
-    enum: ['President Personal', 'Head Office', 'Boly.pk', 'Usman Solar', ''],
+    enum: ['President Personal', 'Head Office', 'SGCHQ', 'Boly.pk', 'Usman Solar', ''],
     default: '',
     trim: true
   },
