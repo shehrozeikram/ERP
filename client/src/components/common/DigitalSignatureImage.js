@@ -19,9 +19,8 @@ export function DigitalSignatureImage({ userOrPath, alt = 'Signature', sx = {} }
         maxWidth: 380,
         objectFit: 'contain',
         objectPosition: 'left bottom',
-        // Make light signature strokes render clearly bolder on screen/print.
-        // Stronger settings to ensure visible change in PO signature rows.
-        filter: 'grayscale(1) contrast(4.8) brightness(0.34) drop-shadow(0 0 0.8px rgba(0,0,0,0.98)) drop-shadow(0 0 1.1px rgba(0,0,0,0.96))',
+        // Keep signatures clearly visible without making them overly bold.
+        filter: 'grayscale(1) contrast(2.7) brightness(0.62) drop-shadow(0 0 0.35px rgba(0,0,0,0.75))',
         display: 'block',
         mx: 'auto',
         // Keep print clear and prominent as well.

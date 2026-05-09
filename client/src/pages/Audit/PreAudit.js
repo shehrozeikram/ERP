@@ -148,6 +148,17 @@ const PreAudit = () => {
   const stopImageDrag = () => {
     if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
   };
+  const openImageViewer = (imageUrl, imageName = 'Attachment Image') => {
+    if (!imageUrl) return;
+    setImageViewer({
+      open: true,
+      imageUrl,
+      imageName,
+      isBlob: false
+    });
+    setImageZoom(1);
+    setImageOffset({ x: 0, y: 0 });
+  };
   const [approvalComments, setApprovalComments] = useState('');
   const [useStampForAction, setUseStampForAction] = useState(false);
   const [forwardComments, setForwardComments] = useState('');
@@ -882,7 +893,13 @@ const PreAudit = () => {
                   <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary' }}>
                     {img.name}
                   </Typography>
-                  <Box component="img" src={img.src} alt={img.name} sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1 }} />
+                  <Box
+                    component="img"
+                    src={img.src}
+                    alt={img.name}
+                    onClick={() => openImageViewer(img.src, img.name)}
+                    sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1, cursor: 'zoom-in' }}
+                  />
                 </Box>
               ))}
             </Stack>
@@ -932,7 +949,13 @@ const PreAudit = () => {
               {getUtilityStampRows(bill).map((stampRow) => (
                 <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
                   <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
-                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Box
+                    component="img"
+                    src={getImageUrl(stampRow.stampImage)}
+                    alt={stampRow.authority}
+                    onClick={() => openImageViewer(getImageUrl(stampRow.stampImage), stampRow.authority)}
+                    sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff', cursor: 'zoom-in'  }}
+                  />
                   <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
                 </Box>
               ))}
@@ -1117,7 +1140,13 @@ const PreAudit = () => {
                   <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary' }}>
                     {img.name}
                   </Typography>
-                  <Box component="img" src={img.src} alt={img.name} sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1 }} />
+                  <Box
+                    component="img"
+                    src={img.src}
+                    alt={img.name}
+                    onClick={() => openImageViewer(img.src, img.name)}
+                    sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1, cursor: 'zoom-in' }}
+                  />
                 </Box>
               ))}
             </Stack>
@@ -1167,7 +1196,13 @@ const PreAudit = () => {
               {getPaymentSettlementStampRows(document).map((stampRow) => (
                 <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
                   <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
-                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Box
+                    component="img"
+                    src={getImageUrl(stampRow.stampImage)}
+                    alt={stampRow.authority}
+                    onClick={() => openImageViewer(getImageUrl(stampRow.stampImage), stampRow.authority)}
+                    sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff', cursor: 'zoom-in'  }}
+                  />
                   <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
                 </Box>
               ))}
@@ -1297,7 +1332,13 @@ const PreAudit = () => {
                   <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary' }}>
                     {img.name}
                   </Typography>
-                  <Box component="img" src={img.src} alt={img.name} sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1 }} />
+                  <Box
+                    component="img"
+                    src={img.src}
+                    alt={img.name}
+                    onClick={() => openImageViewer(img.src, img.name)}
+                    sx={{ width: '100%', maxHeight: 320, objectFit: 'contain', backgroundColor: '#fff', borderRadius: 1, cursor: 'zoom-in' }}
+                  />
                 </Box>
               ))}
             </Stack>
@@ -1335,7 +1376,13 @@ const PreAudit = () => {
               {getRentalManagementStampRows(document).map((stampRow) => (
                 <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
                   <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
-                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Box
+                    component="img"
+                    src={getImageUrl(stampRow.stampImage)}
+                    alt={stampRow.authority}
+                    onClick={() => openImageViewer(getImageUrl(stampRow.stampImage), stampRow.authority)}
+                    sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff', cursor: 'zoom-in'  }}
+                  />
                   <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
                 </Box>
               ))}
