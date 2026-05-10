@@ -50,6 +50,7 @@ router.get('/',
         { path: 'department', select: 'name' },
         { path: 'position', select: 'title' },
         { path: 'location', select: 'name' },
+        { path: 'project', select: 'name' },
         { path: 'createdBy', select: 'firstName lastName' },
         { path: 'approvedBy', select: 'firstName lastName' }
       ]
@@ -74,6 +75,7 @@ router.get('/:id',
       .populate('department', 'name')
       .populate('position', 'title')
       .populate('location', 'name')
+      .populate('project', 'name')
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
 
@@ -103,6 +105,7 @@ router.post('/',
       department,
       position,
       location,
+      project,
       description,
       responsibilities,
       qualificationExperience,
@@ -145,6 +148,7 @@ router.post('/',
       department,
       position,
       location,
+      project,
       description,
       responsibilities,
       qualificationExperience,
@@ -200,6 +204,7 @@ router.put('/:id',
     ).populate('department', 'name')
      .populate('position', 'title')
      .populate('location', 'name')
+     .populate('project', 'name')
      .populate('createdBy', 'firstName lastName')
      .populate('approvedBy', 'firstName lastName');
 

@@ -23,6 +23,10 @@ const jobPostingSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location'
   },
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project'
+  },
   
   // Job Details
   description: {

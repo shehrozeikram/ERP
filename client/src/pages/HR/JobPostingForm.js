@@ -51,6 +51,7 @@ const stepValidationSchemas = [
     department: Yup.string().required('Department is required'),
     location: Yup.string().required('Location is required'),
     position: Yup.string().required('Position is required'),
+    project: Yup.string(),
     numberOfPositions: Yup.number().min(1, 'Number of positions must be at least 1')
   }),
   
@@ -72,6 +73,7 @@ const completeValidationSchema = Yup.object({
   department: Yup.string().required('Department is required'),
   location: Yup.string().required('Location is required'),
   position: Yup.string().required('Position is required'),
+  project: Yup.string(),
   employmentType: Yup.string().required('Employment type is required'),
   experienceLevel: Yup.string().required('Experience level is required'),
   educationLevel: Yup.string().required('Education level is required'),
@@ -103,8 +105,19 @@ const JobPostingForm = () => {
   const [locationDialogError, setLocationDialogError] = useState('');
   const [creatingPosition, setCreatingPosition] = useState(false);
   const [creatingLocation, setCreatingLocation] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [departmentDialogOpen, setDepartmentDialogOpen] = useState(false);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [newDepartmentName, setNewDepartmentName] = useState('');
+  const [newProjectName, setNewProjectName] = useState('');
+  const [departmentDialogError, setDepartmentDialogError] = useState('');
+  const [projectDialogError, setProjectDialogError] = useState('');
+  const [creatingDepartment, setCreatingDepartment] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const ADD_NEW_POSITION_VALUE = '__add_new_position__';
   const ADD_NEW_LOCATION_VALUE = '__add_new_location__';
+  const ADD_NEW_DEPARTMENT_VALUE = '__add_new_department__';
+  const ADD_NEW_PROJECT_VALUE = '__add_new_project__';
 
   // Steps for the form
   const steps = ['Basic Information', 'Job Details', 'Application Details'];
@@ -144,6 +157,17 @@ const JobPostingForm = () => {
         const positionsData = await positionsResponse.json();
         setPositions(positionsData.data || []);
       }
+
+      // Fetch all projects from API
+      const projectsResponse = await fetch('/api/hr/projects', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (projectsResponse.ok) {
+        const projectsData = await projectsResponse.json();
+        setProjects(projectsData.data || []);
+      }
     } catch (error) {
       console.error('Error loading dropdown data:', error);
       setSnackbar({
@@ -167,6 +191,7 @@ const JobPostingForm = () => {
         department: response.data.department?._id || response.data.department || '',
         position: response.data.position?._id || response.data.position || '',
         location: response.data.location?._id || response.data.location || '',
+        project: response.data.project?._id || response.data.project || '',
         description: response.data.description || '',
         responsibilities: response.data.responsibilities || '',
         qualificationExperience: response.data.qualificationExperience || '',
@@ -213,6 +238,7 @@ const JobPostingForm = () => {
         department: values.department,
         position: values.position,
         location: values.location,
+        project: values.project,
         description: values.description || 'Job description',
         responsibilities: values.responsibilities || 'Responsibilities will be specified',
         qualificationExperience: values.qualificationExperience || 'Qualification & experience will be specified',
@@ -295,6 +321,110 @@ const JobPostingForm = () => {
       }
     } catch (error) {
       console.error('Error loading positions for department:', error);
+    }
+  };
+
+  const openDepartmentDialog = () => {
+    setDepartmentDialogError('');
+    setNewDepartmentName('');
+    setDepartmentDialogOpen(true);
+  };
+
+  const closeDepartmentDialog = () => {
+    if (creatingDepartment) return;
+    setDepartmentDialogOpen(false);
+    setDepartmentDialogError('');
+  };
+
+  const openProjectDialog = () => {
+    setProjectDialogError('');
+    setNewProjectName('');
+    setProjectDialogOpen(true);
+  };
+
+  const closeProjectDialog = () => {
+    if (creatingProject) return;
+    setProjectDialogOpen(false);
+    setProjectDialogError('');
+  };
+
+  const handleCreateDepartment = async (setFieldValue) => {
+    const name = newDepartmentName.trim();
+    if (!name) {
+      setDepartmentDialogError('Department name is required');
+      return;
+    }
+
+    setCreatingDepartment(true);
+    try {
+      const response = await fetch('/api/hr/departments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ name })
+      });
+
+      const responseData = await response.json();
+      if (!response.ok || !responseData?.success) {
+        throw new Error(responseData?.message || 'Failed to create department');
+      }
+
+      await loadDropdownData();
+      if (responseData?.data?._id) {
+        setFieldValue('department', responseData.data._id);
+      }
+      setDepartmentDialogOpen(false);
+      setSnackbar({
+        open: true,
+        message: 'Department added successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setDepartmentDialogError(error.message || 'Error adding department');
+    } finally {
+      setCreatingDepartment(false);
+    }
+  };
+
+  const handleCreateProject = async (setFieldValue) => {
+    const name = newProjectName.trim();
+    if (!name) {
+      setProjectDialogError('Project name is required');
+      return;
+    }
+
+    setCreatingProject(true);
+    try {
+      const response = await fetch('/api/hr/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ name })
+      });
+
+      const responseData = await response.json();
+      if (!response.ok || !responseData?.success) {
+        throw new Error(responseData?.message || 'Failed to create project');
+      }
+
+      await loadDropdownData();
+      if (responseData?.data?._id) {
+        setFieldValue('project', responseData.data._id);
+      }
+      setProjectDialogOpen(false);
+      setSnackbar({
+        open: true,
+        message: 'Project added successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setProjectDialogError(error.message || 'Error adding project');
+    } finally {
+      setCreatingProject(false);
     }
   };
 
@@ -456,6 +586,7 @@ const JobPostingForm = () => {
     department: '',
     location: '',
     position: '',
+    project: '',
     employmentType: '',
     experienceLevel: '',
     educationLevel: '',
@@ -554,12 +685,50 @@ const JobPostingForm = () => {
                       </Grid>
                       
                       <Grid item xs={12} md={6}>
+                        <FormControl fullWidth error={touched.project && Boolean(errors.project)}>
+                          <InputLabel>Project</InputLabel>
+                          <Select
+                            name="project"
+                            value={values.project}
+                            onChange={(e) => {
+                              const selectedValue = e.target.value;
+                              if (selectedValue === ADD_NEW_PROJECT_VALUE) {
+                                openProjectDialog();
+                                return;
+                              }
+                              handleChange(e);
+                            }}
+                            onBlur={handleBlur}
+                            label="Project"
+                          >
+                            {projects.map((proj) => (
+                              <MenuItem key={proj._id} value={proj._id}>
+                                {proj.name}
+                              </MenuItem>
+                            ))}
+                            <Divider />
+                            <MenuItem value={ADD_NEW_PROJECT_VALUE} sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
+                              + Add New Project
+                            </MenuItem>
+                          </Select>
+                          {touched.project && errors.project && (
+                            <FormHelperText>{errors.project}</FormHelperText>
+                          )}
+                        </FormControl>
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
                         <FormControl fullWidth error={touched.department && Boolean(errors.department)}>
                           <InputLabel>Department</InputLabel>
                           <Select
                             name="department"
                             value={values.department}
                             onChange={(e) => {
+                              const selectedValue = e.target.value;
+                              if (selectedValue === ADD_NEW_DEPARTMENT_VALUE) {
+                                openDepartmentDialog();
+                                return;
+                              }
                               handleChange(e);
                               handleDepartmentChange(e.target.value, setFieldValue);
                             }}
@@ -571,13 +740,17 @@ const JobPostingForm = () => {
                                 {dept.name}
                               </MenuItem>
                             ))}
+                            <Divider />
+                            <MenuItem value={ADD_NEW_DEPARTMENT_VALUE} sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
+                              + Add New Department
+                            </MenuItem>
                           </Select>
                           {touched.department && errors.department && (
                             <FormHelperText>{errors.department}</FormHelperText>
                           )}
                         </FormControl>
                       </Grid>
-                      
+
                       <Grid item xs={12} md={6}>
                         <FormControl fullWidth error={touched.location && Boolean(errors.location)}>
                           <InputLabel>Location</InputLabel>
@@ -610,7 +783,7 @@ const JobPostingForm = () => {
                           )}
                         </FormControl>
                       </Grid>
-                      
+
                       <Grid item xs={12} md={6}>
                         <FormControl fullWidth error={touched.position && Boolean(errors.position)}>
                           <InputLabel>Position</InputLabel>
@@ -922,6 +1095,72 @@ const JobPostingForm = () => {
                   startIcon={creatingLocation ? <CircularProgress size={16} /> : null}
                 >
                   {creatingLocation ? 'Saving...' : 'Save'}
+                </Button>
+              </DialogActions>
+            </Dialog>
+
+            {/* Add Department Dialog */}
+            <Dialog open={departmentDialogOpen} onClose={closeDepartmentDialog} fullWidth maxWidth="xs">
+              <DialogTitle>Add New Department</DialogTitle>
+              <DialogContent>
+                <TextField
+                  autoFocus
+                  margin="dense"
+                  fullWidth
+                  label="Department Name"
+                  value={newDepartmentName}
+                  onChange={(e) => {
+                    setNewDepartmentName(e.target.value);
+                    if (departmentDialogError) setDepartmentDialogError('');
+                  }}
+                  error={Boolean(departmentDialogError)}
+                  helperText={departmentDialogError || ' '}
+                />
+              </DialogContent>
+              <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button onClick={closeDepartmentDialog} disabled={creatingDepartment}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => handleCreateDepartment(setFieldValue)}
+                  disabled={creatingDepartment}
+                  startIcon={creatingDepartment ? <CircularProgress size={16} /> : null}
+                >
+                  {creatingDepartment ? 'Saving...' : 'Save'}
+                </Button>
+              </DialogActions>
+            </Dialog>
+
+            {/* Add Project Dialog */}
+            <Dialog open={projectDialogOpen} onClose={closeProjectDialog} fullWidth maxWidth="xs">
+              <DialogTitle>Add New Project</DialogTitle>
+              <DialogContent>
+                <TextField
+                  autoFocus
+                  margin="dense"
+                  fullWidth
+                  label="Project Name"
+                  value={newProjectName}
+                  onChange={(e) => {
+                    setNewProjectName(e.target.value);
+                    if (projectDialogError) setProjectDialogError('');
+                  }}
+                  error={Boolean(projectDialogError)}
+                  helperText={projectDialogError || ' '}
+                />
+              </DialogContent>
+              <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button onClick={closeProjectDialog} disabled={creatingProject}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => handleCreateProject(setFieldValue)}
+                  disabled={creatingProject}
+                  startIcon={creatingProject ? <CircularProgress size={16} /> : null}
+                >
+                  {creatingProject ? 'Saving...' : 'Save'}
                 </Button>
               </DialogActions>
             </Dialog>
