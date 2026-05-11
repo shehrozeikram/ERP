@@ -93,6 +93,7 @@ const fetchUser = async (userId) => {
       .select('-password')
       .populate('roleRef', 'name displayName description permissions isActive')
       .populate('roles', 'name displayName description permissions isActive')
+      .populate('subRoles', 'name module permissions description')
       .maxTimeMS(5000);
     return { user, error: null };
   } catch (error) {

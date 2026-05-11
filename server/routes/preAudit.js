@@ -18,7 +18,12 @@ const normalizeRoleLabel = (value) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
-const AUDIT_DIRECTOR_ROLE_NAMES = ['audit_director', 'audit director'];
+const AUDIT_DIRECTOR_ROLE_NAMES = [
+  'audit_director',
+  'audit director',
+  'director_audit',
+  'director audit'
+];
 
 const userHasRoleName = (user, acceptedRoleNames = []) => {
   const accepted = acceptedRoleNames.map(normalizeRoleLabel);
@@ -36,6 +41,12 @@ const userHasRoleName = (user, acceptedRoleNames = []) => {
 
   if (Array.isArray(user.roles)) {
     for (const roleDoc of user.roles) {
+      const names = collectRoleNames(roleDoc);
+      if (names.some((name) => accepted.includes(name))) return true;
+    }
+  }
+  if (Array.isArray(user.subRoles)) {
+    for (const roleDoc of user.subRoles) {
       const names = collectRoleNames(roleDoc);
       if (names.some((name) => accepted.includes(name))) return true;
     }
@@ -59,6 +70,7 @@ const hasAuditAccess = (user) => {
   if (['super_admin', 'admin', 'audit_manager', 'auditor', 'audit_director'].includes(user.role)) return true;
   if (hasModuleAccess(user.roleRef, 'audit')) return true;
   if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'audit'))) return true;
+  if (Array.isArray(user.subRoles) && user.subRoles.some((roleDoc) => normalizeRoleLabel(roleDoc?.module) === 'audit')) return true;
   return false;
 };
 

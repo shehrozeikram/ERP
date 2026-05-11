@@ -182,10 +182,14 @@ const PreAudit = () => {
     const roleNames = Array.isArray(user?.roles)
       ? user.roles.flatMap((r) => [normalizeRole(r?.name), normalizeRole(r?.displayName)]).filter(Boolean)
       : [];
-    return roleNames.some((n) => set.includes(n));
+    if (roleNames.some((n) => set.includes(n))) return true;
+    const subRoleNames = Array.isArray(user?.subRoles)
+      ? user.subRoles.flatMap((r) => [normalizeRole(r?.name), normalizeRole(r?.displayName)]).filter(Boolean)
+      : [];
+    return subRoleNames.some((n) => set.includes(n));
   };
   const isAuditDirectorUser = () =>
-    userHasRoleLabel(['audit_director', 'audit director']) ||
+    userHasRoleLabel(['audit_director', 'audit director', 'director_audit', 'director audit']) ||
     normalizeRole(user?.role) === 'super_admin' ||
     normalizeRole(user?.role) === 'developer';
   const isAuditReviewerUser = () =>
