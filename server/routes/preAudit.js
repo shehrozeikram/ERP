@@ -18,37 +18,35 @@ const normalizeRoleLabel = (value) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
-const AUDIT_DIRECTOR_ROLE_NAMES = [
-  'audit_director',
-  'audit director',
-  'director_audit',
-  'director audit'
-];
+const collapseRepeatedChars = (value) => String(value || '').replace(/(.)\1+/g, '$1');
+const isAuditDirectorLabel = (value) => {
+  const normalized = normalizeRoleLabel(value);
+  const collapsed = collapseRepeatedChars(normalized);
+  return collapsed.includes('audit') && collapsed.includes('director');
+};
 
-const userHasRoleName = (user, acceptedRoleNames = []) => {
-  const accepted = acceptedRoleNames.map(normalizeRoleLabel);
-  if (!user || accepted.length === 0) return false;
-  const directRole = normalizeRoleLabel(user.role);
-  if (accepted.includes(directRole)) return true;
-
+const userHasRoleName = (user, predicate) => {
+  if (!user || typeof predicate !== 'function') return false;
   const collectRoleNames = (roleDoc) => ([
     normalizeRoleLabel(roleDoc?.name),
     normalizeRoleLabel(roleDoc?.displayName)
   ].filter(Boolean));
 
+  if (predicate(normalizeRoleLabel(user.role))) return true;
+
   const roleRefNames = collectRoleNames(user.roleRef || {});
-  if (roleRefNames.some((name) => accepted.includes(name))) return true;
+  if (roleRefNames.some((name) => predicate(name))) return true;
 
   if (Array.isArray(user.roles)) {
     for (const roleDoc of user.roles) {
       const names = collectRoleNames(roleDoc);
-      if (names.some((name) => accepted.includes(name))) return true;
+      if (names.some((name) => predicate(name))) return true;
     }
   }
   if (Array.isArray(user.subRoles)) {
     for (const roleDoc of user.subRoles) {
       const names = collectRoleNames(roleDoc);
-      if (names.some((name) => accepted.includes(name))) return true;
+      if (names.some((name) => predicate(name))) return true;
     }
   }
   return false;
@@ -56,8 +54,7 @@ const userHasRoleName = (user, acceptedRoleNames = []) => {
 
 const isAuditDirectorUser = (user) => {
   if (!user) return false;
-  if (user.role === 'audit_director' || user.role === 'Audit Director') return true;
-  return userHasRoleName(user, AUDIT_DIRECTOR_ROLE_NAMES);
+  return userHasRoleName(user, isAuditDirectorLabel);
 };
 
 const hasModuleAccess = (roleDoc, moduleKey) => {

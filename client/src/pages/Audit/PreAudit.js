@@ -173,6 +173,12 @@ const PreAudit = () => {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+  const collapseRepeatedChars = (value) => String(value || '').replace(/(.)\1+/g, '$1');
+  const isAuditDirectorLabel = (value) => {
+    const normalized = normalizeRole(value);
+    const collapsed = collapseRepeatedChars(normalized);
+    return collapsed.includes('audit') && collapsed.includes('director');
+  };
   const userHasRoleLabel = (accepted = []) => {
     const set = accepted.map((r) => normalizeRole(r));
     const direct = normalizeRole(user?.role);
@@ -188,8 +194,22 @@ const PreAudit = () => {
       : [];
     return subRoleNames.some((n) => set.includes(n));
   };
+  const userHasRoleByPredicate = (predicate) => {
+    if (typeof predicate !== 'function') return false;
+    if (predicate(user?.role)) return true;
+    const roleRefNames = [user?.roleRef?.name, user?.roleRef?.displayName];
+    if (roleRefNames.some((n) => predicate(n))) return true;
+    const roleNames = Array.isArray(user?.roles)
+      ? user.roles.flatMap((r) => [r?.name, r?.displayName]).filter(Boolean)
+      : [];
+    if (roleNames.some((n) => predicate(n))) return true;
+    const subRoleNames = Array.isArray(user?.subRoles)
+      ? user.subRoles.flatMap((r) => [r?.name, r?.displayName]).filter(Boolean)
+      : [];
+    return subRoleNames.some((n) => predicate(n));
+  };
   const isAuditDirectorUser = () =>
-    userHasRoleLabel(['audit_director', 'audit director', 'director_audit', 'director audit']) ||
+    userHasRoleByPredicate(isAuditDirectorLabel) ||
     normalizeRole(user?.role) === 'super_admin' ||
     normalizeRole(user?.role) === 'developer';
   const isAuditReviewerUser = () =>
