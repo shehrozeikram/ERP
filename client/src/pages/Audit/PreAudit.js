@@ -167,7 +167,12 @@ const PreAudit = () => {
   const [rejectionComments, setRejectionComments] = useState('');
   const [rejectObservations, setRejectObservations] = useState([{ observation: '', severity: 'medium' }]);
 
-  const normalizeRole = (value) => String(value || '').toLowerCase().replace(/\s+/g, '_');
+  const normalizeRole = (value) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
   const userHasRoleLabel = (accepted = []) => {
     const set = accepted.map((r) => normalizeRole(r));
     const direct = normalizeRole(user?.role);

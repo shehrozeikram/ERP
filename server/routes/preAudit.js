@@ -12,7 +12,12 @@ const { authorize } = require('../middleware/auth');
 const { getWorkflowModules, getModuleConfig } = require('../utils/adminWorkflowConfig');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
-const normalizeRoleLabel = (value) => String(value || '').trim().toLowerCase();
+const normalizeRoleLabel = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 const AUDIT_DIRECTOR_ROLE_NAMES = ['audit_director', 'audit director'];
 
 const userHasRoleName = (user, acceptedRoleNames = []) => {
