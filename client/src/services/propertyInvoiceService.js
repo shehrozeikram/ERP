@@ -32,6 +32,10 @@ export const fetchInvoicesForProperty = (propertyId) =>
 export const fetchAllInvoices = (params = {}) =>
   api.get(base, { params });
 
+/** RENT / GROUND BOOKING / OTHER totals from invoice charge lines (excludes CAM, WATER, ELECTRICITY lines). */
+export const fetchChargeRollups = (params = {}) =>
+  api.get(`${base}/charge-rollups`, { params });
+
 export const fetchReports = (params = {}) =>
   api.get(`${base}/reports`, { params });
 

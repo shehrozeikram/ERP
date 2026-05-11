@@ -2724,6 +2724,117 @@ router.get('/month-summary', authMiddleware, asyncHandler(async (req, res) => {
   }
 }));
 
+/**
+ * Dashboard rollups: allocate each invoice's balance across charge lines so
+ * RENT / GROUND / OTHER do not double-count CAM, WATER, or ELECTRICITY lines.
+ * Must be registered before GET /:id.
+ */
+const classifyChargeLineBucket = (chargeType) => {
+  const raw = String(chargeType == null ? '' : chargeType).trim();
+  const t = raw.toUpperCase().replace(/\s+/g, '_');
+  if (/GROUND/i.test(raw) || t.includes('GROUND')) return 'ground';
+  if (t === 'RENT' || t === 'REN') return 'rent';
+  const util = ['CAM', 'CMC', 'WATER', 'WTR', 'ELECTRICITY', 'ELC'];
+  if (util.includes(t)) return 'utility';
+  if (raw.toLowerCase() === 'electricity') return 'utility';
+  if (raw === 'Water') return 'utility';
+  return 'other';
+};
+
+const emptyChargeRollup = () => ({
+  invoiceIds: new Set(),
+  propertyIds: new Set(),
+  sumAmount: 0,
+  sumArrears: 0,
+  balanceUnpaid: 0
+});
+
+const finalizeRollup = (r) => {
+  const round2 = (n) => Math.round(Number(n) * 100) / 100;
+  const no = r.propertyIds.size > 0 ? r.propertyIds.size : r.invoiceIds.size;
+  return {
+    invoiceCount: r.invoiceIds.size,
+    propertyCount: r.propertyIds.size,
+    totalProperties: no,
+    totalAmountAllPages: round2(r.sumAmount),
+    totalArrears: round2(r.sumArrears),
+    totalArrearsAllPages: round2(r.balanceUnpaid),
+    totalAmount: round2(r.sumAmount)
+  };
+};
+
+router.get('/charge-rollups', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const filter = { status: { $ne: 'Cancelled' } };
+    const startRaw = req.query.startDate;
+    const endRaw = req.query.endDate;
+    if (startRaw) {
+      const d = dayjs(startRaw).startOf('day').toDate();
+      filter.invoiceDate = { ...(filter.invoiceDate || {}), $gte: d };
+    }
+    if (endRaw) {
+      const d = dayjs(endRaw).endOf('day').toDate();
+      filter.invoiceDate = { ...(filter.invoiceDate || {}), $lte: d };
+    }
+
+    const invoices = await PropertyInvoice.find(filter)
+      .select('charges grandTotal balance totalArrears chargeTypes property invoiceDate')
+      .lean();
+
+    const ground = emptyChargeRollup();
+    const rent = emptyChargeRollup();
+    const other = emptyChargeRollup();
+
+    for (const inv of invoices) {
+      const invBalance = Number(inv.balance) || 0;
+      const grand = Math.max(Number(inv.grandTotal) || 0, 1e-9);
+      const charges = Array.isArray(inv.charges) && inv.charges.length > 0 ? inv.charges : null;
+
+      const addLine = (bucket, amt, arr, lineGT) => {
+        if (!bucket) return;
+        bucket.invoiceIds.add(String(inv._id));
+        if (inv.property) bucket.propertyIds.add(String(inv.property));
+        bucket.sumAmount += amt;
+        bucket.sumArrears += arr;
+        bucket.balanceUnpaid += invBalance * (lineGT / grand);
+      };
+
+      if (charges && charges.length > 0) {
+        for (const ch of charges) {
+          const amt = Number(ch.amount) || 0;
+          const arr = Number(ch.arrears) || 0;
+          const lineGT = Number(ch.total) || amt + arr;
+          const buck = classifyChargeLineBucket(ch.type);
+          if (buck === 'utility') continue;
+          const bucket = buck === 'ground' ? ground : buck === 'rent' ? rent : other;
+          addLine(bucket, amt, arr, lineGT);
+        }
+      } else {
+        const types = inv.chargeTypes || [];
+        if (!types.length) continue;
+        const buck = classifyChargeLineBucket(types[0]);
+        if (buck === 'utility') continue;
+        const bucket = buck === 'ground' ? ground : buck === 'rent' ? rent : other;
+        const lineGT = Math.max(Number(inv.grandTotal) || 0, 1e-9);
+        const arr = Number(inv.totalArrears) || 0;
+        const amt = Math.max(0, lineGT - arr);
+        addLine(bucket, amt, arr, lineGT);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ground: finalizeRollup(ground),
+        rent: finalizeRollup(rent),
+        other: finalizeRollup(other)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 // Get invoice by ID
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {

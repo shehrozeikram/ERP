@@ -158,7 +158,13 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
   
   // OPTIMIZATION: Check cache first (only if no filters/search and default pagination)
-  const hasFilters = req.query.search || req.query.accountType || req.query.bank || req.query.isActive !== undefined;
+  const hasFilters =
+    req.query.search ||
+    req.query.accountType ||
+    req.query.bank ||
+    req.query.isActive !== undefined ||
+    req.query.sortBy ||
+    req.query.order;
   const isDefaultPagination = page === 1 && limit === 50;
   const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.RESIDENTS_LIST;
   
@@ -170,7 +176,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     }
   }
   
-  const { search, accountType, bank, isActive } = req.query;
+  const { search, accountType, bank, isActive, sortBy, order } = req.query;
   const query = {};
 
   // Exclude suspense account residents (those without name or residentId)
@@ -209,13 +215,19 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   // Get total count for pagination
   const total = await TajResident.countDocuments(query);
 
+  const sortDir = String(order || 'asc').toLowerCase() === 'desc' ? -1 : 1;
+  let sortSpec = { name: 1 };
+  if (sortBy === 'balance') sortSpec = { balance: sortDir };
+  else if (sortBy === 'residentId') sortSpec = { residentId: sortDir };
+  else if (sortBy === 'createdAt') sortSpec = { createdAt: sortDir };
+
   // OPTIMIZATION: Select only needed fields and use lean with pagination
   let residents = await TajResident.find(query)
     .select('_id residentId name cnic contactNumber email accountType isActive properties balance createdBy updatedBy createdAt updatedAt')
     .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName meters')
     .populate('createdBy', 'firstName lastName')
     .populate('updatedBy', 'firstName lastName')
-    .sort({ name: 1 })
+    .sort(sortSpec)
     .skip(skip)
     .limit(limit)
     .lean();
