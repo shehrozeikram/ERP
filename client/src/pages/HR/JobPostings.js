@@ -33,7 +33,8 @@ import {
   DialogContent,
   DialogActions,
   DialogContentText,
-  LinearProgress
+  LinearProgress,
+  TablePagination
 } from '@mui/material';
 import {
   Add,
@@ -63,6 +64,9 @@ const JobPostings = () => {
   
   // State
   const [jobPostings, setJobPostings] = useState([]);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [filters, setFilters] = useState({
@@ -80,13 +84,17 @@ const JobPostings = () => {
     setLoading(true);
     try {
       const params = {};
+      params.page = page + 1;
+      params.limit = rowsPerPage;
       if (filters.status) params.status = filters.status;
       if (filters.search) params.search = filters.search;
       if (filters.employmentType) params.employmentType = filters.employmentType;
       if (filters.experienceLevel) params.experienceLevel = filters.experienceLevel;
 
       const response = await jobPostingService.getJobPostings(params);
-      setJobPostings(response.data.docs || []);
+      const payload = response.data || {};
+      setJobPostings(payload.docs || []);
+      setTotalCount(payload.totalDocs || payload.total || 0);
     } catch (error) {
       setSnackbar({
         open: true,
@@ -101,7 +109,7 @@ const JobPostings = () => {
   // Load data on mount and when filters change
   useEffect(() => {
     loadJobPostings();
-  }, [filters.status, filters.employmentType, filters.experienceLevel]);
+  }, [filters.status, filters.employmentType, filters.experienceLevel, page, rowsPerPage]);
 
   // Debounced search effect
   useEffect(() => {
@@ -243,7 +251,10 @@ const JobPostings = () => {
                 fullWidth
                 placeholder="Search job postings..."
                 value={filters.search || ''}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                onChange={(e) => {
+                  setPage(0);
+                  setFilters(prev => ({ ...prev, search: e.target.value }));
+                }}
                 InputProps={{
                   startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
                 }}
@@ -261,7 +272,10 @@ const JobPostings = () => {
                 <InputLabel>Status</InputLabel>
                 <Select
                   value={filters.status}
-                  onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, status: e.target.value }));
+                  }}
                   label="Status"
                   sx={{
                     '& .MuiSelect-select': {
@@ -285,7 +299,10 @@ const JobPostings = () => {
                 <InputLabel>Employment Type</InputLabel>
                 <Select
                   value={filters.employmentType}
-                  onChange={(e) => setFilters(prev => ({ ...prev, employmentType: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, employmentType: e.target.value }));
+                  }}
                   label="Employment Type"
                   sx={{
                     '& .MuiSelect-select': {
@@ -310,7 +327,10 @@ const JobPostings = () => {
                 <InputLabel>Experience Level</InputLabel>
                 <Select
                   value={filters.experienceLevel}
-                  onChange={(e) => setFilters(prev => ({ ...prev, experienceLevel: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, experienceLevel: e.target.value }));
+                  }}
                   label="Experience Level"
                   sx={{
                     '& .MuiSelect-select': {
@@ -534,6 +554,18 @@ const JobPostings = () => {
               </Typography>
             </Box>
           )}
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={page}
+            onPageChange={(event, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(event) => {
+              setRowsPerPage(parseInt(event.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+          />
         </CardContent>
       </Card>
 

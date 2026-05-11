@@ -34,7 +34,8 @@ import {
   DialogActions,
   DialogContentText,
   Avatar,
-  LinearProgress
+  LinearProgress,
+  TablePagination
 } from '@mui/material';
 import {
   Add,
@@ -69,6 +70,9 @@ const Applications = () => {
   
   // State
   const [applications, setApplications] = useState([]);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [filters, setFilters] = useState({
@@ -85,6 +89,8 @@ const Applications = () => {
     setLoading(true);
     try {
       const params = {};
+      params.page = page + 1;
+      params.limit = rowsPerPage;
       if (filters.status) params.status = filters.status;
       if (filters.manualStatus) params.manualStatus = filters.manualStatus;
       if (filters.search) params.search = filters.search;
@@ -92,7 +98,9 @@ const Applications = () => {
       if (filters.candidate) params.candidate = filters.candidate;
 
       const response = await applicationService.getApplications(params);
-      const apps = response.data.docs || [];
+      const payload = response.data || {};
+      const apps = payload.docs || [];
+      setTotalCount(payload.totalDocs || payload.total || 0);
       
       // Check for duplicate emails per job posting
       const duplicateEmails = [];
@@ -140,7 +148,7 @@ const Applications = () => {
   // Load data on mount and when filters change
   useEffect(() => {
     loadApplications();
-  }, [filters.status, filters.manualStatus, filters.jobPosting, filters.candidate]);
+  }, [filters.status, filters.manualStatus, filters.jobPosting, filters.candidate, page, rowsPerPage]);
 
   // Debounced search effect
   useEffect(() => {
@@ -325,7 +333,10 @@ const Applications = () => {
                 fullWidth
                 placeholder="Search applications..."
                 value={filters.search || ''}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                onChange={(e) => {
+                  setPage(0);
+                  setFilters(prev => ({ ...prev, search: e.target.value }));
+                }}
                 InputProps={{
                   startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
                 }}
@@ -343,7 +354,10 @@ const Applications = () => {
                 <InputLabel>Status</InputLabel>
                 <Select
                   value={filters.status}
-                  onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, status: e.target.value }));
+                  }}
                   label="Status"
                   sx={{
                     '& .MuiSelect-select': {
@@ -370,7 +384,10 @@ const Applications = () => {
                 <InputLabel>Manual Status</InputLabel>
                 <Select
                   value={filters.manualStatus || ''}
-                  onChange={(e) => setFilters(prev => ({ ...prev, manualStatus: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, manualStatus: e.target.value }));
+                  }}
                   label="Manual Status"
                   sx={{
                     '& .MuiSelect-select': {
@@ -397,7 +414,10 @@ const Applications = () => {
                 <InputLabel>Job Posting</InputLabel>
                 <Select
                   value={filters.jobPosting}
-                  onChange={(e) => setFilters(prev => ({ ...prev, jobPosting: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, jobPosting: e.target.value }));
+                  }}
                   label="Job Posting"
                   sx={{
                     '& .MuiSelect-select': {
@@ -606,6 +626,18 @@ const Applications = () => {
               </Typography>
             </Box>
           )}
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={page}
+            onPageChange={(event, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(event) => {
+              setRowsPerPage(parseInt(event.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+          />
         </CardContent>
       </Card>
 

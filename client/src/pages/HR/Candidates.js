@@ -34,7 +34,8 @@ import {
   DialogActions,
   DialogContentText,
   Avatar,
-  LinearProgress
+  LinearProgress,
+  TablePagination
 } from '@mui/material';
 import {
   Add,
@@ -71,6 +72,9 @@ const Candidates = () => {
   
   // State
   const [candidates, setCandidates] = useState([]);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -100,13 +104,17 @@ const Candidates = () => {
     setLoading(true);
     try {
       const params = {};
+      params.page = page + 1;
+      params.limit = rowsPerPage;
       if (filters.status) params.status = filters.status;
       if (filters.search) params.search = filters.search;
       if (filters.source) params.source = filters.source;
       if (filters.availability) params.availability = filters.availability;
 
       const response = await candidateService.getCandidates(params);
-      setCandidates(response.data.docs || []);
+      const payload = response.data || {};
+      setCandidates(payload.docs || []);
+      setTotalCount(payload.totalDocs || payload.total || 0);
     } catch (error) {
       setSnackbar({
         open: true,
@@ -151,16 +159,13 @@ const Candidates = () => {
 
   // Load initial data on mount
   useEffect(() => {
-    loadCandidates();
     loadDepartmentsAndPositions();
   }, []); // Empty dependency array - only run once
 
-  // Reload candidates when filters change
+  // Reload candidates when filters or pagination change
   useEffect(() => {
-    if (filters.status || filters.source || filters.availability) {
-      loadCandidates();
-    }
-  }, [filters.status, filters.source, filters.availability]);
+    loadCandidates();
+  }, [filters.status, filters.source, filters.availability, page, rowsPerPage]);
 
   // Debounced search effect
   useEffect(() => {
@@ -429,7 +434,10 @@ const Candidates = () => {
                 fullWidth
                 placeholder="Search candidates..."
                 value={filters.search || ''}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                onChange={(e) => {
+                  setPage(0);
+                  setFilters(prev => ({ ...prev, search: e.target.value }));
+                }}
                 InputProps={{
                   startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
                 }}
@@ -447,7 +455,10 @@ const Candidates = () => {
                 <InputLabel>Status</InputLabel>
                 <Select
                   value={filters.status}
-                  onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, status: e.target.value }));
+                  }}
                   label="Status"
                   sx={{
                     '& .MuiSelect-select': {
@@ -480,7 +491,10 @@ const Candidates = () => {
                 <InputLabel>Source</InputLabel>
                 <Select
                   value={filters.source}
-                  onChange={(e) => setFilters(prev => ({ ...prev, source: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, source: e.target.value }));
+                  }}
                   label="Source"
                   sx={{
                     '& .MuiSelect-select': {
@@ -507,7 +521,10 @@ const Candidates = () => {
                 <InputLabel>Availability</InputLabel>
                 <Select
                   value={filters.availability}
-                  onChange={(e) => setFilters(prev => ({ ...prev, availability: e.target.value }))}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters(prev => ({ ...prev, availability: e.target.value }));
+                  }}
                   label="Availability"
                   sx={{
                     '& .MuiSelect-select': {
@@ -544,6 +561,8 @@ const Candidates = () => {
                 <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
                   <TableCell><strong>Candidate</strong></TableCell>
                   <TableCell><strong>Contact</strong></TableCell>
+                  <TableCell><strong>Department</strong></TableCell>
+                  <TableCell><strong>Job Position</strong></TableCell>
                   <TableCell><strong>Current Position</strong></TableCell>
                   <TableCell><strong>Experience</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
@@ -580,6 +599,25 @@ const Candidates = () => {
                         <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center' }}>
                           <Phone sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
                           {candidate.phone}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {candidate.jobPosting?.department?.name || 'Not specified'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Box>
+                        <Typography variant="body2" fontWeight="medium">
+                          {
+                            candidate.jobPosting?.position?.title ||
+                            candidate.jobPosting?.title ||
+                            'Not specified'
+                          }
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {candidate.jobPosting?.jobCode || 'No job code'}
                         </Typography>
                       </Box>
                     </TableCell>
@@ -711,6 +749,18 @@ const Candidates = () => {
               </Typography>
             </Box>
           )}
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={page}
+            onPageChange={(event, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(event) => {
+              setRowsPerPage(parseInt(event.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+          />
         </CardContent>
       </Card>
 

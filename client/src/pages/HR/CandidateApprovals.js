@@ -28,7 +28,8 @@ import {
   Alert,
   CircularProgress,
   Tooltip,
-  Badge
+  Badge,
+  TablePagination
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -50,6 +51,9 @@ import applicationService from '../../services/applicationService';
 const CandidateApprovals = () => {
   const { user } = useAuth();
   const [approvals, setApprovals] = useState([]);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -74,20 +78,27 @@ const CandidateApprovals = () => {
 
   useEffect(() => {
     loadApprovals();
+  }, [filters.status, filters.search, page, rowsPerPage]);
+
+  useEffect(() => {
     loadCandidates();
     loadJobPostings();
     loadApplications();
-  }, [filters]);
+  }, []);
 
   const loadApprovals = async () => {
     try {
       setLoading(true);
       const params = {};
+      params.page = page + 1;
+      params.limit = rowsPerPage;
       if (filters.status) params.status = filters.status;
       if (filters.search) params.search = filters.search;
       
       const response = await candidateApprovalService.getApprovals(params);
-      setApprovals(response.data.docs || response.data);
+      const payload = response.data || {};
+      setApprovals(payload.docs || []);
+      setTotalCount(payload.totalDocs || payload.total || 0);
     } catch (error) {
       setError(error.message || 'Failed to load approvals');
     } finally {
@@ -254,7 +265,10 @@ const CandidateApprovals = () => {
                 fullWidth
                 label="Search"
                 value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                onChange={(e) => {
+                  setPage(0);
+                  setFilters({ ...filters, search: e.target.value });
+                }}
                 placeholder="Search by candidate name or position..."
               />
             </Grid>
@@ -263,7 +277,10 @@ const CandidateApprovals = () => {
                 <InputLabel>Status</InputLabel>
                 <Select
                   value={filters.status}
-                  onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters({ ...filters, status: e.target.value });
+                  }}
                   label="Status"
                 >
                   <MenuItem value="">All Statuses</MenuItem>
@@ -279,7 +296,10 @@ const CandidateApprovals = () => {
               <Button
                 fullWidth
                 variant="outlined"
-                onClick={() => setFilters({ status: '', search: '' })}
+                onClick={() => {
+                  setPage(0);
+                  setFilters({ status: '', search: '' });
+                }}
               >
                 Clear Filters
               </Button>
@@ -416,6 +436,18 @@ const CandidateApprovals = () => {
             ))}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={totalCount}
+          page={page}
+          onPageChange={(event, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(event) => {
+            setRowsPerPage(parseInt(event.target.value, 10));
+            setPage(0);
+          }}
+          rowsPerPageOptions={[10, 25, 50, 100]}
+        />
       </TableContainer>
 
       {/* Create Approval Dialog */}
