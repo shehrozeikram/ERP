@@ -449,6 +449,7 @@ const Applications = () => {
                 <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
                   <TableCell><strong>Application ID</strong></TableCell>
                   <TableCell><strong>Candidate</strong></TableCell>
+                  <TableCell><strong>Department</strong></TableCell>
                   <TableCell><strong>Job Position</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
                   <TableCell><strong>Manual Status</strong></TableCell>
@@ -484,6 +485,11 @@ const Applications = () => {
                           </Typography>
                         </Box>
                       </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {application.jobPosting?.department?.name || 'Not specified'}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <Box>
