@@ -435,11 +435,17 @@ router.put('/journal-entries/:id/clearance',
             'Add an attachment, mark the voucher as signed, and ensure signed date is set before marking clearance as cleared.'
         });
       }
+      if (!clearedAt || Number.isNaN(new Date(clearedAt).getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Clearance date is required when marking as cleared. Send clearedAt (ISO or parseable date).'
+        });
+      }
     }
 
     entry.clearanceStatus = clearanceStatus;
     if (clearanceStatus === 'cleared') {
-      entry.clearedAt = clearedAt ? new Date(clearedAt) : new Date();
+      entry.clearedAt = new Date(clearedAt);
       entry.clearedBy = req.user._id;
       entry.clearanceRemarks = clearanceRemarks || '';
     } else {

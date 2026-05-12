@@ -41,6 +41,29 @@ import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 
+/** YYYY-MM-DD in local calendar from a Date or ISO string */
+function clearedAtToYmd(value) {
+  if (!value) return '';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return '';
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Parse YYYY-MM-DD as local noon (stable for API ISO). */
+function parseYmdLocalNoon(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((ymd || '').trim());
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10) - 1;
+  const d = parseInt(m[3], 10);
+  const dt = new Date(y, mo, d, 12, 0, 0, 0);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo || dt.getDate() !== d) return null;
+  return dt;
+}
+
 const Vouchers = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -48,7 +71,12 @@ const Vouchers = () => {
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('posted');
-  const [clearanceDialog, setClearanceDialog] = useState({ open: false, voucher: null, status: 'pending' });
+  const [clearanceDialog, setClearanceDialog] = useState({
+    open: false,
+    voucher: null,
+    status: 'pending',
+    clearedAtDate: ''
+  });
   const [attachDlg, setAttachDlg] = useState({ open: false, entry: null, uploading: false });
   const [attachError, setAttachError] = useState('');
 
@@ -133,6 +161,9 @@ const Vouchers = () => {
     }));
   }, [entries]);
 
+  const closeClearanceDialog = () =>
+    setClearanceDialog({ open: false, voucher: null, status: 'pending', clearedAtDate: '' });
+
   const openClearanceDialog = (voucher) => {
     const can =
       (voucher?.attachments || []).length > 0 &&
@@ -142,22 +173,40 @@ const Vouchers = () => {
     setClearanceDialog({
       open: true,
       voucher,
-      status: voucher?.clearanceStatus || 'pending'
+      status: voucher?.clearanceStatus || 'pending',
+      clearedAtDate:
+        voucher?.clearanceStatus === 'cleared' && voucher?.clearedAt
+          ? clearedAtToYmd(voucher.clearedAt)
+          : ''
     });
   };
 
   const saveClearance = async () => {
     if (!clearanceDialog.voucher?._id) return;
     const nextStatus = clearanceDialog.status || 'pending';
+    let clearedAtPayload = null;
+    if (nextStatus === 'cleared') {
+      const ymd = (clearanceDialog.clearedAtDate || '').trim();
+      if (!ymd) {
+        window.alert('Please select a clearance date using the calendar.');
+        return;
+      }
+      const parsed = parseYmdLocalNoon(ymd);
+      if (!parsed) {
+        window.alert('Clearance date is invalid.');
+        return;
+      }
+      clearedAtPayload = parsed.toISOString();
+    }
     try {
       const res = await api.put(`/finance/journal-entries/${clearanceDialog.voucher._id}/clearance`, {
         clearanceStatus: nextStatus,
         clearanceRemarks: '',
-        clearedAt: nextStatus === 'cleared' ? new Date().toISOString() : null
+        clearedAt: clearedAtPayload
       });
       const updated = res?.data?.data;
       setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
-      setClearanceDialog({ open: false, voucher: null, status: 'pending' });
+      closeClearanceDialog();
     } catch (err) {
       window.alert(err.response?.data?.message || 'Could not update clearance');
     }
@@ -193,7 +242,7 @@ const Vouchers = () => {
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
           All finance vouchers are listed here. Open any voucher to view/print full voucher document. Use Attachment to upload images or supporting files.
-          Signed document and signed date are available only after at least one attachment is added. Clearance (and clearance date) is available only after the voucher is marked signed with a signed date.
+          Signed document and signed date are available only after at least one attachment is added. Clearance is available only after the voucher is marked signed with a signed date; when you mark clearance as cleared, choose the clearance date in the dialog (it is not set automatically).
         </Typography>
       </Paper>
 
@@ -434,7 +483,7 @@ const Vouchers = () => {
 
       <Dialog
         open={clearanceDialog.open}
-        onClose={() => setClearanceDialog({ open: false, voucher: null, status: 'pending' })}
+        onClose={closeClearanceDialog}
         maxWidth="sm"
         fullWidth
       >
@@ -448,16 +497,44 @@ const Vouchers = () => {
                 size="small"
                 label="Clearance Status"
                 value={clearanceDialog.status}
-                onChange={(e) => setClearanceDialog((d) => ({ ...d, status: e.target.value }))}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setClearanceDialog((d) => ({
+                    ...d,
+                    status: v,
+                    clearedAtDate:
+                      v === 'pending'
+                        ? ''
+                        : d.voucher?.clearanceStatus === 'cleared' && d.voucher?.clearedAt
+                          ? clearedAtToYmd(d.voucher.clearedAt)
+                          : d.clearedAtDate || ''
+                  }));
+                }}
               >
                 <MenuItem value="pending">Pending</MenuItem>
                 <MenuItem value="cleared">Cleared</MenuItem>
               </TextField>
             </Grid>
+            {clearanceDialog.status === 'cleared' && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  type="date"
+                  label="Clearance date"
+                  value={clearanceDialog.clearedAtDate}
+                  onChange={(e) =>
+                    setClearanceDialog((d) => ({ ...d, clearedAtDate: e.target.value }))
+                  }
+                  InputLabelProps={{ shrink: true }}
+                  helperText="Choose the actual clearance date (not auto-filled)."
+                />
+              </Grid>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setClearanceDialog({ open: false, voucher: null, status: 'pending' })}>Cancel</Button>
+          <Button onClick={closeClearanceDialog}>Cancel</Button>
           <Button variant="contained" onClick={saveClearance}>Save</Button>
         </DialogActions>
       </Dialog>
