@@ -98,7 +98,8 @@ const ApplicationForm = () => {
       if (ct.includes('application/json')) {
         const text = await res.data.text();
         const err = JSON.parse(text);
-        throw new Error(err.message || 'Download failed');
+        const prefix = err.code ? `[${err.code}] ` : '';
+        throw new Error(prefix + (err.message || 'Download failed'));
       }
       applicationService.triggerBlobDownload(res, `${kind}.pdf`);
     } catch (error) {
@@ -107,12 +108,16 @@ const ApplicationForm = () => {
         try {
           const t = await error.response.data.text();
           const j = JSON.parse(t);
-          message = j.message || message;
+          const prefix = j.code ? `[${j.code}] ` : '';
+          message = prefix + (j.message || message);
         } catch (_) {
-          message = 'Could not download file';
+          message =
+            'Download failed (404). Redeploy the latest backend if this is production, or check server logs.';
         }
       } else if (error.response?.data?.message) {
-        message = error.response.data.message;
+        const d = error.response.data;
+        const prefix = d.code ? `[${d.code}] ` : '';
+        message = prefix + d.message;
       }
       setSnackbar({ open: true, message, severity: 'error' });
     }

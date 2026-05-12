@@ -121,6 +121,8 @@ fi
 
 echo "Restarting backend process..."
 mkdir -p logs
+mkdir -p server/uploads/cvs
+echo "Note: CVs live under server/uploads/cvs — use a server backup or persistent volume; git deploy does not include them."
 if pm2 describe sgc-erp-backend >/dev/null 2>&1; then
   if ! pm2 restart sgc-erp-backend --update-env; then
     echo "Restart failed; attempting fresh start from ecosystem file..."

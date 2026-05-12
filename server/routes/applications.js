@@ -11,30 +11,130 @@ const EmailService = require('../services/emailService');
 
 const router = express.Router();
 
+// Default: server/uploads (same as easyApply multer: routes -> ../uploads/cvs)
 const UPLOADS_ROOT = path.resolve(__dirname, '../uploads');
 const CVS_DIR = path.join(UPLOADS_ROOT, 'cvs');
+// Legacy: repo-root uploads (see server/index.js static fallback)
+const REPO_UPLOADS_ROOT = path.resolve(__dirname, '../../uploads');
+const REPO_CVS_DIR = path.join(REPO_UPLOADS_ROOT, 'cvs');
 
-function isPathInsideUploads(candidatePath) {
-  const resolvedRoot = path.resolve(UPLOADS_ROOT);
-  const resolvedFile = path.resolve(candidatePath);
-  return resolvedFile === resolvedRoot || resolvedFile.startsWith(`${resolvedRoot}${path.sep}`);
+function getConfiguredUploadsRoot() {
+  const fromEnv = process.env.SGC_UPLOADS_DIR || process.env.UPLOADS_DIR;
+  if (fromEnv && typeof fromEnv === 'string' && fromEnv.trim()) {
+    return path.resolve(fromEnv.trim());
+  }
+  return null;
+}
+
+/** Everything after ".../uploads/" in a stored absolute path (cross-machine / old deploys). */
+function relativeSegmentAfterUploads(storedPath) {
+  if (!storedPath || typeof storedPath !== 'string') return null;
+  const norm = storedPath.replace(/\\/g, '/');
+  const lower = norm.toLowerCase();
+  const marker = '/uploads/';
+  const idx = lower.lastIndexOf(marker);
+  if (idx === -1) return null;
+  return norm.slice(idx + marker.length);
+}
+
+/** Join root + relative path only if relative has no path traversal. */
+function safeJoinUnderRoot(root, relativePath) {
+  if (!relativePath || typeof relativePath !== 'string') return null;
+  const trimmed = relativePath.replace(/^[/\\]+|[/\\]+$/g, '');
+  if (!trimmed || trimmed.split(/[/\\]+/).some((p) => p === '..')) {
+    return null;
+  }
+  const full = path.normalize(path.join(path.resolve(root), ...trimmed.split(/[/\\]+/)));
+  const rootR = path.resolve(root);
+  if (full !== rootR && !full.startsWith(`${rootR}${path.sep}`)) {
+    return null;
+  }
+  return full;
+}
+
+function isFileUnderAllowedRoot(resolvedFile, allowedRoots) {
+  const filePath = path.resolve(resolvedFile);
+  return allowedRoots.some((root) => {
+    const base = path.resolve(root);
+    if (filePath === base) return false;
+    return filePath.startsWith(`${base}${path.sep}`);
+  });
+}
+
+function collectAllowedUploadRoots() {
+  const roots = new Set([
+    UPLOADS_ROOT,
+    REPO_UPLOADS_ROOT,
+    path.resolve(process.cwd(), 'server', 'uploads'),
+    path.resolve(process.cwd(), 'uploads'),
+    CVS_DIR,
+    REPO_CVS_DIR
+  ]);
+  const configured = getConfiguredUploadsRoot();
+  if (configured) {
+    roots.add(configured);
+    roots.add(path.join(configured, 'cvs'));
+  }
+  return [...roots].filter(Boolean);
 }
 
 /** Resolve a stored application document (CV, resume, etc.) to a readable file path. */
 function resolveApplicationDocumentPath(doc) {
-  if (!doc || !doc.filename) return null;
-  const baseName = path.basename(doc.filename);
-  if (!baseName || baseName === '.' || baseName === '..') return null;
+  if (!doc || (!doc.filename && !doc.path)) return null;
 
+  const baseName = doc.filename
+    ? path.basename(doc.filename)
+    : doc.path
+      ? path.basename(doc.path)
+      : null;
+  if (baseName === '.' || baseName === '..') return null;
+
+  const allowedRoots = collectAllowedUploadRoots();
   const candidates = [];
-  if (doc.path) {
-    candidates.push(path.resolve(doc.path));
-  }
-  candidates.push(path.join(CVS_DIR, baseName));
-  candidates.push(path.join(UPLOADS_ROOT, baseName));
 
+  const add = (p) => {
+    if (!p) return;
+    try {
+      candidates.push(path.normalize(path.resolve(p)));
+    } catch (e) {
+      /* ignore */
+    }
+  };
+
+  if (doc.path) {
+    add(doc.path);
+    const rel = relativeSegmentAfterUploads(doc.path);
+    if (rel) {
+      const underServer = safeJoinUnderRoot(UPLOADS_ROOT, rel);
+      const underRepo = safeJoinUnderRoot(REPO_UPLOADS_ROOT, rel);
+      add(underServer);
+      add(underRepo);
+      const cfg = getConfiguredUploadsRoot();
+      if (cfg) {
+        add(safeJoinUnderRoot(cfg, rel));
+      }
+    }
+  }
+
+  if (baseName) {
+    add(path.join(CVS_DIR, baseName));
+    add(path.join(UPLOADS_ROOT, baseName));
+    add(path.join(REPO_CVS_DIR, baseName));
+    add(path.join(REPO_UPLOADS_ROOT, baseName));
+    add(path.join(process.cwd(), 'server', 'uploads', 'cvs', baseName));
+    add(path.join(process.cwd(), 'uploads', 'cvs', baseName));
+    const cfg = getConfiguredUploadsRoot();
+    if (cfg) {
+      add(path.join(cfg, 'cvs', baseName));
+      add(path.join(cfg, baseName));
+    }
+  }
+
+  const seen = new Set();
   for (const p of candidates) {
-    if (!isPathInsideUploads(p)) continue;
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    if (!isFileUnderAllowedRoot(p, allowedRoots)) continue;
     try {
       if (fs.existsSync(p) && fs.statSync(p).isFile()) {
         return p;
@@ -198,6 +298,101 @@ router.get('/',
   })
 );
 
+// @route   GET /api/applications/stats/overview
+// @desc    Get application statistics
+// @access  Private (HR and Admin)
+// NOTE: Must be registered before /:id or "stats" is captured as an application id.
+router.get('/stats/overview',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const stats = await Application.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalApplications: { $sum: 1 },
+          appliedApplications: {
+            $sum: { $cond: [{ $eq: ['$status', 'applied'] }, 1, 0] }
+          },
+          screeningApplications: {
+            $sum: { $cond: [{ $eq: ['$status', 'screening'] }, 1, 0] }
+          },
+          shortlistedApplications: {
+            $sum: { $cond: [{ $eq: ['$status', 'shortlisted'] }, 1, 0] }
+          },
+          interviewedApplications: {
+            $sum: { $cond: [{ $eq: ['$status', 'interviewed'] }, 1, 0] }
+          },
+          offeredApplications: {
+            $sum: { $cond: [{ $eq: ['$status', 'offer_sent'] }, 1, 0] }
+          },
+          hiredApplications: {
+            $sum: { $cond: [{ $eq: ['$status', 'hired'] }, 1, 0] }
+          },
+          rejectedApplications: {
+            $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    const statusStats = await Application.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      }
+    ]);
+
+    const jobPostingStats = await Application.aggregate([
+      {
+        $lookup: {
+          from: 'jobpostings',
+          localField: 'jobPosting',
+          foreignField: '_id',
+          as: 'jobPostingInfo'
+        }
+      },
+      {
+        $unwind: '$jobPostingInfo'
+      },
+      {
+        $group: {
+          _id: '$jobPostingInfo.title',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      },
+      {
+        $limit: 10
+      }
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        overview: stats[0] || {
+          totalApplications: 0,
+          appliedApplications: 0,
+          screeningApplications: 0,
+          shortlistedApplications: 0,
+          interviewedApplications: 0,
+          offeredApplications: 0,
+          hiredApplications: 0,
+          rejectedApplications: 0
+        },
+        byStatus: statusStats,
+        byJobPosting: jobPostingStats
+      }
+    });
+  })
+);
+
 // @route   GET /api/applications/:id/documents/:kind
 // @desc    Download an application document (CV, resume, etc.)
 // @access  Private (HR and Admin)
@@ -211,6 +406,7 @@ router.get('/:id/documents/:kind',
     if (!application) {
       return res.status(404).json({
         success: false,
+        code: 'APPLICATION_NOT_FOUND',
         message: 'Application not found'
       });
     }
@@ -243,15 +439,28 @@ router.get('/:id/documents/:kind',
     if (!doc) {
       return res.status(404).json({
         success: false,
-        message: 'Document not found for this application'
+        code: 'DOCUMENT_NOT_REGISTERED',
+        message:
+          'No file is registered for this document type on this application (e.g. Easy Apply CV was never saved).'
       });
     }
 
     const filePath = resolveApplicationDocumentPath(doc);
     if (!filePath) {
+      console.warn('[application-documents] FILE_NOT_ON_DISK', {
+        applicationId: req.params.id,
+        kind,
+        filename: doc.filename,
+        storedPath: doc.path
+      });
       return res.status(404).json({
         success: false,
-        message: 'File is missing on the server (it may have been removed)'
+        code: 'FILE_NOT_ON_DISK',
+        filename: doc.filename,
+        message:
+          'File is missing on the server. Deploy the latest backend and keep server/uploads/cvs on a persistent disk ' +
+          '(git deploy does not include uploaded CVs). Set SGC_UPLOADS_DIR if uploads live outside the repo. ' +
+          'Otherwise restore from backup or ask the candidate to re-apply.'
       });
     }
 
@@ -1098,102 +1307,6 @@ router.delete('/:id',
     res.json({
       success: true,
       message: 'Application deleted successfully'
-    });
-  })
-);
-
-// @route   GET /api/applications/stats/overview
-// @desc    Get application statistics
-// @access  Private (HR and Admin)
-router.get('/stats/overview', 
-  authorize('admin', 'hr_manager'), 
-  asyncHandler(async (req, res) => {
-    const stats = await Application.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalApplications: { $sum: 1 },
-          appliedApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'applied'] }, 1, 0] }
-          },
-          screeningApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'screening'] }, 1, 0] }
-          },
-          shortlistedApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'shortlisted'] }, 1, 0] }
-          },
-          interviewedApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'interviewed'] }, 1, 0] }
-          },
-          offeredApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'offer_sent'] }, 1, 0] }
-          },
-          hiredApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'hired'] }, 1, 0] }
-          },
-          rejectedApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] }
-          }
-        }
-      }
-    ]);
-
-    // Get applications by status
-    const statusStats = await Application.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { count: -1 }
-      }
-    ]);
-
-    // Get applications by job posting
-    const jobPostingStats = await Application.aggregate([
-      {
-        $lookup: {
-          from: 'jobpostings',
-          localField: 'jobPosting',
-          foreignField: '_id',
-          as: 'jobPostingInfo'
-        }
-      },
-      {
-        $unwind: '$jobPostingInfo'
-      },
-      {
-        $group: {
-          _id: '$jobPostingInfo.title',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { count: -1 }
-      },
-      {
-        $limit: 10
-      }
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        overview: stats[0] || {
-          totalApplications: 0,
-          appliedApplications: 0,
-          screeningApplications: 0,
-          shortlistedApplications: 0,
-          interviewedApplications: 0,
-          offeredApplications: 0,
-          hiredApplications: 0,
-          rejectedApplications: 0
-        },
-        byStatus: statusStats,
-        byJobPosting: jobPostingStats
-      }
     });
   })
 );
