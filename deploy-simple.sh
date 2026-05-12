@@ -104,6 +104,20 @@ else
   echo "WARNING: /tmp/.sgc-erp-env-deploy not found — .env NOT updated."
 fi
 
+# Easy Apply CVs: when SGC_UPLOADS_DIR is set, ensure persistent tree exists (survives git deploy).
+if [ -f ".env" ]; then
+  SGC_UP="$(grep -E '^[[:space:]]*SGC_UPLOADS_DIR=' .env 2>/dev/null | tail -1 | sed 's/^[^=]*=//' | tr -d '\r')"
+  SGC_UP="${SGC_UP#\"}"
+  SGC_UP="${SGC_UP%\"}"
+  SGC_UP="${SGC_UP#\'}"
+  SGC_UP="${SGC_UP%\'}"
+  SGC_UP="$(echo "$SGC_UP" | xargs)"
+  if [ -n "$SGC_UP" ]; then
+    mkdir -p "${SGC_UP}/cvs"
+    echo "Persistent CV uploads: ${SGC_UP}/cvs"
+  fi
+fi
+
 echo "Installing production dependencies..."
 npm install --omit=dev --omit=optional
 
@@ -122,7 +136,7 @@ fi
 echo "Restarting backend process..."
 mkdir -p logs
 mkdir -p server/uploads/cvs
-echo "CVs: set SGC_UPLOADS_DIR in server .env to a path outside the repo (e.g. /var/lib/sgc-erp/uploads), create .../cvs on the droplet, chown to the PM2 user, then pm2 restart. Otherwise uploads disappear on fresh servers."
+echo "CVs: set SGC_UPLOADS_DIR=/var/lib/sgc-erp/uploads in .env, run scripts/migrate-cvs-to-persistent-dir.sh once, then pm2 restart. See .env.production.example."
 if pm2 describe sgc-erp-backend >/dev/null 2>&1; then
   if ! pm2 restart sgc-erp-backend --update-env; then
     echo "Restart failed; attempting fresh start from ecosystem file..."
