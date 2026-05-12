@@ -17,6 +17,10 @@ const RecurringJournal = require('../models/finance/RecurringJournal');
 const FinanceHelper = require('../utils/financeHelper');
 const VendorAdvance = require('../models/finance/VendorAdvance');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+const {
+  getRequiredFinanceAuthoritySlots,
+  matchUserToFinanceSlots
+} = require('../utils/financeAuthoritySlots');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
 
@@ -28,6 +32,62 @@ const isFullAdvancePaymentTerm = (paymentTerms) => {
   if (!terms) return false;
   return terms.includes('full advance') || (terms.includes('advance') && !terms.includes('partial'));
 };
+
+/** Vendor advance counts toward PO “paid” only after voucher is posted (not draft / not rejected). */
+const vendorAdvanceAmountCountsForPo = (a) => {
+  const s = a?.voucherWorkflowStatus;
+  if (s === 'pending_authority') return false;
+  if (s === 'rejected') return false;
+  return true;
+};
+
+async function sumPostedVendorAdvancesForPo(poId) {
+  const rows = await VendorAdvance.find({
+    referenceType: 'purchase_order',
+    referenceId: poId
+  })
+    .select('amount voucherWorkflowStatus')
+    .lean();
+  let sum = 0;
+  for (const a of rows) {
+    if (!vendorAdvanceAmountCountsForPo(a)) continue;
+    sum += Math.round((Number(a.amount) || 0) * 100) / 100;
+  }
+  return sum;
+}
+
+async function tryAutoApprovePoAfterVendorAdvance(advance, userId) {
+  if (advance.referenceType !== 'purchase_order' || !advance.referenceId) return;
+  const po = await PurchaseOrder.findById(advance.referenceId);
+  if (!po || po.status !== 'Pending Finance' || !isFullAdvancePaymentTerm(po.paymentTerms)) return;
+  const poTotal = Math.round((Number(po.totalAmount) || 0) * 100) / 100;
+  if (poTotal <= 0) return;
+  const paid = await sumPostedVendorAdvancesForPo(po._id);
+  if (paid + 0.009 < poTotal) return;
+  po.workflowHistory = po.workflowHistory || [];
+  po.workflowHistory.push({
+    fromStatus: 'Pending Finance',
+    toStatus: 'Approved',
+    changedBy: userId,
+    changedAt: new Date(),
+    comments: 'Auto-approved by Finance after vendor advance voucher posted (full advance)',
+    department: 'Finance'
+  });
+  po.status = 'Approved';
+  po.financeApprovedBy = userId;
+  po.financeApprovedAt = new Date();
+  po.financeRemarks = 'Auto-approved after full vendor advance recorded and voucher finalized';
+  po.updatedBy = userId;
+  await po.save();
+}
+
+async function populateVendorAdvanceDoc(query) {
+  return VendorAdvance.findOne(query)
+    .populate('financeApprovalAuthorities.accountsOfficerUser', 'firstName lastName email employeeId digitalSignature')
+    .populate('financeApprovalAuthorities.accountsManagerUser', 'firstName lastName email employeeId digitalSignature')
+    .populate('financeApprovalAuthorities.financeControllerUser', 'firstName lastName email employeeId digitalSignature')
+    .populate('financeAuthorityApprovals.approver', 'firstName lastName email employeeId digitalSignature');
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -1016,6 +1076,8 @@ router.get('/accounts-payable/vendor-advances',
         referenceType: a.referenceType,
         referenceId: a.referenceId,
         linkedPoNumber: a.referenceType === 'purchase_order' && a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
+        journalEntryId: a.journalEntryId || null,
+        voucherWorkflowStatus: a.voucherWorkflowStatus || 'immediate',
         allocations
       };
     });
@@ -1031,6 +1093,255 @@ router.get('/accounts-payable/vendor-advances',
           totalPages: Math.ceil(totalCount / parseInt(limit, 10))
         }
       }
+    });
+  })
+);
+
+// @route   GET /api/finance/accounts-payable/vendor-advance-po-queue
+// @desc    POs in Pending Finance with advance payment terms that still need vendor advance recorded (or balance due)
+// @access  Private (Finance and Admin)
+router.get('/accounts-payable/vendor-advance-po-queue',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+
+    const pos = await PurchaseOrder.find({ status: 'Pending Finance' })
+      .populate('vendor', 'name email phone')
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const advancePos = pos.filter((po) => isFullAdvancePaymentTerm(po.paymentTerms));
+    const poIds = advancePos.map((p) => p._id);
+
+    const advances = poIds.length
+      ? await VendorAdvance.find({
+        referenceType: 'purchase_order',
+        referenceId: { $in: poIds }
+      })
+        .select('referenceId amount voucherWorkflowStatus')
+        .lean()
+      : [];
+
+    const pendingVoucherByPo = new Set(
+      advances
+        .filter((a) => a.voucherWorkflowStatus === 'pending_authority')
+        .map((a) => String(a.referenceId))
+    );
+
+    const sumByPo = {};
+    for (const a of advances) {
+      if (!vendorAdvanceAmountCountsForPo(a)) continue;
+      const id = String(a.referenceId);
+      sumByPo[id] = (sumByPo[id] || 0) + Math.round((Number(a.amount) || 0) * 100) / 100;
+    }
+
+    const items = advancePos
+      .map((po) => {
+        const id = String(po._id);
+        const total = Math.round((Number(po.totalAmount) || 0) * 100) / 100;
+        const recorded = sumByPo[id] || 0;
+        const remaining = Math.round((total - recorded) * 100) / 100;
+        const needsPayment = remaining > 0.009;
+        const hasPendingVoucherApproval = pendingVoucherByPo.has(id);
+        const ven = po.vendor || {};
+        return {
+          _id: po._id,
+          orderNumber: po.orderNumber,
+          paymentTerms: po.paymentTerms,
+          totalAmount: total,
+          advanceRecordedAmount: recorded,
+          remainingAdvanceDue: Math.max(0, remaining),
+          needsPayment,
+          hasPendingVoucherApproval,
+          vendor: {
+            _id: ven._id || po.vendor,
+            name: ven.name || '',
+            email: ven.email || ''
+          },
+          updatedAt: po.updatedAt
+        };
+      })
+      .filter((row) => row.needsPayment);
+
+    res.json({
+      success: true,
+      data: { items, count: items.length }
+    });
+  })
+);
+
+// @route   GET /api/finance/vendor-advances/by-journal-entry/:journalEntryId
+// @desc    Vendor advance linked to a journal entry (for voucher detail / authority UI)
+// @access  Private (Finance and Admin)
+router.get('/vendor-advances/by-journal-entry/:journalEntryId',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const doc = await populateVendorAdvanceDoc({ journalEntryId: req.params.journalEntryId });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Vendor advance not found for this voucher' });
+    }
+    res.json({ success: true, data: doc.toObject ? doc.toObject() : doc });
+  })
+);
+
+// @route   GET /api/finance/vendor-advances/po/:purchaseOrderId/pending-voucher
+// @desc    Whether this PO already has a vendor advance waiting for voucher signatures (blocks a second recording)
+// @access  Private (Finance and Admin)
+router.get('/vendor-advances/po/:purchaseOrderId/pending-voucher',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const pending = await VendorAdvance.findOne({
+      referenceType: 'purchase_order',
+      referenceId: req.params.purchaseOrderId,
+      voucherWorkflowStatus: 'pending_authority'
+    })
+      .select('_id reference')
+      .lean();
+    res.json({
+      success: true,
+      data: { hasPending: Boolean(pending), advanceId: pending?._id || null }
+    });
+  })
+);
+
+// @route   PUT /api/finance/vendor-advances/:id/finance-approve
+// @desc    Record finance authority approval; posts voucher to GL when all authorities approve
+// @access  Private (Finance and Admin)
+router.put('/vendor-advances/:id/finance-approve',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const advance = await VendorAdvance.findById(req.params.id);
+    if (!advance) return res.status(404).json({ success: false, message: 'Vendor advance not found' });
+    if (advance.voucherWorkflowStatus !== 'pending_authority') {
+      return res.status(400).json({
+        success: false,
+        message: 'Voucher authority approval only applies when the advance is pending signatures'
+      });
+    }
+    const slots = getRequiredFinanceAuthoritySlots(advance);
+    if (!slots.length) {
+      return res.status(400).json({ success: false, message: 'Finance approval authorities are not configured on this advance' });
+    }
+    const matchedSlots = matchUserToFinanceSlots(slots, req.user);
+    if (!matchedSlots.length) {
+      return res.status(403).json({ success: false, message: 'Your user is not assigned as a finance authority for this voucher' });
+    }
+    const approvals = Array.isArray(advance.financeAuthorityApprovals) ? [...advance.financeAuthorityApprovals] : [];
+    const approvedKeys = new Set(
+      approvals
+        .filter((a) => String(a?.decision || 'approved').trim() !== 'rejected')
+        .map((a) => String(a?.authorityKey || '').trim())
+        .filter(Boolean)
+    );
+    const pendingMatchedSlots = matchedSlots.filter((slot) => !approvedKeys.has(slot.key));
+    if (!pendingMatchedSlots.length) {
+      return res.status(400).json({ success: false, message: 'You have already approved your assigned finance authority slot' });
+    }
+    const now = new Date();
+    pendingMatchedSlots.forEach((slot) => {
+      approvals.push({
+        authorityKey: slot.key,
+        authorityLabel: slot.label,
+        approver: req.user._id,
+        decision: 'approved',
+        approvedAt: now,
+        comments: req.body?.comments || ''
+      });
+    });
+    advance.financeAuthorityApprovals = approvals;
+    await advance.save();
+
+    const requiredKeys = new Set(slots.map((s) => s.key));
+    const approvedNow = new Set(
+      advance.financeAuthorityApprovals
+        .filter((a) => String(a?.decision || 'approved').trim() !== 'rejected')
+        .map((a) => String(a?.authorityKey || '').trim())
+        .filter(Boolean)
+    );
+    const remaining = [...requiredKeys].filter((k) => !approvedNow.has(k)).length;
+
+    if (remaining === 0) {
+      const je = await JournalEntry.findById(advance.journalEntryId);
+      if (!je) {
+        return res.status(500).json({ success: false, message: 'Linked journal entry missing' });
+      }
+      if (je.status === 'draft') {
+        await je.post(req.user._id);
+        const glCount = await GeneralLedger.countDocuments({ journalEntry: je._id });
+        if (glCount === 0) {
+          await FinanceHelper.postToGeneralLedger(je._id);
+        }
+      } else if (je.status !== 'posted') {
+        return res.status(400).json({
+          success: false,
+          message: `Journal entry cannot be finalized from status: ${je.status}`
+        });
+      }
+      advance.voucherWorkflowStatus = 'fully_approved';
+      await advance.save();
+      await tryAutoApprovePoAfterVendorAdvance(advance, req.user._id);
+    }
+
+    const fresh = await populateVendorAdvanceDoc({ _id: advance._id });
+    const message = remaining === 0
+      ? 'All finance authorities approved. Voucher posted to the ledger.'
+      : `Finance authority recorded. ${remaining} approval(s) remaining.`;
+    res.json({ success: true, message, data: fresh.toObject ? fresh.toObject() : fresh });
+  })
+);
+
+// @route   PUT /api/finance/vendor-advances/:id/finance-reject
+// @desc    Reject voucher authority chain (draft JE cancelled)
+// @access  Private (Finance and Admin)
+router.put('/vendor-advances/:id/finance-reject',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const advance = await VendorAdvance.findById(req.params.id);
+    if (!advance) return res.status(404).json({ success: false, message: 'Vendor advance not found' });
+    if (advance.voucherWorkflowStatus !== 'pending_authority') {
+      return res.status(400).json({ success: false, message: 'Rejection only applies while voucher is pending signatures' });
+    }
+    const slots = getRequiredFinanceAuthoritySlots(advance);
+    if (!slots.length) {
+      return res.status(400).json({ success: false, message: 'Finance approval authorities are not configured on this advance' });
+    }
+    const matchedSlots = matchUserToFinanceSlots(slots, req.user);
+    if (!matchedSlots.length) {
+      return res.status(403).json({ success: false, message: 'Your user is not assigned as a finance authority for this voucher' });
+    }
+    const approvals = Array.isArray(advance.financeAuthorityApprovals) ? [...advance.financeAuthorityApprovals] : [];
+    const decidedKeys = new Set(approvals.map((a) => String(a?.authorityKey || '').trim()).filter(Boolean));
+    const pendingMatchedSlots = matchedSlots.filter((slot) => !decidedKeys.has(slot.key));
+    if (!pendingMatchedSlots.length) {
+      return res.status(400).json({ success: false, message: 'You have already acted on your assigned finance authority slot' });
+    }
+    const now = new Date();
+    pendingMatchedSlots.forEach((slot) => {
+      approvals.push({
+        authorityKey: slot.key,
+        authorityLabel: slot.label,
+        approver: req.user._id,
+        decision: 'rejected',
+        approvedAt: now,
+        comments: req.body?.comments || req.body?.rejectionComments || ''
+      });
+    });
+    advance.financeAuthorityApprovals = approvals;
+    advance.voucherWorkflowStatus = 'rejected';
+    await advance.save();
+
+    const je = advance.journalEntryId ? await JournalEntry.findById(advance.journalEntryId) : null;
+    if (je && je.status === 'draft') {
+      je.status = 'cancelled';
+      await je.save();
+    }
+
+    const fresh = await populateVendorAdvanceDoc({ _id: advance._id });
+    res.json({
+      success: true,
+      message: 'Finance authority rejection recorded. Draft voucher cancelled.',
+      data: fresh.toObject ? fresh.toObject() : fresh
     });
   })
 );
@@ -1177,6 +1488,34 @@ router.post('/accounts-payable/advance-payment',
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
 
+    const referenceType = req.body.referenceType || 'advance';
+    const referenceId = req.body.referenceId || null;
+    if (referenceType === 'purchase_order' && referenceId) {
+      const blocked = await VendorAdvance.findOne({
+        referenceType: 'purchase_order',
+        referenceId,
+        voucherWorkflowStatus: 'pending_authority'
+      })
+        .select('_id')
+        .lean();
+      if (blocked) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'This PO already has a vendor advance waiting for finance voucher signatures. Finish approvals or reject that voucher before recording another advance for the same PO.'
+        });
+      }
+    }
+
+    const rawFa = req.body.financeApprovalAuthorities;
+    const financeApprovalAuthorities =
+      rawFa && typeof rawFa === 'object'
+        ? {
+            accountsManagerUser: rawFa.accountsManagerUser || rawFa.accountsManager,
+            financeControllerUser: rawFa.financeControllerUser || rawFa.financeController
+          }
+        : null;
+
     const advance = await FinanceHelper.recordVendorAdvance({
       vendorName: req.body.vendorName,
       vendorEmail: req.body.vendorEmail || '',
@@ -1188,39 +1527,22 @@ router.post('/accounts-payable/advance-payment',
       bankAccountId: req.body.bankAccountId || null,
       department: req.body.department || 'procurement',
       module: req.body.module || 'procurement',
-      referenceType: req.body.referenceType || 'advance',
-      referenceId: req.body.referenceId || null,
-      createdBy: req.user._id
+      referenceType,
+      referenceId,
+      createdBy: req.user._id,
+      financeApprovalAuthorities
     });
 
-    // For full-advance PO flow: finance approval is completed by recording advance payment,
-    // so move PO from Pending Finance -> Approved automatically.
-    if (req.body.referenceType === 'purchase_order' && req.body.referenceId) {
-      const po = await PurchaseOrder.findById(req.body.referenceId);
-      if (po && po.status === 'Pending Finance' && isFullAdvancePaymentTerm(po.paymentTerms)) {
-        const paidAmount = Number(req.body.amount) || 0;
-        const poTotal = Number(po.totalAmount) || 0;
-        if (poTotal > 0 && paidAmount >= poTotal) {
-          po.workflowHistory = po.workflowHistory || [];
-          po.workflowHistory.push({
-            fromStatus: 'Pending Finance',
-            toStatus: 'Approved',
-            changedBy: req.user._id,
-            changedAt: new Date(),
-            comments: 'Auto-approved by Finance after recording full vendor advance payment',
-            department: 'Finance'
-          });
-          po.status = 'Approved';
-          po.financeApprovedBy = req.user._id;
-          po.financeApprovedAt = new Date();
-          po.financeRemarks = 'Auto-approved after recording full vendor advance payment';
-          po.updatedBy = req.user._id;
-          await po.save();
-        }
-      }
+    if (advance.voucherWorkflowStatus === 'fully_approved') {
+      await tryAutoApprovePoAfterVendorAdvance(advance, req.user._id);
     }
 
-    res.json({ success: true, message: 'Vendor advance recorded successfully', data: advance });
+    const message =
+      advance.voucherWorkflowStatus === 'pending_authority'
+        ? 'Vendor advance saved. Voucher is pending finance signatures — open it from Vouchers to approve.'
+        : 'Vendor advance recorded successfully';
+
+    res.json({ success: true, message, data: advance });
   })
 );
 
@@ -1241,104 +1563,6 @@ router.post('/accounts-payable/:id/apply-advance',
       success: true,
       message: `Advance applied: PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`,
       data: result
-    });
-  })
-);
-
-// @route   GET /api/finance/accounts-payable/vendor-advances
-// @desc    Get vendor advance history (partial advances + applied amounts)
-// @access  Private (Finance and Admin)
-router.get('/accounts-payable/vendor-advances',
-  authorize('super_admin', 'admin', 'finance_manager'),
-  asyncHandler(async (req, res) => {
-    const {
-      vendorId,
-      page = 1,
-      limit = 50,
-      status,
-      search
-    } = req.query;
-
-    const filters = {};
-    if (vendorId) filters['vendor.vendorId'] = vendorId;
-    if (status) filters.status = status;
-
-    if (search) {
-      filters.$or = [
-        { reference: { $regex: search, $options: 'i' } },
-        { 'vendor.name': { $regex: search, $options: 'i' } },
-        { 'vendor.email': { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-
-    const [rows, totalCount] = await Promise.all([
-      VendorAdvance.find(filters)
-        .sort({ paymentDate: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit, 10))
-        .lean(),
-      VendorAdvance.countDocuments(filters)
-    ]);
-
-    // Optional: resolve linked PO order numbers for `referenceType === 'purchase_order'`
-    const poIds = [
-      ...new Set(
-        rows
-          .filter((a) => a.referenceType === 'purchase_order' && a.referenceId)
-          .map((a) => String(a.referenceId))
-      )
-    ];
-    const poMap = {};
-    if (poIds.length > 0) {
-      const poDocs = await PurchaseOrder.find({ _id: { $in: poIds } }).select('orderNumber').lean();
-      poDocs.forEach((p) => { poMap[String(p._id)] = p.orderNumber; });
-    }
-
-    const advances = rows.map((a) => {
-      const amount = Number(a.amount || 0);
-      const applied = Number(a.appliedAmount || 0);
-      const remainingAmount = Math.round((amount - applied) * 100) / 100;
-      const allocations = Array.isArray(a.allocations)
-        ? a.allocations
-            .filter((al) => al && (al.billNumber || al.billId))
-            .map((al) => ({
-              billId: al.billId || null,
-              billNumber: al.billNumber || '',
-              amount: Math.round((Number(al.amount) || 0) * 100) / 100,
-              appliedAt: al.appliedAt || null
-            }))
-            .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
-        : [];
-      return {
-        _id: a._id,
-        vendor: a.vendor,
-        amount,
-        appliedAmount: applied,
-        remainingAmount,
-        paymentMethod: a.paymentMethod,
-        reference: a.reference,
-        paymentDate: a.paymentDate,
-        status: a.status,
-        referenceType: a.referenceType,
-        referenceId: a.referenceId,
-        linkedPoNumber: a.referenceType === 'purchase_order' && a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
-        allocations
-      };
-    });
-
-    res.json({
-      success: true,
-      data: {
-        advances,
-        pagination: {
-          currentPage: parseInt(page, 10),
-          limit: parseInt(limit, 10),
-          totalCount,
-          totalPages: Math.ceil(totalCount / parseInt(limit, 10))
-        }
-      }
     });
   })
 );

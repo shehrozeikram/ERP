@@ -115,7 +115,7 @@ const Applications = () => {
           if (emailJobMap.has(key)) {
             duplicateEmails.push({
               email,
-              jobTitle: app.jobPosting?.title,
+              jobTitle: app.jobPosting?.position?.title || app.jobPosting?.title,
               applicationIds: [emailJobMap.get(key), app._id]
             });
           } else {
@@ -494,10 +494,12 @@ const Applications = () => {
                     <TableCell>
                       <Box>
                         <Typography variant="body2" fontWeight="medium">
-                          {application.jobPosting?.title || 'N/A'}
+                          {application.jobPosting?.position?.title ||
+                            application.jobPosting?.title ||
+                            'Not specified'}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {application.jobPosting?.jobCode || 'N/A'}
+                          {application.jobPosting?.jobCode || '—'}
                         </Typography>
                       </Box>
                     </TableCell>

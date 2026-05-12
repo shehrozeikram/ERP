@@ -37,6 +37,27 @@ const vendorAdvanceSchema = new mongoose.Schema({
   },
   referenceType: { type: String, default: 'advance' },
   referenceId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  /** Draft journal until all finance authorities approve (optional flow). */
+  journalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry', default: null },
+  financeApprovalAuthorities: {
+    accountsOfficerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    accountsManagerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    financeControllerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  },
+  financeAuthorityApprovals: [{
+    authorityKey: { type: String, trim: true },
+    authorityLabel: { type: String, trim: true },
+    approver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    decision: { type: String, enum: ['approved', 'rejected'], default: 'approved' },
+    approvedAt: { type: Date, default: Date.now },
+    comments: { type: String, trim: true }
+  }],
+  /** immediate = posted on save (legacy); pending_authority = draft JE; fully_approved = JE posted; rejected = cancelled */
+  voucherWorkflowStatus: {
+    type: String,
+    enum: ['immediate', 'pending_authority', 'fully_approved', 'rejected'],
+    default: 'immediate'
+  },
   status: {
     type: String,
     enum: ['open', 'partially_applied', 'applied'],
@@ -51,5 +72,6 @@ vendorAdvanceSchema.virtual('remainingAmount').get(function() {
 
 vendorAdvanceSchema.index({ 'vendor.vendorId': 1, status: 1, paymentDate: 1 });
 vendorAdvanceSchema.index({ paymentDate: -1 });
+vendorAdvanceSchema.index({ journalEntryId: 1 });
 
 module.exports = mongoose.model('VendorAdvance', vendorAdvanceSchema);

@@ -14,6 +14,9 @@ backups/mongodump-atlas-*/
 .env.production.local
 scripts/.mongodb-prod-sync.env
 
+# Local demo seed state (IDs for clear-full-advance-demo.js)
+server/scripts/last-full-advance-demo.json
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

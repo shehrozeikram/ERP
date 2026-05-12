@@ -360,7 +360,13 @@ class ApplicationEvaluationService {
       });
       
       if (existingCandidate) {
-        return existingCandidate;
+        await Candidate.findByIdAndUpdate(existingCandidate._id, {
+          $set: {
+            jobPosting: application.jobPosting,
+            application: application._id
+          }
+        });
+        return await Candidate.findById(existingCandidate._id);
       }
       
       // Parse notice period to number
@@ -477,6 +483,9 @@ class ApplicationEvaluationService {
         
         // Availability
         availability: application.availability || 'negotiable',
+
+        jobPosting: application.jobPosting,
+        application: application._id,
         
         // Notes
         notes: [{

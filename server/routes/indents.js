@@ -18,6 +18,14 @@ const router = express.Router();
 
 const APPROVAL_SIGNATURE_KEYS = ['headOfDepartment', 'gmPd', 'svpAvp'];
 const LEGACY_APPROVER_ROLES = ['super_admin', 'admin', 'hr_manager'];
+
+/** Automation/local only: never enabled when NODE_ENV is production. */
+function isIndentApprovalE2EBypassEnabled() {
+  if (process.env.NODE_ENV === 'production') return false;
+  const v = process.env.E2E_BYPASS_INDENT_APPROVAL;
+  return v === '1' || String(v).toLowerCase() === 'true';
+}
+
 const INDENT_TARGET_ROUTES = {
   storeDashboard: '/procurement/store',
   procurementRequisitions: '/procurement/requisitions'
@@ -952,7 +960,13 @@ router.post('/:id/submit',
     const fromBody = Array.isArray(req.body?.approverIds) ? req.body.approverIds.map(String).filter(Boolean) : [];
     const fromDraft = (indent.draftApproverIds || []).map((id) => id.toString());
     const merged = fromBody.length ? fromBody : fromDraft;
-    const unique = [...new Set(merged)];
+    const requesterId = indent.requestedBy.toString();
+    const e2eBypass = isIndentApprovalE2EBypassEnabled();
+    let unique = [...new Set(merged)];
+
+    if (unique.length === 0 && e2eBypass) {
+      unique = [requesterId];
+    }
 
     if (unique.length !== 1) {
       return res.status(400).json({
@@ -961,8 +975,7 @@ router.post('/:id/submit',
       });
     }
 
-    const requesterId = indent.requestedBy.toString();
-    if (unique.includes(requesterId)) {
+    if (unique.includes(requesterId) && !e2eBypass) {
       return res.status(400).json({
         success: false,
         message: 'You cannot assign yourself as an approver.'

@@ -64,9 +64,20 @@ router.get('/',
         {
           path: 'jobPosting',
           populate: [
-            { path: 'department', select: 'name' },
+            { path: 'department', select: 'name code' },
             { path: 'position', select: 'title' }
           ]
+        },
+        {
+          path: 'application',
+          select: 'jobPosting applicationId',
+          populate: {
+            path: 'jobPosting',
+            populate: [
+              { path: 'department', select: 'name code' },
+              { path: 'position', select: 'title' }
+            ]
+          }
         }
       ]
     };
@@ -76,6 +87,10 @@ router.get('/',
     // Transform candidates to include email delivery status
     const transformedCandidates = candidates.docs.map(candidate => {
       const candidateObj = candidate.toObject();
+
+      if (!candidateObj.jobPosting && candidateObj.application?.jobPosting) {
+        candidateObj.jobPosting = candidateObj.application.jobPosting;
+      }
       
       // Get latest email notification for shortlist
       const latestShortlistEmail = candidate.emailNotifications
@@ -113,9 +128,22 @@ router.get('/:id',
       .populate({
         path: 'jobPosting',
         populate: [
-          { path: 'department', select: 'name' },
+          { path: 'department', select: 'name code' },
+          { path: 'position', select: 'title' },
           { path: 'location', select: 'name' }
         ]
+      })
+      .populate({
+        path: 'application',
+        select: 'jobPosting applicationId',
+        populate: {
+          path: 'jobPosting',
+          populate: [
+            { path: 'department', select: 'name code' },
+            { path: 'position', select: 'title' },
+            { path: 'location', select: 'name' }
+          ]
+        }
       });
 
     if (!candidate) {
@@ -127,6 +155,10 @@ router.get('/:id',
 
     // Transform candidate to include email delivery status
     const candidateObj = candidate.toObject();
+
+    if (!candidateObj.jobPosting && candidateObj.application?.jobPosting) {
+      candidateObj.jobPosting = candidateObj.application.jobPosting;
+    }
     
     // Get latest email notification for shortlist
     const latestShortlistEmail = candidate.emailNotifications

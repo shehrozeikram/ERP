@@ -29,6 +29,7 @@ const VoucherView = () => {
   const [loading, setLoading] = useState(true);
   const [entry, setEntry] = useState(null);
   const [cashApproval, setCashApproval] = useState(null);
+  const [vendorAdvanceDoc, setVendorAdvanceDoc] = useState(null);
   const [uploadingCheck, setUploadingCheck] = useState(false);
   const [savingCheckDetails, setSavingCheckDetails] = useState(false);
   const [uploadMsg, setUploadMsg] = useState('');
@@ -68,6 +69,22 @@ const VoucherView = () => {
     };
     loadCashApproval();
   }, [entry?.referenceId]);
+
+  useEffect(() => {
+    const loadVendorAdvance = async () => {
+      try {
+        if (!entry?._id) {
+          setVendorAdvanceDoc(null);
+          return;
+        }
+        const res = await api.get(`/finance/vendor-advances/by-journal-entry/${entry._id}`);
+        setVendorAdvanceDoc(res?.data?.data || null);
+      } catch (_e) {
+        setVendorAdvanceDoc(null);
+      }
+    };
+    loadVendorAdvance();
+  }, [entry?._id]);
 
   useEffect(() => {
     setCheckDetails({
@@ -127,38 +144,69 @@ const VoucherView = () => {
     }
   };
 
+  const reloadEntry = async () => {
+    try {
+      const res = await api.get(`/finance/journal-entries/${id}`);
+      setEntry(res?.data?.data || null);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const approveMyAuthorityFromVoucher = async () => {
-    if (!cashApproval?._id) return;
     try {
       setApprovalMsg('');
-      await api.put(`/cash-approvals/${cashApproval._id}/finance-approve`, { comments: 'Approved from Voucher page' });
-      const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
-      setCashApproval(refreshed?.data?.data || cashApproval);
-      setApprovalMsg('Authority approval recorded from voucher and synced to Cash Approval.');
+      if (cashApproval?._id) {
+        await api.put(`/cash-approvals/${cashApproval._id}/finance-approve`, { comments: 'Approved from Voucher page' });
+        const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
+        setCashApproval(refreshed?.data?.data || cashApproval);
+        setApprovalMsg('Authority approval recorded from voucher and synced to Cash Approval.');
+        return;
+      }
+      if (vendorAdvanceDoc?._id) {
+        await api.put(`/finance/vendor-advances/${vendorAdvanceDoc._id}/finance-approve`, { comments: 'Approved from Voucher page' });
+        const refreshed = await api.get(`/finance/vendor-advances/by-journal-entry/${id}`);
+        setVendorAdvanceDoc(refreshed?.data?.data || vendorAdvanceDoc);
+        await reloadEntry();
+        setApprovalMsg('Authority approval recorded. Voucher posts to the ledger when all three have approved.');
+        return;
+      }
     } catch (e) {
       setApprovalMsg(e?.response?.data?.message || 'Approval failed.');
     }
   };
 
   const rejectMyAuthorityFromVoucher = async () => {
-    if (!cashApproval?._id) return;
     try {
       setApprovalMsg('');
-      await api.put(`/cash-approvals/${cashApproval._id}/finance-reject`, { comments: 'Rejected from Voucher page' });
-      const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
-      setCashApproval(refreshed?.data?.data || cashApproval);
-      setApprovalMsg('Authority rejection recorded from voucher and synced to Cash Approval.');
+      if (cashApproval?._id) {
+        await api.put(`/cash-approvals/${cashApproval._id}/finance-reject`, { comments: 'Rejected from Voucher page' });
+        const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
+        setCashApproval(refreshed?.data?.data || cashApproval);
+        setApprovalMsg('Authority rejection recorded from voucher and synced to Cash Approval.');
+        return;
+      }
+      if (vendorAdvanceDoc?._id) {
+        await api.put(`/finance/vendor-advances/${vendorAdvanceDoc._id}/finance-reject`, { comments: 'Rejected from Voucher page' });
+        const refreshed = await api.get(`/finance/vendor-advances/by-journal-entry/${id}`);
+        setVendorAdvanceDoc(refreshed?.data?.data || vendorAdvanceDoc);
+        await reloadEntry();
+        setApprovalMsg('Authority rejection recorded. Draft voucher cancelled.');
+        return;
+      }
     } catch (e) {
       setApprovalMsg(e?.response?.data?.message || 'Rejection failed.');
     }
   };
 
+  const financeAuthorityDoc = cashApproval || vendorAdvanceDoc;
+
   const myPendingAuthorityLabels = useMemo(() => {
-    if (!cashApproval || !user) return [];
+    if (!financeAuthorityDoc || !user) return [];
     const uid = String(user?.id || user?._id || '');
-    const authorities = cashApproval?.financeApprovalAuthorities || {};
+    const authorities = financeAuthorityDoc?.financeApprovalAuthorities || {};
     const normId = (v) => String(v?._id || v?.id || v || '').trim();
-    const approvals = Array.isArray(cashApproval?.financeAuthorityApprovals) ? cashApproval.financeAuthorityApprovals : [];
+    const approvals = Array.isArray(financeAuthorityDoc?.financeAuthorityApprovals) ? financeAuthorityDoc.financeAuthorityApprovals : [];
     const decided = new Set(approvals.map((a) => String(a?.authorityKey || '').trim()).filter(Boolean));
     const slots = [
       { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
@@ -168,7 +216,7 @@ const VoucherView = () => {
     return slots
       .filter((s) => normId(authorities?.[s.key]) === uid && !decided.has(s.key))
       .map((s) => s.label);
-  }, [cashApproval, user]);
+  }, [financeAuthorityDoc, user]);
 
   const voucherType = useMemo(() => String(entry?.referenceType || 'manual').toUpperCase(), [entry]);
   const monthName = useMemo(() => {
@@ -253,6 +301,11 @@ const VoucherView = () => {
               {approvalMsg}
             </Alert>
           ) : null}
+          {vendorAdvanceDoc?.voucherWorkflowStatus === 'pending_authority' && entry?.status === 'draft' ? (
+            <Alert severity="warning" sx={{ mb: 1.5 }}>
+              This voucher is <strong>draft</strong> until all finance authorities approve. General ledger and account balances update only after final approval.
+            </Alert>
+          ) : null}
           {myPendingAuthorityLabels.length > 0 ? (
             <Box className="app-print-hide" sx={{ mb: 1.5 }}>
               <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
@@ -286,14 +339,14 @@ const VoucherView = () => {
                   { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
                   { key: 'financeControllerUser', label: 'GM Finance' }
                 ];
-                const approvals = Array.isArray(cashApproval?.financeAuthorityApprovals) ? cashApproval.financeAuthorityApprovals : [];
+                const approvals = Array.isArray(financeAuthorityDoc?.financeAuthorityApprovals) ? financeAuthorityDoc.financeAuthorityApprovals : [];
                 const byKey = new Map(approvals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
 
                 return slots.map((slot) => {
                   const approval = byKey.get(slot.key);
-                  const assigned = cashApproval?.financeApprovalAuthorities?.[slot.key] || null;
+                  const assigned = financeAuthorityDoc?.financeApprovalAuthorities?.[slot.key] || null;
                   const approver = approval?.approver || assigned || null;
-                  const decision = String(approval?.decision || (approval ? 'approved' : 'pending')).toLowerCase();
+                  const decision = approval ? String(approval.decision || 'approved').toLowerCase() : 'pending';
                   const approvedAt = approval?.approvedAt || null;
                   const approverName = approver
                     ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')

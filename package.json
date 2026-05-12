@@ -21,6 +21,7 @@
     "test:grni-resolve-from-po": "node tests/grni-resolve-from-po-before-grn.test.js",
     "test:procurement-vendor-billing-multi-grn": "node tests/procurement-vendor-billing-multi-grn-e2e.test.js",
     "clean:test-data": "node scripts/clean-procurement-finance-general-store-data.js --yes",
+    "clean:finance-local": "node scripts/clean-finance-local-only.js --yes",
     "clean:finance-procurement:keep-masters": "node scripts/clean-finance-procurement-keep-masters.js --yes",
     "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js",
     "import:procurement-vendors": "node server/scripts/import-procurement-vendors-xlsx.js",
@@ -29,7 +30,9 @@
     "mongo:show-target": "node scripts/show-mongodb-target.js",
     "mongo:show-target:prod": "NODE_ENV=production node scripts/show-mongodb-target.js",
     "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect",
-    "sync:taj-invoices-prod-to-local": "node scripts/sync-taj-property-invoices-prod-to-local.js"
+    "sync:taj-invoices-prod-to-local": "node scripts/sync-taj-property-invoices-prod-to-local.js",
+    "demo:seed-full-advance-pending-finance": "node server/scripts/seed-full-advance-po-pending-finance.js",
+    "demo:clear-full-advance": "node server/scripts/clear-full-advance-demo.js"
   },
   "keywords": [
     "erp",

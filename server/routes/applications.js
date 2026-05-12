@@ -43,7 +43,14 @@ router.get('/',
       limit: parseInt(limit),
       sort: { createdAt: -1 },
       populate: [
-        { path: 'jobPosting', select: 'title jobCode department position' },
+        {
+          path: 'jobPosting',
+          select: 'jobCode department position',
+          populate: [
+            { path: 'department', select: 'name code' },
+            { path: 'position', select: 'title' }
+          ]
+        },
         { path: 'candidate', select: 'firstName lastName email phone' },
         { path: 'createdBy', select: 'firstName lastName' },
         { path: 'updatedBy', select: 'firstName lastName' }
@@ -164,7 +171,8 @@ router.get('/:id',
       .populate({
         path: 'jobPosting',
         populate: [
-          { path: 'department', select: 'name' },
+          { path: 'department', select: 'name code' },
+          { path: 'position', select: 'title' },
           { path: 'location', select: 'name' }
         ]
       })
@@ -342,7 +350,8 @@ router.put('/:id/status',
       ).populate({
         path: 'jobPosting',
         populate: [
-          { path: 'department', select: 'name' },
+          { path: 'department', select: 'name code' },
+          { path: 'position', select: 'title' },
           { path: 'location', select: 'name' }
         ]
       }).populate('candidate');
@@ -358,15 +367,30 @@ router.put('/:id/status',
       if (status === 'shortlisted') {
         try {
           console.log('🎯 Shortlisting application:', application._id);
-          
+          const jobPostingId = application.jobPosting?._id ?? application.jobPosting;
+
           // Get candidate information (either from candidate reference or personalInfo)
           let candidateData = null;
           let candidateEmail = null;
           
           if (application.candidate) {
-            // Application has an existing candidate record
-            candidateData = application.candidate;
-            candidateEmail = candidateData.email;
+            // Application has an existing candidate record — link posting so TA lists show dept / role
+            const candId = application.candidate._id || application.candidate;
+            candidateData = await Candidate.findByIdAndUpdate(
+              candId,
+              {
+                $set: {
+                  jobPosting: jobPostingId,
+                  application: application._id,
+                  status: 'shortlisted'
+                }
+              },
+              { new: true }
+            );
+            if (!candidateData) {
+              candidateData = await Candidate.findById(candId);
+            }
+            candidateEmail = candidateData?.email;
           } else if (application.personalInfo) {
             // Public application - use personalInfo
             candidateEmail = application.personalInfo.email;
@@ -385,6 +409,8 @@ router.put('/:id/status',
                     yearsOfExperience: application.professionalInfo?.yearsOfExperience || existingCandidate.yearsOfExperience,
                     expectedSalary: application.professionalInfo?.expectedSalary || application.expectedSalary || existingCandidate.expectedSalary,
                     noticePeriod: application.professionalInfo?.noticePeriod || existingCandidate.noticePeriod,
+                    jobPosting: jobPostingId,
+                    application: application._id,
                     status: 'shortlisted',
                     lastUpdated: new Date()
                   }
@@ -420,7 +446,7 @@ router.put('/:id/status',
                 skills: [], // Empty array to avoid validation issues
                 source: 'application_shortlisted',
                 status: 'shortlisted',
-                jobPosting: application.jobPosting._id,
+                jobPosting: jobPostingId,
                 application: application._id,
                 createdBy: req.user._id
               });
@@ -487,7 +513,8 @@ router.post('/send-shortlist-emails',
         .populate({
           path: 'jobPosting',
           populate: [
-            { path: 'department', select: 'name' },
+            { path: 'department', select: 'name code' },
+            { path: 'position', select: 'title' },
             { path: 'location', select: 'name' }
           ]
         })
