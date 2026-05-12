@@ -2553,7 +2553,12 @@ router.get('/reports', authMiddleware, asyncHandler(async (req, res) => {
       invoiceAmount: byMonth.reduce((s, r) => s + r.invoiceAmount, 0),
       arrears: byMonth.reduce((s, r) => s + r.arrears, 0),
       paymentsReceived: byMonth.reduce((s, r) => s + r.paymentsReceived, 0),
-      invoiceCount: byMonth.reduce((s, r) => s + r.invoiceCount, 0)
+      invoiceCount: byMonth.reduce((s, r) => s + r.invoiceCount, 0),
+      /** Same as Reconciliation "Amount (Deposit + Suspense)" summed over months. */
+      depositPlusSuspense: byMonth.reduce(
+        (s, r) => s + (Number(r.depositTotal) || 0) + (Number(r.suspenseAmount) || 0),
+        0
+      )
     };
 
     res.json({
@@ -2830,6 +2835,114 @@ router.get('/charge-rollups', authMiddleware, asyncHandler(async (req, res) => {
         other: finalizeRollup(other)
       }
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+/**
+ * Open invoices (no property) split by charge-line bucket GROUND vs OTHER.
+ * Billing month = periodTo ?? invoiceDate (same window as GET /reports).
+ */
+router.get('/reports/open-invoice-bucket', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const { startMonth, endMonth, bucket } = req.query;
+    const b = String(bucket || '');
+    if (b !== 'ground' && b !== 'other') {
+      return res.status(400).json({ success: false, message: 'bucket must be ground or other' });
+    }
+    const now = dayjs();
+    const defaultStart = now.subtract(12, 'month');
+    const start = startMonth ? dayjs(startMonth + '-01') : defaultStart.startOf('month');
+    const end = endMonth ? dayjs(endMonth + '-01').endOf('month') : now.endOf('month');
+    const monthStart = start.toDate();
+    const monthEnd = end.toDate();
+
+    const monthMap = {};
+    let mo = start.startOf('month');
+    while (mo.isBefore(end) || mo.isSame(end, 'month')) {
+      const key = mo.format('YYYY-MM');
+      monthMap[key] = {
+        month: key,
+        monthLabel: mo.format('MMM YYYY'),
+        invoiceAmount: 0,
+        arrears: 0,
+        paymentsReceived: 0,
+        invoiceCount: 0
+      };
+      mo = mo.add(1, 'month');
+    }
+
+    const invoices = await PropertyInvoice.find({ status: { $ne: 'Cancelled' }, property: null })
+      .select('charges chargeTypes periodTo invoiceDate totalArrears grandTotal totalPaid')
+      .lean();
+
+    const periodVal = (inv) => inv.periodTo || inv.invoiceDate;
+
+    for (const inv of invoices) {
+      const p = periodVal(inv);
+      const pd = p ? new Date(p) : null;
+      if (!pd || pd < monthStart || pd > monthEnd) continue;
+
+      const monthKey = dayjs(pd).format('YYYY-MM');
+      if (!monthMap[monthKey]) continue;
+
+      const charges = Array.isArray(inv.charges) && inv.charges.length > 0 ? inv.charges : null;
+      const grand = Math.max(Number(inv.grandTotal) || 0, 1e-9);
+      const invPaid = Number(inv.totalPaid) || 0;
+
+      let lineAmt = 0;
+      let lineArr = 0;
+      let linePaid = 0;
+
+      if (charges) {
+        for (const ch of charges) {
+          const buck = classifyChargeLineBucket(ch.type);
+          if (buck === 'utility' || buck === 'rent') continue;
+          if (b === 'ground' && buck !== 'ground') continue;
+          if (b === 'other' && buck !== 'other') continue;
+          const amt = Number(ch.amount) || 0;
+          const arr = Number(ch.arrears) || 0;
+          const lineGT = Number(ch.total) || amt + arr;
+          lineAmt += amt;
+          lineArr += arr;
+          linePaid += invPaid * (lineGT / grand);
+        }
+      } else {
+        const types = inv.chargeTypes || [];
+        if (!types.length) continue;
+        const buck = classifyChargeLineBucket(types[0]);
+        if (buck === 'utility' || buck === 'rent') continue;
+        if (b === 'ground' && buck !== 'ground') continue;
+        if (b === 'other' && buck !== 'other') continue;
+        const lineGT = Math.max(Number(inv.grandTotal) || 0, 1e-9);
+        const arr = Number(inv.totalArrears) || 0;
+        const amt = Math.max(0, lineGT - arr);
+        lineAmt = amt;
+        lineArr = arr;
+        linePaid = invPaid;
+      }
+
+      if (!(lineAmt || lineArr || linePaid)) continue;
+
+      monthMap[monthKey].invoiceAmount += lineAmt;
+      monthMap[monthKey].arrears += lineArr;
+      monthMap[monthKey].paymentsReceived += linePaid;
+      monthMap[monthKey].invoiceCount += 1;
+    }
+
+    const byMonth = Object.keys(monthMap)
+      .sort()
+      .map((k) => monthMap[k]);
+
+    const totals = {
+      invoiceAmount: byMonth.reduce((s, r) => s + r.invoiceAmount, 0),
+      arrears: byMonth.reduce((s, r) => s + r.arrears, 0),
+      paymentsReceived: byMonth.reduce((s, r) => s + r.paymentsReceived, 0),
+      invoiceCount: byMonth.reduce((s, r) => s + r.invoiceCount, 0)
+    };
+
+    res.json({ success: true, data: { byMonth, totals } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

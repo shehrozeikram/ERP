@@ -39,6 +39,10 @@ export const fetchChargeRollups = (params = {}) =>
 export const fetchReports = (params = {}) =>
   api.get(`${base}/reports`, { params });
 
+/** Open invoices (no property) — GROUND vs OTHER line split; same month window as Reports. */
+export const fetchReportsOpenInvoiceBucket = (params = {}) =>
+  api.get(`${base}/reports/open-invoice-bucket`, { params });
+
 export const fetchMonthSummary = (params = {}) =>
   api.get(`${base}/month-summary`, { params });
 
@@ -104,6 +108,7 @@ const propertyInvoiceService = {
   fetchInvoicesForProperty,
   fetchAllInvoices,
   fetchReports,
+  fetchReportsOpenInvoiceBucket,
   updateInvoice,
   deleteInvoice,
   deletePaymentFromInvoice,

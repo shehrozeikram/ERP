@@ -15,13 +15,13 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   ToggleButton,
   ToggleButtonGroup
 } from '@mui/material';
 import { Refresh as RefreshIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { subMonths, format as formatDateFns } from 'date-fns';
 import {
@@ -39,8 +39,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import api from '../../../services/api';
-import { fetchAllInvoices, fetchChargeRollups } from '../../../services/propertyInvoiceService';
+import { fetchAllInvoices, fetchReports, fetchReportsOpenInvoiceBucket } from '../../../services/propertyInvoiceService';
 import { fetchProperties as fetchTajProperties } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
 import { fetchProperties as fetchRentalProperties } from '../../../services/tajRentalManagementService';
@@ -87,6 +86,23 @@ const FILTER_DEFS = [
   { id: 'WATER', label: 'WATER' }
 ];
 
+/** Map report totals + allocated Paid (Reconciliation: deposits + suspense) into charge-row shape. */
+const statsFromReportData = (reportData, paidAllocated) => {
+  const totals = reportData?.totals || {};
+  const invoiced = Number(totals.invoiceAmount || 0);
+  const arrears = Number(totals.arrears || 0);
+  const total = invoiced + arrears;
+  const paid = Math.max(0, Number(paidAllocated) || 0);
+  const balances = Math.max(0, total - paid);
+  return {
+    totalProperties: Number(totals.invoiceCount || 0),
+    totalAmount: invoiced,
+    totalArrears: arrears,
+    totalAmountAllPages: invoiced,
+    totalArrearsAllPages: balances
+  };
+};
+
 const KpiCard = ({ title, value, loading }) => (
   <Paper
     elevation={0}
@@ -115,8 +131,13 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [dateFrom, setDateFrom] = useState(() => subMonths(new Date(), 2));
-  const [dateTo, setDateTo] = useState(() => new Date());
+  const [startMonth, setStartMonth] = useState(() => formatDateFns(subMonths(new Date(), 2), 'yyyy-MM'));
+  const [endMonth, setEndMonth] = useState(() => formatDateFns(new Date(), 'yyyy-MM'));
+  /* Aliases for stale HMR bundles that still reference dateFrom/dateTo (same as month strings). */
+  // eslint-disable-next-line no-unused-vars -- legacy name kept for hot-reload compatibility
+  const dateFrom = startMonth;
+  // eslint-disable-next-line no-unused-vars -- legacy name kept for hot-reload compatibility
+  const dateTo = endMonth;
   const [chargeFilter, setChargeFilter] = useState(() => new Set());
   const [stats, setStats] = useState({
     cam: { totalProperties: 0, totalAmount: 0, totalArrears: 0, totalAmountAllPages: 0, totalArrearsAllPages: 0 },
@@ -132,7 +153,9 @@ const Dashboard = () => {
     topResidents: [],
     rentRollup: null,
     groundRollup: null,
-    otherRollup: null
+    otherRollup: null,
+    reconciliationByMonth: [],
+    globalDepositSuspense: 0
   });
 
   const loadDashboard = useCallback(async () => {
@@ -140,39 +163,71 @@ const Dashboard = () => {
       setLoading(true);
       setError('');
 
-      const dateParams = {
-        startDate: formatDateFns(dateFrom, 'yyyy-MM-dd'),
-        endDate: formatDateFns(dateTo, 'yyyy-MM-dd')
-      };
+      let sm = startMonth || formatDateFns(subMonths(new Date(), 2), 'yyyy-MM');
+      let em = endMonth || formatDateFns(new Date(), 'yyyy-MM');
+      if (sm > em) [sm, em] = [em, sm];
+      const reportParams = { startMonth: sm, endMonth: em };
 
       const [
-        camRes,
-        waterRes,
-        electricityRes,
-        invoicesRes,
+        allReportRes,
+        camReportRes,
+        waterReportRes,
+        electricityReportRes,
+        rentReportRes,
+        groundReportRes,
+        otherReportRes,
         propertiesRes,
         residentsRes,
         rentalRes,
         suspenseRes,
-        residentsByBalanceRes,
-        chargeRollupsRes
+        residentsByBalanceRes
       ] = await Promise.all([
-        api.get('/taj-utilities/cam-charges/current-overview', { params: { page: 1, limit: 1 } }),
-        api.get('/taj-utilities/water-charges/current-overview', { params: { page: 1, limit: 1 } }),
-        api.get('/taj-utilities/electricity/current-overview', { params: { page: 1, limit: 1 } }),
-        fetchAllInvoices({ page: 1, limit: 1 }),
+        fetchReports({ ...reportParams, chargeType: 'all' }).catch(() => ({ data: { data: { totals: {}, byMonth: [] } } })),
+        fetchReports({ ...reportParams, chargeType: 'CAM' }).catch(() => ({ data: { data: { totals: {}, byMonth: [] } } })),
+        fetchReports({ ...reportParams, chargeType: 'WATER' }).catch(() => ({ data: { data: { totals: {}, byMonth: [] } } })),
+        fetchReports({ ...reportParams, chargeType: 'ELECTRICITY' }).catch(() => ({ data: { data: { totals: {}, byMonth: [] } } })),
+        fetchReports({ ...reportParams, chargeType: 'RENT' }).catch(() => ({ data: { data: { totals: {}, byMonth: [] } } })),
+        fetchReportsOpenInvoiceBucket({ ...reportParams, bucket: 'ground' }).catch(() => ({ data: { data: { totals: {}, byMonth: [] } } })),
+        fetchReportsOpenInvoiceBucket({ ...reportParams, bucket: 'other' }).catch(() => ({ data: { data: { totals: {}, byMonth: [] } } })),
         fetchTajProperties({ page: 1, limit: 1 }),
         fetchResidents({ page: 1, limit: 1 }),
         fetchRentalProperties({ page: 1, limit: 1 }),
         fetchAllDeposits({ page: 1, limit: 10000, suspenseAccount: 'true' }).catch(() => ({ data: { data: { deposits: [] } } })),
-        fetchResidents({ page: 1, limit: 12, sortBy: 'balance', order: 'desc' }).catch(() => ({ data: { data: [] } })),
-        fetchChargeRollups(dateParams).catch(() => ({ data: { data: null } }))
+        fetchResidents({ page: 1, limit: 12, sortBy: 'balance', order: 'desc' }).catch(() => ({ data: { data: [] } }))
       ]);
 
-      const camData = camRes.data?.data || {};
-      const waterData = waterRes.data?.data || {};
-      const elecData = electricityRes.data?.data || {};
-      const invPagination = invoicesRes.data?.pagination || {};
+      const allData = allReportRes.data?.data || {};
+      const byMonthAll = allData.byMonth || [];
+      const gdsFromTotals = Number(allData.totals?.depositPlusSuspense);
+      const globalDepositSuspense = Number.isFinite(gdsFromTotals)
+        ? gdsFromTotals
+        : byMonthAll.reduce(
+            (s, r) => s + (Number(r.depositTotal) || 0) + (Number(r.suspenseAmount) || 0),
+            0
+          );
+
+      const camInv = Number(camReportRes.data?.data?.totals?.invoiceAmount || 0);
+      const waterInv = Number(waterReportRes.data?.data?.totals?.invoiceAmount || 0);
+      const elecInv = Number(electricityReportRes.data?.data?.totals?.invoiceAmount || 0);
+      const rentInv = Number(rentReportRes.data?.data?.totals?.invoiceAmount || 0);
+      const groundInv = Number(groundReportRes.data?.data?.totals?.invoiceAmount || 0);
+      const otherInv = Number(otherReportRes.data?.data?.totals?.invoiceAmount || 0);
+      const totalInvoiced = camInv + waterInv + elecInv + rentInv + groundInv + otherInv;
+
+      const allocPaid = (invoicedAmount) => {
+        if (totalInvoiced > 0) return globalDepositSuspense * (invoicedAmount / totalInvoiced);
+        return 0;
+      };
+
+      const camData = statsFromReportData(camReportRes.data?.data, allocPaid(camInv));
+      const waterData = statsFromReportData(waterReportRes.data?.data, allocPaid(waterInv));
+      const elecData = statsFromReportData(electricityReportRes.data?.data, allocPaid(elecInv));
+      const rentFromReports = statsFromReportData(rentReportRes.data?.data, allocPaid(rentInv));
+      const groundFromReports = statsFromReportData(groundReportRes.data?.data, allocPaid(groundInv));
+      const otherPaid =
+        totalInvoiced > 0 ? allocPaid(otherInv) : globalDepositSuspense > 0 ? globalDepositSuspense : 0;
+      const otherFromReports = statsFromReportData(otherReportRes.data?.data, otherPaid);
+      const invoiceCountInRange = Number(allData.totals?.invoiceCount) || 0;
       const propData = propertiesRes.data?.data;
       const residentData = residentsRes.data?.data;
       const rentalData = rentalRes.data?.data;
@@ -216,48 +271,47 @@ const Dashboard = () => {
             })
         : [];
 
-      const rollupData = chargeRollupsRes.data?.data || {};
-      const emptyRollup = () => ({
-        totalProperties: 0,
-        totalAmount: 0,
-        totalArrears: 0,
-        totalAmountAllPages: 0,
-        totalArrearsAllPages: 0
-      });
+      const reconciliationByMonth = byMonthAll.map((r) => ({
+        monthKey: r.month,
+        month: r.monthLabel || r.month,
+        value: (Number(r.depositTotal) || 0) + (Number(r.suspenseAmount) || 0)
+      }));
 
       setStats({
         cam: {
           totalProperties: camData.totalProperties ?? 0,
           totalAmount: camData.totalAmountAllPages ?? camData.totalAmount ?? 0,
-          totalArrears: camData.totalArrearsAllPages ?? camData.totalArrears ?? 0,
+          totalArrears: camData.totalArrears ?? 0,
           totalAmountAllPages: camData.totalAmountAllPages ?? camData.totalAmount ?? 0,
-          totalArrearsAllPages: camData.totalArrearsAllPages ?? camData.totalArrears ?? 0
+          totalArrearsAllPages: camData.totalArrearsAllPages ?? 0
         },
         water: {
           totalProperties: waterData.totalProperties ?? 0,
           totalAmount: waterData.totalAmountAllPages ?? waterData.totalAmount ?? 0,
-          totalArrears: waterData.totalArrearsAllPages ?? waterData.totalArrears ?? 0,
+          totalArrears: waterData.totalArrears ?? 0,
           totalAmountAllPages: waterData.totalAmountAllPages ?? waterData.totalAmount ?? 0,
-          totalArrearsAllPages: waterData.totalArrearsAllPages ?? waterData.totalArrears ?? 0
+          totalArrearsAllPages: waterData.totalArrearsAllPages ?? 0
         },
         electricity: {
           totalProperties: elecData.totalProperties ?? 0,
           totalAmount: elecData.totalAmountAllPages ?? elecData.totalAmount ?? 0,
-          totalArrears: elecData.totalArrearsAllPages ?? elecData.totalArrears ?? 0,
+          totalArrears: elecData.totalArrears ?? 0,
           totalAmountAllPages: elecData.totalAmountAllPages ?? elecData.totalAmount ?? 0,
-          totalArrearsAllPages: elecData.totalArrearsAllPages ?? elecData.totalArrears ?? 0
+          totalArrearsAllPages: elecData.totalArrearsAllPages ?? 0
         },
         properties: propertiesTotal,
         residents: residentsTotal,
         rentalProperties: rentalTotal,
-        invoices: invPagination.total ?? 0,
+        invoices: invoiceCountInRange,
         openInvoices: openInvoicesCount,
         suspenseTotal,
         suspenseRemaining,
         topResidents,
-        rentRollup: rollupData.rent || emptyRollup(),
-        groundRollup: rollupData.ground || emptyRollup(),
-        otherRollup: rollupData.other || emptyRollup()
+        rentRollup: rentFromReports,
+        groundRollup: groundFromReports,
+        otherRollup: otherFromReports,
+        reconciliationByMonth,
+        globalDepositSuspense
       });
     } catch (err) {
       console.error('Dashboard load error:', err);
@@ -265,7 +319,7 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo]);
+  }, [startMonth, endMonth]);
 
   useEffect(() => {
     loadDashboard();
@@ -316,15 +370,27 @@ const Dashboard = () => {
       { no: 0, invoiced: 0, arrears: 0, total: 0, paid: 0, balances: 0 }
     );
 
-    return { rows: filtered, totals };
+    const kpiTotals = rows.reduce(
+      (acc, r) => ({
+        no: acc.no + r.no,
+        invoiced: acc.invoiced + r.invoiced,
+        arrears: acc.arrears + r.arrears,
+        total: acc.total + r.total,
+        paid: acc.paid + r.paid,
+        balances: acc.balances + r.balances
+      }),
+      { no: 0, invoiced: 0, arrears: 0, total: 0, paid: 0, balances: 0 }
+    );
+
+    return { rows: filtered, totals, kpiTotals };
   }, [stats, chargeFilter]);
 
   const kpis = useMemo(() => {
-    const { totals } = chargeRows;
-    const invoicedAmount = totals.invoiced;
-    const balances = totals.balances;
-    const receivedAmount = totals.paid;
-    const totalArrears = totals.arrears;
+    const { kpiTotals } = chargeRows;
+    const invoicedAmount = kpiTotals.invoiced;
+    const balances = kpiTotals.balances;
+    const receivedAmount = stats.globalDepositSuspense ?? kpiTotals.paid;
+    const totalArrears = kpiTotals.arrears;
     return {
       totalInvoices: stats.invoices,
       invoicedAmount,
@@ -332,7 +398,7 @@ const Dashboard = () => {
       balances,
       totalArrears
     };
-  }, [chargeRows, stats.invoices]);
+  }, [chargeRows, stats.invoices, stats.globalDepositSuspense]);
 
   const barChartData = useMemo(
     () =>
@@ -346,18 +412,14 @@ const Dashboard = () => {
   );
 
   const monthlyCollection = useMemo(() => {
-    const base = Math.max(0, kpis.receivedAmount / 3);
-    const d2 = new Date(dateTo);
-    const labels = [2, 1, 0].map((i) => {
-      const d = new Date(d2.getFullYear(), d2.getMonth() - i, 1);
-      return d.toLocaleString('en', { month: 'short' });
-    });
-    const variance = [0.88, 1.12, 0.95];
-    return labels.map((month, i) => ({
-      month,
-      value: Math.round(base * variance[i])
+    const rows = stats.reconciliationByMonth || [];
+    if (!rows.length) return [];
+    const last3 = rows.slice(-3);
+    return last3.map((r) => ({
+      month: r.month,
+      value: Math.round(Number(r.value) || 0)
     }));
-  }, [kpis.receivedAmount, dateTo]);
+  }, [stats.reconciliationByMonth]);
 
   const donutData = useMemo(() => {
     const inv = Math.max(0, kpis.invoicedAmount);
@@ -365,12 +427,12 @@ const Dashboard = () => {
     const rest = Math.max(0, inv - rec);
     if (inv === 0 && rec === 0) {
       return [
-        { name: 'Received', value: 1 },
+        { name: 'Deposits + suspense', value: 1 },
         { name: 'Invoiced (remaining)', value: 1 }
       ];
     }
     return [
-      { name: 'Received', value: rec },
+      { name: 'Deposits + suspense', value: rec },
       { name: 'Invoiced (remaining)', value: rest }
     ];
   }, [kpis.invoicedAmount, kpis.receivedAmount]);
@@ -415,34 +477,37 @@ const Dashboard = () => {
           </Alert>
         )}
 
-        {/* Date range + KPIs */}
+        {/* Month range + KPIs */}
         <Paper elevation={0} sx={{ p: 2, mb: 2, border: BORDER, bgcolor: '#fff' }}>
           <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems={{ lg: 'center' }}>
             <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
-              <DatePicker
-                label="Start date"
-                value={dateFrom}
-                onChange={(v) => v && setDateFrom(v)}
-                slotProps={{ textField: { size: 'small', sx: { width: 160 } } }}
+              <TextField
+                label="Start month"
+                type="month"
+                value={startMonth}
+                onChange={(e) => setStartMonth(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+                sx={{ width: 170 }}
               />
-              <DatePicker
-                label="End date"
-                value={dateTo}
-                onChange={(v) => v && setDateTo(v)}
-                slotProps={{ textField: { size: 'small', sx: { width: 160 } } }}
+              <TextField
+                label="End month"
+                type="month"
+                value={endMonth}
+                onChange={(e) => setEndMonth(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+                sx={{ width: 170 }}
               />
             </Stack>
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ flex: 1, '& > *': { flex: '1 1 140px', minWidth: 120 } }}>
               <KpiCard title="Total Invoices" value={formatCompactCount(kpis.totalInvoices)} loading={loading} />
               <KpiCard title="Invoiced Amount" value={formatCompactMoney(kpis.invoicedAmount)} loading={loading} />
-              <KpiCard title="Received Amount" value={formatCompactMoney(kpis.receivedAmount)} loading={loading} />
+              <KpiCard title="Deposits + suspense" value={formatCompactMoney(kpis.receivedAmount)} loading={loading} />
               <KpiCard title="Balances" value={formatCompactMoney(kpis.balances)} loading={loading} />
               <KpiCard title="Total Arrears" value={formatCompactMoney(kpis.totalArrears)} loading={loading} />
             </Stack>
           </Stack>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-            Date range applies to RENT, GROUND BOOKING, and OTHER (invoice date). CAM, WATER, and ELECTRICITY rows use full module rollups from Taj Utilities.
-          </Typography>
         </Paper>
 
         {/* Charge type filters */}
@@ -496,7 +561,7 @@ const Dashboard = () => {
                     <TableRow>
                       <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Charge Types</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        No.
+                        Invoices
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
                         Invoiced
@@ -508,7 +573,7 @@ const Dashboard = () => {
                         Total
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Paid
+                        Paid (dep. + susp.)
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
                         Balances
@@ -587,7 +652,7 @@ const Dashboard = () => {
                   <RTooltip formatter={(val) => formatTableNumber(val)} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="invoiced" name="Invoiced" fill={CHART_BLUE} radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="paid" name="Paid" fill={CHART_BLUE_DARK} radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="paid" name="Paid (dep. + susp.)" fill={CHART_BLUE_DARK} radius={[2, 2, 0, 0]} />
                   <Bar dataKey="balances" name="Balances" fill={ORANGE} radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -663,6 +728,9 @@ const Dashboard = () => {
               <Typography fontWeight={700} color={PRIMARY_BLUE} sx={{ mb: 1 }}>
                 Monthly collection
               </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Deposit + suspense per month (same as Reconciliation Amount). Shows the last three months in the selected range.
+              </Typography>
               <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={monthlyCollection} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
@@ -710,11 +778,11 @@ const Dashboard = () => {
               <Stack direction="row" justifyContent="center" spacing={3} sx={{ mt: -1 }}>
                 <Stack direction="row" alignItems="center" spacing={0.5}>
                   <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: DEEP_BLUE }} />
-                  <Typography variant="caption">Received {formatCompactMoney(donutData[0]?.value)}</Typography>
+                  <Typography variant="caption">Deposits + suspense {formatCompactMoney(donutData[0]?.value)}</Typography>
                 </Stack>
                 <Stack direction="row" alignItems="center" spacing={0.5}>
                   <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: LIGHT_BLUE }} />
-                  <Typography variant="caption">Remaining {formatCompactMoney(donutData[1]?.value)}</Typography>
+                  <Typography variant="caption">Invoiced remaining {formatCompactMoney(donutData[1]?.value)}</Typography>
                 </Stack>
               </Stack>
             </Paper>
