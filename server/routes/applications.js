@@ -47,17 +47,37 @@ function safeJoinUnderRoot(root, relativePath) {
   return full;
 }
 
+function realpathIfExists(p) {
+  const abs = path.resolve(p);
+  try {
+    if (fs.existsSync(abs)) {
+      return fs.realpathSync(abs);
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  return abs;
+}
+
+/** Allow symlinked upload dirs (real path may differ from project path, e.g. /var vs /private/var). */
 function isFileUnderAllowedRoot(resolvedFile, allowedRoots) {
-  const filePath = path.resolve(resolvedFile);
+  let filePath = path.resolve(resolvedFile);
+  try {
+    if (fs.existsSync(filePath)) {
+      filePath = fs.realpathSync(filePath);
+    }
+  } catch (e) {
+    return false;
+  }
   return allowedRoots.some((root) => {
-    const base = path.resolve(root);
+    const base = realpathIfExists(root);
     if (filePath === base) return false;
     return filePath.startsWith(`${base}${path.sep}`);
   });
 }
 
 function collectAllowedUploadRoots() {
-  return [
+  const raw = [
     ...new Set([
       UPLOADS_ROOT,
       CVS_DIR,
@@ -71,18 +91,30 @@ function collectAllowedUploadRoots() {
       path.join(path.resolve(process.cwd(), 'uploads'), 'cvs')
     ])
   ].filter(Boolean);
+
+  const expanded = new Set(raw);
+  for (const r of raw) {
+    try {
+      const rp = realpathIfExists(r);
+      if (rp) expanded.add(rp);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  return [...expanded];
 }
 
 /** Resolve a stored application document (CV, resume, etc.) to a readable file path. */
 function resolveApplicationDocumentPath(doc) {
   if (!doc || (!doc.filename && !doc.path)) return null;
 
-  const baseName = doc.filename
-    ? path.basename(doc.filename)
+  const rawName = doc.filename
+    ? String(doc.filename).trim()
     : doc.path
-      ? path.basename(doc.path)
-      : null;
-  if (baseName === '.' || baseName === '..') return null;
+      ? String(doc.path).trim()
+      : '';
+  const baseName = rawName ? path.basename(rawName) : null;
+  if (!baseName || baseName === '.' || baseName === '..') return null;
 
   const allowedRoots = collectAllowedUploadRoots();
   const candidates = [];
