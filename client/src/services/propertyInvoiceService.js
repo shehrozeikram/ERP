@@ -43,6 +43,10 @@ export const fetchReports = (params = {}) =>
 export const fetchReportsOpenInvoiceBucket = (params = {}) =>
   api.get(`${base}/reports/open-invoice-bucket`, { params });
 
+/** Dashboard: top residents by outstanding for charge types (CAM,WATER,...) or total balance when chargeTypes omitted. */
+export const fetchDashboardResidentsOutstanding = (params = {}) =>
+  api.get(`${base}/dashboard-residents-outstanding`, { params });
+
 export const fetchMonthSummary = (params = {}) =>
   api.get(`${base}/month-summary`, { params });
 

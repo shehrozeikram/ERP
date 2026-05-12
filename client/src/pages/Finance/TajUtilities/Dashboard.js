@@ -39,7 +39,12 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import { fetchAllInvoices, fetchReports, fetchReportsOpenInvoiceBucket } from '../../../services/propertyInvoiceService';
+import {
+  fetchAllInvoices,
+  fetchReports,
+  fetchReportsOpenInvoiceBucket,
+  fetchDashboardResidentsOutstanding
+} from '../../../services/propertyInvoiceService';
 import { fetchProperties as fetchTajProperties } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
 import { fetchProperties as fetchRentalProperties } from '../../../services/tajRentalManagementService';
@@ -139,6 +144,7 @@ const Dashboard = () => {
   // eslint-disable-next-line no-unused-vars -- legacy name kept for hot-reload compatibility
   const dateTo = endMonth;
   const [chargeFilter, setChargeFilter] = useState(() => new Set());
+  const chargeFilterKey = useMemo(() => [...chargeFilter].sort().join(','), [chargeFilter]);
   const [stats, setStats] = useState({
     cam: { totalProperties: 0, totalAmount: 0, totalArrears: 0, totalAmountAllPages: 0, totalArrearsAllPages: 0 },
     water: { totalProperties: 0, totalAmount: 0, totalArrears: 0, totalAmountAllPages: 0, totalArrearsAllPages: 0 },
@@ -193,7 +199,10 @@ const Dashboard = () => {
         fetchResidents({ page: 1, limit: 1 }),
         fetchRentalProperties({ page: 1, limit: 1 }),
         fetchAllDeposits({ page: 1, limit: 10000, suspenseAccount: 'true' }).catch(() => ({ data: { data: { deposits: [] } } })),
-        fetchResidents({ page: 1, limit: 12, sortBy: 'balance', order: 'desc' }).catch(() => ({ data: { data: [] } }))
+        fetchDashboardResidentsOutstanding({
+          limit: 12,
+          ...(chargeFilterKey ? { chargeTypes: chargeFilterKey } : {})
+        }).catch(() => ({ data: { data: [] } }))
       ]);
 
       const allData = allReportRes.data?.data || {};
@@ -319,7 +328,7 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [startMonth, endMonth]);
+  }, [startMonth, endMonth, chargeFilterKey]);
 
   useEffect(() => {
     loadDashboard();
@@ -456,7 +465,7 @@ const Dashboard = () => {
               Taj Utilities & Charges — Dashboard
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Utility and charge management summary (filters apply to the charge summary and charts).
+              Utility and charge management summary (filters apply to the charge summary, charts, and resident balance).
             </Typography>
           </Box>
           <Button
@@ -542,7 +551,7 @@ const Dashboard = () => {
             ))}
           </ToggleButtonGroup>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            Select one or more charge types to filter the summary table and bar chart. Empty selection shows all.
+            Select one or more charge types to filter the summary table, bar chart, and resident balance. Empty selection shows all.
           </Typography>
         </Paper>
 
@@ -668,6 +677,11 @@ const Dashboard = () => {
                 <Typography fontWeight={700} color={PRIMARY_BLUE}>
                   Resident balance
                 </Typography>
+                {chargeFilter.size > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 400 }}>
+                    Outstanding for: {[...chargeFilter].sort().join(', ')}
+                  </Typography>
+                )}
               </Box>
               <TableContainer sx={{ flex: 1 }}>
                 <Table size="small" stickyHeader>
@@ -697,7 +711,9 @@ const Dashboard = () => {
                           <TableRow>
                             <TableCell colSpan={4}>
                               <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                                No residents with positive balance in the sample.
+                                {chargeFilter.size > 0
+                                  ? 'No outstanding balance for the selected charge type(s) among residents with linked invoices.'
+                                  : 'No residents with positive balance in the sample.'}
                               </Typography>
                             </TableCell>
                           </TableRow>

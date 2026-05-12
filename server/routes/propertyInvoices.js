@@ -2948,6 +2948,206 @@ router.get('/reports/open-invoice-bucket', authMiddleware, asyncHandler(async (r
   }
 }));
 
+/**
+ * Top residents by outstanding balance for selected dashboard charge types (CAM, WATER, ELECTRICITY, RENT, GROUND, OTHER).
+ * Allocates each invoice's balance across charge lines (same buckets as charge-rollups). No chargeTypes = TajResident.balance (all types).
+ */
+const utilityDashboardKind = (chType) => {
+  const raw = String(chType == null ? '' : chType);
+  const t = raw.toUpperCase().replace(/\s+/g, '_');
+  if (t.includes('CAM') || t === 'CMC') return 'CAM';
+  if (t.includes('WATER') || t === 'WTR') return 'WATER';
+  if (t.includes('ELECTRICITY') || t === 'ELC') return 'ELECTRICITY';
+  if (raw.toLowerCase() === 'electricity') return 'ELECTRICITY';
+  if (raw === 'Water') return 'WATER';
+  return null;
+};
+
+const lineMatchesDashboardFilters = (chType, selected) => {
+  if (!selected || selected.size === 0) return false;
+  const buck = classifyChargeLineBucket(chType);
+  if (buck === 'rent') return selected.has('RENT');
+  if (buck === 'ground') return selected.has('GROUND');
+  if (buck === 'other') return selected.has('OTHER');
+  if (buck === 'utility') {
+    const k = utilityDashboardKind(chType);
+    return Boolean(k && selected.has(k));
+  }
+  return false;
+};
+
+const normalizePhoneKey = (raw) => {
+  if (raw == null || raw === '') return '';
+  const d = String(raw).replace(/\D/g, '');
+  if (d.length >= 10) return d.slice(-10);
+  return d;
+};
+
+router.get('/dashboard-residents-outstanding', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 12));
+    const rawTypes = req.query.chargeTypes;
+    const typeList = String(rawTypes || '')
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    const allowed = new Set(['CAM', 'WATER', 'ELECTRICITY', 'RENT', 'GROUND', 'OTHER']);
+    const selected = new Set(typeList.filter((t) => allowed.has(t)));
+
+    if (selected.size === 0) {
+      const query = {
+        balance: { $gt: 0 },
+        $and: [
+          {
+            $or: [
+              { name: { $exists: true, $ne: null, $ne: '' } },
+              { residentId: { $exists: true, $ne: null, $ne: '' } }
+            ]
+          }
+        ]
+      };
+      const residents = await TajResident.find(query)
+        .select('_id residentId name balance properties')
+        .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+        .sort({ balance: -1 })
+        .limit(limit)
+        .lean();
+      return res.json({ success: true, data: residents });
+    }
+
+    const [invoices, allResidents] = await Promise.all([
+      PropertyInvoice.find({ status: { $ne: 'Cancelled' }, balance: { $gt: 0.005 } })
+        .select('charges grandTotal balance chargeTypes property customerEmail customerPhone')
+        .populate({
+          path: 'property',
+          select: 'propertyName plotNumber sector block fullAddress ownerName resident',
+          populate: { path: 'resident', select: '_id residentId name email contactNumber' }
+        })
+        .lean(),
+      TajResident.find({
+        $and: [
+          {
+            $or: [
+              { name: { $exists: true, $ne: null, $ne: '' } },
+              { residentId: { $exists: true, $ne: null, $ne: '' } }
+            ]
+          }
+        ]
+      })
+        .select('_id residentId name email contactNumber properties')
+        .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+        .lean()
+    ]);
+
+    const byEmail = new Map();
+    const byPhone = new Map();
+    const residentById = new Map();
+    for (const r of allResidents) {
+      residentById.set(r._id.toString(), r);
+      if (r.email) byEmail.set(String(r.email).trim().toLowerCase(), r._id.toString());
+      const pk = normalizePhoneKey(r.contactNumber);
+      if (pk) byPhone.set(pk, r._id.toString());
+    }
+
+    const agg = new Map();
+
+    const addBal = (residentKey, amount, propLabel, residentDoc) => {
+      if (!residentKey || !(Number(amount) > 0)) return;
+      if (!agg.has(residentKey)) {
+        agg.set(residentKey, {
+          _id: residentDoc?._id || residentKey,
+          residentId: residentDoc?.residentId,
+          name: residentDoc?.name,
+          properties: residentDoc?.properties,
+          balance: 0,
+          _labels: new Set()
+        });
+      }
+      const row = agg.get(residentKey);
+      row.balance += Number(amount) || 0;
+      if (propLabel) row._labels.add(propLabel);
+    };
+
+    for (const inv of invoices) {
+      const grand = Math.max(Number(inv.grandTotal) || 0, 1e-9);
+      const invBalance = Number(inv.balance) || 0;
+      if (invBalance <= 0) continue;
+
+      let residentDoc = null;
+      let residentKey = null;
+      const prop = inv.property;
+      if (prop) {
+        const res = prop.resident;
+        if (res && typeof res === 'object' && res._id) {
+          residentDoc = res;
+          residentKey = res._id.toString();
+        } else if (res) {
+          residentKey = String(res);
+          residentDoc = residentById.get(residentKey) || null;
+        }
+      }
+      if (!residentKey) {
+        const em = inv.customerEmail && String(inv.customerEmail).trim().toLowerCase();
+        const pk = normalizePhoneKey(inv.customerPhone);
+        if (em && byEmail.has(em)) residentKey = byEmail.get(em);
+        else if (pk && byPhone.has(pk)) residentKey = byPhone.get(pk);
+        if (residentKey) residentDoc = residentById.get(residentKey) || null;
+      }
+
+      if (!residentKey) continue;
+
+      const charges = Array.isArray(inv.charges) && inv.charges.length > 0 ? inv.charges : null;
+      let allocated = 0;
+
+      if (charges) {
+        for (const ch of charges) {
+          if (!lineMatchesDashboardFilters(ch.type, selected)) continue;
+          const lineGT = Number(ch.total) || (Number(ch.amount) || 0) + (Number(ch.arrears) || 0);
+          const share = invBalance * (lineGT / grand);
+          allocated += share;
+        }
+      } else {
+        const types = inv.chargeTypes || [];
+        for (const t of types) {
+          if (lineMatchesDashboardFilters(t, selected)) {
+            allocated = invBalance;
+            break;
+          }
+        }
+      }
+
+      if (allocated > 0) {
+        const p = inv.property;
+        const propLabel = p
+          ? p.propertyName ||
+            p.fullAddress ||
+            [p.plotNumber, p.sector, p.block].filter(Boolean).join(' ')
+          : '';
+        if (!residentDoc) residentDoc = residentById.get(residentKey) || null;
+        addBal(residentKey, allocated, propLabel, residentDoc);
+      }
+    }
+
+    const rows = [...agg.values()]
+      .map((row) => {
+        const { _labels, ...rest } = row;
+        const labels = _labels && _labels.size ? [..._labels] : [];
+        let properties = rest.properties;
+        if ((!properties || properties.length === 0) && labels.length) {
+          properties = labels.map((l) => ({ propertyName: l }));
+        }
+        return { ...rest, properties, balance: Math.round(rest.balance * 100) / 100 };
+      })
+      .filter((r) => r.balance > 0)
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, limit);
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 // Get invoice by ID
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {
