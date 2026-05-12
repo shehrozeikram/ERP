@@ -122,7 +122,7 @@ fi
 echo "Restarting backend process..."
 mkdir -p logs
 mkdir -p server/uploads/cvs
-echo "Note: CVs live under server/uploads/cvs — use a server backup or persistent volume; git deploy does not include them."
+echo "CVs: set SGC_UPLOADS_DIR in server .env to a path outside the repo (e.g. /var/lib/sgc-erp/uploads), create .../cvs on the droplet, chown to the PM2 user, then pm2 restart. Otherwise uploads disappear on fresh servers."
 if pm2 describe sgc-erp-backend >/dev/null 2>&1; then
   if ! pm2 restart sgc-erp-backend --update-env; then
     echo "Restart failed; attempting fresh start from ecosystem file..."

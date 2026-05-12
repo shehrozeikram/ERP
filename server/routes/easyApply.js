@@ -6,18 +6,14 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const Application = require('../models/hr/Application');
 const JobPosting = require('../models/hr/JobPosting');
 const ApplicationEvaluationService = require('../services/applicationEvaluationService');
+const { getCvsUploadDir } = require('../utils/uploadsRoot');
 
 const router = express.Router();
 
-// Configure multer for file uploads
+// Configure multer for file uploads (same directory as GET .../documents/cv reads)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../uploads/cvs');
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
+    cb(null, getCvsUploadDir());
   },
   filename: function (req, file, cb) {
     // Generate unique filename with timestamp

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -42,26 +42,14 @@ import {
   Edit,
   Delete,
   Visibility,
-  Assignment,
   Search,
-  FilterList,
-  TrendingUp,
-  Business,
   Schedule,
   CheckCircle,
   Warning,
-  Person,
-  Work,
-  CalendarToday,
-  AccessTime,
   Star,
-  StarBorder,
-  AutoAwesome,
-  Email,
   Cancel,
   Info,
-  PictureAsPdf,
-  FolderOpen
+  GetApp
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import applicationService from '../../services/applicationService';
@@ -85,6 +73,45 @@ const Applications = () => {
   });
   const hasInitializedSearch = useRef(false);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, application: null });
+  const [cvPreview, setCvPreview] = useState(null);
+  const previewBlobUrlRef = useRef(null);
+  const [previewLoadingKey, setPreviewLoadingKey] = useState(null);
+
+  const revokePreviewUrl = useCallback(() => {
+    if (previewBlobUrlRef.current) {
+      URL.revokeObjectURL(previewBlobUrlRef.current);
+      previewBlobUrlRef.current = null;
+    }
+  }, []);
+
+  const closeCvPreview = useCallback(() => {
+    revokePreviewUrl();
+    setCvPreview(null);
+  }, [revokePreviewUrl]);
+
+  useEffect(() => {
+    return () => revokePreviewUrl();
+  }, [revokePreviewUrl]);
+
+  const getDocumentErrorMessage = async (error) => {
+    let message = error.message || 'Could not open file';
+    if (error.response?.data instanceof Blob) {
+      try {
+        const t = await error.response.data.text();
+        const j = JSON.parse(t);
+        const prefix = j.code ? `[${j.code}] ` : '';
+        message = prefix + (j.message || message);
+      } catch (_) {
+        message =
+          'Could not open file. If the CV exists on the server, redeploy the backend; otherwise the file may be missing.';
+      }
+    } else if (error.response?.data?.message) {
+      const d = error.response.data;
+      const prefix = d.code ? `[${d.code}] ` : '';
+      message = prefix + d.message;
+    }
+    return message;
+  };
 
   const getApplicationDocumentItems = (app) => {
     const items = [];
@@ -123,28 +150,56 @@ const Applications = () => {
       }
       applicationService.triggerBlobDownload(res, `${kind}.pdf`);
     } catch (error) {
-      let message = error.message || 'Could not download file';
-      if (error.response?.data instanceof Blob) {
-        try {
-          const t = await error.response.data.text();
-          const j = JSON.parse(t);
-          const prefix = j.code ? `[${j.code}] ` : '';
-          message = prefix + (j.message || message);
-        } catch (_) {
-          message =
-            'Download failed (404). If production was deployed before CV downloads existed, redeploy the latest backend. ' +
-            'Otherwise open Network → this request → Response for details.';
-        }
-      } else if (error.response?.data?.message) {
-        const d = error.response.data;
-        const prefix = d.code ? `[${d.code}] ` : '';
-        message = prefix + d.message;
-      }
+      const message = await getDocumentErrorMessage(error);
       setSnackbar({
         open: true,
         message,
         severity: 'error'
       });
+    }
+  };
+
+  /** Single GET — only when HR clicks View (no prefetch per row). */
+  const handleViewApplicationDocument = async (application, kind, title) => {
+    const applicationId = application._id;
+    const key = `${applicationId}-${kind}`;
+    const metaSaysPdf = applicationService.isApplicationDocumentLikelyPdf(application, kind);
+    setPreviewLoadingKey(key);
+    try {
+      const res = await applicationService.downloadApplicationDocument(applicationId, kind);
+      const ct = (res.headers['content-type'] || '').toLowerCase();
+      if (ct.includes('application/json')) {
+        const text = await res.data.text();
+        const err = JSON.parse(text);
+        const prefix = err.code ? `[${err.code}] ` : '';
+        throw new Error(prefix + (err.message || 'Could not load file'));
+      }
+      const blob =
+        res.data instanceof Blob ? res.data : new Blob([res.data], { type: ct || 'application/pdf' });
+      const treatAsPdf =
+        ct.includes('pdf') || (blob.type && blob.type.includes('pdf')) || metaSaysPdf;
+      if (!treatAsPdf) {
+        setSnackbar({
+          open: true,
+          message: 'Preview works for PDFs. Use Download for Word or other formats.',
+          severity: 'info'
+        });
+        applicationService.triggerBlobDownload(res, `${kind}.pdf`);
+        return;
+      }
+      revokePreviewUrl();
+      const pdfBlob =
+        blob.type && blob.type.includes('pdf')
+          ? blob
+          : new Blob([blob], { type: 'application/pdf' });
+      const url = URL.createObjectURL(pdfBlob);
+      previewBlobUrlRef.current = url;
+      setCvPreview({ url, title: title || 'Document' });
+    } catch (error) {
+      const message = await getDocumentErrorMessage(error);
+      setSnackbar({ open: true, message, severity: 'error' });
+    } finally {
+      setPreviewLoadingKey(null);
     }
   };
 
@@ -209,9 +264,10 @@ const Applications = () => {
     }
   };
 
-  // Load data on mount and when filters change
+  // Load data on mount and when filters change (search excluded — debounced below)
   useEffect(() => {
     loadApplications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadApplications + filters.search handled by debounced effect
   }, [filters.status, filters.manualStatus, filters.jobPosting, filters.candidate, page, rowsPerPage]);
 
   // Debounced search effect
@@ -228,6 +284,7 @@ const Applications = () => {
     }, 500); // 500ms delay
 
     return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional debounce; omit loadApplications to avoid stale loop
   }, [filters.search]);
 
   // Handle status change
@@ -644,24 +701,50 @@ const Applications = () => {
                           );
                         }
                         return (
-                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                            {docs.map((d) => (
-                              <Tooltip key={d.kind} title={`Download: ${d.label}`}>
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={() =>
-                                    handleDownloadApplicationDocument(application._id, d.kind)
-                                  }
-                                >
-                                  {d.kind === 'cv' || d.kind === 'resume' ? (
-                                    <PictureAsPdf fontSize="small" />
-                                  ) : (
-                                    <FolderOpen fontSize="small" />
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center">
+                            {docs.map((d) => {
+                              const rowKey = `${application._id}-${d.kind}`;
+                              const loadingPreview = previewLoadingKey === rowKey;
+                              const canPreviewPdf =
+                                !d.kind.startsWith('additional-') &&
+                                applicationService.isApplicationDocumentLikelyPdf(application, d.kind);
+                              return (
+                                <Stack direction="row" spacing={0} key={d.kind} alignItems="center">
+                                  {canPreviewPdf && (
+                                    <Tooltip title="View (PDF)">
+                                      <span>
+                                        <IconButton
+                                          size="small"
+                                          color="primary"
+                                          disabled={loadingPreview}
+                                          onClick={() =>
+                                            handleViewApplicationDocument(application, d.kind, d.label)
+                                          }
+                                        >
+                                          {loadingPreview ? (
+                                            <CircularProgress size={18} color="inherit" />
+                                          ) : (
+                                            <Visibility fontSize="small" />
+                                          )}
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
                                   )}
-                                </IconButton>
-                              </Tooltip>
-                            ))}
+                                  <Tooltip title={`Download: ${d.label}`}>
+                                    <IconButton
+                                      size="small"
+                                      color="inherit"
+                                      disabled={loadingPreview}
+                                      onClick={() =>
+                                        handleDownloadApplicationDocument(application._id, d.kind)
+                                      }
+                                    >
+                                      <GetApp fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              );
+                            })}
                           </Stack>
                         );
                       })()}
@@ -746,6 +829,29 @@ const Applications = () => {
           />
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(cvPreview)}
+        onClose={closeCvPreview}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{ sx: { height: '90vh', maxHeight: 900 } }}
+      >
+        <DialogTitle>{cvPreview?.title || 'Document'}</DialogTitle>
+        <DialogContent sx={{ p: 0, flex: 1, minHeight: 0 }}>
+          {cvPreview?.url ? (
+            <Box
+              component="iframe"
+              title={cvPreview.title}
+              src={cvPreview.url}
+              sx={{ width: '100%', height: '100%', minHeight: '70vh', border: 'none', display: 'block' }}
+            />
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeCvPreview}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog

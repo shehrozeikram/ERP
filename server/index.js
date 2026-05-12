@@ -358,6 +358,26 @@ if (NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
+const { getUploadsRoot } = require('./utils/uploadsRoot');
+const uploadsStaticHeaders = (res, filePath) => {
+  const ext = path.extname(filePath).toLowerCase();
+  if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
+    const mimeTypes = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml'
+    };
+    res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+  } else if (filePath.toLowerCase().endsWith('.pdf')) {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="' + path.basename(filePath) + '"');
+  }
+};
+
 // Static files with CORS headers
 app.use('/uploads', (req, res, next) => {
   // Set CORS headers for all requests
@@ -375,47 +395,30 @@ app.use('/uploads', (req, res, next) => {
   
   next();
 }, express.static(path.join(__dirname, 'uploads'), {
-  setHeaders: (res, filePath) => {
-    // Set proper content type for images
-    const ext = path.extname(filePath).toLowerCase();
-    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
-      const mimeTypes = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp',
-        '.svg': 'image/svg+xml'
-      };
-      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
-      res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
-    } else if (filePath.toLowerCase().endsWith('.pdf')) {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline; filename="' + path.basename(filePath) + '"');
-    }
-  }
+  setHeaders: uploadsStaticHeaders
 }));
+
+// SGC_UPLOADS_DIR — persistent uploads (Easy Apply CVs when env is set)
+const resolvedEnvUploads = path.resolve(getUploadsRoot());
+const resolvedServerUploads = path.resolve(path.join(__dirname, 'uploads'));
+if (resolvedEnvUploads !== resolvedServerUploads) {
+  app.use('/uploads', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Expose-Headers', 'Content-Length, Content-Type');
+    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.header('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  }, express.static(resolvedEnvUploads, { setHeaders: uploadsStaticHeaders }));
+}
 
 // Legacy uploads fallback: some older flows stored files at repo-root /uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
-  setHeaders: (res, filePath) => {
-    const ext = path.extname(filePath).toLowerCase();
-    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
-      const mimeTypes = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp',
-        '.svg': 'image/svg+xml'
-      };
-      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
-    } else if (filePath.toLowerCase().endsWith('.pdf')) {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline; filename="' + path.basename(filePath) + '"');
-    }
-  }
+  setHeaders: uploadsStaticHeaders
 }));
 
 app.use('/images', express.static(path.join(__dirname, '../client/public/images')));

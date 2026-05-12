@@ -27,6 +27,21 @@ export const downloadApplicationDocument = async (applicationId, kind) => {
   });
 };
 
+/** True if list payload suggests the file is a PDF (avoids a wasted preview request for .docx). */
+export const isApplicationDocumentLikelyPdf = (application, kind) => {
+  if (!application) return false;
+  let meta = null;
+  if (kind === 'cv') meta = application.documents?.cv;
+  else if (kind === 'resume') meta = application.resume;
+  else if (kind === 'cover-letter') meta = application.coverLetterFile;
+  else if (kind === 'portfolio') meta = application.portfolio;
+  if (!meta) return false;
+  const mime = (meta.mimetype || '').toLowerCase();
+  if (mime.includes('pdf')) return true;
+  const name = (meta.originalName || meta.filename || '').toLowerCase();
+  return name.endsWith('.pdf');
+};
+
 export const triggerBlobDownload = (response, fallbackFilename = 'download') => {
   const blob =
     response.data instanceof Blob ? response.data : new Blob([response.data]);
@@ -362,6 +377,7 @@ export default {
   getApplications,
   getApplicationById,
   downloadApplicationDocument,
+  isApplicationDocumentLikelyPdf,
   triggerBlobDownload,
   createApplication,
   updateApplication,

@@ -8,23 +8,18 @@ const JobPosting = require('../models/hr/JobPosting');
 const Candidate = require('../models/hr/Candidate');
 const ApplicationEvaluationService = require('../services/applicationEvaluationService');
 const EmailService = require('../services/emailService');
+const { getUploadsRoot } = require('../utils/uploadsRoot');
 
 const router = express.Router();
 
-// Default: server/uploads (same as easyApply multer: routes -> ../uploads/cvs)
-const UPLOADS_ROOT = path.resolve(__dirname, '../uploads');
+// Writable root (honours SGC_UPLOADS_DIR) — must match easyApply getCvsUploadDir()
+const UPLOADS_ROOT = getUploadsRoot();
 const CVS_DIR = path.join(UPLOADS_ROOT, 'cvs');
+// Default checkout path (older CVs before SGC_UPLOADS_DIR was set)
+const DEFAULT_SERVER_UPLOADS = path.resolve(__dirname, '../uploads');
 // Legacy: repo-root uploads (see server/index.js static fallback)
 const REPO_UPLOADS_ROOT = path.resolve(__dirname, '../../uploads');
 const REPO_CVS_DIR = path.join(REPO_UPLOADS_ROOT, 'cvs');
-
-function getConfiguredUploadsRoot() {
-  const fromEnv = process.env.SGC_UPLOADS_DIR || process.env.UPLOADS_DIR;
-  if (fromEnv && typeof fromEnv === 'string' && fromEnv.trim()) {
-    return path.resolve(fromEnv.trim());
-  }
-  return null;
-}
 
 /** Everything after ".../uploads/" in a stored absolute path (cross-machine / old deploys). */
 function relativeSegmentAfterUploads(storedPath) {
@@ -62,20 +57,20 @@ function isFileUnderAllowedRoot(resolvedFile, allowedRoots) {
 }
 
 function collectAllowedUploadRoots() {
-  const roots = new Set([
-    UPLOADS_ROOT,
-    REPO_UPLOADS_ROOT,
-    path.resolve(process.cwd(), 'server', 'uploads'),
-    path.resolve(process.cwd(), 'uploads'),
-    CVS_DIR,
-    REPO_CVS_DIR
-  ]);
-  const configured = getConfiguredUploadsRoot();
-  if (configured) {
-    roots.add(configured);
-    roots.add(path.join(configured, 'cvs'));
-  }
-  return [...roots].filter(Boolean);
+  return [
+    ...new Set([
+      UPLOADS_ROOT,
+      CVS_DIR,
+      DEFAULT_SERVER_UPLOADS,
+      path.join(DEFAULT_SERVER_UPLOADS, 'cvs'),
+      REPO_UPLOADS_ROOT,
+      REPO_CVS_DIR,
+      path.resolve(process.cwd(), 'server', 'uploads'),
+      path.join(path.resolve(process.cwd(), 'server', 'uploads'), 'cvs'),
+      path.resolve(process.cwd(), 'uploads'),
+      path.join(path.resolve(process.cwd(), 'uploads'), 'cvs')
+    ])
+  ].filter(Boolean);
 }
 
 /** Resolve a stored application document (CV, resume, etc.) to a readable file path. */
@@ -105,29 +100,21 @@ function resolveApplicationDocumentPath(doc) {
     add(doc.path);
     const rel = relativeSegmentAfterUploads(doc.path);
     if (rel) {
-      const underServer = safeJoinUnderRoot(UPLOADS_ROOT, rel);
-      const underRepo = safeJoinUnderRoot(REPO_UPLOADS_ROOT, rel);
-      add(underServer);
-      add(underRepo);
-      const cfg = getConfiguredUploadsRoot();
-      if (cfg) {
-        add(safeJoinUnderRoot(cfg, rel));
-      }
+      add(safeJoinUnderRoot(UPLOADS_ROOT, rel));
+      add(safeJoinUnderRoot(DEFAULT_SERVER_UPLOADS, rel));
+      add(safeJoinUnderRoot(REPO_UPLOADS_ROOT, rel));
     }
   }
 
   if (baseName) {
     add(path.join(CVS_DIR, baseName));
     add(path.join(UPLOADS_ROOT, baseName));
+    add(path.join(DEFAULT_SERVER_UPLOADS, 'cvs', baseName));
+    add(path.join(DEFAULT_SERVER_UPLOADS, baseName));
     add(path.join(REPO_CVS_DIR, baseName));
     add(path.join(REPO_UPLOADS_ROOT, baseName));
     add(path.join(process.cwd(), 'server', 'uploads', 'cvs', baseName));
     add(path.join(process.cwd(), 'uploads', 'cvs', baseName));
-    const cfg = getConfiguredUploadsRoot();
-    if (cfg) {
-      add(path.join(cfg, 'cvs', baseName));
-      add(path.join(cfg, baseName));
-    }
   }
 
   const seen = new Set();
