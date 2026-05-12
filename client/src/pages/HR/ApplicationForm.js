@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -34,7 +34,9 @@ import {
   ArrowBack,
   Assignment,
   Schedule,
-  AttachFile
+  AttachFile,
+  PictureAsPdf,
+  FolderOpen
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Formik, Form } from 'formik';
@@ -52,10 +54,69 @@ const ApplicationForm = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [activeStep, setActiveStep] = useState(0);
   const [editData, setEditData] = useState(null);
+  const [applicationRecord, setApplicationRecord] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [jobPostings, setJobPostings] = useState([]);
   
   const isEditing = Boolean(id);
+
+  const requiresLinkedCandidate = useMemo(
+    () => !(isEditing && applicationRecord && !applicationRecord.candidate),
+    [isEditing, applicationRecord]
+  );
+
+  const getApplicationDocumentItems = (app) => {
+    if (!app) return [];
+    const items = [];
+    if (app.documents?.cv?.filename) {
+      items.push({ kind: 'cv', label: 'CV' });
+    }
+    if (app.resume?.filename) {
+      items.push({ kind: 'resume', label: 'Resume' });
+    }
+    if (app.coverLetterFile?.filename) {
+      items.push({ kind: 'cover-letter', label: 'Cover letter file' });
+    }
+    if (app.portfolio?.filename) {
+      items.push({ kind: 'portfolio', label: 'Portfolio' });
+    }
+    (app.additionalDocuments || []).forEach((doc, idx) => {
+      if (doc?.filename) {
+        items.push({
+          kind: `additional-${idx}`,
+          label: doc.description || `Attachment ${idx + 1}`
+        });
+      }
+    });
+    return items;
+  };
+
+  const handleDownloadDocument = async (kind) => {
+    try {
+      const res = await applicationService.downloadApplicationDocument(id, kind);
+      const ct = (res.headers['content-type'] || '').toLowerCase();
+      if (ct.includes('application/json')) {
+        const text = await res.data.text();
+        const err = JSON.parse(text);
+        throw new Error(err.message || 'Download failed');
+      }
+      applicationService.triggerBlobDownload(res, `${kind}.pdf`);
+    } catch (error) {
+      let message = error.message || 'Could not download file';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const t = await error.response.data.text();
+          const j = JSON.parse(t);
+          message = j.message || message;
+        } catch (_) {
+          message = 'Could not download file';
+        }
+      } else if (error.response?.data?.message) {
+        message = error.response.data.message;
+      }
+      setSnackbar({ open: true, message, severity: 'error' });
+    }
+  };
   
   const steps = [
     'Basic Information',
@@ -89,7 +150,8 @@ const ApplicationForm = () => {
     try {
       const response = await applicationService.getApplicationById(id);
       const application = response.data;
-      
+      setApplicationRecord(application);
+
       const formattedData = {
         jobPosting: application.jobPosting?._id || '',
         candidate: application.candidate?._id || '',
@@ -131,7 +193,10 @@ const ApplicationForm = () => {
     if (activeStep === 0) {
       const hasJobPosting = values.jobPosting && values.jobPosting.trim() !== '';
       const hasCandidate = values.candidate && values.candidate.trim() !== '';
-      return hasJobPosting && hasCandidate;
+      if (requiresLinkedCandidate) {
+        return hasJobPosting && hasCandidate;
+      }
+      return hasJobPosting;
     }
     
     if (activeStep === 1) return true;
@@ -156,14 +221,20 @@ const ApplicationForm = () => {
     status: 'applied'
   };
   
-  const validationSchema = Yup.object({
-    jobPosting: Yup.string().required('Job posting is required'),
-    candidate: Yup.string().required('Candidate is required'),
-    coverLetter: Yup.string(),
-    expectedSalary: Yup.number().min(0, 'Expected salary must be positive'),
-    availability: Yup.string().required('Availability is required'),
-    status: Yup.string().required('Status is required')
-  });
+  const validationSchema = useMemo(
+    () =>
+      Yup.object({
+        jobPosting: Yup.string().required('Job posting is required'),
+        candidate: requiresLinkedCandidate
+          ? Yup.string().required('Candidate is required')
+          : Yup.string().nullable(),
+        coverLetter: Yup.string(),
+        expectedSalary: Yup.number().min(0, 'Expected salary must be positive'),
+        availability: Yup.string().required('Availability is required'),
+        status: Yup.string().required('Status is required')
+      }),
+    [requiresLinkedCandidate]
+  );
   
   if (loading) {
     return (
@@ -183,6 +254,39 @@ const ApplicationForm = () => {
           {isEditing ? 'Update application details' : 'Create a new job application'}
         </Typography>
       </Box>
+
+      {isEditing && applicationRecord && getApplicationDocumentItems(applicationRecord).length > 0 && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom sx={{ color: theme.palette.primary.main }}>
+              <AttachFile sx={{ mr: 1, verticalAlign: 'middle' }} />
+              Documents from applicant
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Files submitted with this application (e.g. Easy Apply CV). Use the list below or the Documents step.
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {getApplicationDocumentItems(applicationRecord).map((d) => (
+                <Button
+                  key={d.kind}
+                  size="small"
+                  variant="outlined"
+                  startIcon={
+                    d.kind === 'cv' || d.kind === 'resume' ? (
+                      <PictureAsPdf />
+                    ) : (
+                      <FolderOpen />
+                    )
+                  }
+                  onClick={() => handleDownloadDocument(d.kind)}
+                >
+                  {d.label}
+                </Button>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
       
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -484,18 +588,50 @@ const ApplicationForm = () => {
                       Documents
                     </Typography>
                     <Divider sx={{ mb: 3 }} />
-                    
-                    <Alert severity="info" sx={{ mb: 3 }}>
-                      Document upload functionality will be implemented in the next version. 
-                      For now, you can proceed to review and submit the application.
-                    </Alert>
-                    
-                    <Stack direction="row" spacing={1}>
-                      <Chip label="Resume" color="primary" variant="outlined" />
-                      <Chip label="Cover Letter" color="primary" variant="outlined" />
-                      <Chip label="Portfolio" color="primary" variant="outlined" />
-                      <Chip label="Additional Documents" color="primary" variant="outlined" />
-                    </Stack>
+
+                    {isEditing &&
+                    applicationRecord &&
+                    getApplicationDocumentItems(applicationRecord).length > 0 ? (
+                      <Stack spacing={2}>
+                        <Typography variant="body2" color="text.secondary">
+                          Download what the candidate uploaded (public apply / easy apply).
+                        </Typography>
+                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                          {getApplicationDocumentItems(applicationRecord).map((d) => (
+                            <Button
+                              key={d.kind}
+                              size="small"
+                              variant="contained"
+                              color="primary"
+                              startIcon={
+                                d.kind === 'cv' || d.kind === 'resume' ? (
+                                  <PictureAsPdf />
+                                ) : (
+                                  <FolderOpen />
+                                )
+                              }
+                              onClick={() => handleDownloadDocument(d.kind)}
+                            >
+                              {d.label}
+                            </Button>
+                          ))}
+                        </Stack>
+                      </Stack>
+                    ) : (
+                      <>
+                        <Alert severity="info" sx={{ mb: 3 }}>
+                          No files are stored on this application yet. Candidates who use{' '}
+                          <strong>Easy Apply</strong> attach a CV here; internal applications may only
+                          have a text cover letter on the previous step.
+                        </Alert>
+                        <Stack direction="row" spacing={1}>
+                          <Chip label="Resume" color="primary" variant="outlined" />
+                          <Chip label="Cover Letter" color="primary" variant="outlined" />
+                          <Chip label="Portfolio" color="primary" variant="outlined" />
+                          <Chip label="Additional Documents" color="primary" variant="outlined" />
+                        </Stack>
+                      </>
+                    )}
                   </Box>
                 )}
 

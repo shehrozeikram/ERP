@@ -59,7 +59,9 @@ import {
   AutoAwesome,
   Email,
   Cancel,
-  Info
+  Info,
+  PictureAsPdf,
+  FolderOpen
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import applicationService from '../../services/applicationService';
@@ -83,6 +85,62 @@ const Applications = () => {
   });
   const hasInitializedSearch = useRef(false);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, application: null });
+
+  const getApplicationDocumentItems = (app) => {
+    const items = [];
+    if (app.documents?.cv?.filename) {
+      items.push({ kind: 'cv', label: 'CV (uploaded)' });
+    }
+    if (app.resume?.filename) {
+      items.push({ kind: 'resume', label: 'Resume' });
+    }
+    if (app.coverLetterFile?.filename) {
+      items.push({ kind: 'cover-letter', label: 'Cover letter file' });
+    }
+    if (app.portfolio?.filename) {
+      items.push({ kind: 'portfolio', label: 'Portfolio' });
+    }
+    (app.additionalDocuments || []).forEach((doc, idx) => {
+      if (doc?.filename) {
+        items.push({
+          kind: `additional-${idx}`,
+          label: doc.description || `Attachment ${idx + 1}`
+        });
+      }
+    });
+    return items;
+  };
+
+  const handleDownloadApplicationDocument = async (applicationId, kind) => {
+    try {
+      const res = await applicationService.downloadApplicationDocument(applicationId, kind);
+      const ct = (res.headers['content-type'] || '').toLowerCase();
+      if (ct.includes('application/json')) {
+        const text = await res.data.text();
+        const err = JSON.parse(text);
+        throw new Error(err.message || 'Download failed');
+      }
+      applicationService.triggerBlobDownload(res, `${kind}.pdf`);
+    } catch (error) {
+      let message = error.message || 'Could not download file';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const t = await error.response.data.text();
+          const j = JSON.parse(t);
+          message = j.message || message;
+        } catch (_) {
+          message = 'Could not download file';
+        }
+      } else if (error.response?.data?.message) {
+        message = error.response.data.message;
+      }
+      setSnackbar({
+        open: true,
+        message,
+        severity: 'error'
+      });
+    }
+  };
 
   // Load applications
   const loadApplications = async () => {
@@ -456,6 +514,7 @@ const Applications = () => {
                   <TableCell><strong>Applied Date</strong></TableCell>
                   <TableCell><strong>Expected Salary</strong></TableCell>
                   <TableCell><strong>Availability</strong></TableCell>
+                  <TableCell><strong>Documents</strong></TableCell>
                   <TableCell><strong>Actions</strong></TableCell>
                 </TableRow>
               </TableHead>
@@ -567,6 +626,39 @@ const Applications = () => {
                         size="small"
                         variant="outlined"
                       />
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const docs = getApplicationDocumentItems(application);
+                        if (docs.length === 0) {
+                          return (
+                            <Typography variant="caption" color="text.secondary">
+                              None on file
+                            </Typography>
+                          );
+                        }
+                        return (
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                            {docs.map((d) => (
+                              <Tooltip key={d.kind} title={`Download: ${d.label}`}>
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() =>
+                                    handleDownloadApplicationDocument(application._id, d.kind)
+                                  }
+                                >
+                                  {d.kind === 'cv' || d.kind === 'resume' ? (
+                                    <PictureAsPdf fontSize="small" />
+                                  ) : (
+                                    <FolderOpen fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </Tooltip>
+                            ))}
+                          </Stack>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={1}>

@@ -1,4 +1,6 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const { authorize } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const Application = require('../models/hr/Application');
@@ -8,6 +10,41 @@ const ApplicationEvaluationService = require('../services/applicationEvaluationS
 const EmailService = require('../services/emailService');
 
 const router = express.Router();
+
+const UPLOADS_ROOT = path.resolve(__dirname, '../uploads');
+const CVS_DIR = path.join(UPLOADS_ROOT, 'cvs');
+
+function isPathInsideUploads(candidatePath) {
+  const resolvedRoot = path.resolve(UPLOADS_ROOT);
+  const resolvedFile = path.resolve(candidatePath);
+  return resolvedFile === resolvedRoot || resolvedFile.startsWith(`${resolvedRoot}${path.sep}`);
+}
+
+/** Resolve a stored application document (CV, resume, etc.) to a readable file path. */
+function resolveApplicationDocumentPath(doc) {
+  if (!doc || !doc.filename) return null;
+  const baseName = path.basename(doc.filename);
+  if (!baseName || baseName === '.' || baseName === '..') return null;
+
+  const candidates = [];
+  if (doc.path) {
+    candidates.push(path.resolve(doc.path));
+  }
+  candidates.push(path.join(CVS_DIR, baseName));
+  candidates.push(path.join(UPLOADS_ROOT, baseName));
+
+  for (const p of candidates) {
+    if (!isPathInsideUploads(p)) continue;
+    try {
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+        return p;
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+  return null;
+}
 
 // @route   GET /api/applications
 // @desc    Get all applications with pagination and filters
@@ -156,6 +193,77 @@ router.get('/',
       data: {
         ...applications,
         docs: transformedDocs
+      }
+    });
+  })
+);
+
+// @route   GET /api/applications/:id/documents/:kind
+// @desc    Download an application document (CV, resume, etc.)
+// @access  Private (HR and Admin)
+// kind: cv | resume | cover-letter | portfolio | additional-0, additional-1, ...
+router.get('/:id/documents/:kind',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const application = await Application.findById(req.params.id)
+      .select('documents resume coverLetterFile portfolio additionalDocuments');
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+
+    const { kind } = req.params;
+    let doc = null;
+    let downloadName = 'document';
+
+    if (kind === 'cv') {
+      doc = application.documents?.cv;
+      downloadName = doc?.originalName || doc?.filename || 'cv';
+    } else if (kind === 'resume') {
+      doc = application.resume;
+      downloadName = doc?.filename || 'resume';
+    } else if (kind === 'cover-letter') {
+      doc = application.coverLetterFile;
+      downloadName = doc?.filename || 'cover-letter';
+    } else if (kind === 'portfolio') {
+      doc = application.portfolio;
+      downloadName = doc?.filename || 'portfolio';
+    } else {
+      const match = /^additional-(\d+)$/.exec(kind);
+      if (match) {
+        const idx = parseInt(match[1], 10);
+        doc = application.additionalDocuments?.[idx];
+        downloadName = doc?.filename || `additional-${idx}`;
+      }
+    }
+
+    if (!doc) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found for this application'
+      });
+    }
+
+    const filePath = resolveApplicationDocumentPath(doc);
+    if (!filePath) {
+      return res.status(404).json({
+        success: false,
+        message: 'File is missing on the server (it may have been removed)'
+      });
+    }
+
+    return res.download(filePath, path.basename(downloadName), (err) => {
+      if (err) {
+        console.error('Application document download error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: 'Error sending file'
+          });
+        }
       }
     });
   })

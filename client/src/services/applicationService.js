@@ -20,6 +20,46 @@ export const getApplicationById = async (id) => {
   }
 };
 
+/** Download binary (CV, resume, etc.). Use triggerBlobDownload(response, name) to save in the browser. */
+export const downloadApplicationDocument = async (applicationId, kind) => {
+  return api.get(`/applications/${applicationId}/documents/${kind}`, {
+    responseType: 'blob'
+  });
+};
+
+export const triggerBlobDownload = (response, fallbackFilename = 'download') => {
+  const blob =
+    response.data instanceof Blob ? response.data : new Blob([response.data]);
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  let name = fallbackFilename;
+  const cd =
+    response.headers &&
+    (response.headers['content-disposition'] ||
+      response.headers['Content-Disposition']);
+  if (cd) {
+    const utfMatch = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    const quotedMatch = /filename="([^"]+)"/i.exec(cd);
+    const looseMatch = /filename=([^;\s]+)/i.exec(cd);
+    const raw = utfMatch
+      ? decodeURIComponent(utfMatch[1])
+      : quotedMatch
+        ? quotedMatch[1]
+        : looseMatch
+          ? looseMatch[1]
+          : null;
+    if (raw) {
+      name = raw.replace(/^["']|["']$/g, '');
+    }
+  }
+  a.download = name || fallbackFilename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 // Create new application
 export const createApplication = async (applicationData) => {
   try {
@@ -321,6 +361,8 @@ export const formatTechnicalTestScore = (score) => {
 export default {
   getApplications,
   getApplicationById,
+  downloadApplicationDocument,
+  triggerBlobDownload,
   createApplication,
   updateApplication,
   updateApplicationStatus,
