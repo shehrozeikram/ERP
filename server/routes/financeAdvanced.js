@@ -458,6 +458,16 @@ router.put('/journal-entries/:id/signed-document',
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
 
+    if (signedDocumentStatus === 'signed') {
+      const att = entry.attachments || [];
+      if (!att.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'Add at least one attachment before marking the voucher as signed.'
+        });
+      }
+    }
+
     entry.signedDocumentStatus = signedDocumentStatus;
     if (signedDocumentStatus === 'signed') {
       entry.signedDocumentAt = signedDocumentAt ? new Date(signedDocumentAt) : new Date();
@@ -4763,8 +4773,13 @@ router.delete('/journal-entries/:id/attachments/:filename',
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
     entry.attachments.splice(idx, 1);
+    if (!entry.attachments.length) {
+      entry.signedDocumentStatus = 'not_signed';
+      entry.signedDocumentAt = null;
+    }
     await entry.save();
-    res.json({ success: true, message: 'Attachment deleted' });
+    const fresh = await JournalEntry.findById(entry._id).lean();
+    res.json({ success: true, message: 'Attachment deleted', data: fresh });
   })
 );
 

@@ -85,13 +85,21 @@ const Vouchers = () => {
   const handleDeleteAttachment = async (filename) => {
     if (!window.confirm('Delete this attachment?')) return;
     try {
-      await api.delete(`/finance/journal-entries/${attachDlg.entry._id}/attachments/${encodeURIComponent(filename)}`);
-      const updated = {
-        ...attachDlg.entry,
-        attachments: (attachDlg.entry.attachments || []).filter((a) => a.filename !== filename)
-      };
-      setAttachDlg((d) => ({ ...d, entry: updated }));
-      setEntries((prev) => prev.map((en) => (en._id === updated._id ? { ...en, attachments: updated.attachments } : en)));
+      const res = await api.delete(
+        `/finance/journal-entries/${attachDlg.entry._id}/attachments/${encodeURIComponent(filename)}`
+      );
+      const serverRow = res?.data?.data;
+      const nextAttachments = (attachDlg.entry.attachments || []).filter((a) => a.filename !== filename);
+      const merged = serverRow && serverRow._id
+        ? { ...attachDlg.entry, ...serverRow, attachments: serverRow.attachments || nextAttachments }
+        : {
+            ...attachDlg.entry,
+            attachments: nextAttachments,
+            signedDocumentStatus: nextAttachments.length ? attachDlg.entry.signedDocumentStatus : 'not_signed',
+            signedDocumentAt: nextAttachments.length ? attachDlg.entry.signedDocumentAt : null
+          };
+      setAttachDlg((d) => ({ ...d, entry: merged }));
+      setEntries((prev) => prev.map((en) => (en._id === merged._id ? { ...en, ...merged } : en)));
     } catch (err) {
       setAttachError(err.response?.data?.message || 'Delete failed');
     }
@@ -148,12 +156,21 @@ const Vouchers = () => {
 
   const saveSignedDocumentStatus = async (voucherId, nextStatus) => {
     if (!voucherId) return;
-    const res = await api.put(`/finance/journal-entries/${voucherId}/signed-document`, {
-      signedDocumentStatus: nextStatus
-    });
-    const updated = res?.data?.data;
-    if (!updated?._id) return;
-    setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
+    const row = entries.find((e) => e._id === voucherId);
+    if (!(row?.attachments || []).length) return;
+    try {
+      const res = await api.put(`/finance/journal-entries/${voucherId}/signed-document`, {
+        signedDocumentStatus: nextStatus
+      });
+      const updated = res?.data?.data;
+      if (!updated?._id) return;
+      setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
+      if (attachDlg.entry?._id === voucherId) {
+        setAttachDlg((d) => (d.entry ? { ...d, entry: { ...d.entry, ...updated } } : d));
+      }
+    } catch (err) {
+      window.alert(err.response?.data?.message || 'Could not update signed document status');
+    }
   };
 
   const baseUploadsUrl = (api.defaults.baseURL || '').replace(/\/api\/?$/, '');
@@ -167,6 +184,7 @@ const Vouchers = () => {
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
           All finance vouchers are listed here. Open any voucher to view/print full voucher document. Use Attachment to upload images or supporting files.
+          Signed document and signed date are available only after at least one attachment is added.
         </Typography>
       </Paper>
 
@@ -228,7 +246,9 @@ const Vouchers = () => {
                 <TableRow><TableCell colSpan={13} align="center"><CircularProgress size={24} /></TableCell></TableRow>
               ) : voucherRows.length === 0 ? (
                 <TableRow><TableCell colSpan={13} align="center">No vouchers found</TableCell></TableRow>
-              ) : voucherRows.map((row) => (
+              ) : voucherRows.map((row) => {
+                const hasAttachment = (row.attachments || []).length > 0;
+                return (
                 <TableRow key={row._id} hover>
                   <TableCell>{formatDate(row.date)}</TableCell>
                   <TableCell>{row.entryNumber}</TableCell>
@@ -253,18 +273,31 @@ const Vouchers = () => {
                     </Tooltip>
                   </TableCell>
                   <TableCell>
-                    <TextField
-                      select
-                      size="small"
-                      value={row.signedDocumentStatus === 'signed' ? 'signed' : 'not_signed'}
-                      onChange={(e) => saveSignedDocumentStatus(row._id, e.target.value)}
-                      sx={{ minWidth: 130 }}
+                    <Tooltip
+                      title={
+                        hasAttachment
+                          ? 'Signed document status'
+                          : 'Add an attachment first to set signed document status'
+                      }
                     >
-                      <MenuItem value="signed">Signed</MenuItem>
-                      <MenuItem value="not_signed">Not Signed</MenuItem>
-                    </TextField>
+                      <span>
+                        <TextField
+                          select
+                          size="small"
+                          disabled={!hasAttachment}
+                          value={row.signedDocumentStatus === 'signed' ? 'signed' : 'not_signed'}
+                          onChange={(e) => saveSignedDocumentStatus(row._id, e.target.value)}
+                          sx={{ minWidth: 130 }}
+                        >
+                          <MenuItem value="signed">Signed</MenuItem>
+                          <MenuItem value="not_signed">Not Signed</MenuItem>
+                        </TextField>
+                      </span>
+                    </Tooltip>
                   </TableCell>
-                  <TableCell>{row.signedDocumentAt ? formatDate(row.signedDocumentAt) : '—'}</TableCell>
+                  <TableCell>
+                    {hasAttachment && row.signedDocumentAt ? formatDate(row.signedDocumentAt) : '—'}
+                  </TableCell>
                   <TableCell>
                     <Chip
                       size="small"
@@ -290,7 +323,8 @@ const Vouchers = () => {
                     </Tooltip>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
