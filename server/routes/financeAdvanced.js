@@ -422,6 +422,21 @@ router.put('/journal-entries/:id/clearance',
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
 
+    if (clearanceStatus === 'cleared') {
+      const att = entry.attachments || [];
+      if (
+        !att.length ||
+        entry.signedDocumentStatus !== 'signed' ||
+        !entry.signedDocumentAt
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Add an attachment, mark the voucher as signed, and ensure signed date is set before marking clearance as cleared.'
+        });
+      }
+    }
+
     entry.clearanceStatus = clearanceStatus;
     if (clearanceStatus === 'cleared') {
       entry.clearedAt = clearedAt ? new Date(clearedAt) : new Date();
@@ -473,6 +488,10 @@ router.put('/journal-entries/:id/signed-document',
       entry.signedDocumentAt = signedDocumentAt ? new Date(signedDocumentAt) : new Date();
     } else {
       entry.signedDocumentAt = null;
+      entry.clearanceStatus = 'pending';
+      entry.clearedAt = null;
+      entry.clearedBy = null;
+      entry.clearanceRemarks = '';
     }
     await entry.save();
 
@@ -4776,6 +4795,10 @@ router.delete('/journal-entries/:id/attachments/:filename',
     if (!entry.attachments.length) {
       entry.signedDocumentStatus = 'not_signed';
       entry.signedDocumentAt = null;
+      entry.clearanceStatus = 'pending';
+      entry.clearedAt = null;
+      entry.clearedBy = null;
+      entry.clearanceRemarks = '';
     }
     await entry.save();
     const fresh = await JournalEntry.findById(entry._id).lean();

@@ -134,6 +134,11 @@ const Vouchers = () => {
   }, [entries]);
 
   const openClearanceDialog = (voucher) => {
+    const can =
+      (voucher?.attachments || []).length > 0 &&
+      voucher?.signedDocumentStatus === 'signed' &&
+      Boolean(voucher?.signedDocumentAt);
+    if (!can) return;
     setClearanceDialog({
       open: true,
       voucher,
@@ -144,14 +149,18 @@ const Vouchers = () => {
   const saveClearance = async () => {
     if (!clearanceDialog.voucher?._id) return;
     const nextStatus = clearanceDialog.status || 'pending';
-    const res = await api.put(`/finance/journal-entries/${clearanceDialog.voucher._id}/clearance`, {
-      clearanceStatus: nextStatus,
-      clearanceRemarks: '',
-      clearedAt: nextStatus === 'cleared' ? new Date().toISOString() : null
-    });
-    const updated = res?.data?.data;
-    setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
-    setClearanceDialog({ open: false, voucher: null, status: 'pending' });
+    try {
+      const res = await api.put(`/finance/journal-entries/${clearanceDialog.voucher._id}/clearance`, {
+        clearanceStatus: nextStatus,
+        clearanceRemarks: '',
+        clearedAt: nextStatus === 'cleared' ? new Date().toISOString() : null
+      });
+      const updated = res?.data?.data;
+      setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
+      setClearanceDialog({ open: false, voucher: null, status: 'pending' });
+    } catch (err) {
+      window.alert(err.response?.data?.message || 'Could not update clearance');
+    }
   };
 
   const saveSignedDocumentStatus = async (voucherId, nextStatus) => {
@@ -184,7 +193,7 @@ const Vouchers = () => {
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
           All finance vouchers are listed here. Open any voucher to view/print full voucher document. Use Attachment to upload images or supporting files.
-          Signed document and signed date are available only after at least one attachment is added.
+          Signed document and signed date are available only after at least one attachment is added. Clearance (and clearance date) is available only after the voucher is marked signed with a signed date.
         </Typography>
       </Paper>
 
@@ -248,6 +257,10 @@ const Vouchers = () => {
                 <TableRow><TableCell colSpan={13} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => {
                 const hasAttachment = (row.attachments || []).length > 0;
+                const canUseClearance =
+                  hasAttachment &&
+                  row.signedDocumentStatus === 'signed' &&
+                  Boolean(row.signedDocumentAt);
                 return (
                 <TableRow key={row._id} hover>
                   <TableCell>{formatDate(row.date)}</TableCell>
@@ -299,15 +312,31 @@ const Vouchers = () => {
                     {hasAttachment && row.signedDocumentAt ? formatDate(row.signedDocumentAt) : '—'}
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      size="small"
-                      label={row.clearanceStatus === 'cleared' ? 'Cleared' : 'Pending'}
-                      color={row.clearanceStatus === 'cleared' ? 'success' : 'warning'}
-                      variant={row.clearanceStatus === 'cleared' ? 'filled' : 'outlined'}
-                      onClick={() => openClearanceDialog(row)}
-                    />
+                    <Tooltip
+                      title={
+                        canUseClearance
+                          ? 'Update clearance status'
+                          : 'Complete attachment and signed document (with signed date) before clearance'
+                      }
+                    >
+                      <Box component="span" sx={{ display: 'inline-flex' }}>
+                        <Chip
+                          size="small"
+                          label={row.clearanceStatus === 'cleared' ? 'Cleared' : 'Pending'}
+                          color={row.clearanceStatus === 'cleared' ? 'success' : 'warning'}
+                          variant={row.clearanceStatus === 'cleared' ? 'filled' : 'outlined'}
+                          onClick={canUseClearance ? () => openClearanceDialog(row) : undefined}
+                          sx={{
+                            opacity: canUseClearance ? 1 : 0.55,
+                            cursor: canUseClearance ? 'pointer' : 'default'
+                          }}
+                        />
+                      </Box>
+                    </Tooltip>
                   </TableCell>
-                  <TableCell>{row.clearedAt ? formatDate(row.clearedAt) : '—'}</TableCell>
+                  <TableCell>
+                    {canUseClearance && row.clearedAt ? formatDate(row.clearedAt) : '—'}
+                  </TableCell>
                   <TableCell>
                     <Chip
                       size="small"
