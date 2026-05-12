@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -20,9 +20,22 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Alert,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction
 } from '@mui/material';
-import { Visibility as ViewIcon, ReceiptLong as VoucherIcon } from '@mui/icons-material';
+import {
+  Visibility as ViewIcon,
+  ReceiptLong as VoucherIcon,
+  AttachFile as AttachIcon,
+  CloudUpload as UploadIcon,
+  Delete as DeleteIcon,
+  GetApp as DownloadIcon,
+  InsertDriveFile as FileIcon
+} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
@@ -30,11 +43,59 @@ import { formatPKR } from '../../utils/currency';
 
 const Vouchers = () => {
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('posted');
   const [clearanceDialog, setClearanceDialog] = useState({ open: false, voucher: null, status: 'pending' });
+  const [attachDlg, setAttachDlg] = useState({ open: false, entry: null, uploading: false });
+  const [attachError, setAttachError] = useState('');
+
+  const openAttachDlg = (entry) => {
+    setAttachDlg({ open: true, entry, uploading: false });
+    setAttachError('');
+  };
+  const closeAttachDlg = () => setAttachDlg({ open: false, entry: null, uploading: false });
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAttachDlg((d) => ({ ...d, uploading: true }));
+    setAttachError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post(`/finance/journal-entries/${attachDlg.entry._id}/attachments`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const updated = {
+        ...attachDlg.entry,
+        attachments: [...(attachDlg.entry.attachments || []), res.data.data]
+      };
+      setAttachDlg((d) => ({ ...d, entry: updated, uploading: false }));
+      setEntries((prev) => prev.map((en) => (en._id === updated._id ? { ...en, attachments: updated.attachments } : en)));
+    } catch (err) {
+      setAttachError(err.response?.data?.message || 'Upload failed');
+      setAttachDlg((d) => ({ ...d, uploading: false }));
+    }
+    e.target.value = '';
+  };
+
+  const handleDeleteAttachment = async (filename) => {
+    if (!window.confirm('Delete this attachment?')) return;
+    try {
+      await api.delete(`/finance/journal-entries/${attachDlg.entry._id}/attachments/${encodeURIComponent(filename)}`);
+      const updated = {
+        ...attachDlg.entry,
+        attachments: (attachDlg.entry.attachments || []).filter((a) => a.filename !== filename)
+      };
+      setAttachDlg((d) => ({ ...d, entry: updated }));
+      setEntries((prev) => prev.map((en) => (en._id === updated._id ? { ...en, attachments: updated.attachments } : en)));
+    } catch (err) {
+      setAttachError(err.response?.data?.message || 'Delete failed');
+    }
+  };
 
   const fetchEntries = async () => {
     try {
@@ -95,6 +156,8 @@ const Vouchers = () => {
     setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
   };
 
+  const baseUploadsUrl = (api.defaults.baseURL || '').replace(/\/api\/?$/, '');
+
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3, mb: 3 }}>
@@ -103,7 +166,7 @@ const Vouchers = () => {
           <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          All finance vouchers are listed here. Open any voucher to view/print full voucher document.
+          All finance vouchers are listed here. Open any voucher to view/print full voucher document. Use Attachment to upload images or supporting files.
         </Typography>
       </Paper>
 
@@ -151,6 +214,7 @@ const Vouchers = () => {
                 <TableCell>Description</TableCell>
                 <TableCell align="right">Amount</TableCell>
                 <TableCell>Reference</TableCell>
+                <TableCell align="center">Attachment</TableCell>
                 <TableCell>Signed Document</TableCell>
                 <TableCell>Signed Date</TableCell>
                 <TableCell>Clearance</TableCell>
@@ -161,9 +225,9 @@ const Vouchers = () => {
             </TableHead>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={12} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={13} align="center"><CircularProgress size={24} /></TableCell></TableRow>
               ) : voucherRows.length === 0 ? (
-                <TableRow><TableCell colSpan={12} align="center">No vouchers found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={13} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => (
                 <TableRow key={row._id} hover>
                   <TableCell>{formatDate(row.date)}</TableCell>
@@ -172,6 +236,22 @@ const Vouchers = () => {
                   <TableCell>{row.description}</TableCell>
                   <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
                   <TableCell>{row.reference || '—'}</TableCell>
+                  <TableCell align="center">
+                    <Tooltip title={`Attachments (${(row.attachments || []).length}) — click to add or view`}>
+                      <IconButton
+                        size="small"
+                        color={(row.attachments || []).length > 0 ? 'primary' : 'default'}
+                        onClick={() => openAttachDlg(row)}
+                      >
+                        <AttachIcon fontSize="small" />
+                        {(row.attachments || []).length > 0 && (
+                          <Typography component="span" variant="caption" sx={{ fontSize: 10, fontWeight: 700, ml: 0.25 }}>
+                            {row.attachments.length}
+                          </Typography>
+                        )}
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
                   <TableCell>
                     <TextField
                       select
@@ -216,6 +296,79 @@ const Vouchers = () => {
         </TableContainer>
       </Paper>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        hidden
+        onChange={handleFileUpload}
+        accept="image/png,image/jpeg,image/jpg,image/webp,.pdf,.png,.jpg,.jpeg,.webp"
+      />
+
+      <Dialog open={attachDlg.open} onClose={closeAttachDlg} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <AttachIcon color="primary" />
+            <Typography fontWeight={700}>Attachments — {attachDlg.entry?.entryNumber}</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {attachError && (
+            <Alert severity="error" onClose={() => setAttachError('')} sx={{ mb: 1 }}>
+              {attachError}
+            </Alert>
+          )}
+          {(attachDlg.entry?.attachments || []).length === 0 && (
+            <Box textAlign="center" py={3} color="text.disabled">
+              <AttachIcon sx={{ fontSize: 40, mb: 1, opacity: 0.4 }} />
+              <Typography variant="body2">
+                No attachments yet. Upload a voucher image, bank slip, or supporting document.
+              </Typography>
+            </Box>
+          )}
+          <List dense>
+            {(attachDlg.entry?.attachments || []).map((a, i) => (
+              <ListItem key={i} divider sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                <FileIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
+                <ListItemText
+                  primary={<Typography variant="body2" fontWeight={600}>{a.originalName || a.filename}</Typography>}
+                  secondary={a.uploadedAt ? new Date(a.uploadedAt).toLocaleDateString('en-PK') : ''}
+                />
+                <ListItemSecondaryAction>
+                  <Tooltip title="Open / download">
+                    <IconButton
+                      size="small"
+                      component="a"
+                      href={`${baseUploadsUrl}/uploads/finance/${encodeURIComponent(a.filename)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={a.originalName}
+                    >
+                      <DownloadIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteAttachment(a.filename)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </ListItemSecondaryAction>
+              </ListItem>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'space-between', px: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={attachDlg.uploading ? <CircularProgress size={16} /> : <UploadIcon />}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attachDlg.uploading}
+          >
+            {attachDlg.uploading ? 'Uploading…' : 'Upload image / file'}
+          </Button>
+          <Button onClick={closeAttachDlg}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={clearanceDialog.open}
         onClose={() => setClearanceDialog({ open: false, voucher: null, status: 'pending' })}
@@ -250,4 +403,3 @@ const Vouchers = () => {
 };
 
 export default Vouchers;
-
