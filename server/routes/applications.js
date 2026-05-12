@@ -8,162 +8,12 @@ const JobPosting = require('../models/hr/JobPosting');
 const Candidate = require('../models/hr/Candidate');
 const ApplicationEvaluationService = require('../services/applicationEvaluationService');
 const EmailService = require('../services/emailService');
-const { getUploadsRoot } = require('../utils/uploadsRoot');
+const {
+  resolveApplicationDocumentPath,
+  documentHasRegisteredFile
+} = require('../utils/applicationDocumentPath');
 
 const router = express.Router();
-
-// Writable root (honours SGC_UPLOADS_DIR) — must match easyApply getCvsUploadDir()
-const UPLOADS_ROOT = getUploadsRoot();
-const CVS_DIR = path.join(UPLOADS_ROOT, 'cvs');
-// Default checkout path (older CVs before SGC_UPLOADS_DIR was set)
-const DEFAULT_SERVER_UPLOADS = path.resolve(__dirname, '../uploads');
-// Legacy: repo-root uploads (see server/index.js static fallback)
-const REPO_UPLOADS_ROOT = path.resolve(__dirname, '../../uploads');
-const REPO_CVS_DIR = path.join(REPO_UPLOADS_ROOT, 'cvs');
-
-/** Everything after ".../uploads/" in a stored absolute path (cross-machine / old deploys). */
-function relativeSegmentAfterUploads(storedPath) {
-  if (!storedPath || typeof storedPath !== 'string') return null;
-  const norm = storedPath.replace(/\\/g, '/');
-  const lower = norm.toLowerCase();
-  const marker = '/uploads/';
-  const idx = lower.lastIndexOf(marker);
-  if (idx === -1) return null;
-  return norm.slice(idx + marker.length);
-}
-
-/** Join root + relative path only if relative has no path traversal. */
-function safeJoinUnderRoot(root, relativePath) {
-  if (!relativePath || typeof relativePath !== 'string') return null;
-  const trimmed = relativePath.replace(/^[/\\]+|[/\\]+$/g, '');
-  if (!trimmed || trimmed.split(/[/\\]+/).some((p) => p === '..')) {
-    return null;
-  }
-  const full = path.normalize(path.join(path.resolve(root), ...trimmed.split(/[/\\]+/)));
-  const rootR = path.resolve(root);
-  if (full !== rootR && !full.startsWith(`${rootR}${path.sep}`)) {
-    return null;
-  }
-  return full;
-}
-
-function realpathIfExists(p) {
-  const abs = path.resolve(p);
-  try {
-    if (fs.existsSync(abs)) {
-      return fs.realpathSync(abs);
-    }
-  } catch (e) {
-    /* ignore */
-  }
-  return abs;
-}
-
-/** Allow symlinked upload dirs (real path may differ from project path, e.g. /var vs /private/var). */
-function isFileUnderAllowedRoot(resolvedFile, allowedRoots) {
-  let filePath = path.resolve(resolvedFile);
-  try {
-    if (fs.existsSync(filePath)) {
-      filePath = fs.realpathSync(filePath);
-    }
-  } catch (e) {
-    return false;
-  }
-  return allowedRoots.some((root) => {
-    const base = realpathIfExists(root);
-    if (filePath === base) return false;
-    return filePath.startsWith(`${base}${path.sep}`);
-  });
-}
-
-function collectAllowedUploadRoots() {
-  const raw = [
-    ...new Set([
-      UPLOADS_ROOT,
-      CVS_DIR,
-      DEFAULT_SERVER_UPLOADS,
-      path.join(DEFAULT_SERVER_UPLOADS, 'cvs'),
-      REPO_UPLOADS_ROOT,
-      REPO_CVS_DIR,
-      path.resolve(process.cwd(), 'server', 'uploads'),
-      path.join(path.resolve(process.cwd(), 'server', 'uploads'), 'cvs'),
-      path.resolve(process.cwd(), 'uploads'),
-      path.join(path.resolve(process.cwd(), 'uploads'), 'cvs')
-    ])
-  ].filter(Boolean);
-
-  const expanded = new Set(raw);
-  for (const r of raw) {
-    try {
-      const rp = realpathIfExists(r);
-      if (rp) expanded.add(rp);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-  return [...expanded];
-}
-
-/** Resolve a stored application document (CV, resume, etc.) to a readable file path. */
-function resolveApplicationDocumentPath(doc) {
-  if (!doc || (!doc.filename && !doc.path)) return null;
-
-  const rawName = doc.filename
-    ? String(doc.filename).trim()
-    : doc.path
-      ? String(doc.path).trim()
-      : '';
-  const baseName = rawName ? path.basename(rawName) : null;
-  if (!baseName || baseName === '.' || baseName === '..') return null;
-
-  const allowedRoots = collectAllowedUploadRoots();
-  const candidates = [];
-
-  const add = (p) => {
-    if (!p) return;
-    try {
-      candidates.push(path.normalize(path.resolve(p)));
-    } catch (e) {
-      /* ignore */
-    }
-  };
-
-  if (doc.path) {
-    add(doc.path);
-    const rel = relativeSegmentAfterUploads(doc.path);
-    if (rel) {
-      add(safeJoinUnderRoot(UPLOADS_ROOT, rel));
-      add(safeJoinUnderRoot(DEFAULT_SERVER_UPLOADS, rel));
-      add(safeJoinUnderRoot(REPO_UPLOADS_ROOT, rel));
-    }
-  }
-
-  if (baseName) {
-    add(path.join(CVS_DIR, baseName));
-    add(path.join(UPLOADS_ROOT, baseName));
-    add(path.join(DEFAULT_SERVER_UPLOADS, 'cvs', baseName));
-    add(path.join(DEFAULT_SERVER_UPLOADS, baseName));
-    add(path.join(REPO_CVS_DIR, baseName));
-    add(path.join(REPO_UPLOADS_ROOT, baseName));
-    add(path.join(process.cwd(), 'server', 'uploads', 'cvs', baseName));
-    add(path.join(process.cwd(), 'uploads', 'cvs', baseName));
-  }
-
-  const seen = new Set();
-  for (const p of candidates) {
-    if (!p || seen.has(p)) continue;
-    seen.add(p);
-    if (!isFileUnderAllowedRoot(p, allowedRoots)) continue;
-    try {
-      if (fs.existsSync(p) && fs.statSync(p).isFile()) {
-        return p;
-      }
-    } catch (e) {
-      continue;
-    }
-  }
-  return null;
-}
 
 // @route   GET /api/applications
 // @desc    Get all applications with pagination and filters
@@ -420,7 +270,7 @@ router.get('/:id/documents/:kind',
   authorize('admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const application = await Application.findById(req.params.id)
-      .select('documents resume coverLetterFile portfolio additionalDocuments');
+      .select('applicationId documents resume coverLetterFile portfolio additionalDocuments');
 
     if (!application) {
       return res.status(404).json({
@@ -464,10 +314,20 @@ router.get('/:id/documents/:kind',
       });
     }
 
+    if (!documentHasRegisteredFile(doc)) {
+      return res.status(404).json({
+        success: false,
+        code: 'DOCUMENT_NOT_REGISTERED',
+        message:
+          'No file is registered for this document type on this application (e.g. Easy Apply CV was never saved).'
+      });
+    }
+
     const filePath = resolveApplicationDocumentPath(doc);
     if (!filePath) {
       console.warn('[application-documents] FILE_NOT_ON_DISK', {
-        applicationId: req.params.id,
+        mongoId: req.params.id,
+        humanApplicationId: application.applicationId,
         kind,
         filename: doc.filename,
         storedPath: doc.path
@@ -476,6 +336,7 @@ router.get('/:id/documents/:kind',
         success: false,
         code: 'FILE_NOT_ON_DISK',
         filename: doc.filename,
+        applicationId: application.applicationId,
         message:
           'File is missing on the server. Deploy the latest backend and keep server/uploads/cvs on a persistent disk ' +
           '(git deploy does not include uploaded CVs). Set SGC_UPLOADS_DIR if uploads live outside the repo. ' +
