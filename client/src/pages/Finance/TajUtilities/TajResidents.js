@@ -131,13 +131,14 @@ const getDepositAvailableAmount = (deposit) =>
   deposit.remainingAmount !== undefined ? deposit.remainingAmount : (deposit.amount || 0);
 
 // Helper function to determine invoice type from chargeTypes
-// Must return one of: 'CAM', 'Electricity', 'Water', 'RENT', 'ELECTRICITY', 'Other'
+// Must match server Taj resident pay + TajTransaction.referenceType enum:
+// 'CAM', 'Electricity', 'Water', 'RENT', 'ELECTRICITY', 'Other' (not uppercase WATER — validator rejects it).
 const getInvoiceTypeFromCharges = (chargeTypes) => {
   if (!chargeTypes || !Array.isArray(chargeTypes)) return 'Other';
   if (chargeTypes.includes('ELECTRICITY')) return 'ELECTRICITY';
   if (chargeTypes.includes('RENT')) return 'RENT';
   if (chargeTypes.includes('CAM')) return 'CAM';
-  if (chargeTypes.includes('WATER')) return 'WATER';
+  if (chargeTypes.includes('WATER') || chargeTypes.includes('WTR')) return 'Water';
   if (chargeTypes.includes('Water')) return 'Water';
   if (chargeTypes.includes('Electricity')) return 'Electricity';
   // For any other charge types (e.g., 'Ground Booking', 'Billboard', 'Events', etc.), return 'Other'
