@@ -4,8 +4,14 @@ const { asyncHandler } = require('./errorHandler');
 const { tryAuthorize } = require('./auth');
 
 async function getActiveRecoveryMemberForUser(req) {
-  if (!req.user?.employeeId) return null;
-  const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
+  if (!req.user?._id) return null;
+  let employee = null;
+  if (req.user.employeeId) {
+    employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
+  }
+  if (!employee) {
+    employee = await Employee.findOne({ user: req.user._id }).lean();
+  }
   if (!employee) return null;
   return RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean();
 }
@@ -19,7 +25,7 @@ const normRole = (val) =>
  * if they are also an active RecoveryMember — they should only see their own rows.
  */
 function userHasRecoveryTaskAssignmentUnrestrictedAccess(req) {
-  const unrestricted = new Set([
+  const primaryUnrestricted = new Set([
     'super_admin',
     'admin',
     'higher_management',
@@ -33,12 +39,24 @@ function userHasRecoveryTaskAssignmentUnrestrictedAccess(req) {
     req.user?.roleRef?.displayName
   ];
   for (const c of candidates) {
-    if (unrestricted.has(normRole(c))) return true;
+    if (primaryUnrestricted.has(normRole(c))) return true;
   }
+  // Extra assigned roles: do not treat "finance_manager" here — Recovery Officers sometimes have a
+  // stale secondary role; full-list access for finance should come from primary roleRef / legacy role only.
+  const secondaryUnrestricted = new Set([
+    'super_admin',
+    'admin',
+    'higher_management',
+    'recovery_manager',
+    'developer'
+  ]);
   const multi = req.user?.roles;
   if (Array.isArray(multi)) {
     for (const r of multi) {
-      if (unrestricted.has(normRole(r?.name)) || unrestricted.has(normRole(r?.displayName))) {
+      if (
+        secondaryUnrestricted.has(normRole(r?.name)) ||
+        secondaryUnrestricted.has(normRole(r?.displayName))
+      ) {
         return true;
       }
     }

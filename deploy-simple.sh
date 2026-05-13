@@ -15,11 +15,12 @@ ENV_FILE=".env.production"
 AUTO_STASH_SERVER_CHANGES="${AUTO_STASH_SERVER_CHANGES:-1}"
 
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-log_info() { echo -e "${YELLOW}$1${NC}"; }
+# Cyan + [INFO] so it is not mistaken for a warning (yellow/brown) or error (red).
+log_info() { echo -e "${CYAN}[INFO] $1${NC}"; }
 log_ok() { echo -e "${GREEN}$1${NC}"; }
 log_err() { echo -e "${RED}$1${NC}"; }
 
@@ -118,8 +119,10 @@ if [ -f ".env" ]; then
   fi
 fi
 
-echo "Installing production dependencies..."
+echo ""
+echo "========== SGC ERP (server): npm install (can take 1–3 min) =========="
 npm install --omit=dev --omit=optional
+echo "========== SGC ERP (server): npm install finished =========="
 
 mkdir -p "client/build"
 echo "Syncing frontend build to /var/www/html..."
@@ -133,6 +136,8 @@ else
   systemctl reload nginx
 fi
 
+echo ""
+echo "========== SGC ERP (server): restarting PM2 (loads new Node code) =========="
 echo "Restarting backend process..."
 mkdir -p logs
 mkdir -p server/uploads/cvs
@@ -147,6 +152,7 @@ else
   pm2 start ecosystem.config.js --env production --only sgc-erp-backend
 fi
 pm2 save
+echo "========== SGC ERP (server): PM2 restart finished =========="
 
 sleep 3
 if ! pm2 list | grep -q "sgc-erp-backend.*online"; then
