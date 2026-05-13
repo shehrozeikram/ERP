@@ -33,11 +33,37 @@ const isFullAdvancePaymentTerm = (paymentTerms) => {
   return terms.includes('full advance') || (terms.includes('advance') && !terms.includes('partial'));
 };
 
-/** Vendor advance counts toward PO “paid” only after voucher is posted (not draft / not rejected). */
-const vendorAdvanceAmountCountsForPo = (a) => {
+const jeSignedDocumentComplete = (je) =>
+  je && je.signedDocumentStatus === 'signed' && Boolean(je.signedDocumentAt);
+
+/** Build map journalEntryId -> signed (for PO advance totals / auto-approve). */
+async function buildJournalEntrySignedMapForVendorAdvances(advanceRows) {
+  const ids = [
+    ...new Set(
+      (advanceRows || [])
+        .filter((a) => a.voucherWorkflowStatus === 'fully_approved' && a.journalEntryId)
+        .map((a) => String(a.journalEntryId))
+    )
+  ];
+  if (!ids.length) return {};
+  const jes = await JournalEntry.find({ _id: { $in: ids } })
+    .select('signedDocumentStatus signedDocumentAt')
+    .lean();
+  const m = {};
+  jes.forEach((je) => {
+    m[String(je._id)] = jeSignedDocumentComplete(je);
+  });
+  return m;
+}
+
+/** Vendor advance counts toward PO “recorded” / auto-approve only when voucher is signed (fully_approved + signed doc). Legacy immediate = posted without that gate. */
+const vendorAdvanceAmountCountsForPo = (a, jeSignedByJournalId = {}) => {
   const s = a?.voucherWorkflowStatus;
-  if (s === 'pending_authority') return false;
-  if (s === 'rejected') return false;
+  if (s === 'pending_authority' || s === 'rejected') return false;
+  if (s === 'fully_approved') {
+    const jid = a.journalEntryId ? String(a.journalEntryId) : '';
+    return Boolean(jid && jeSignedByJournalId[jid]);
+  }
   return true;
 };
 
@@ -46,11 +72,12 @@ async function sumPostedVendorAdvancesForPo(poId) {
     referenceType: 'purchase_order',
     referenceId: poId
   })
-    .select('amount voucherWorkflowStatus')
+    .select('amount voucherWorkflowStatus journalEntryId')
     .lean();
+  const jeSignedByJournalId = await buildJournalEntrySignedMapForVendorAdvances(rows);
   let sum = 0;
   for (const a of rows) {
-    if (!vendorAdvanceAmountCountsForPo(a)) continue;
+    if (!vendorAdvanceAmountCountsForPo(a, jeSignedByJournalId)) continue;
     sum += Math.round((Number(a.amount) || 0) * 100) / 100;
   }
   return sum;
@@ -70,13 +97,13 @@ async function tryAutoApprovePoAfterVendorAdvance(advance, userId) {
     toStatus: 'Approved',
     changedBy: userId,
     changedAt: new Date(),
-    comments: 'Auto-approved by Finance after vendor advance voucher posted (full advance)',
+    comments: 'Auto-approved by Finance after vendor advance voucher signed document was marked signed (full advance)',
     department: 'Finance'
   });
   po.status = 'Approved';
   po.financeApprovedBy = userId;
   po.financeApprovedAt = new Date();
-  po.financeRemarks = 'Auto-approved after full vendor advance recorded and voucher finalized';
+  po.financeRemarks = 'Auto-approved after full vendor advance and voucher signed document';
   po.updatedBy = userId;
   await po.save();
 }
@@ -516,6 +543,11 @@ router.put('/journal-entries/:id/signed-document',
         if (!linkedCashApproval.advanceIssuedBy) linkedCashApproval.advanceIssuedBy = req.user._id;
         linkedCashApproval.updatedBy = req.user._id;
         await linkedCashApproval.save();
+      }
+
+      const linkedVendorAdvance = await VendorAdvance.findOne({ journalEntryId: entry._id }).lean();
+      if (linkedVendorAdvance) {
+        await tryAutoApprovePoAfterVendorAdvance(linkedVendorAdvance, req.user._id);
       }
     }
 
@@ -1081,6 +1113,17 @@ router.get('/accounts-payable/vendor-advances',
       poDocs.forEach((p) => { poMap[String(p._id)] = p.orderNumber; });
     }
 
+    const jeIds = [...new Set(rows.map((r) => r.journalEntryId).filter(Boolean).map((id) => String(id)))];
+    const jeSignedById = {};
+    if (jeIds.length > 0) {
+      const jes = await JournalEntry.find({ _id: { $in: jeIds } })
+        .select('signedDocumentStatus signedDocumentAt')
+        .lean();
+      jes.forEach((je) => {
+        jeSignedById[String(je._id)] = je;
+      });
+    }
+
     const advances = rows.map((a) => {
       const amount = Number(a.amount || 0);
       const applied = Number(a.appliedAmount || 0);
@@ -1098,6 +1141,7 @@ router.get('/accounts-payable/vendor-advances',
             .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
         : [];
 
+      const je = a.journalEntryId ? jeSignedById[String(a.journalEntryId)] : null;
       return {
         _id: a._id,
         vendor: a.vendor,
@@ -1113,6 +1157,8 @@ router.get('/accounts-payable/vendor-advances',
         linkedPoNumber: a.referenceType === 'purchase_order' && a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
         journalEntryId: a.journalEntryId || null,
         voucherWorkflowStatus: a.voucherWorkflowStatus || 'immediate',
+        voucherSignedDocumentStatus: je?.signedDocumentStatus || null,
+        voucherSignedDocumentAt: je?.signedDocumentAt || null,
         allocations
       };
     });
@@ -1154,9 +1200,11 @@ router.get('/accounts-payable/vendor-advance-po-queue',
         referenceType: 'purchase_order',
         referenceId: { $in: poIds }
       })
-        .select('referenceId amount voucherWorkflowStatus')
+        .select('referenceId amount voucherWorkflowStatus journalEntryId')
         .lean()
       : [];
+
+    const jeSignedByJournalId = await buildJournalEntrySignedMapForVendorAdvances(advances);
 
     const pendingVoucherByPo = new Set(
       advances
@@ -1166,7 +1214,7 @@ router.get('/accounts-payable/vendor-advance-po-queue',
 
     const sumByPo = {};
     for (const a of advances) {
-      if (!vendorAdvanceAmountCountsForPo(a)) continue;
+      if (!vendorAdvanceAmountCountsForPo(a, jeSignedByJournalId)) continue;
       const id = String(a.referenceId);
       sumByPo[id] = (sumByPo[id] || 0) + Math.round((Number(a.amount) || 0) * 100) / 100;
     }
@@ -1315,7 +1363,6 @@ router.put('/vendor-advances/:id/finance-approve',
       }
       advance.voucherWorkflowStatus = 'fully_approved';
       await advance.save();
-      await tryAutoApprovePoAfterVendorAdvance(advance, req.user._id);
     }
 
     const fresh = await populateVendorAdvanceDoc({ _id: advance._id });
@@ -1542,6 +1589,7 @@ router.post('/accounts-payable/advance-payment',
       }
     }
 
+    const mongoose = require('mongoose');
     const rawFa = req.body.financeApprovalAuthorities;
     const financeApprovalAuthorities =
       rawFa && typeof rawFa === 'object'
@@ -1550,6 +1598,14 @@ router.post('/accounts-payable/advance-payment',
             financeControllerUser: rawFa.financeControllerUser || rawFa.financeController
           }
         : null;
+    const amId = financeApprovalAuthorities?.accountsManagerUser;
+    const fcId = financeApprovalAuthorities?.financeControllerUser;
+    if (!amId || !fcId || !mongoose.Types.ObjectId.isValid(String(amId)) || !mongoose.Types.ObjectId.isValid(String(fcId))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Sr Manager Accounts and GM Finance approvers are required (send financeApprovalAuthorities.accountsManagerUser and financeApprovalAuthorities.financeControllerUser as valid user ids).'
+      });
+    }
 
     const advance = await FinanceHelper.recordVendorAdvance({
       vendorName: req.body.vendorName,
@@ -1568,13 +1624,9 @@ router.post('/accounts-payable/advance-payment',
       financeApprovalAuthorities
     });
 
-    if (advance.voucherWorkflowStatus === 'fully_approved') {
-      await tryAutoApprovePoAfterVendorAdvance(advance, req.user._id);
-    }
-
     const message =
       advance.voucherWorkflowStatus === 'pending_authority'
-        ? 'Vendor advance saved. Voucher is pending finance signatures — open it from Vouchers to approve.'
+        ? 'Vendor advance saved. Voucher is pending finance signatures — open it from Vouchers to approve. The PO (if linked) is auto-approved only after the voucher signed document is marked signed.'
         : 'Vendor advance recorded successfully';
 
     res.json({ success: true, message, data: advance });

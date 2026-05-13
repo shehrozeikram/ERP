@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -22,16 +22,29 @@ import {
   TableRow,
   Chip,
   CircularProgress,
-  FormControlLabel,
-  Switch,
-  Tooltip
+  Tooltip,
+  IconButton
 } from '@mui/material';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import toast from 'react-hot-toast';
+
+/** Issuance column: “Advance issued” only after the linked voucher’s signed document is recorded. */
+function getVoucherIssuanceChip(a) {
+  const wf = a.voucherWorkflowStatus || 'immediate';
+  if (wf === 'pending_authority') return { label: 'Pending signatures', color: 'warning' };
+  if (wf === 'rejected') return { label: 'Rejected', color: 'error' };
+  const signedOk = a.voucherSignedDocumentStatus === 'signed' && Boolean(a.voucherSignedDocumentAt);
+  if (signedOk) return { label: 'Advance issued', color: 'success' };
+  if (wf === 'fully_approved' || wf === 'immediate') {
+    return { label: 'Posted — sign voucher', color: 'info' };
+  }
+  return { label: 'Posted', color: 'success' };
+}
 
 const VendorAdvance = () => {
   const [vendors, setVendors] = useState([]);
@@ -53,13 +66,14 @@ const VendorAdvance = () => {
     reference: '',
     paymentDate: new Date().toISOString().split('T')[0]
   });
-  const [requireVoucherAuth, setRequireVoucherAuth] = useState(false);
   const [finAuth, setFinAuth] = useState({
     accountsManagerUser: null,
     financeControllerUser: null
   });
   const [approverPool, setApproverPool] = useState([]);
   const [poPendingVoucher, setPoPendingVoucher] = useState({ loading: false, hasPending: false });
+  const advanceHistorySectionRef = useRef(null);
+  const [highlightPoId, setHighlightPoId] = useState(null);
 
   const loadVendors = useCallback(async () => {
     setLoadingVendors(true);
@@ -220,6 +234,16 @@ const VendorAdvance = () => {
     return () => { cancelled = true; };
   }, [selectedPo?._id]);
 
+  useEffect(() => {
+    if (!highlightPoId || loadingAdvances) return;
+    const rowElId = `vendor-advance-row-po-${highlightPoId}`;
+    requestAnimationFrame(() => {
+      advanceHistorySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const rowEl = document.getElementById(rowElId);
+      if (rowEl) rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [highlightPoId, advances, loadingAdvances]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedVendor) {
@@ -231,11 +255,9 @@ const VendorAdvance = () => {
       toast.error('Enter a valid advance amount');
       return;
     }
-    if (requireVoucherAuth) {
-      if (!finAuth.accountsManagerUser || !finAuth.financeControllerUser) {
-        toast.error('Select Sr Manager Accounts and GM Finance (or turn off “Require voucher signatures”)');
-        return;
-      }
+    if (!finAuth.accountsManagerUser || !finAuth.financeControllerUser) {
+      toast.error('Select Sr Manager Accounts and GM Finance (required for every vendor advance).');
+      return;
     }
     if (selectedPo?._id && poPendingVoucher.hasPending) {
       toast.error('This PO already has an advance pending voucher approval. You cannot record another until that is finished.');
@@ -258,14 +280,10 @@ const VendorAdvance = () => {
         paymentDate: paymentDateIso,
         referenceType: selectedPo ? 'purchase_order' : 'advance',
         referenceId: selectedPo ? selectedPo._id : null,
-        ...(requireVoucherAuth
-          ? {
-            financeApprovalAuthorities: {
-              accountsManagerUser: finAuth.accountsManagerUser._id,
-              financeControllerUser: finAuth.financeControllerUser._id
-            }
-          }
-          : {})
+        financeApprovalAuthorities: {
+          accountsManagerUser: finAuth.accountsManagerUser._id,
+          financeControllerUser: finAuth.financeControllerUser._id
+        }
       };
       const res = await api.post('/finance/accounts-payable/advance-payment', body);
       if (res.data?.success) {
@@ -277,7 +295,6 @@ const VendorAdvance = () => {
           paymentDate: new Date().toISOString().split('T')[0]
         });
         setSelectedPo(null);
-        setRequireVoucherAuth(false);
         setFinAuth({
           accountsManagerUser: null,
           financeControllerUser: null
@@ -320,6 +337,19 @@ const VendorAdvance = () => {
     toast.success('Vendor and amount filled — confirm PO link and submit when ready.');
   };
 
+  const showRelatedAdvanceInHistory = (row) => {
+    const vid = row.vendor?._id;
+    if (!vid) return;
+    const v = vendors.find((x) => String(x._id) === String(vid));
+    const vendorObj = v || {
+      _id: vid,
+      name: row.vendor?.name || 'Vendor',
+      email: row.vendor?.email || ''
+    };
+    setSelectedVendor(vendorObj);
+    setHighlightPoId(String(row._id));
+  };
+
   return (
     <Box sx={{ p: 2 }}>
       <Typography variant="h5" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -360,7 +390,7 @@ const VendorAdvance = () => {
                   <TableCell align="right"><b>Already recorded</b></TableCell>
                   <TableCell align="right"><b>Still due</b></TableCell>
                   <TableCell><b>Voucher</b></TableCell>
-                  <TableCell><b>Action</b></TableCell>
+                  <TableCell><b>Actions</b></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -389,25 +419,37 @@ const VendorAdvance = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Tooltip
-                        title={
-                          row.hasPendingVoucherApproval
-                            ? 'An advance for this PO is waiting for voucher signatures — finish or reject it first.'
-                            : ''
-                        }
-                      >
-                        <span>
-                          <Button
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                        <Tooltip title="Show related advance in history below">
+                          <IconButton
                             size="small"
-                            variant="contained"
-                            color="warning"
-                            disabled={Boolean(row.hasPendingVoucherApproval)}
-                            onClick={() => preparePaymentFromQueue(row)}
+                            color="primary"
+                            aria-label="Show related advance in history"
+                            onClick={() => showRelatedAdvanceInHistory(row)}
                           >
-                            Prepare payment
-                          </Button>
-                        </span>
-                      </Tooltip>
+                            <ArticleOutlinedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip
+                          title={
+                            row.hasPendingVoucherApproval
+                              ? 'An advance for this PO is waiting for voucher signatures — finish or reject it first.'
+                              : ''
+                          }
+                        >
+                          <span>
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="warning"
+                              disabled={Boolean(row.hasPendingVoucherApproval)}
+                              onClick={() => preparePaymentFromQueue(row)}
+                            >
+                              Prepare payment
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -423,44 +465,6 @@ const VendorAdvance = () => {
             This matches Flow 2 step 2 (payment before GRN). Amount posts to account <strong>1110</strong> Advance to suppliers until
             you apply it to a bill on <strong>Finance → Vendors → Vendor Bills</strong>.
           </Alert>
-          <FormControlLabel
-            sx={{ mb: 1, display: 'block' }}
-            control={(
-              <Switch
-                checked={requireVoucherAuth}
-                onChange={(_, v) => setRequireVoucherAuth(v)}
-                color="primary"
-              />
-            )}
-            label="Require finance voucher signatures before posting (you = Accounts Officer; pick 2 more approvers)"
-          />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: requireVoucherAuth ? 1.5 : 0 }}>
-            When on, <strong>Accounts Officer / AM</strong> is set to <strong>you</strong> (the person recording the advance) and is marked approved as preparer.
-            Choose <strong>Sr Manager Accounts</strong> and <strong>GM Finance</strong> only; they approve from <strong>Finance → Vouchers</strong>.
-            PO auto-approval (full advance) runs only after the voucher is fully posted. While a PO-linked advance is pending signatures, you cannot record another for that PO.
-          </Typography>
-          {requireVoucherAuth ? (
-            <Grid container spacing={2} sx={{ mb: 2 }}>
-              <Grid item xs={12} md={6}>
-                <Autocomplete
-                  options={approverPool}
-                  value={finAuth.accountsManagerUser}
-                  onChange={(_, v) => setFinAuth((f) => ({ ...f, accountsManagerUser: v }))}
-                  getOptionLabel={(u) => ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.email || '')}
-                  renderInput={(params) => <TextField {...params} label="Sr Manager Accounts *" size="small" />}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Autocomplete
-                  options={approverPool}
-                  value={finAuth.financeControllerUser}
-                  onChange={(_, v) => setFinAuth((f) => ({ ...f, financeControllerUser: v }))}
-                  getOptionLabel={(u) => ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.email || '')}
-                  renderInput={(params) => <TextField {...params} label="GM Finance *" size="small" />}
-                />
-              </Grid>
-            </Grid>
-          ) : null}
           <Box component="form" onSubmit={handleSubmit}>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
@@ -548,14 +552,57 @@ const VendorAdvance = () => {
                 />
               </Grid>
               <Grid item xs={12}>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  disabled={submitting || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)}
-                  size="large"
-                >
-                  {submitting ? 'Posting…' : 'Record vendor advance'}
-                </Button>
+                <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
+                  Finance voucher signatures (required)
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Autocomplete
+                  options={approverPool}
+                  value={finAuth.accountsManagerUser}
+                  onChange={(_, v) => setFinAuth((f) => ({ ...f, accountsManagerUser: v }))}
+                  getOptionLabel={(u) => ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.email || '')}
+                  renderInput={(params) => <TextField {...params} label="Sr Manager Accounts *" size="small" required />}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Autocomplete
+                  options={approverPool}
+                  value={finAuth.financeControllerUser}
+                  onChange={(_, v) => setFinAuth((f) => ({ ...f, financeControllerUser: v }))}
+                  getOptionLabel={(u) => ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.email || '')}
+                  renderInput={(params) => <TextField {...params} label="GM Finance *" size="small" required />}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                {(!finAuth.accountsManagerUser || !finAuth.financeControllerUser) ? (
+                  <Tooltip title="Select Sr Manager Accounts and GM Finance before recording the advance.">
+                    <span>
+                      <Button
+                        type="submit"
+                        variant="contained"
+                        disabled={
+                          submitting
+                          || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)
+                          || !finAuth.accountsManagerUser
+                          || !finAuth.financeControllerUser
+                        }
+                        size="large"
+                      >
+                        {submitting ? 'Posting…' : 'Record vendor advance'}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    disabled={submitting || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)}
+                    size="large"
+                  >
+                    {submitting ? 'Posting…' : 'Record vendor advance'}
+                  </Button>
+                )}
               </Grid>
             </Grid>
           </Box>
@@ -573,7 +620,7 @@ const VendorAdvance = () => {
         </Typography>
       </Paper>
 
-      <Box sx={{ mt: 3 }}>
+      <Box ref={advanceHistorySectionRef} sx={{ mt: 3 }}>
         <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
           Advance history (partial payments)
         </Typography>
@@ -600,7 +647,7 @@ const VendorAdvance = () => {
                   <TableCell><b>Payment date</b></TableCell>
                   <TableCell><b>Linked PO</b></TableCell>
                   <TableCell><b>Voucher</b></TableCell>
-                  <TableCell><b>Voucher flow</b></TableCell>
+                  <TableCell><b>Issuance</b></TableCell>
                   <TableCell align="right"><b>Amount</b></TableCell>
                   <TableCell align="right"><b>Applied</b></TableCell>
                   <TableCell><b>Applied to bills</b></TableCell>
@@ -610,7 +657,21 @@ const VendorAdvance = () => {
               </TableHead>
               <TableBody>
                 {advances.map((a) => (
-                  <TableRow key={a._id}>
+                  <TableRow
+                    key={a._id}
+                    id={
+                      a.referenceType === 'purchase_order' && a.referenceId
+                        ? `vendor-advance-row-po-${String(a.referenceId)}`
+                        : undefined
+                    }
+                    sx={
+                      highlightPoId
+                      && a.referenceType === 'purchase_order'
+                      && String(a.referenceId) === String(highlightPoId)
+                        ? { bgcolor: 'action.selected' }
+                        : undefined
+                    }
+                  >
                     <TableCell>{a.reference || a._id}</TableCell>
                     <TableCell>
                       {a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : '—'}
@@ -626,24 +687,7 @@ const VendorAdvance = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={
-                          a.voucherWorkflowStatus === 'pending_authority'
-                            ? 'Pending signatures'
-                            : a.voucherWorkflowStatus === 'rejected'
-                              ? 'Rejected'
-                              : 'Posted'
-                        }
-                        color={
-                          a.voucherWorkflowStatus === 'pending_authority'
-                            ? 'warning'
-                            : a.voucherWorkflowStatus === 'rejected'
-                              ? 'error'
-                              : 'success'
-                        }
-                      />
+                      <Chip size="small" variant="outlined" {...getVoucherIssuanceChip(a)} />
                     </TableCell>
                     <TableCell align="right">{formatPKR(a.amount || 0)}</TableCell>
                     <TableCell align="right">{formatPKR(a.appliedAmount || 0)}</TableCell>

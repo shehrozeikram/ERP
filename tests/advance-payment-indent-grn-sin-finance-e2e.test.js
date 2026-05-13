@@ -23,6 +23,36 @@ async function journals(api, search) {
   return r.data?.data?.entries || [];
 }
 
+/** Minimal multipart body for POST /journal-entries/:id/attachments (multer field name: file). */
+function buildMultipartAttachment(boundary, filename, fileUtf8, contentType = 'text/plain') {
+  const crlf = '\r\n';
+  return Buffer.concat([
+    Buffer.from(
+      `--${boundary}${crlf}Content-Disposition: form-data; name="file"; filename="${filename}"${crlf}Content-Type: ${contentType}${crlf}${crlf}`,
+      'utf8'
+    ),
+    Buffer.from(fileUtf8, 'utf8'),
+    Buffer.from(`${crlf}--${boundary}--${crlf}`, 'utf8')
+  ]);
+}
+
+/** Draft vendor advance → finance approvals → posted JE → attachment → signed (triggers PO auto-approve when full advance). */
+async function finalizeVendorAdvanceVoucherForE2e(api, advanceResData, stamp, label) {
+  const advId = advanceResData?._id;
+  const jeId = advanceResData?.journalEntryId;
+  if (!advId || !jeId) fail(`${label}: missing advance id or journal entry`, advanceResData);
+  const appr = await api.put(`/finance/vendor-advances/${advId}/finance-approve`, {});
+  if (!appr.data?.success) fail(`${label}: finance approve failed`, appr.data);
+  const boundary = `e2e${stamp}`;
+  const buf = buildMultipartAttachment(boundary, `e2e-voucher-${stamp}.txt`, 'e2e voucher attachment');
+  const up = await api.post(`/finance/journal-entries/${jeId}/attachments`, buf, {
+    headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` }
+  });
+  if (!up.data?.success) fail(`${label}: voucher attachment upload failed`, up.data);
+  const sig = await api.put(`/finance/journal-entries/${jeId}/signed-document`, { signedDocumentStatus: 'signed' });
+  if (!sig.data?.success) fail(`${label}: mark voucher signed failed`, sig.data);
+}
+
 async function run() {
   const api = axios.create({ baseURL: BASE, timeout: 120000, validateStatus: () => true });
   const login = await api.post('/auth/login', { email: 'ceo@sgc.com', password: 'ceo12345' });
@@ -106,11 +136,23 @@ async function run() {
   // Step 2: advance payment before GRN/bill adjustment
   const advRef = `E2E-ADV-${stamp}`;
   const adv = await api.post('/finance/accounts-payable/advance-payment', {
-    vendorName: ven.name, vendorEmail: ven.email || '', vendorId: ven._id, amount: advanceAmt,
-    paymentMethod: 'bank_transfer', reference: advRef, paymentDate: new Date().toISOString(), referenceType: 'purchase_order', referenceId: poId
+    vendorName: ven.name,
+    vendorEmail: ven.email || '',
+    vendorId: ven._id,
+    amount: advanceAmt,
+    paymentMethod: 'bank_transfer',
+    reference: advRef,
+    paymentDate: new Date().toISOString(),
+    referenceType: 'purchase_order',
+    referenceId: poId,
+    financeApprovalAuthorities: {
+      accountsManagerUser: userId,
+      financeControllerUser: userId
+    }
   });
   if (!adv.data?.success) fail('Advance payment failed', adv.data);
   ok('Advance payment created', { reference: advRef, amount: advanceAmt });
+  await finalizeVendorAdvanceVoucherForE2e(api, adv.data.data, stamp, 'Advance voucher');
   const advJ = await journals(api, advRef);
   const advPattern = advJ.some((e) => balanced(e) && (e.lines || []).some((l) => Number(l.debit) > 0 && lineNum(l) === GL.ADVANCE) && (e.lines || []).some((l) => Number(l.credit) > 0 && [GL.CASH, GL.BANK].includes(lineNum(l))));
   if (!advPattern) fail('Advance journal pattern mismatch', advJ.map((e) => e.entryNumber));

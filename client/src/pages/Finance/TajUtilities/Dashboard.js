@@ -91,20 +91,21 @@ const FILTER_DEFS = [
   { id: 'WATER', label: 'WATER' }
 ];
 
-/** Map report totals + allocated Paid (Reconciliation: deposits + suspense) into charge-row shape. */
-const statsFromReportData = (reportData, paidAllocated) => {
+/** Map report totals into charge-row shape; Paid = Payments Received (sum of invoice totalPaid), same as Taj Utilities Reports. */
+const statsFromReportData = (reportData) => {
   const totals = reportData?.totals || {};
   const invoiced = Number(totals.invoiceAmount || 0);
   const arrears = Number(totals.arrears || 0);
   const total = invoiced + arrears;
-  const paid = Math.max(0, Number(paidAllocated) || 0);
-  const balances = Math.max(0, total - paid);
+  const paymentsReceived = Math.max(0, Number(totals.paymentsReceived || 0));
+  const balances = Math.max(0, total - paymentsReceived);
   return {
     totalProperties: Number(totals.invoiceCount || 0),
     totalAmount: invoiced,
     totalArrears: arrears,
     totalAmountAllPages: invoiced,
-    totalArrearsAllPages: balances
+    totalArrearsAllPages: balances,
+    paymentsReceived
   };
 };
 
@@ -215,27 +216,12 @@ const Dashboard = () => {
             0
           );
 
-      const camInv = Number(camReportRes.data?.data?.totals?.invoiceAmount || 0);
-      const waterInv = Number(waterReportRes.data?.data?.totals?.invoiceAmount || 0);
-      const elecInv = Number(electricityReportRes.data?.data?.totals?.invoiceAmount || 0);
-      const rentInv = Number(rentReportRes.data?.data?.totals?.invoiceAmount || 0);
-      const groundInv = Number(groundReportRes.data?.data?.totals?.invoiceAmount || 0);
-      const otherInv = Number(otherReportRes.data?.data?.totals?.invoiceAmount || 0);
-      const totalInvoiced = camInv + waterInv + elecInv + rentInv + groundInv + otherInv;
-
-      const allocPaid = (invoicedAmount) => {
-        if (totalInvoiced > 0) return globalDepositSuspense * (invoicedAmount / totalInvoiced);
-        return 0;
-      };
-
-      const camData = statsFromReportData(camReportRes.data?.data, allocPaid(camInv));
-      const waterData = statsFromReportData(waterReportRes.data?.data, allocPaid(waterInv));
-      const elecData = statsFromReportData(electricityReportRes.data?.data, allocPaid(elecInv));
-      const rentFromReports = statsFromReportData(rentReportRes.data?.data, allocPaid(rentInv));
-      const groundFromReports = statsFromReportData(groundReportRes.data?.data, allocPaid(groundInv));
-      const otherPaid =
-        totalInvoiced > 0 ? allocPaid(otherInv) : globalDepositSuspense > 0 ? globalDepositSuspense : 0;
-      const otherFromReports = statsFromReportData(otherReportRes.data?.data, otherPaid);
+      const camData = statsFromReportData(camReportRes.data?.data);
+      const waterData = statsFromReportData(waterReportRes.data?.data);
+      const elecData = statsFromReportData(electricityReportRes.data?.data);
+      const rentFromReports = statsFromReportData(rentReportRes.data?.data);
+      const groundFromReports = statsFromReportData(groundReportRes.data?.data);
+      const otherFromReports = statsFromReportData(otherReportRes.data?.data);
       const invoiceCountInRange = Number(allData.totals?.invoiceCount) || 0;
       const propData = propertiesRes.data?.data;
       const residentData = residentsRes.data?.data;
@@ -292,21 +278,24 @@ const Dashboard = () => {
           totalAmount: camData.totalAmountAllPages ?? camData.totalAmount ?? 0,
           totalArrears: camData.totalArrears ?? 0,
           totalAmountAllPages: camData.totalAmountAllPages ?? camData.totalAmount ?? 0,
-          totalArrearsAllPages: camData.totalArrearsAllPages ?? 0
+          totalArrearsAllPages: camData.totalArrearsAllPages ?? 0,
+          paymentsReceived: camData.paymentsReceived ?? 0
         },
         water: {
           totalProperties: waterData.totalProperties ?? 0,
           totalAmount: waterData.totalAmountAllPages ?? waterData.totalAmount ?? 0,
           totalArrears: waterData.totalArrears ?? 0,
           totalAmountAllPages: waterData.totalAmountAllPages ?? waterData.totalAmount ?? 0,
-          totalArrearsAllPages: waterData.totalArrearsAllPages ?? 0
+          totalArrearsAllPages: waterData.totalArrearsAllPages ?? 0,
+          paymentsReceived: waterData.paymentsReceived ?? 0
         },
         electricity: {
           totalProperties: elecData.totalProperties ?? 0,
           totalAmount: elecData.totalAmountAllPages ?? elecData.totalAmount ?? 0,
           totalArrears: elecData.totalArrears ?? 0,
           totalAmountAllPages: elecData.totalAmountAllPages ?? elecData.totalAmount ?? 0,
-          totalArrearsAllPages: elecData.totalArrearsAllPages ?? 0
+          totalArrearsAllPages: elecData.totalArrearsAllPages ?? 0,
+          paymentsReceived: elecData.paymentsReceived ?? 0
         },
         properties: propertiesTotal,
         residents: residentsTotal,
@@ -338,9 +327,9 @@ const Dashboard = () => {
     const mk = (id, label, s) => {
       const invoiced = Number(s.totalAmountAllPages ?? s.totalAmount ?? 0);
       const arrears = Number(s.totalArrears ?? 0);
-      const balances = Number(s.totalArrearsAllPages ?? s.totalArrears ?? 0);
       const total = invoiced + arrears;
-      const paid = Math.max(0, total - balances);
+      const paid = Math.max(0, Number(s.paymentsReceived ?? 0));
+      const balances = Math.max(0, Number(s.totalArrearsAllPages ?? total - paid));
       return {
         id,
         label,
@@ -398,7 +387,8 @@ const Dashboard = () => {
     const { kpiTotals } = chargeRows;
     const invoicedAmount = kpiTotals.invoiced;
     const balances = kpiTotals.balances;
-    const receivedAmount = stats.globalDepositSuspense ?? kpiTotals.paid;
+    /** Same as Reports: sum of invoice Payments Received across all charge types in range. */
+    const receivedAmount = kpiTotals.paid;
     const totalArrears = kpiTotals.arrears;
     return {
       totalInvoices: stats.invoices,
@@ -407,7 +397,7 @@ const Dashboard = () => {
       balances,
       totalArrears
     };
-  }, [chargeRows, stats.invoices, stats.globalDepositSuspense]);
+  }, [chargeRows, stats.invoices]);
 
   const barChartData = useMemo(
     () =>
@@ -436,12 +426,12 @@ const Dashboard = () => {
     const rest = Math.max(0, inv - rec);
     if (inv === 0 && rec === 0) {
       return [
-        { name: 'Deposits + suspense', value: 1 },
+        { name: 'Payments Received', value: 1 },
         { name: 'Invoiced (remaining)', value: 1 }
       ];
     }
     return [
-      { name: 'Deposits + suspense', value: rec },
+      { name: 'Payments Received', value: rec },
       { name: 'Invoiced (remaining)', value: rest }
     ];
   }, [kpis.invoicedAmount, kpis.receivedAmount]);
@@ -512,7 +502,7 @@ const Dashboard = () => {
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ flex: 1, '& > *': { flex: '1 1 140px', minWidth: 120 } }}>
               <KpiCard title="Total Invoices" value={formatCompactCount(kpis.totalInvoices)} loading={loading} />
               <KpiCard title="Invoiced Amount" value={formatCompactMoney(kpis.invoicedAmount)} loading={loading} />
-              <KpiCard title="Deposits + suspense" value={formatCompactMoney(kpis.receivedAmount)} loading={loading} />
+              <KpiCard title="Payments Received" value={formatCompactMoney(kpis.receivedAmount)} loading={loading} />
               <KpiCard title="Balances" value={formatCompactMoney(kpis.balances)} loading={loading} />
               <KpiCard title="Total Arrears" value={formatCompactMoney(kpis.totalArrears)} loading={loading} />
             </Stack>
@@ -582,7 +572,7 @@ const Dashboard = () => {
                         Total
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Paid (dep. + susp.)
+                        Payments Received
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
                         Balances
@@ -661,7 +651,7 @@ const Dashboard = () => {
                   <RTooltip formatter={(val) => formatTableNumber(val)} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="invoiced" name="Invoiced" fill={CHART_BLUE} radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="paid" name="Paid (dep. + susp.)" fill={CHART_BLUE_DARK} radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="paid" name="Payments Received" fill={CHART_BLUE_DARK} radius={[2, 2, 0, 0]} />
                   <Bar dataKey="balances" name="Balances" fill={ORANGE} radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -794,7 +784,7 @@ const Dashboard = () => {
               <Stack direction="row" justifyContent="center" spacing={3} sx={{ mt: -1 }}>
                 <Stack direction="row" alignItems="center" spacing={0.5}>
                   <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: DEEP_BLUE }} />
-                  <Typography variant="caption">Deposits + suspense {formatCompactMoney(donutData[0]?.value)}</Typography>
+                  <Typography variant="caption">Payments Received {formatCompactMoney(donutData[0]?.value)}</Typography>
                 </Stack>
                 <Stack direction="row" alignItems="center" spacing={0.5}>
                   <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: LIGHT_BLUE }} />

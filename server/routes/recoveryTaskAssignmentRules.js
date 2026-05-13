@@ -1,6 +1,7 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
+const { recoveryTaskAssignmentListAccess } = require('../middleware/recoveryTaskAssignmentListAccess');
 const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssignmentRule');
 const RecoveryMember = require('../models/finance/RecoveryMember');
 const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
@@ -60,9 +61,14 @@ function getProgress(rule) {
 // GET /api/finance/recovery-task-rules
 router.get(
   '/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  recoveryTaskAssignmentListAccess,
   asyncHandler(async (req, res) => {
-    const rules = await RecoveryTaskAssignmentRule.find({ isActive: true })
+    const ruleQuery = { isActive: true };
+    if (req.recoveryTaskAssignmentListScope === 'self') {
+      ruleQuery.assignedTo = req.recoveryTaskAssignmentSelfMemberId;
+    }
+
+    const rules = await RecoveryTaskAssignmentRule.find(ruleQuery)
       .populate('assignedTo', 'employee')
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .populate({ path: 'createdBy', select: 'firstName lastName employeeId' })

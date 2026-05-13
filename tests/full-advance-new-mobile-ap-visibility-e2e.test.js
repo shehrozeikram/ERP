@@ -18,6 +18,34 @@ function ok(msg, extra) {
   console.log(`✓ ${msg}`, extra || '');
 }
 
+function buildMultipartAttachment(boundary, filename, fileUtf8, contentType = 'text/plain') {
+  const crlf = '\r\n';
+  return Buffer.concat([
+    Buffer.from(
+      `--${boundary}${crlf}Content-Disposition: form-data; name="file"; filename="${filename}"${crlf}Content-Type: ${contentType}${crlf}${crlf}`,
+      'utf8'
+    ),
+    Buffer.from(fileUtf8, 'utf8'),
+    Buffer.from(`${crlf}--${boundary}--${crlf}`, 'utf8')
+  ]);
+}
+
+async function finalizeVendorAdvanceVoucherForE2e(api, advanceResData, stamp, label) {
+  const advId = advanceResData?._id;
+  const jeId = advanceResData?.journalEntryId;
+  if (!advId || !jeId) fail(`${label}: missing advance id or journal entry`, advanceResData);
+  const appr = await api.put(`/finance/vendor-advances/${advId}/finance-approve`, {});
+  if (!appr.data?.success) fail(`${label}: finance approve failed`, appr.data);
+  const boundary = `e2e${stamp}`;
+  const buf = buildMultipartAttachment(boundary, `e2e-voucher-${stamp}.txt`, 'e2e voucher attachment');
+  const up = await api.post(`/finance/journal-entries/${jeId}/attachments`, buf, {
+    headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` }
+  });
+  if (!up.data?.success) fail(`${label}: voucher attachment upload failed`, up.data);
+  const sig = await api.put(`/finance/journal-entries/${jeId}/signed-document`, { signedDocumentStatus: 'signed' });
+  if (!sig.data?.success) fail(`${label}: mark voucher signed failed`, sig.data);
+}
+
 async function run() {
   const api = axios.create({ baseURL: BASE, timeout: 120000, validateStatus: () => true });
   const stamp = Date.now();
@@ -28,6 +56,7 @@ async function run() {
   const login = await api.post('/auth/login', { email: 'ceo@sgc.com', password: 'ceo12345' });
   if (!login.data?.data?.token) fail('Login failed', login.data);
   api.defaults.headers.Authorization = `Bearer ${login.data.data.token}`;
+  const userId = login.data.data.user?._id || login.data.data.user?.id;
 
   // 2) Ensure default accounts and resolve account ids
   const ensure = await api.post('/finance/accounts/ensure-defaults');
@@ -156,9 +185,14 @@ async function run() {
     reference: `ADV-FULL-${stamp}`,
     paymentDate: new Date().toISOString(),
     referenceType: 'purchase_order',
-    referenceId: poId
+    referenceId: poId,
+    financeApprovalAuthorities: {
+      accountsManagerUser: userId,
+      financeControllerUser: userId
+    }
   });
   if (!adv.data?.success) fail('Vendor advance failed', adv.data);
+  await finalizeVendorAdvanceVoucherForE2e(api, adv.data.data, stamp, 'Full advance voucher');
 
   // 8) GRN
   await api.put(`/procurement/purchase-orders/${poId}/send-to-store`, { comments: 'ok' });

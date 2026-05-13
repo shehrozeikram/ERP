@@ -240,7 +240,7 @@ journalEntrySchema.pre('save', async function(next) {
     // Auto-generate entry number if not provided
     if (!this.entryNumber) {
       const count = await this.constructor.countDocuments();
-      this.entryNumber = `JE-${(count + 1).toString().padStart(6, '0')}`;
+      this.entryNumber = `JV-${(count + 1).toString().padStart(6, '0')}`;
     }
 
     // Set posted date if status is posted

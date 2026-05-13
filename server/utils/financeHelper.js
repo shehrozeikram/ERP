@@ -770,8 +770,10 @@ const FinanceHelper = {
     const fa = financeApprovalAuthorities || {};
     const am = fa.accountsManagerUser || fa.accountsManager;
     const fc = fa.financeControllerUser || fa.financeController;
+    if (!am || !fc) {
+      throw new Error('Sr Manager Accounts and GM Finance approvers are required for every vendor advance.');
+    }
     // Accounts Officer / AM is always the user who records the advance (not client-assigned).
-    const hasAuthorityFlow = Boolean(createdBy && am && fc);
     const nowPreparer = new Date();
 
     const advance = await VendorAdvance.create({
@@ -785,24 +787,20 @@ const FinanceHelper = {
       module,
       referenceType,
       referenceId,
-      voucherWorkflowStatus: hasAuthorityFlow ? 'pending_authority' : 'immediate',
-      financeApprovalAuthorities: hasAuthorityFlow
-        ? {
-            accountsOfficerUser: createdBy,
-            accountsManagerUser: am,
-            financeControllerUser: fc
-          }
-        : undefined,
-      financeAuthorityApprovals: hasAuthorityFlow
-        ? [{
-            authorityKey: 'accountsOfficerUser',
-            authorityLabel: 'Accounts Officer / AM',
-            approver: createdBy,
-            decision: 'approved',
-            approvedAt: nowPreparer,
-            comments: 'Preparer — recorded vendor advance'
-          }]
-        : undefined
+      voucherWorkflowStatus: 'pending_authority',
+      financeApprovalAuthorities: {
+        accountsOfficerUser: createdBy,
+        accountsManagerUser: am,
+        financeControllerUser: fc
+      },
+      financeAuthorityApprovals: [{
+        authorityKey: 'accountsOfficerUser',
+        authorityLabel: 'Accounts Officer / AM',
+        approver: createdBy,
+        decision: 'approved',
+        approvedAt: nowPreparer,
+        comments: 'Preparer — recorded vendor advance'
+      }]
     });
 
     let advAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
@@ -831,28 +829,10 @@ const FinanceHelper = {
       { account: bankAccount._id, description: `Advance payment (${advance.reference})`, credit: amount_, department }
     ];
 
-    if (hasAuthorityFlow) {
-      const journalEntry = await FinanceHelper.createDraftJournalEntry({
-        date: date || new Date(),
-        reference: advance.reference,
-        description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
-        department,
-        module,
-        referenceId: advance._id,
-        referenceType: 'payment',
-        journalCode: 'BANK',
-        createdBy,
-        lines: linePayload
-      });
-      advance.journalEntryId = journalEntry._id;
-      await advance.save();
-      return advance;
-    }
-
-    const journalEntry = await FinanceHelper.createAndPostJournalEntry({
+    const journalEntry = await FinanceHelper.createDraftJournalEntry({
       date: date || new Date(),
       reference: advance.reference,
-      description: `Vendor Advance: ${vendorName || 'Vendor'}`,
+      description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
       department,
       module,
       referenceId: advance._id,
@@ -862,9 +842,7 @@ const FinanceHelper = {
       lines: linePayload
     });
     advance.journalEntryId = journalEntry._id;
-    advance.voucherWorkflowStatus = 'fully_approved';
     await advance.save();
-
     return advance;
   },
 
@@ -890,6 +868,8 @@ const FinanceHelper = {
     const adjustments = [];
     for (const adv of advances) {
       if (remainingBill <= 0 || remainingRequest <= 0) break;
+      const wf = adv.voucherWorkflowStatus || 'immediate';
+      if (wf === 'pending_authority' || wf === 'rejected') continue;
       const advRemaining = Math.round(((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0)) * 100) / 100;
       if (advRemaining <= 0) continue;
       const applyAmount = Math.min(remainingBill, remainingRequest, advRemaining);

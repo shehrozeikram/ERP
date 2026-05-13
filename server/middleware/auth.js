@@ -329,9 +329,42 @@ const authorize = (...roles) => {
   };
 };
 
+/**
+ * Runs authorize(...) against a dummy response to see if the user would be allowed,
+ * without sending a real HTTP response. Used to fall back to a narrower scope (e.g. own recovery rows).
+ */
+function tryAuthorize(req, ...roles) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const dummyRes = {
+      status() {
+        return this;
+      },
+      json() {
+        settle(false);
+      }
+    };
+    const mw = authorize(...roles);
+    try {
+      const maybePromise = mw(req, dummyRes, () => settle(true));
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(() => settle(false));
+      }
+    } catch {
+      settle(false);
+    }
+  });
+}
+
 module.exports = {
   authMiddleware,
   refreshAuthMiddleware,
   optionalAuth,
-  authorize
+  authorize,
+  tryAuthorize
 }; 
