@@ -99,7 +99,7 @@ echo "Updated commit: ${NEW_COMMIT}"
 
 if [ -f "/tmp/.sgc-erp-env-deploy" ]; then
   mv "/tmp/.sgc-erp-env-deploy" ".env"
-  echo "Environment file updated from staging."
+  echo "Environment file updated from local .env.production (deploy upload)."
 else
   echo "WARNING: /tmp/.sgc-erp-env-deploy not found — .env NOT updated."
 fi
