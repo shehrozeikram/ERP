@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 # SGC ERP - safer production deployment script
+# - Preflight: clean working tree, local HEAD == origin/main (push before deploy)
 # - Builds client locally
-# - Uploads build and production env to server
-# - Updates server code from origin/main with preflight checks
-# - npm install, sync static files, nginx, PM2 restart, smoke checks
-# - Final PM2 restart + health echo so the run visibly ends with backend verified
+# - Server phase 1: scp .env to /tmp → stash if dirty → git fetch/pull → npm install
+# - rsync client/build (after pull so static bundle is not lost to stash/pull ordering)
+# - Server phase 2: copy build to nginx docroot, PM2 restart (×2), smoke + health
 
 set -euo pipefail
 
@@ -64,14 +64,10 @@ fi
 log_info "Building React app locally..."
 (cd client && npm run build)
 
-log_info "Uploading client build artifacts..."
-rsync -avz --delete "client/build/" "${SERVER_USER}@${SERVER_IP}:${SERVER_PATH}/client/build/"
-
-log_info "Uploading production environment..."
+log_info "Uploading production environment (staged outside repo on server)..."
 # Stage env file in /tmp (outside the git repo) so git stash -u cannot swallow it.
 scp "$ENV_FILE" "${SERVER_USER}@${SERVER_IP}:/tmp/.sgc-erp-env-deploy"
 
-log_info "Deploying on server (remote log is line-buffered; npm install may take 1–3 min)..."
 # ServerAlive* keeps long npm install from timing out; stdbuf line-buffers remote stdout on the server.
 SSH_BASE=(ssh
   -o "ConnectTimeout=30"
@@ -80,8 +76,11 @@ SSH_BASE=(ssh
   "${SERVER_USER}@${SERVER_IP}"
 )
 
-# Remote: line-buffer when stdbuf exists (clearer live logs during npm install).
-"${SSH_BASE[@]}" "export SERVER_PATH='${SERVER_PATH}'; export AUTO_STASH_SERVER_CHANGES='${AUTO_STASH_SERVER_CHANGES}'; command -v stdbuf >/dev/null 2>&1 && exec stdbuf -oL -eL bash -s || exec bash -s" <<'ENDSSH'
+# --- Phase 1: server repo = origin/main + npm install (NO static copy yet) ---
+# Rationale: rsync must run AFTER stash/pull so the freshly built client is never wiped by
+# auto-stash or superseded by an old tree; backend code matches the commit you built against.
+log_info "Server phase 1: git sync + npm install (remote log line-buffered; 1–3 min)..."
+"${SSH_BASE[@]}" "export SERVER_PATH='${SERVER_PATH}'; export AUTO_STASH_SERVER_CHANGES='${AUTO_STASH_SERVER_CHANGES}'; command -v stdbuf >/dev/null 2>&1 && exec stdbuf -oL -eL bash -s || exec bash -s" <<'ENDSSH1'
 set -euo pipefail
 
 SERVER_TS() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
@@ -90,8 +89,9 @@ say() { echo "[server $(SERVER_TS)] $*"; }
 cd "$SERVER_PATH"
 say "Server path: $(pwd)"
 
-CURRENT_COMMIT="$(git rev-parse --short HEAD)"
-say "Current commit: ${CURRENT_COMMIT}"
+BEFORE_FULL="$(git rev-parse HEAD)"
+BEFORE_SHORT="$(git rev-parse --short HEAD)"
+say "Current commit (before pull): ${BEFORE_SHORT} (${BEFORE_FULL})"
 
 if [ -n "$(git status --porcelain)" ]; then
   if [ "$AUTO_STASH_SERVER_CHANGES" = "1" ]; then
@@ -107,10 +107,20 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 export GIT_TERMINAL_PROMPT=0
-say "Pulling latest code from origin/main..."
-git pull --ff-only origin main
-NEW_COMMIT="$(git rev-parse --short HEAD)"
-say "Updated commit: ${NEW_COMMIT}"
+say "Fetching origin/main..."
+git fetch origin main
+REMOTE_FULL="$(git rev-parse origin/main)"
+REMOTE_SHORT="$(git rev-parse --short origin/main)"
+say "origin/main is: ${REMOTE_SHORT} (${REMOTE_FULL})"
+if [ "$BEFORE_FULL" = "$REMOTE_FULL" ]; then
+  say "Already at origin/main (no new commits to pull)."
+else
+  say "Pulling fast-forward to origin/main..."
+  git pull --ff-only origin main
+fi
+AFTER_FULL="$(git rev-parse HEAD)"
+AFTER_SHORT="$(git rev-parse --short HEAD)"
+say "Server HEAD after pull: ${AFTER_SHORT} (${AFTER_FULL})"
 
 if [ -f "/tmp/.sgc-erp-env-deploy" ]; then
   mv "/tmp/.sgc-erp-env-deploy" ".env"
@@ -138,6 +148,22 @@ npm install --omit=dev --omit=optional
 say "========== npm install finished =========="
 
 mkdir -p "client/build"
+say "========== Server phase 1 done (awaiting client build rsync) =========="
+ENDSSH1
+
+log_info "Uploading client build artifacts (after server git pull)..."
+rsync -avz --delete "client/build/" "${SERVER_USER}@${SERVER_IP}:${SERVER_PATH}/client/build/"
+
+# --- Phase 2: publish static + nginx + PM2 + smoke ---
+log_info "Server phase 2: static → nginx, PM2, smoke checks..."
+"${SSH_BASE[@]}" "export SERVER_PATH='${SERVER_PATH}'; command -v stdbuf >/dev/null 2>&1 && exec stdbuf -oL -eL bash -s || exec bash -s" <<'ENDSSH2'
+set -euo pipefail
+
+SERVER_TS() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+say() { echo "[server $(SERVER_TS)] $*"; }
+
+cd "$SERVER_PATH"
+
 say "Syncing frontend build to /var/www/html..."
 cp -a client/build/. /var/www/html/
 
@@ -212,8 +238,8 @@ say "PM2 describe sgc-erp-backend (excerpt):"
 pm2 describe sgc-erp-backend 2>/dev/null | head -n 25 || pm2 list
 
 say "========== Server deploy completed successfully. =========="
-ENDSSH
+ENDSSH2
 
 log_ok "Deployment completed successfully."
-log_info "Remote steps included: git pull → npm install → static sync → nginx → PM2 (×2) → smoke + final health."
+log_info "Remote steps: phase1 git fetch/pull + npm install → rsync client/build → phase2 nginx + PM2 (×2) + smoke + final health."
 log_info "Check backend: ssh ${SERVER_USER}@${SERVER_IP} 'cd ${SERVER_PATH} && pm2 status && curl -s http://127.0.0.1:5001/api/health'"
