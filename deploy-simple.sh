@@ -3,7 +3,7 @@
 # SGC ERP - safer production deployment script
 # - Preflight: clean working tree, local HEAD == origin/main (push before deploy)
 # - Builds client locally
-# - Server phase 1: scp .env to /tmp → stash if dirty → git fetch/pull → npm install
+# - Server phase 1: scp .env to /tmp → optional stash (tracked only by default) → git fetch/pull → verify HEAD=origin/main → npm install
 # - rsync client/build (after pull so static bundle is not lost to stash/pull ordering)
 # - Server phase 2: copy build to nginx docroot, PM2 restart (×2), smoke + health
 
@@ -14,6 +14,8 @@ SERVER_IP="68.183.215.177"
 SERVER_PATH="/var/www/sgc-erp"
 ENV_FILE=".env.production"
 AUTO_STASH_SERVER_CHANGES="${AUTO_STASH_SERVER_CHANGES:-1}"
+# Server auto-stash: 0 = tracked-only (default); 1 = include untracked (`git stash -u`).
+AUTO_STASH_INCLUDE_UNTRACKED="${AUTO_STASH_INCLUDE_UNTRACKED:-0}"
 
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -65,7 +67,7 @@ log_info "Building React app locally..."
 (cd client && npm run build)
 
 log_info "Uploading production environment (staged outside repo on server)..."
-# Stage env file in /tmp (outside the git repo) so git stash -u cannot swallow it.
+# Stage env file in /tmp (outside the git repo) so it is not affected by git stash.
 scp "$ENV_FILE" "${SERVER_USER}@${SERVER_IP}:/tmp/.sgc-erp-env-deploy"
 
 # ServerAlive* keeps long npm install from timing out; stdbuf line-buffers remote stdout on the server.
@@ -80,7 +82,7 @@ SSH_BASE=(ssh
 # Rationale: rsync must run AFTER stash/pull so the freshly built client is never wiped by
 # auto-stash or superseded by an old tree; backend code matches the commit you built against.
 log_info "Server phase 1: git sync + npm install (remote log line-buffered; 1–3 min)..."
-"${SSH_BASE[@]}" "export SERVER_PATH='${SERVER_PATH}'; export AUTO_STASH_SERVER_CHANGES='${AUTO_STASH_SERVER_CHANGES}'; command -v stdbuf >/dev/null 2>&1 && exec stdbuf -oL -eL bash -s || exec bash -s" <<'ENDSSH1'
+"${SSH_BASE[@]}" "export SERVER_PATH='${SERVER_PATH}'; export AUTO_STASH_SERVER_CHANGES='${AUTO_STASH_SERVER_CHANGES}'; export AUTO_STASH_INCLUDE_UNTRACKED='${AUTO_STASH_INCLUDE_UNTRACKED:-0}'; command -v stdbuf >/dev/null 2>&1 && exec stdbuf -oL -eL bash -s || exec bash -s" <<'ENDSSH1'
 set -euo pipefail
 
 SERVER_TS() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
@@ -91,14 +93,32 @@ say "Server path: $(pwd)"
 
 BEFORE_FULL="$(git rev-parse HEAD)"
 BEFORE_SHORT="$(git rev-parse --short HEAD)"
-say "Current commit (before pull): ${BEFORE_SHORT} (${BEFORE_FULL})"
+say "Current commit (before pull): ${BEFORE_SHORT}"
+say "Full SHA before: ${BEFORE_FULL}"
 
 if [ -n "$(git status --porcelain)" ]; then
+  say "Server working tree is not clean — first lines of git status:"
+  git status --short | head -25 || true
   if [ "$AUTO_STASH_SERVER_CHANGES" = "1" ]; then
-    STASH_NAME="deploy-auto-stash-$(date +%Y%m%d_%H%M%S)"
-    say "Dirty server working tree detected. Auto-stashing as ${STASH_NAME}..."
-    git stash push -u -m "${STASH_NAME}" >/dev/null
-    say "Auto-stash created."
+    HAS_NON_UNTRACKED=""
+    if [ -n "$(git status --porcelain | grep -v '^??')" ]; then
+      HAS_NON_UNTRACKED=1
+    fi
+    if [ -n "$HAS_NON_UNTRACKED" ] || [ "${AUTO_STASH_INCLUDE_UNTRACKED:-0}" = "1" ]; then
+      STASH_NAME="deploy-auto-stash-$(date +%Y%m%d_%H%M%S)"
+      if [ "${AUTO_STASH_INCLUDE_UNTRACKED:-0}" = "1" ]; then
+        say "Auto-stashing (tracked + untracked) as ${STASH_NAME}..."
+        git stash push -u -m "${STASH_NAME}" >/dev/null
+      else
+        say "Auto-stashing tracked changes only as ${STASH_NAME} (set AUTO_STASH_INCLUDE_UNTRACKED=1 to add untracked)..."
+        git stash push -m "${STASH_NAME}" >/dev/null || {
+          say "WARNING: git stash had nothing to save; continuing."
+        }
+      fi
+      say "Auto-stash step finished."
+    else
+      say "Only untracked files (e.g. logs); skipping stash. client/build is gitignored — pull will not delete it."
+    fi
   else
     echo "ERROR: Server working tree is dirty. Clean or stash changes, then redeploy."
     git status --short
@@ -120,7 +140,16 @@ else
 fi
 AFTER_FULL="$(git rev-parse HEAD)"
 AFTER_SHORT="$(git rev-parse --short HEAD)"
-say "Server HEAD after pull: ${AFTER_SHORT} (${AFTER_FULL})"
+say "Server HEAD after pull: ${AFTER_SHORT}"
+say "Full SHA after: ${AFTER_FULL}"
+
+ORIGIN_HEAD="$(git rev-parse origin/main)"
+if [ "$AFTER_FULL" != "$ORIGIN_HEAD" ]; then
+  say "ERROR: HEAD is not origin/main after pull (branch mismatch or partial state)."
+  say "HEAD=$(git rev-parse HEAD) origin/main=$(git rev-parse origin/main)"
+  exit 1
+fi
+say "Verified: server HEAD matches origin/main."
 
 if [ -f "/tmp/.sgc-erp-env-deploy" ]; then
   mv "/tmp/.sgc-erp-env-deploy" ".env"
@@ -241,5 +270,6 @@ say "========== Server deploy completed successfully. =========="
 ENDSSH2
 
 log_ok "Deployment completed successfully."
+log_info "Local commit used for this build: $(git rev-parse --short HEAD) (full $(git rev-parse HEAD)) — should match server after phase 1."
 log_info "Remote steps: phase1 git fetch/pull + npm install → rsync client/build → phase2 nginx + PM2 (×2) + smoke + final health."
 log_info "Check backend: ssh ${SERVER_USER}@${SERVER_IP} 'cd ${SERVER_PATH} && pm2 status && curl -s http://127.0.0.1:5001/api/health'"
