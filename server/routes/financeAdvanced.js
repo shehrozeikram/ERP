@@ -23,68 +23,19 @@ const {
 } = require('../utils/financeAuthoritySlots');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
+const {
+  isFullAdvancePaymentTerm,
+  buildJournalEntrySignedMapForVendorAdvances,
+  vendorAdvanceAmountCountsForPo,
+  sumPostedVendorAdvancesForPo,
+  vendorAdvancesLinkedToPurchaseOrderFilter
+} = require('../utils/fullAdvancePoGate');
 
 const router = express.Router();
 const { ACCOUNT_TYPES_GROUPED, ACCOUNT_TYPE_TO_SECTION, DETAIL_TYPES_BY_ACCOUNT_TYPE } = require('../config/accountDetailTypes');
 
-const isFullAdvancePaymentTerm = (paymentTerms) => {
-  const terms = String(paymentTerms || '').toLowerCase().trim();
-  if (!terms) return false;
-  return terms.includes('full advance') || (terms.includes('advance') && !terms.includes('partial'));
-};
-
-const jeSignedDocumentComplete = (je) =>
-  je && je.signedDocumentStatus === 'signed' && Boolean(je.signedDocumentAt);
-
-/** Build map journalEntryId -> signed (for PO advance totals / auto-approve). */
-async function buildJournalEntrySignedMapForVendorAdvances(advanceRows) {
-  const ids = [
-    ...new Set(
-      (advanceRows || [])
-        .filter((a) => a.voucherWorkflowStatus === 'fully_approved' && a.journalEntryId)
-        .map((a) => String(a.journalEntryId))
-    )
-  ];
-  if (!ids.length) return {};
-  const jes = await JournalEntry.find({ _id: { $in: ids } })
-    .select('signedDocumentStatus signedDocumentAt')
-    .lean();
-  const m = {};
-  jes.forEach((je) => {
-    m[String(je._id)] = jeSignedDocumentComplete(je);
-  });
-  return m;
-}
-
-/** Vendor advance counts toward PO “recorded” / auto-approve only when voucher is signed (fully_approved + signed doc). Legacy immediate = posted without that gate. */
-const vendorAdvanceAmountCountsForPo = (a, jeSignedByJournalId = {}) => {
-  const s = a?.voucherWorkflowStatus;
-  if (s === 'pending_authority' || s === 'rejected') return false;
-  if (s === 'fully_approved') {
-    const jid = a.journalEntryId ? String(a.journalEntryId) : '';
-    return Boolean(jid && jeSignedByJournalId[jid]);
-  }
-  return true;
-};
-
-async function sumPostedVendorAdvancesForPo(poId) {
-  const rows = await VendorAdvance.find({
-    referenceType: 'purchase_order',
-    referenceId: poId
-  })
-    .select('amount voucherWorkflowStatus journalEntryId')
-    .lean();
-  const jeSignedByJournalId = await buildJournalEntrySignedMapForVendorAdvances(rows);
-  let sum = 0;
-  for (const a of rows) {
-    if (!vendorAdvanceAmountCountsForPo(a, jeSignedByJournalId)) continue;
-    sum += Math.round((Number(a.amount) || 0) * 100) / 100;
-  }
-  return sum;
-}
-
 async function tryAutoApprovePoAfterVendorAdvance(advance, userId) {
-  if (advance.referenceType !== 'purchase_order' || !advance.referenceId) return;
+  if (!advance.referenceId) return;
   const po = await PurchaseOrder.findById(advance.referenceId);
   if (!po || po.status !== 'Pending Finance' || !isFullAdvancePaymentTerm(po.paymentTerms)) return;
   const poTotal = Math.round((Number(po.totalAmount) || 0) * 100) / 100;
@@ -110,6 +61,7 @@ async function tryAutoApprovePoAfterVendorAdvance(advance, userId) {
 
 async function populateVendorAdvanceDoc(query) {
   return VendorAdvance.findOne(query)
+    .populate('bankAccountId', 'name accountNumber type category')
     .populate('financeApprovalAuthorities.accountsOfficerUser', 'firstName lastName email employeeId digitalSignature')
     .populate('financeApprovalAuthorities.accountsManagerUser', 'firstName lastName email employeeId digitalSignature')
     .populate('financeApprovalAuthorities.financeControllerUser', 'firstName lastName email employeeId digitalSignature')
@@ -254,6 +206,14 @@ router.post('/accounts/ensure-defaults',
     const defaults = [
       { accountNumber: '1001', name: 'Cash',                    type: 'Asset',     category: 'Current Asset',       detailType: 'Cash and Cash Equivalents' },
       { accountNumber: '1002', name: 'Bank Account',            type: 'Asset',     category: 'Current Asset',       detailType: 'Bank'                      },
+      {
+        accountNumber: '1003',
+        name: 'Allied Bank Ltd — Operating (placeholder)',
+        type: 'Asset',
+        category: 'Current Asset',
+        detailType: 'Bank',
+        description: 'Dummy operating bank — rename or replace in Chart of Accounts when ready.'
+      },
       { accountNumber: '1100', name: 'Inventory',               type: 'Asset',     category: 'Current Asset',       detailType: 'Inventory Asset'            },
       { accountNumber: '1120', name: 'Cash Advance to Staff',   type: 'Asset',     category: 'Current Asset',       detailType: 'Other Current Assets'       },
       { accountNumber: '1200', name: 'Accounts Receivable',     type: 'Asset',     category: 'Current Asset',       detailType: 'Accounts Receivable'        },
@@ -274,7 +234,13 @@ router.post('/accounts/ensure-defaults',
     for (const acc of defaults) {
       const existing = await Account.findOne({ accountNumber: acc.accountNumber });
       if (!existing) {
-        const created = await Account.create({ ...acc, isActive: true, isSystemAccount: true, description: 'Auto-created system account' });
+        const { description: accDesc, ...accRest } = acc;
+        const created = await Account.create({
+          ...accRest,
+          isActive: true,
+          isSystemAccount: true,
+          description: accDesc || 'Auto-created system account'
+        });
         results.push({ status: 'created', accountNumber: acc.accountNumber, name: acc.name, _id: created._id });
       } else {
         results.push({ status: 'exists', accountNumber: acc.accountNumber, name: existing.name, _id: existing._id });
@@ -354,10 +320,20 @@ router.get('/journal-entries',
       status,
       startDate,
       endDate,
-      search 
+      search,
+      referenceType
     } = req.query;
 
     const filters = {};
+
+    const allowedReferenceTypes = new Set([
+      'payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual',
+      'grn', 'sin', 'purchase_order', 'stock_adjustment', 'purchase_return',
+      'depreciation', 'expense'
+    ]);
+    if (referenceType && allowedReferenceTypes.has(String(referenceType).toLowerCase())) {
+      filters.referenceType = String(referenceType).toLowerCase();
+    }
 
     if (department) filters.department = department;
     if (module) filters.module = module;
@@ -718,12 +694,21 @@ router.get('/general-ledger/account/:id',
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
-    
-    const entries = await GeneralLedger.getAccountLedger(
-      req.params.id,
-      startDate ? new Date(startDate) : null,
-      endDate ? new Date(endDate) : null
-    );
+    // Match trial-balance-v2: full local calendar day for from/to (date-only query strings).
+    let start = null;
+    let end = null;
+    if (startDate) {
+      start = new Date(startDate);
+      if (!Number.isNaN(start.getTime())) start.setHours(0, 0, 0, 0);
+      else start = null;
+    }
+    if (endDate) {
+      end = new Date(endDate);
+      if (!Number.isNaN(end.getTime())) end.setHours(23, 59, 59, 999);
+      else end = null;
+    }
+
+    const entries = await GeneralLedger.getAccountLedger(req.params.id, start, end);
 
     res.json({
       success: true,
@@ -1103,7 +1088,11 @@ router.get('/accounts-payable/vendor-advances',
     const poIds = [
       ...new Set(
         rows
-          .filter((a) => a.referenceType === 'purchase_order' && a.referenceId)
+          .filter((a) => {
+            if (!a.referenceId) return false;
+            const rt = a.referenceType;
+            return rt === 'purchase_order' || rt === 'advance' || rt == null || rt === '' || typeof rt === 'undefined';
+          })
           .map((a) => String(a.referenceId))
       )
     ];
@@ -1124,6 +1113,13 @@ router.get('/accounts-payable/vendor-advances',
       });
     }
 
+    const bankIds = [...new Set(rows.map((r) => r.bankAccountId).filter(Boolean).map((id) => String(id)))];
+    const bankById = {};
+    if (bankIds.length > 0) {
+      const bankRows = await Account.find({ _id: { $in: bankIds } }).select('name accountNumber').lean();
+      bankRows.forEach((b) => { bankById[String(b._id)] = b; });
+    }
+
     const advances = rows.map((a) => {
       const amount = Number(a.amount || 0);
       const applied = Number(a.appliedAmount || 0);
@@ -1142,6 +1138,7 @@ router.get('/accounts-payable/vendor-advances',
         : [];
 
       const je = a.journalEntryId ? jeSignedById[String(a.journalEntryId)] : null;
+      const bankAcc = a.bankAccountId ? bankById[String(a.bankAccountId)] : null;
       return {
         _id: a._id,
         vendor: a.vendor,
@@ -1149,12 +1146,16 @@ router.get('/accounts-payable/vendor-advances',
         appliedAmount: applied,
         remainingAmount,
         paymentMethod: a.paymentMethod,
+        bankAccountId: a.bankAccountId || null,
+        bankAccount: bankAcc
+          ? { _id: bankAcc._id, name: bankAcc.name, accountNumber: bankAcc.accountNumber }
+          : null,
         reference: a.reference,
         paymentDate: a.paymentDate,
         status: a.status,
         referenceType: a.referenceType,
         referenceId: a.referenceId,
-        linkedPoNumber: a.referenceType === 'purchase_order' && a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
+        linkedPoNumber: a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
         journalEntryId: a.journalEntryId || null,
         voucherWorkflowStatus: a.voucherWorkflowStatus || 'immediate',
         voucherSignedDocumentStatus: je?.signedDocumentStatus || null,
@@ -1197,8 +1198,14 @@ router.get('/accounts-payable/vendor-advance-po-queue',
 
     const advances = poIds.length
       ? await VendorAdvance.find({
-        referenceType: 'purchase_order',
-        referenceId: { $in: poIds }
+        referenceId: { $in: poIds },
+        $or: [
+          { referenceType: 'purchase_order' },
+          { referenceType: 'advance' },
+          { referenceType: null },
+          { referenceType: '' },
+          { referenceType: { $exists: false } }
+        ]
       })
         .select('referenceId amount voucherWorkflowStatus journalEntryId')
         .lean()
@@ -1275,8 +1282,7 @@ router.get('/vendor-advances/po/:purchaseOrderId/pending-voucher',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const pending = await VendorAdvance.findOne({
-      referenceType: 'purchase_order',
-      referenceId: req.params.purchaseOrderId,
+      ...vendorAdvancesLinkedToPurchaseOrderFilter(req.params.purchaseOrderId),
       voucherWorkflowStatus: 'pending_authority'
     })
       .select('_id reference')
@@ -1564,7 +1570,8 @@ router.post('/accounts-payable/advance-payment',
   [
     body('vendorName').trim().notEmpty().withMessage('Vendor name is required'),
     body('amount').isFloat({ min: 0.01 }).withMessage('Advance amount must be greater than zero'),
-    body('paymentMethod').optional().isIn(['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other']).withMessage('Valid payment method is required')
+    body('paymentMethod').optional().isIn(['cash', 'check', 'cheque', 'credit_card', 'bank_transfer', 'ach', 'other']).withMessage('Valid payment method is required'),
+    body('bankAccountId').optional().isMongoId().withMessage('Valid bank account id is required when provided')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -1572,20 +1579,22 @@ router.post('/accounts-payable/advance-payment',
 
     const referenceType = req.body.referenceType || 'advance';
     const referenceId = req.body.referenceId || null;
-    if (referenceType === 'purchase_order' && referenceId) {
-      const blocked = await VendorAdvance.findOne({
-        referenceType: 'purchase_order',
-        referenceId,
-        voucherWorkflowStatus: 'pending_authority'
-      })
-        .select('_id')
-        .lean();
-      if (blocked) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'This PO already has a vendor advance waiting for finance voucher signatures. Finish approvals or reject that voucher before recording another advance for the same PO.'
-        });
+    if (referenceId) {
+      const poExists = await PurchaseOrder.exists({ _id: referenceId });
+      if (poExists) {
+        const blocked = await VendorAdvance.findOne({
+          ...vendorAdvancesLinkedToPurchaseOrderFilter(referenceId),
+          voucherWorkflowStatus: 'pending_authority'
+        })
+          .select('_id')
+          .lean();
+        if (blocked) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'This PO already has a vendor advance waiting for finance voucher signatures. Finish approvals or reject that voucher before recording another advance for the same PO.'
+          });
+        }
       }
     }
 

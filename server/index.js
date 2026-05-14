@@ -149,6 +149,7 @@ require('./models/finance/PaymentTerm');
 require('./models/procurement/PurchaseReturn');
 require('./models/procurement/InventoryCategory');
 require('./models/procurement/CashApproval');
+require('./models/procurement/DeliveryChallan');
 require('./models/chat/ChatConversation');
 require('./models/chat/ChatMessage');
 

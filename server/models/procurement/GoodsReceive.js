@@ -24,6 +24,11 @@ const goodsReceiveSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'PurchaseOrder'
   },
+  /** When set, GRN was posted against a procurement delivery challan (full-advance PO flow). */
+  deliveryChallan: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'DeliveryChallan'
+  },
   poNumber: {
     type: String,
     trim: true

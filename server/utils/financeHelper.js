@@ -256,12 +256,19 @@ const FinanceHelper = {
 
       const ledgerEntries = [];
       for (const line of entry.lines) {
+        const accountRef = (line.account && line.account._id) ? line.account._id : line.account;
+        if (!accountRef) {
+          throw new Error('Journal line is missing account for GL posting');
+        }
         // Fetch the latest account balance to ensure running balance is accurate
-        const currentAccount = await Account.findById(line.account._id).lean();
-        
+        const currentAccount = await Account.findById(accountRef).lean();
+        if (!currentAccount) {
+          throw new Error(`Account not found for GL posting: ${accountRef}`);
+        }
+
         ledgerEntries.push({
           journalEntry: entry._id,
-          account: line.account._id,
+          account: accountRef,
           date: entry.date,
           entryNumber: entry.entryNumber,
           reference: entry.reference,
@@ -591,6 +598,7 @@ const FinanceHelper = {
             referenceId: apEntry._id,
             referenceType: 'bill',
             journalCode: 'PURCH',
+            voucherSeries: 'BILL',
             createdBy,
             lines: [
               { account: debitAccount._id, description: debitDescription, debit: amount, department },
@@ -776,10 +784,35 @@ const FinanceHelper = {
     // Accounts Officer / AM is always the user who records the advance (not client-assigned).
     const nowPreparer = new Date();
 
+    let advAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    if (!advAccount) {
+      advAccount = await Account.create({
+        accountNumber: FinanceHelper.ACCOUNTS.VENDOR_ADVANCE,
+        name: 'Advance to Suppliers',
+        type: 'Asset',
+        category: 'Current Asset',
+        detailType: 'Other Current Assets',
+        description: 'Vendor advances paid before bill settlement',
+        isSystem: true,
+        createdBy
+      });
+    }
+    let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+    if (bankAccountId && !bankAccount) {
+      throw new Error('Selected bank or cash account was not found. Pick a valid chart account.');
+    }
+    if (!bankAccount) {
+      bankAccount = await FinanceHelper.getAccountByNumber(
+        (paymentMethod || 'bank_transfer') === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+      );
+    }
+    if (!advAccount || !bankAccount) throw new Error('Advance or Bank/Cash account not found');
+
     const advance = await VendorAdvance.create({
       vendor: { name: vendorName || 'Vendor', email: vendorEmail || '', vendorId: vendorId || null },
       amount: amount_,
       paymentMethod: paymentMethod || 'bank_transfer',
+      bankAccountId: bankAccount._id,
       reference: reference || `ADV-${Date.now()}`,
       paymentDate: date || new Date(),
       createdBy,
@@ -803,27 +836,6 @@ const FinanceHelper = {
       }]
     });
 
-    let advAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
-    if (!advAccount) {
-      advAccount = await Account.create({
-        accountNumber: FinanceHelper.ACCOUNTS.VENDOR_ADVANCE,
-        name: 'Advance to Suppliers',
-        type: 'Asset',
-        category: 'Current Asset',
-        detailType: 'Other Current Assets',
-        description: 'Vendor advances paid before bill settlement',
-        isSystem: true,
-        createdBy
-      });
-    }
-    let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
-    if (!bankAccount) {
-      bankAccount = await FinanceHelper.getAccountByNumber(
-        (paymentMethod || 'bank_transfer') === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
-      );
-    }
-    if (!advAccount || !bankAccount) throw new Error('Advance or Bank/Cash account not found');
-
     const linePayload = [
       { account: advAccount._id, description: `Advance to ${vendorName || 'Vendor'}`, debit: amount_, department },
       { account: bankAccount._id, description: `Advance payment (${advance.reference})`, credit: amount_, department }
@@ -838,6 +850,7 @@ const FinanceHelper = {
       referenceId: advance._id,
       referenceType: 'payment',
       journalCode: 'BANK',
+      voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
       createdBy,
       lines: linePayload
     });
@@ -1028,6 +1041,7 @@ const FinanceHelper = {
         referenceId: grnDoc._id,
         referenceType: 'grn',
         journalCode: 'INV',
+        voucherSeries: 'GRN',
         createdBy,
         lines: [
           {
@@ -1093,6 +1107,7 @@ const FinanceHelper = {
         referenceId: sinDoc._id,
         referenceType: 'sin',
         journalCode: 'INV',
+        voucherSeries: 'SIN',
         createdBy,
         lines: [
           {

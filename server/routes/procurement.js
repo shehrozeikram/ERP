@@ -14,6 +14,8 @@ const AccountsPayable = require('../models/finance/AccountsPayable');
 const Inventory = require('../models/procurement/Inventory');
 const InventoryCategory = require('../models/procurement/InventoryCategory');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
+const DeliveryChallan = require('../models/procurement/DeliveryChallan');
+const { isFullAdvancePaymentTerm, requiresDeliveryChallanFlow, getGrnDcEligibility } = require('../utils/fullAdvancePoGate');
 const GoodsIssue = require('../models/procurement/GoodsIssue');
 const StockTransaction = require('../models/procurement/StockTransaction');
 const CostCenter = require('../models/procurement/CostCenter');
@@ -437,7 +439,7 @@ const notifyDocumentRecipients = async ({
 
 const STORE_SUBMODULE_ROUTES = {
   dashboard: '/procurement/store',
-  qualityAssurance: '/procurement/store/quality-assurance',
+  deliveryChallans: '/procurement/store/delivery-challans',
   goodsReceive: '/procurement/store/goods-receive',
   inventory: '/procurement/store/inventory'
 };
@@ -612,6 +614,71 @@ function matchPurchaseOrderLineIndex(poItems, grnLine, grnIndex) {
   }
   if (grnIndex < poItems.length) return grnIndex;
   return -1;
+}
+
+/** Open qty still committed on QA-pending / QA-passed DCs (not yet received on GRN). */
+async function getOpenDcQuantitiesByPoLine(poId) {
+  const oid = mongoose.Types.ObjectId.isValid(String(poId))
+    ? new mongoose.Types.ObjectId(String(poId))
+    : poId;
+  const rows = await DeliveryChallan.find({
+    purchaseOrder: oid,
+    status: { $in: ['qa_pending', 'qa_passed'] }
+  })
+    .select('items')
+    .lean();
+  const map = {};
+  for (const dc of rows) {
+    for (const it of dc.items || []) {
+      const j = Number(it.poLineIndex);
+      if (Number.isNaN(j) || j < 0) continue;
+      const open = Math.round(((Number(it.quantity) || 0) - (Number(it.quantityReceived) || 0)) * 100) / 100;
+      if (open <= 0) continue;
+      map[j] = (map[j] || 0) + open;
+    }
+  }
+  return map;
+}
+
+/** Distribute GRN quantities across DC item rows (FIFO) and mark closed when fully received. */
+function applyGrnQuantitiesToDeliveryChallan(dcDoc, qtyByPoLineIndex) {
+  for (const jStr of Object.keys(qtyByPoLineIndex)) {
+    const poLineIndex = Number(jStr);
+    let rem = Math.round((Number(qtyByPoLineIndex[jStr]) || 0) * 100) / 100;
+    if (rem <= 0 || Number.isNaN(poLineIndex)) continue;
+    const lineItems = (dcDoc.items || []).filter((it) => Number(it.poLineIndex) === poLineIndex);
+    for (const it of lineItems) {
+      if (rem <= 0) break;
+      const cap = Math.round(((Number(it.quantity) || 0) - (Number(it.quantityReceived) || 0)) * 100) / 100;
+      if (cap <= 0) continue;
+      const add = Math.min(rem, cap);
+      it.quantityReceived = Math.round(((Number(it.quantityReceived) || 0) + add) * 100) / 100;
+      rem = Math.round((rem - add) * 100) / 100;
+    }
+  }
+  const allDone = (dcDoc.items || []).every(
+    (it) => (Number(it.quantityReceived) || 0) + 0.0001 >= (Number(it.quantity) || 0)
+  );
+  dcDoc.status = allDone ? 'closed' : 'qa_passed';
+}
+
+/** PO may receive new DC lines in normal store flow, or "Received" only when lines still show open qty (data recovery). */
+function purchaseOrderOpenForDeliveryChallan(poDoc) {
+  const openStatuses = ['Sent to Store', 'GRN Created', 'Partially Received', 'Approved', 'Ordered'];
+  if (openStatuses.includes(poDoc.status)) return { ok: true };
+  const hasLineRemaining = (poDoc.items || []).some((it) => {
+    const ordered = Number(it.quantity) || 0;
+    const received = Number(it.receivedQuantity) || 0;
+    return ordered - received > 0.0001;
+  });
+  if (poDoc.status === 'Received' && hasLineRemaining) return { ok: true, recovered: true };
+  return {
+    ok: false,
+    message:
+      poDoc.status === 'Received'
+        ? 'This PO is fully received on all lines. Delivery challans should be created before receipt is complete. If receipts were entered incorrectly, correct PO line received quantities first.'
+        : `PO status "${poDoc.status}" does not allow new delivery challans.`
+  };
 }
 
 // Multer for quotation attachments
@@ -961,6 +1028,30 @@ router.get('/purchase-orders/:id',
     if (fullWorkflowHistory) {
       data.fullWorkflowHistory = fullWorkflowHistory;
     }
+
+    try {
+      const elig = await getGrnDcEligibility(purchaseOrder);
+      data.grnRequiresDeliveryChallan = elig.grnRequiresDeliveryChallan;
+      data.grnDcEligibility = elig;
+      const dcStatus = purchaseOrderOpenForDeliveryChallan(purchaseOrder);
+      data.dcCreationAllowedByStatus = dcStatus.ok;
+      if (!dcStatus.ok) data.dcCreationBlockedReason = dcStatus.message;
+      else delete data.dcCreationBlockedReason;
+    } catch (_) {
+      data.grnRequiresDeliveryChallan = false;
+      data.grnDcEligibility = {
+        grnRequiresDeliveryChallan: false,
+        note: 'Could not evaluate delivery-challan eligibility.'
+      };
+      data.dcCreationAllowedByStatus = false;
+    }
+
+    const [qaPassedDeliveryChallanCount, dcPendingQaCount] = await Promise.all([
+      DeliveryChallan.countDocuments({ purchaseOrder: purchaseOrder._id, status: 'qa_passed' }),
+      DeliveryChallan.countDocuments({ purchaseOrder: purchaseOrder._id, status: 'qa_pending' })
+    ]);
+    data.qaPassedDeliveryChallanCount = qaPassedDeliveryChallanCount;
+    data.dcPendingQaCount = dcPendingQaCount;
 
     res.json({
       success: true,
@@ -2402,6 +2493,33 @@ router.get('/store/dashboard',
         .sort({ updatedAt: -1 })
         .lean();
 
+      const poIds = purchaseOrders.map((p) => p._id);
+      const dcAgg = poIds.length
+        ? await DeliveryChallan.aggregate([
+            { $match: { purchaseOrder: { $in: poIds } } },
+            {
+              $group: {
+                _id: '$purchaseOrder',
+                qaPassed: { $sum: { $cond: [{ $eq: ['$status', 'qa_passed'] }, 1, 0] } },
+                qaPending: { $sum: { $cond: [{ $eq: ['$status', 'qa_pending'] }, 1, 0] } }
+              }
+            }
+          ])
+        : [];
+      const dcByPo = {};
+      dcAgg.forEach((row) => {
+        dcByPo[String(row._id)] = {
+          qaPassed: row.qaPassed || 0,
+          qaPending: row.qaPending || 0
+        };
+      });
+      purchaseOrders.forEach((po) => {
+        po.grnRequiresDeliveryChallan = requiresDeliveryChallanFlow(po);
+        const d = dcByPo[String(po._id)] || { qaPassed: 0, qaPending: 0 };
+        po.qaPassedDeliveryChallanCount = d.qaPassed;
+        po.dcPendingQaCount = d.qaPending;
+      });
+
       // Group by month/year
       const groupedByMonth = {};
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
@@ -2458,21 +2576,27 @@ router.get('/store/dashboard',
   })
 );
 
-// @route   GET /api/procurement/store/qa-pending
-// @desc    Get POs with QA status Pending (Sent to Store, not yet QA checked)
+// @route   GET /api/procurement/store/purchase-orders-for-dc-create
+// @desc    Full-advance POs that may receive new delivery challans (no PO-level QA).
 // @access  Private (Procurement, Admin, Store Manager)
-router.get('/store/qa-pending',
+router.get('/store/purchase-orders-for-dc-create',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
-    const purchaseOrders = await PurchaseOrder.find({
-      status: 'Sent to Store',
-      $or: [{ qaStatus: { $in: [null, 'Pending'] } }, { qaStatus: { $exists: false } }]
+    const raw = await PurchaseOrder.find({
+      status: { $in: ['Sent to Store', 'GRN Created', 'Partially Received', 'Approved', 'Ordered', 'Received'] }
     })
       .populate('vendor', 'name email phone contactPerson')
       .populate('indent', 'indentNumber title')
-      .populate('qaCheckedBy', 'firstName lastName')
       .sort({ updatedAt: -1 })
+      .limit(400)
       .lean();
+
+    const purchaseOrders = raw.filter((po) => {
+      if (!isFullAdvancePaymentTerm(po.paymentTerms)) return false;
+      const dcSt = purchaseOrderOpenForDeliveryChallan(po);
+      return dcSt.ok;
+    });
+
     res.json({
       success: true,
       data: { purchaseOrders }
@@ -2480,94 +2604,28 @@ router.get('/store/qa-pending',
   })
 );
 
-// @route   GET /api/procurement/store/qa-list
-// @desc    Get POs by QA state: Pending | Passed | Rejected.
+// @route   GET /api/procurement/store/grn-prefill-purchase-orders
+// @desc    POs that can be selected to prefill GRN (no PO QA gate; full-advance still uses DC on form).
 // @access  Private (Procurement, Admin, Store Manager)
-router.get('/store/qa-list',
+router.get('/store/grn-prefill-purchase-orders',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
-    const { qaStatus = 'Pending' } = req.query; // Pending | Passed | Rejected
-    const query = { status: { $in: ['Sent to Store', 'Partially Received'] } };
-    if (qaStatus === 'Pending') {
-      query.$or = [{ qaStatus: { $in: [null, 'Pending'] } }, { qaStatus: { $exists: false } }];
-    } else if (qaStatus === 'Passed') {
-      query.qaStatus = qaStatus; // Passed or Rejected
-      // For passed tab, keep only statuses that can still create GRN.
-      query.status = { $in: ['Sent to Store', 'Partially Received'] };
-    } else {
-      query.qaStatus = qaStatus; // Rejected
-      query.status = 'Sent to Store';
-    }
-    const purchaseOrders = await PurchaseOrder.find(query)
-      .populate('vendor', 'name email phone contactPerson')
-      .populate('indent', 'indentNumber title')
-      .populate('qaCheckedBy', 'firstName lastName')
+    const purchaseOrders = await PurchaseOrder.find({
+      status: { $in: ['Sent to Store', 'GRN Created', 'Partially Received'] }
+    })
+      .select('orderNumber poNumber status paymentTerms totalAmount vendor')
+      .populate('vendor', 'name')
       .sort({ updatedAt: -1 })
+      .limit(300)
       .lean();
-    res.json({
-      success: true,
-      data: { purchaseOrders, qaStatus }
+
+    purchaseOrders.forEach((po) => {
+      po.grnRequiresDeliveryChallan = requiresDeliveryChallanFlow(po);
     });
-  })
-);
-
-// @route   POST /api/procurement/store/po/:id/qa-check
-// @desc    Quality Assurance check: Pass or Reject a PO at store
-// @access  Private (Procurement, Admin, Store Manager)
-router.post('/store/po/:id/qa-check',
-  authorize('super_admin', 'admin', 'procurement_manager'),
-  [
-    body('status').isIn(['Passed', 'Rejected']).withMessage('QA status must be Passed or Rejected'),
-    body('remarks').optional().trim()
-  ],
-  asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-    const po = await PurchaseOrder.findById(req.params.id);
-    if (!po) {
-      return res.status(404).json({ success: false, message: 'Purchase order not found' });
-    }
-    if (po.status !== 'Sent to Store') {
-      return res.status(400).json({
-        success: false,
-        message: 'Only purchase orders with status "Sent to Store" can be QA checked'
-      });
-    }
-    const { status, remarks } = req.body;
-    po.qaStatus = status;
-    po.qaCheckedBy = req.user.id;
-    po.qaCheckedAt = new Date();
-    po.qaRemarks = remarks || '';
-    po.updatedBy = req.user.id;
-    await po.save();
-    await po.populate('qaCheckedBy', 'firstName lastName');
-
-    if (status === 'Passed') {
-      await notifyStoreUsers({
-        actorId: req.user.id,
-        title: 'PO passed QA',
-        message: `Purchase Order ${po.poNumber || ''} passed QA and is ready for Goods Receive.`,
-        actionUrl: STORE_SUBMODULE_ROUTES.goodsReceive,
-        entityId: po._id,
-        entityType: 'PurchaseOrder'
-      });
-    } else {
-      await notifyStoreUsers({
-        actorId: req.user.id,
-        title: 'PO QA rejected',
-        message: `Purchase Order ${po.poNumber || ''} failed QA. Review required in Store QA.`,
-        actionUrl: STORE_SUBMODULE_ROUTES.qualityAssurance,
-        entityId: po._id,
-        entityType: 'PurchaseOrder'
-      });
-    }
 
     res.json({
       success: true,
-      message: `Quality Assurance: ${status}`,
-      data: po
+      data: { purchaseOrders }
     });
   })
 );
@@ -3488,6 +3546,190 @@ router.delete('/inventory/:id',
   })
 );
 
+// ==================== DELIVERY CHALLAN (full-advance PO → QA → GRN) ====================
+
+// @route   GET /api/procurement/delivery-challans
+router.get('/delivery-challans',
+  authorize('super_admin', 'admin', 'procurement_manager', 'store_qa', 'audit_manager', 'auditor', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { purchaseOrder, status, page = 1, limit = 30 } = req.query;
+    const q = {};
+    if (purchaseOrder) q.purchaseOrder = purchaseOrder;
+    if (status) q.status = status;
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
+    const pg = Math.max(parseInt(page, 10) || 1, 1);
+    const skip = (pg - 1) * lim;
+    const [items, total] = await Promise.all([
+      DeliveryChallan.find(q)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(lim)
+        .populate('purchaseOrder', 'orderNumber poNumber status totalAmount paymentTerms items')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('qaTestedBy', 'firstName lastName email')
+        .lean(),
+      DeliveryChallan.countDocuments(q)
+    ]);
+    res.json({
+      success: true,
+      data: {
+        items,
+        pagination: { currentPage: pg, itemsPerPage: lim, totalItems: total, totalPages: Math.ceil(total / lim) || 1 }
+      }
+    });
+  })
+);
+
+// @route   GET /api/procurement/delivery-challans/:id
+router.get('/delivery-challans/:id',
+  authorize('super_admin', 'admin', 'procurement_manager', 'store_qa', 'audit_manager', 'auditor', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const doc = await DeliveryChallan.findById(req.params.id)
+      .populate('purchaseOrder')
+      .populate('createdBy', 'firstName lastName email')
+      .populate('updatedBy', 'firstName lastName email')
+      .populate('qaTestedBy', 'firstName lastName email')
+      .populate('grnIds', 'receiveNumber receiveDate status');
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Delivery challan not found' });
+    }
+    res.json({ success: true, data: doc });
+  })
+);
+
+// @route   POST /api/procurement/delivery-challans
+router.post('/delivery-challans',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  [
+    body('purchaseOrder').isMongoId().withMessage('Valid purchase order ID is required'),
+    body('items').isArray({ min: 1 }).withMessage('At least one line is required'),
+    body('items.*.poLineIndex').isInt({ min: 0 }).withMessage('Each line needs poLineIndex'),
+    body('items.*.quantity').isFloat({ min: 0.01 }).withMessage('Each line needs quantity > 0')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const { purchaseOrder: poId, vendorDcReference, items } = req.body;
+
+    const po = await PurchaseOrder.findById(poId);
+    if (!po) {
+      return res.status(400).json({ success: false, message: 'Purchase order not found' });
+    }
+    if (!isFullAdvancePaymentTerm(po.paymentTerms)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery challans are only used for full-advance payment terms on this PO.'
+      });
+    }
+    const dcStatus = purchaseOrderOpenForDeliveryChallan(po);
+    if (!dcStatus.ok) {
+      return res.status(400).json({
+        success: false,
+        message: dcStatus.message
+      });
+    }
+
+    const poItems = po.items || [];
+    const merged = new Map();
+    for (const row of items) {
+      const j = Number(row.poLineIndex);
+      const q = Number(row.quantity) || 0;
+      if (Number.isNaN(j) || j < 0 || q <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid poLineIndex or quantity' });
+      }
+      merged.set(j, Math.round(((merged.get(j) || 0) + q) * 100) / 100);
+    }
+
+    const openByLine = await getOpenDcQuantitiesByPoLine(po._id);
+    const dcItems = [];
+    for (const [jStr, qty] of merged.entries()) {
+      const j = Number(jStr);
+      if (j >= poItems.length) {
+        return res.status(400).json({ success: false, message: `PO line index ${j} is out of range` });
+      }
+      const poLine = poItems[j];
+      const ordered = Number(poLine.quantity) || 0;
+      const received = Number(poLine.receivedQuantity) || 0;
+      const remaining = Math.max(0, Math.round((ordered - received) * 100) / 100);
+      const openDc = openByLine[j] || 0;
+      const available = Math.max(0, Math.round((remaining - openDc) * 100) / 100);
+      if (qty - available > 0.0001) {
+        return res.status(400).json({
+          success: false,
+          message: `Line ${j + 1}: quantity exceeds PO remaining minus open delivery challans. Available: ${available}, requested: ${qty}`
+        });
+      }
+      dcItems.push({
+        poLineIndex: j,
+        productCode: (poLine.productCode && String(poLine.productCode).trim()) || '',
+        itemCode: (poLine.productCode && String(poLine.productCode).trim()) || '',
+        itemName: (poLine.description && String(poLine.description).trim()) || '—',
+        quantity: qty,
+        unit: (poLine.unit && String(poLine.unit).trim()) || '—',
+        unitPrice: Number(poLine.unitPrice) || 0,
+        quantityReceived: 0
+      });
+    }
+
+    const dc = new DeliveryChallan({
+      purchaseOrder: po._id,
+      vendorDcReference: vendorDcReference ? String(vendorDcReference).trim() : undefined,
+      status: 'qa_pending',
+      qaStatus: 'pending',
+      items: dcItems,
+      grnIds: [],
+      createdBy: req.user.id,
+      updatedBy: req.user.id
+    });
+    await dc.save();
+    await dc.populate([
+      { path: 'purchaseOrder', select: 'orderNumber poNumber status totalAmount paymentTerms' },
+      { path: 'createdBy', select: 'firstName lastName email' }
+    ]);
+    res.status(201).json({ success: true, message: 'Delivery challan created', data: dc });
+  })
+);
+
+// @route   PATCH /api/procurement/delivery-challans/:id/qa
+router.patch('/delivery-challans/:id/qa',
+  authorize('super_admin', 'admin', 'procurement_manager', 'store_qa'),
+  [
+    body('qaStatus').isIn(['passed', 'failed']).withMessage('qaStatus must be passed or failed'),
+    body('qaRemarks').optional().isString().trim()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const doc = await DeliveryChallan.findById(req.params.id);
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Delivery challan not found' });
+    }
+    if (!['qa_pending'].includes(doc.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `QA can only be recorded while challan is pending QA (current: ${doc.status})`
+      });
+    }
+    const { qaStatus, qaRemarks } = req.body;
+    doc.qaStatus = qaStatus;
+    doc.qaRemarks = qaRemarks ? String(qaRemarks).trim() : '';
+    doc.qaTestedBy = req.user.id;
+    doc.qaTestedAt = new Date();
+    doc.updatedBy = req.user.id;
+    if (qaStatus === 'passed') {
+      doc.status = 'qa_passed';
+    } else {
+      doc.status = 'qa_failed';
+    }
+    await doc.save();
+    res.json({ success: true, message: 'QA status updated', data: doc });
+  })
+);
+
 // ==================== GOODS RECEIVE ROUTES ====================
 
 // @route   GET /api/procurement/goods-receive
@@ -3520,6 +3762,7 @@ router.get('/goods-receive',
     const receives = await GoodsReceive.find(query)
       .populate('supplier', 'name contactPerson supplierId address')
       .populate('purchaseOrder', 'orderNumber')
+      .populate('deliveryChallan', 'dcNumber gatePassNo status')
       .populate('receivedBy', 'firstName lastName')
       .sort({ receiveDate: -1 })
       .limit(limit * 1)
@@ -3551,6 +3794,7 @@ router.get('/goods-receive/:id',
     const receive = await GoodsReceive.findById(req.params.id)
       .populate('supplier', 'name contactPerson email phone supplierId address')
       .populate('purchaseOrder')
+      .populate('deliveryChallan', 'dcNumber gatePassNo status qaStatus')
       .populate('items.inventoryItem')
       .populate('receivedBy', 'firstName lastName email');
     
@@ -3772,7 +4016,8 @@ router.post('/goods-receive',
     body('items.*.itemCode').optional().trim(),
     body('items.*.itemName').optional().trim(),
     body('items.*.unit').optional().trim(),
-    body('items.*.unitPrice').optional().isFloat({ min: 0 })
+    body('items.*.unitPrice').optional().isFloat({ min: 0 }),
+    body('deliveryChallan').optional().isMongoId().withMessage('Valid delivery challan ID when provided')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -3783,7 +4028,8 @@ router.post('/goods-receive',
     const {
       receiveDate, supplier, supplierName, purchaseOrder, poNumber, items, notes,
       narration, supplierAddress, prNumber, store, gatePassNo, currency,
-      discount, otherCharges, observation, status: bodyStatus, project
+      discount, otherCharges, observation, status: bodyStatus, project,
+      deliveryChallan
     } = req.body;
 
     // Validate project exists
@@ -3838,6 +4084,8 @@ router.post('/goods-receive',
 
     // Validate GRN quantity against remaining PO quantity so multiple GRNs are allowed
     // until PO is fulfilled, but over-receipt is blocked.
+    /** When full-advance flow, GRN must reference a QA-passed DC; we update this after save. */
+    let deliveryChallanIdForPostSave = null;
     if (purchaseOrder) {
       const poForValidation = await PurchaseOrder.findById(purchaseOrder);
       if (!poForValidation) {
@@ -3846,6 +4094,63 @@ router.post('/goods-receive',
       if (!['Sent to Store', 'GRN Created', 'Partially Received', 'Approved', 'Ordered'].includes(poForValidation.status)) {
         return res.status(400).json({ success: false, message: `PO ${poForValidation.orderNumber || ''} is not open for GRN creation` });
       }
+      const isFullAdvanceFlow = requiresDeliveryChallanFlow(poForValidation);
+
+      if (deliveryChallan && !isFullAdvanceFlow) {
+        return res.status(400).json({
+          success: false,
+          message: 'deliveryChallan is only for full-advance POs (by payment terms).'
+        });
+      }
+
+      if (isFullAdvanceFlow) {
+        if (!deliveryChallan) {
+          return res.status(400).json({
+            success: false,
+            message: 'This PO is on full advance: select a QA-passed delivery challan to post the GRN.'
+          });
+        }
+        const dcDoc = await DeliveryChallan.findById(deliveryChallan);
+        if (!dcDoc || String(dcDoc.purchaseOrder) !== String(purchaseOrder)) {
+          return res.status(400).json({ success: false, message: 'Invalid delivery challan for this purchase order' });
+        }
+        if (dcDoc.status !== 'qa_passed') {
+          return res.status(400).json({
+            success: false,
+            message: `Delivery challan must be QA passed before GRN. Current status: ${dcDoc.status}`
+          });
+        }
+        const dcOpenByLine = {};
+        for (const it of dcDoc.items || []) {
+          const j = Number(it.poLineIndex);
+          const open = Math.round(((Number(it.quantity) || 0) - (Number(it.quantityReceived) || 0)) * 100) / 100;
+          if (open <= 0) continue;
+          dcOpenByLine[j] = (dcOpenByLine[j] || 0) + open;
+        }
+        const requestedByPoLine = {};
+        for (let i = 0; i < itemsWithDetails.length; i++) {
+          const grnLine = itemsWithDetails[i];
+          const j = matchPurchaseOrderLineIndex(poForValidation.items || [], grnLine, i);
+          if (j < 0) {
+            return res.status(400).json({ success: false, message: `GRN item "${grnLine.itemName || grnLine.itemCode || i + 1}" is not matched to PO line` });
+          }
+          const q = Number(grnLine.quantity) || 0;
+          requestedByPoLine[j] = (requestedByPoLine[j] || 0) + q;
+        }
+        for (const jStr of Object.keys(requestedByPoLine)) {
+          const j = Number(jStr);
+          const reqQ = requestedByPoLine[jStr];
+          const allowed = dcOpenByLine[j] || 0;
+          if (reqQ - allowed > 0.0001) {
+            return res.status(400).json({
+              success: false,
+              message: `GRN qty exceeds remaining quantity on the selected delivery challan for PO line ${j + 1}. Allowed: ${allowed}, requested: ${reqQ}`
+            });
+          }
+        }
+        deliveryChallanIdForPostSave = dcDoc._id;
+      }
+
       for (let i = 0; i < itemsWithDetails.length; i++) {
         const grnLine = itemsWithDetails[i];
         const j = matchPurchaseOrderLineIndex(poForValidation.items || [], grnLine, i);
@@ -3879,19 +4184,33 @@ router.post('/goods-receive',
     }
 
     const grnStatus = (bodyStatus === 'Complete' || bodyStatus === 'Partial') ? bodyStatus : 'Partial';
+
+    let resolvedGatePassNo = (gatePassNo != null && String(gatePassNo).trim() !== '') ? String(gatePassNo).trim() : '';
+    if (deliveryChallanIdForPostSave) {
+      const dcGp = await DeliveryChallan.findById(deliveryChallanIdForPostSave);
+      if (!dcGp) {
+        return res.status(400).json({ success: false, message: 'Delivery challan not found' });
+      }
+      if (!dcGp.gatePassNo) {
+        await dcGp.save();
+      }
+      resolvedGatePassNo = dcGp.gatePassNo || resolvedGatePassNo;
+    }
+
     const receive = new GoodsReceive({
       receiveDate: receiveDate || new Date(),
       supplier,
       supplierName,
       supplierAddress: resolvedSupplierAddress,
       purchaseOrder,
+      deliveryChallan: deliveryChallanIdForPostSave || undefined,
       poNumber,
       narration: narration || undefined,
       prNumber: prNumber || undefined,
       store: store || undefined,
       storeSnapshot,
       project: project,
-      gatePassNo: gatePassNo || undefined,
+      gatePassNo: resolvedGatePassNo || undefined,
       currency: currency || 'Rupees',
       discount: Number(discount) || 0,
       otherCharges: Number(otherCharges) || 0,
@@ -3910,6 +4229,7 @@ router.post('/goods-receive',
       { path: 'project', select: 'name projectId' },
       { path: 'supplier', select: 'name contactPerson supplierId address' },
       { path: 'purchaseOrder', select: 'orderNumber' },
+      { path: 'deliveryChallan', select: 'dcNumber gatePassNo status qaStatus' },
       { path: 'receivedBy', select: 'firstName lastName' },
       {
         path: 'items.inventoryItem',
@@ -3983,6 +4303,25 @@ router.post('/goods-receive',
           entityId: poDoc._id,
           entityType: 'PurchaseOrder'
         });
+
+        if (deliveryChallanIdForPostSave) {
+          const qtyByPoLine = {};
+          itemsWithDetails.forEach((grnLine, i) => {
+            const qty = Number(grnLine.quantity) || 0;
+            if (qty <= 0) return;
+            const j = matchPurchaseOrderLineIndex(poDoc.items, grnLine, i);
+            if (j < 0) return;
+            qtyByPoLine[j] = Math.round(((qtyByPoLine[j] || 0) + qty) * 100) / 100;
+          });
+          const dcMutable = await DeliveryChallan.findById(deliveryChallanIdForPostSave);
+          if (dcMutable) {
+            applyGrnQuantitiesToDeliveryChallan(dcMutable, qtyByPoLine);
+            dcMutable.grnIds = dcMutable.grnIds || [];
+            dcMutable.grnIds.push(receive._id);
+            dcMutable.updatedBy = req.user.id;
+            await dcMutable.save();
+          }
+        }
       }
     }
 

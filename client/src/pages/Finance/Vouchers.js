@@ -64,6 +64,24 @@ function parseYmdLocalNoon(ymd) {
   return dt;
 }
 
+/** Journal referenceType values → Voucher Type filter labels (Finance → Vouchers) */
+const VOUCHER_TYPE_FILTER_OPTIONS = [
+  { value: 'payment', label: 'PAYMENT' },
+  { value: 'receipt', label: 'RECEIPT' },
+  { value: 'bill', label: 'BILL' },
+  { value: 'invoice', label: 'INVOICE' },
+  { value: 'grn', label: 'GRN' },
+  { value: 'sin', label: 'SIN' },
+  { value: 'manual', label: 'MANUAL' },
+  { value: 'adjustment', label: 'ADJUSTMENT' },
+  { value: 'payroll', label: 'PAYROLL' },
+  { value: 'purchase_order', label: 'PURCHASE ORDER' },
+  { value: 'depreciation', label: 'DEPRECIATION' },
+  { value: 'expense', label: 'EXPENSE' },
+  { value: 'stock_adjustment', label: 'STOCK ADJUSTMENT' },
+  { value: 'purchase_return', label: 'PURCHASE RETURN' }
+];
+
 const Vouchers = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -71,6 +89,8 @@ const Vouchers = () => {
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('posted');
+  /** Default: PAYMENT vouchers (referenceType payment on journal) */
+  const [voucherType, setVoucherType] = useState('payment');
   const [clearanceDialog, setClearanceDialog] = useState({
     open: false,
     voucher: null,
@@ -141,6 +161,7 @@ const Vouchers = () => {
       params.append('limit', '200');
       if (status) params.append('status', status);
       if (search.trim()) params.append('search', search.trim());
+      if (voucherType) params.append('referenceType', voucherType);
       const res = await api.get(`/finance/journal-entries?${params.toString()}`);
       setEntries(res?.data?.data?.entries || []);
     } catch (_e) {
@@ -152,7 +173,7 @@ const Vouchers = () => {
 
   useEffect(() => {
     fetchEntries();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [status, voucherType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voucherRows = useMemo(() => {
     return entries.map((entry) => ({
@@ -241,14 +262,15 @@ const Vouchers = () => {
           <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          All finance vouchers are listed here. Open any voucher to view/print full voucher document. Use Attachment to upload images or supporting files.
+          All finance vouchers are listed here. By default, Posted journals with voucher type PAYMENT are shown; change filters as needed.
+          Open any voucher to view/print. Use Attachment to upload supporting files.
           Signed document and signed date are available only after at least one attachment is added. Clearance is available only after the voucher is marked signed with a signed date; when you mark clearance as cleared, choose the clearance date in the dialog (it is not set automatically).
         </Typography>
       </Paper>
 
       <Paper sx={{ p: 2, mb: 2 }}>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={5}>
+          <Grid item xs={12} md={4}>
             <TextField
               fullWidth
               size="small"
@@ -257,6 +279,25 @@ const Vouchers = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <TextField
+              fullWidth
+              select
+              size="small"
+              label="Voucher type"
+              value={voucherType}
+              onChange={(e) => setVoucherType(e.target.value)}
+            >
+              <MenuItem value="">
+                <em>All types</em>
+              </MenuItem>
+              {VOUCHER_TYPE_FILTER_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </TextField>
           </Grid>
           <Grid item xs={12} md={3}>
             <TextField

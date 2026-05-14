@@ -109,6 +109,13 @@ export const PERMISSIONS = {
     modules: [MODULE_KEYS.PROCUREMENT, MODULE_KEYS.ASSET_TAGGING],
     description: 'Procurement module management'
   },
+
+  /** Legacy role: delivery challan QA only (API also allows roleRef with procurement + quality_assurance submodule). */
+  store_qa: {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.PROCUREMENT],
+    description: 'Delivery challan QA (full-advance DC pass/fail)'
+  },
   
   // Sales Manager has access to Sales and CRM modules
   [ROLES.SALES_MANAGER]: {
@@ -814,9 +821,10 @@ export const MODULES = {
           { name: 'Store Dashboard', path: '/procurement/store' },
           { name: 'Store Management', path: '/procurement/store/manage' },
           { name: 'Item catalog', path: '/procurement/store/item-catalog' },
-          { name: 'Quality Assurance', path: '/procurement/store/quality-assurance' },
           { name: 'Inventory', path: '/procurement/store/inventory' },
           { name: 'GRN (Goods Received Note)', path: '/procurement/store/goods-receive' },
+          { name: 'Delivery challans (DC QA)', path: '/procurement/store/delivery-challans' },
+          { name: 'QA (delivery challans)', path: '/procurement/store/delivery-challan-qa' },
           { name: 'Store Issue Note', path: '/procurement/store/goods-issue' },
           { name: 'Cost Center', path: '/procurement/store/cost-center' },
           { name: 'Purchase Returns', path: '/procurement/purchase-returns' }
@@ -1369,9 +1377,11 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/procurement/store': 'store',
       '/procurement/store/manage': 'store_management',
       '/procurement/store/item-catalog': 'inventory',
-      '/procurement/store/quality-assurance': 'quality_assurance',
+      '/procurement/store/quality-assurance': 'goods_receive',
       '/procurement/store/inventory': 'inventory',
       '/procurement/store/goods-receive': 'goods_receive',
+      '/procurement/store/delivery-challans': 'goods_receive',
+      '/procurement/store/delivery-challan-qa': 'quality_assurance',
       '/procurement/store/goods-issue': 'goods_issue',
       '/procurement/store/cost-center': 'cost_center',
       '/procurement/reports': 'procurement_reports',

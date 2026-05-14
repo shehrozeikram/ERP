@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -28,7 +28,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField
+  TextField,
+  Stack
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
@@ -38,13 +39,12 @@ import {
   Close as CloseIcon,
   CalendarMonth as CalendarIcon,
   ExpandMore as ExpandMoreIcon,
-  CheckCircle as PassIcon,
-  Cancel as RejectIcon,
   Print as PrintIcon,
   LocalShipping as CreateGRNIcon,
   Assignment as IndentIcon,
   Send as MoveToProcurementIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Topic as DeliveryChallanIcon
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../../services/api';
@@ -63,8 +63,6 @@ const StoreDashboard = () => {
   const [viewDialog, setViewDialog] = useState({ open: false, data: null });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [expandedMonths, setExpandedMonths] = useState({});
-  const [qaDialog, setQaDialog] = useState({ open: false, po: null, action: null, remarks: '' });
-  const [qaSubmitting, setQaSubmitting] = useState(false);
   const [pendingIndents, setPendingIndents] = useState([]);
   const [movingIndentId, setMovingIndentId] = useState(null);
   const [indentViewDialog, setIndentViewDialog] = useState({ open: false, indent: null });
@@ -235,36 +233,22 @@ const StoreDashboard = () => {
     setViewDialog({ open: false, data: null });
   };
 
-  const getQaStatusColor = (status) => {
-    const colors = { Pending: 'warning', Passed: 'success', Rejected: 'error' };
-    return colors[status || 'Pending'] || 'default';
+  /** GRN from store: full-advance needs at least one QA-passed delivery challan; others need no PO QA. */
+  const storeGrnActionAllowed = (po) => {
+    if (!po) return false;
+    if (!['Sent to Store', 'GRN Created', 'Partially Received'].includes(po.status)) return false;
+    if (po.grnRequiresDeliveryChallan) return (po.qaPassedDeliveryChallanCount || 0) > 0;
+    return true;
   };
 
-  const openQaDialog = (po, action) => {
-    setQaDialog({ open: true, po, action, remarks: '' });
-  };
+  /** Full-advance PO with no delivery challan yet — prompt store to create one. */
+  const dcAwaitingCreation = (po) =>
+    !!po?.grnRequiresDeliveryChallan &&
+    (po.qaPassedDeliveryChallanCount || 0) === 0 &&
+    (po.dcPendingQaCount || 0) === 0;
 
-  const handleQaSubmit = async () => {
-    if (!qaDialog.po || !qaDialog.action) return;
-    try {
-      setQaSubmitting(true);
-      await api.post(`/procurement/store/po/${qaDialog.po._id}/qa-check`, {
-        status: qaDialog.action,
-        remarks: qaDialog.remarks || undefined
-      });
-      setQaDialog({ open: false, po: null, action: null, remarks: '' });
-      await loadDashboardData();
-      if (viewDialog.open && viewDialog.data && viewDialog.data._id === qaDialog.po._id) {
-        const res = await api.get(`/procurement/purchase-orders/${qaDialog.po._id}`);
-        if (res.data?.success) setViewDialog({ open: true, data: res.data.data });
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || 'QA check failed');
-    } finally {
-      setQaSubmitting(false);
-    }
-  };
-
+  const dcAwaitingQa = (po) =>
+    !!po?.grnRequiresDeliveryChallan && (po.dcPendingQaCount || 0) > 0;
 
   if (loading) {
     return (
@@ -311,6 +295,16 @@ const StoreDashboard = () => {
           {error}
         </Alert>
       )}
+
+      <Alert severity="info" sx={{ mb: 3 }} icon={<DeliveryChallanIcon />}>
+        <Typography variant="body2" fontWeight={600} gutterBottom>
+          Full-advance purchase orders
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          After a PO is sent to the store, create a <strong>delivery challan (DC)</strong> for it, complete <strong>DC QA</strong>, then post the <strong>GRN</strong>.
+          Use <strong>Create DC</strong> on a row below, or open <RouterLink to="/procurement/store/delivery-challans">Delivery challans</RouterLink>. DC QA is recorded in <RouterLink to="/procurement/store/delivery-challan-qa">QA (delivery challans)</RouterLink>.
+        </Typography>
+      </Alert>
 
       {/* Approved Indents - Stock Check (first destination after approval) */}
       {pendingIndents.length > 0 && (
@@ -506,7 +500,7 @@ const StoreDashboard = () => {
                       <TableCell><strong>Order Date</strong></TableCell>
                       <TableCell><strong>Expected Delivery</strong></TableCell>
                       <TableCell><strong>Status</strong></TableCell>
-                      <TableCell><strong>QA Status</strong></TableCell>
+                      <TableCell><strong>DC &amp; next step</strong></TableCell>
                       <TableCell><strong>Store</strong></TableCell>
                       <TableCell><strong>Priority</strong></TableCell>
                       <TableCell align="right"><strong>Total Amount</strong></TableCell>
@@ -537,11 +531,52 @@ const StoreDashboard = () => {
                             />
                           </TableCell>
                           <TableCell>
-                            <Chip
-                              label={po.qaStatus || 'Pending'}
-                              color={getQaStatusColor(po.qaStatus)}
-                              size="small"
-                            />
+                            {!po.grnRequiresDeliveryChallan ? (
+                              <Typography variant="caption" color="text.secondary">—</Typography>
+                            ) : (
+                              <Stack spacing={0.75} alignItems="flex-start">
+                                <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{ gap: 0.5 }}>
+                                  {(po.qaPassedDeliveryChallanCount || 0) > 0 && (
+                                    <Chip size="small" label={`Passed: ${po.qaPassedDeliveryChallanCount}`} color="success" variant="outlined" />
+                                  )}
+                                  {(po.dcPendingQaCount || 0) > 0 && (
+                                    <Chip size="small" label={`QA pending: ${po.dcPendingQaCount}`} color="warning" variant="outlined" />
+                                  )}
+                                </Stack>
+                                {dcAwaitingCreation(po) && (
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    color="warning"
+                                    startIcon={<DeliveryChallanIcon />}
+                                    onClick={() => navigate(`/procurement/store/delivery-challans?purchaseOrder=${po._id}&openCreate=1`)}
+                                  >
+                                    Create DC
+                                  </Button>
+                                )}
+                                {dcAwaitingQa(po) && (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="warning"
+                                    startIcon={<DeliveryChallanIcon />}
+                                    onClick={() => navigate('/procurement/store/delivery-challan-qa')}
+                                  >
+                                    Pass DC QA
+                                  </Button>
+                                )}
+                                {!dcAwaitingCreation(po) && !dcAwaitingQa(po) && po.grnRequiresDeliveryChallan && (
+                                  <Button
+                                    size="small"
+                                    variant="text"
+                                    startIcon={<DeliveryChallanIcon />}
+                                    onClick={() => navigate(`/procurement/store/delivery-challans?purchaseOrder=${po._id}`)}
+                                  >
+                                    Delivery challans
+                                  </Button>
+                                )}
+                              </Stack>
+                            )}
                           </TableCell>
                           <TableCell>
                             {po.storeSnapshot
@@ -563,7 +598,7 @@ const StoreDashboard = () => {
                                 <ViewIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            {po.status === 'Sent to Store' && po.qaStatus === 'Passed' && (
+                            {storeGrnActionAllowed(po) && (
                               <Tooltip title="Create GRN">
                                 <IconButton
                                   size="small"
@@ -626,8 +661,16 @@ const StoreDashboard = () => {
               <Typography variant="h6">Purchase Order Details</Typography>
               {viewDialog.data && (
                 <Chip
-                  label={`QA: ${viewDialog.data.qaStatus || 'Pending'}`}
-                  color={getQaStatusColor(viewDialog.data.qaStatus)}
+                  label={
+                    viewDialog.data.grnRequiresDeliveryChallan
+                      ? `DC — passed: ${viewDialog.data.qaPassedDeliveryChallanCount ?? 0}, QA pending: ${viewDialog.data.dcPendingQaCount ?? 0}`
+                      : 'GRN: no DC required'
+                  }
+                  color={
+                    viewDialog.data.grnRequiresDeliveryChallan
+                      ? ((viewDialog.data.qaPassedDeliveryChallanCount || 0) > 0 ? 'success' : 'warning')
+                      : 'default'
+                  }
                   size="small"
                 />
               )}
@@ -644,7 +687,22 @@ const StoreDashboard = () => {
               <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()}>
                 Print
               </Button>
-              {viewDialog.data && viewDialog.data.status === 'Sent to Store' && viewDialog.data.qaStatus === 'Passed' && (
+              {viewDialog.data && (
+                <Button
+                  size="small"
+                  variant={dcAwaitingCreation(viewDialog.data) ? 'contained' : 'outlined'}
+                  color={dcAwaitingCreation(viewDialog.data) ? 'warning' : 'inherit'}
+                  startIcon={<DeliveryChallanIcon />}
+                  onClick={() => {
+                    const q = dcAwaitingCreation(viewDialog.data) ? '&openCreate=1' : '';
+                    navigate(`/procurement/store/delivery-challans?purchaseOrder=${viewDialog.data._id}${q}`);
+                    handleCloseView();
+                  }}
+                >
+                  {dcAwaitingCreation(viewDialog.data) ? 'Create delivery challan' : 'Delivery challans'}
+                </Button>
+              )}
+              {viewDialog.data && storeGrnActionAllowed(viewDialog.data) && (
                 <Button size="small" variant="contained" startIcon={<CreateGRNIcon />} onClick={() => { handleCloseView(); navigate(`/procurement/store/goods-receive?createFromPo=${viewDialog.data._id}`); }}>
                   Create GRN
                 </Button>
@@ -654,16 +712,6 @@ const StoreDashboard = () => {
                   Send to Procurement
                 </Button>
               )}
-              {viewDialog.data && (viewDialog.data.qaStatus || 'Pending') === 'Pending' && (
-                <>
-                  <Button size="small" color="success" variant="outlined" startIcon={<PassIcon />} onClick={() => openQaDialog(viewDialog.data, 'Passed')}>
-                    Pass QA
-                  </Button>
-                  <Button size="small" color="error" variant="outlined" startIcon={<RejectIcon />} onClick={() => openQaDialog(viewDialog.data, 'Rejected')}>
-                    Reject QA
-                  </Button>
-                </>
-              )}
               <IconButton onClick={handleCloseView} size="small">
                 <CloseIcon />
               </IconButton>
@@ -671,6 +719,16 @@ const StoreDashboard = () => {
           </Box>
         </DialogTitle>
         <DialogContent sx={{ p: 0, overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
+          {viewDialog.data && dcAwaitingCreation(viewDialog.data) && (
+            <Alert severity="warning" sx={{ m: 2, mb: 0 }}>
+              This full-advance PO needs a <strong>delivery challan</strong> before GRN. Use <strong>Create delivery challan</strong> above, or go to Delivery challans and create one for this PO.
+            </Alert>
+          )}
+          {viewDialog.data && dcAwaitingQa(viewDialog.data) && (
+            <Alert severity="info" sx={{ m: 2, mb: 0 }}>
+              One or more delivery challans are <strong>awaiting DC QA</strong>. Open Delivery challans for this PO and pass or fail QA before posting a GRN.
+            </Alert>
+          )}
           {viewDialog.data && (
             <Box sx={{ width: '100%' }} className="print-content">
               <PODocumentView data={viewDialog.data} />
@@ -894,39 +952,6 @@ const StoreDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      {/* QA Check confirmation dialog */}
-      <Dialog open={qaDialog.open} onClose={() => setQaDialog({ open: false, po: null, action: null, remarks: '' })} maxWidth="xs" fullWidth>
-        <DialogTitle>
-          Quality Assurance – {qaDialog.action === 'Passed' ? 'Pass' : 'Reject'}
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-            {qaDialog.po?.orderNumber && `PO ${qaDialog.po.orderNumber}`}
-          </Typography>
-          <TextField
-            fullWidth
-            multiline
-            rows={3}
-            label="Remarks (optional)"
-            value={qaDialog.remarks}
-            onChange={(e) => setQaDialog((prev) => ({ ...prev, remarks: e.target.value }))}
-            placeholder={qaDialog.action === 'Rejected' ? 'Reason for rejection...' : 'Optional notes...'}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setQaDialog({ open: false, po: null, action: null, remarks: '' })}>Cancel</Button>
-          <Button
-            variant="contained"
-            color={qaDialog.action === 'Passed' ? 'success' : 'error'}
-            onClick={handleQaSubmit}
-            disabled={qaSubmitting}
-          >
-            {qaSubmitting ? 'Submitting...' : (qaDialog.action === 'Passed' ? 'Pass QA' : 'Reject QA')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Print Styles for Dialog */}
       <Box
         component="style"
         dangerouslySetInnerHTML={{

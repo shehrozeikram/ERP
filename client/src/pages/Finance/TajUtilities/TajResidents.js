@@ -145,6 +145,19 @@ const getInvoiceTypeFromCharges = (chargeTypes) => {
   return 'Other';
 };
 
+/** Hide settled invoices in "Pay Invoices from Deposit" (status paid, zero balance, or paid up to grand total). */
+const isInvoiceOwedForDepositPayment = (inv) => {
+  if (!inv) return false;
+  const status = String(inv.paymentStatus || '').toLowerCase();
+  if (status === 'paid') return false;
+  const bal = Number(inv.balance);
+  if (Number.isFinite(bal) && bal <= 0) return false;
+  const gt = Number(inv.grandTotal);
+  const tp = Number(inv.totalPaid);
+  if (Number.isFinite(gt) && gt > 0 && Number.isFinite(tp) && tp >= gt) return false;
+  return true;
+};
+
 const TajResidents = () => {
   const navigate = useNavigate();
   // State
@@ -754,8 +767,8 @@ const TajResidents = () => {
       
       setInvoices(invoiceList);
       
-      // Only show invoices that have remaining balance (incl. arrears)
-      const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
+      // Only invoices that still owe (exclude fully paid even if balance field lags)
+      const outstandingInvoices = invoiceList.filter(isInvoiceOwedForDepositPayment);
 
       // Determine first invoice of each type (earliest period) — only they carry arrears
       const typeGroups = {};
@@ -949,8 +962,8 @@ const TajResidents = () => {
           const invoiceList = response.data?.data || [];
           setInvoices(invoiceList);
           
-          // Only show invoices that have remaining balance (incl. arrears)
-          const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
+          // Only invoices that still owe (exclude fully paid even if balance field lags)
+          const outstandingInvoices = invoiceList.filter(isInvoiceOwedForDepositPayment);
 
           const typeGroups2 = {};
           outstandingInvoices.forEach(inv => {

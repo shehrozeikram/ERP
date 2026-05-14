@@ -121,7 +121,6 @@ async function main() {
   const ceo = await api.put(`/procurement/purchase-orders/${po._id}/ceo-approve`, { approvalComments: 'E2E', digitalSignature: 'E2E' });
   if (ceo.data?.sentToFinance) await api.put(`/procurement/purchase-orders/${po._id}/finance-approve`, { approvalComments: 'E2E' });
   await api.put(`/procurement/purchase-orders/${po._id}/send-to-store`, { comments: 'E2E' });
-  await api.post(`/procurement/store/po/${po._id}/qa-check`, { status: 'Passed', remarks: 'E2E' });
 
   // Create two GRNs against same PO/vendor
   const grn1 = (await api.post('/procurement/goods-receive', {

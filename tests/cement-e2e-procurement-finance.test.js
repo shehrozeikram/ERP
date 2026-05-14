@@ -154,18 +154,6 @@ async function main() {
   log(true, 'PO → Sent to Store');
   results.pass++;
 
-  const qaRes = await api.post(`/procurement/store/po/${poId}/qa-check`, {
-    status: 'Passed',
-    remarks: 'E2E automated QA'
-  });
-  if (!qaRes.data?.success) {
-    log(false, 'QA check failed', qaRes.data);
-    results.fail++;
-    process.exit(1);
-  }
-  log(true, 'PO QA → Passed');
-  results.pass++;
-
   // --- GRN ---
   const grnBody = {
     receiveDate: today,

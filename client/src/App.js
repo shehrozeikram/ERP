@@ -124,11 +124,12 @@ import ComparativeStatements from './pages/Procurement/ComparativeStatements';
 import Vendors from './pages/Procurement/Vendors';
 import Inventory from './pages/Procurement/Inventory';
 import GoodsReceive from './pages/Procurement/GoodsReceive';
+import DeliveryChallans from './pages/Procurement/Store/DeliveryChallans';
+import DeliveryChallanQA from './pages/Procurement/Store/DeliveryChallanQA';
 import GoodsIssue from './pages/Procurement/GoodsIssue';
 import CostCenters from './pages/Procurement/CostCenters';
 import VendorBills from './pages/Procurement/VendorBills';
 import StoreDashboard from './pages/Procurement/Store/StoreDashboard';
-import QualityAssurance from './pages/Procurement/Store/QualityAssurance';
 import StoreManagement from './pages/Procurement/Store/StoreManagement';
 import StoreItemCatalog from './pages/Procurement/Store/StoreItemCatalog';
 import SalesDashboard from './pages/Sales/SalesDashboard';
@@ -1404,9 +1405,9 @@ function App() {
               path="/procurement/store/dashboard"
               element={<Navigate to="/procurement/store" replace />}
             />
-            <Route 
-              path="/procurement/store/quality-assurance" 
-              element={<ProtectedRoute><QualityAssurance /></ProtectedRoute>} 
+            <Route
+              path="/procurement/store/quality-assurance"
+              element={<ProtectedRoute><Navigate to="/procurement/store/delivery-challan-qa" replace /></ProtectedRoute>}
             />
             <Route 
               path="/procurement/store/inventory" 
@@ -1415,6 +1416,14 @@ function App() {
             <Route 
               path="/procurement/store/goods-receive" 
               element={<ProtectedRoute><GoodsReceive /></ProtectedRoute>} 
+            />
+            <Route
+              path="/procurement/store/delivery-challans"
+              element={<ProtectedRoute><DeliveryChallans /></ProtectedRoute>}
+            />
+            <Route
+              path="/procurement/store/delivery-challan-qa"
+              element={<ProtectedRoute><DeliveryChallanQA /></ProtectedRoute>}
             />
             <Route 
               path="/procurement/store/goods-issue" 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Box, Typography, Button, Card, CardContent, CardHeader,
   Divider, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -424,6 +425,19 @@ const StoreManagement = () => {
           </Button>
         </Stack>
       </Stack>
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        <Typography variant="body2">
+          Purchase orders sent to the store (including <strong>full-advance</strong> flows) are worked on the{' '}
+          <RouterLink to="/procurement/store">Store Dashboard</RouterLink>
+          {' '}and{' '}
+          <RouterLink to="/procurement/store/delivery-challans">Delivery challans</RouterLink>
+          {' '}(create DC) and{' '}
+          <RouterLink to="/procurement/store/delivery-challan-qa">QA (delivery challans)</RouterLink>
+          {' '}(approve/reject DC QA)
+          — then post the GRN after QA passes.
+        </Typography>
+      </Alert>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 

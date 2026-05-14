@@ -6,6 +6,13 @@ const journalEntrySchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+  /** Voucher series for auto-numbering: BPV, CPV, GRN, SIN, JV, etc. (stored for audit; optional). */
+  voucherSeries: {
+    type: String,
+    trim: true,
+    default: null,
+    maxlength: [12, 'Voucher series is too long']
+  },
   // Which journal (folder) this entry belongs to: Purchase, Inventory, Bank, etc.
   journal: {
     type: mongoose.Schema.Types.ObjectId,
@@ -237,10 +244,18 @@ journalEntrySchema.pre('save', async function(next) {
       }
     }
 
-    // Auto-generate entry number if not provided
+    // Auto-generate entry number if not provided (per-series: BPV-, GRN-, JV-, …)
     if (!this.entryNumber) {
-      const count = await this.constructor.countDocuments();
-      this.entryNumber = `JV-${(count + 1).toString().padStart(6, '0')}`;
+      const { getNextJournalEntryNumber } = require('../../utils/journalEntryNumbering');
+      let series =
+        (this.voucherSeries && String(this.voucherSeries).trim().toUpperCase().replace(/[^A-Z]/g, '')) || '';
+      if (!series) {
+        if (this.referenceType === 'grn') series = 'GRN';
+        else if (this.referenceType === 'sin') series = 'SIN';
+        else if (this.referenceType === 'bill') series = 'BILL';
+        else series = 'JV';
+      }
+      this.entryNumber = await getNextJournalEntryNumber(series);
     }
 
     // Set posted date if status is posted

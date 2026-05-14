@@ -110,7 +110,7 @@ const AccountsReceivable = () => {
   });
 
   useEffect(() => {
-    api.get('/finance/accounts', { params: { type: 'current_asset', limit: 100 } })
+    api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1 } })
       .then(res => {
         const all = res.data.data || res.data.accounts || [];
         setBankAccounts(all.filter(a => ['1001','1002'].includes(a.accountNumber) || a.name?.toLowerCase().includes('bank') || a.name?.toLowerCase().includes('cash')));

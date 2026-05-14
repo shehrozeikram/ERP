@@ -256,6 +256,18 @@ const VoucherView = () => {
             <Typography variant="body2"><strong>Voucher Type</strong> {voucherType}</Typography>
             <Typography variant="body2"><strong>Voucher No</strong> {entry.entryNumber}</Typography>
             <Typography variant="body2"><strong>Month</strong> {monthName}</Typography>
+            {vendorAdvanceDoc ? (
+              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                <strong>Pay from account</strong>{' '}
+                {vendorAdvanceDoc.bankAccountId?.name
+                  ? `${vendorAdvanceDoc.bankAccountId.name}${
+                    vendorAdvanceDoc.bankAccountId.accountNumber
+                      ? ` (${vendorAdvanceDoc.bankAccountId.accountNumber})`
+                      : ''
+                  }`
+                  : '—'}
+              </Typography>
+            ) : null}
           </Box>
         </Box>
 

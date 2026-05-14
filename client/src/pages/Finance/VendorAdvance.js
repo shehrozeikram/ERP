@@ -63,6 +63,7 @@ const VendorAdvance = () => {
   const [form, setForm] = useState({
     amount: '',
     paymentMethod: 'bank_transfer',
+    bankAccountId: '',
     reference: '',
     paymentDate: new Date().toISOString().split('T')[0]
   });
@@ -72,6 +73,7 @@ const VendorAdvance = () => {
   });
   const [approverPool, setApproverPool] = useState([]);
   const [poPendingVoucher, setPoPendingVoucher] = useState({ loading: false, hasPending: false });
+  const [bankAccounts, setBankAccounts] = useState([]);
   const advanceHistorySectionRef = useRef(null);
   const [highlightPoId, setHighlightPoId] = useState(null);
 
@@ -116,6 +118,25 @@ const VendorAdvance = () => {
   useEffect(() => {
     loadVendors();
   }, [loadVendors]);
+
+  useEffect(() => {
+    api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1 } })
+      .then((res) => {
+        const payload = res.data?.data;
+        const all = Array.isArray(payload?.accounts)
+          ? payload.accounts
+          : (Array.isArray(payload) ? payload : []);
+        setBankAccounts(
+          all.filter(
+            (a) =>
+              ['1001', '1002', '1003'].includes(a.accountNumber)
+              || String(a.name || '').toLowerCase().includes('bank')
+              || String(a.name || '').toLowerCase().includes('cash')
+          )
+        );
+      })
+      .catch(() => setBankAccounts([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -259,6 +280,10 @@ const VendorAdvance = () => {
       toast.error('Select Sr Manager Accounts and GM Finance (required for every vendor advance).');
       return;
     }
+    if (!form.bankAccountId) {
+      toast.error('Select the account the payment is made from (pay from account).');
+      return;
+    }
     if (selectedPo?._id && poPendingVoucher.hasPending) {
       toast.error('This PO already has an advance pending voucher approval. You cannot record another until that is finished.');
       return;
@@ -276,6 +301,7 @@ const VendorAdvance = () => {
         vendorId: selectedVendor._id,
         amount,
         paymentMethod: form.paymentMethod,
+        bankAccountId: form.bankAccountId,
         reference: ref,
         paymentDate: paymentDateIso,
         referenceType: selectedPo ? 'purchase_order' : 'advance',
@@ -291,6 +317,7 @@ const VendorAdvance = () => {
         setForm({
           amount: '',
           paymentMethod: 'bank_transfer',
+          bankAccountId: '',
           reference: '',
           paymentDate: new Date().toISOString().split('T')[0]
         });
@@ -356,7 +383,7 @@ const VendorAdvance = () => {
         <PaymentsIcon color="primary" /> Vendor Advance
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Record prepayment to a supplier (DR Advance to suppliers / CR Bank or Cash). Link an optional PO for traceability.
+        Record prepayment to a supplier (DR Advance to suppliers / CR pay-from account). Link an optional PO for traceability.
         Apply this advance later on Accounts Payable when the vendor bill is created.
       </Typography>
 
@@ -506,7 +533,7 @@ const VendorAdvance = () => {
                   </Alert>
                 </Grid>
               ) : null}
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
                   required
@@ -517,7 +544,7 @@ const VendorAdvance = () => {
                   inputProps={{ min: 0.01, step: 0.01 }}
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Payment method</InputLabel>
                   <Select
@@ -532,7 +559,30 @@ const VendorAdvance = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth size="small" required disabled={bankAccounts.length === 0}>
+                  <InputLabel id="vendor-advance-pay-from-label">Pay from account</InputLabel>
+                  <Select
+                    labelId="vendor-advance-pay-from-label"
+                    value={form.bankAccountId}
+                    label="Pay from account"
+                    onChange={(e) => setForm((f) => ({ ...f, bankAccountId: e.target.value }))}
+                  >
+                    {bankAccounts.map((acc) => (
+                      <MenuItem key={acc._id} value={acc._id}>
+                        {acc.name}
+                        {acc.accountNumber ? ` (${acc.accountNumber})` : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                {bankAccounts.length === 0 ? (
+                  <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                    No suitable pay-from accounts found under Current Asset in the chart. Add accounts or run Chart of Accounts → Ensure System Accounts.
+                  </Typography>
+                ) : null}
+              </Grid>
+              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
                   label="Payment date"
@@ -586,6 +636,8 @@ const VendorAdvance = () => {
                           || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)
                           || !finAuth.accountsManagerUser
                           || !finAuth.financeControllerUser
+                          || bankAccounts.length === 0
+                          || !form.bankAccountId
                         }
                         size="large"
                       >
@@ -597,7 +649,7 @@ const VendorAdvance = () => {
                   <Button
                     type="submit"
                     variant="contained"
-                    disabled={submitting || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)}
+                    disabled={submitting || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending) || bankAccounts.length === 0 || !form.bankAccountId}
                     size="large"
                   >
                     {submitting ? 'Posting…' : 'Record vendor advance'}
@@ -645,6 +697,7 @@ const VendorAdvance = () => {
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell><b>Reference</b></TableCell>
                   <TableCell><b>Payment date</b></TableCell>
+                  <TableCell><b>Pay from account</b></TableCell>
                   <TableCell><b>Linked PO</b></TableCell>
                   <TableCell><b>Voucher</b></TableCell>
                   <TableCell><b>Issuance</b></TableCell>
@@ -675,6 +728,11 @@ const VendorAdvance = () => {
                     <TableCell>{a.reference || a._id}</TableCell>
                     <TableCell>
                       {a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : '—'}
+                    </TableCell>
+                    <TableCell>
+                      {a.bankAccount?.name
+                        ? `${a.bankAccount.name}${a.bankAccount.accountNumber ? ` (${a.bankAccount.accountNumber})` : ''}`
+                        : '—'}
                     </TableCell>
                     <TableCell>{a.linkedPoNumber || '—'}</TableCell>
                     <TableCell>

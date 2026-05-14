@@ -244,11 +244,6 @@ async function main() {
   }
 
   await api.put(`/procurement/purchase-orders/${state.po._id}/send-to-store`, { comments: 'E2E' });
-  const qaPass = await api.post(`/procurement/store/po/${state.po._id}/qa-check`, {
-    status: 'Passed',
-    remarks: 'E2E'
-  });
-  if (qaPass.status !== 200 || !qaPass.data?.success) die('QA failed', qaPass.data);
 
   const grnCreate = await api.post('/procurement/goods-receive', {
     receiveDate: today,

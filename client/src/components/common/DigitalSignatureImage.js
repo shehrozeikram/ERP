@@ -50,13 +50,7 @@ export function ProcurementDigitalSignaturesRow({ purchaseOrder }) {
       date: po.ceoApprovedAt,
       typedFallback: po.ceoDigitalSignature
     },
-    { label: 'Finance', user: po.financeApprovedBy, date: po.financeApprovedAt, typedFallback: null },
-    {
-      label: 'Quality Assurance',
-      user: po.qaStatus === 'Passed' ? po.qaCheckedBy : null,
-      date: po.qaCheckedAt,
-      typedFallback: null
-    }
+    { label: 'Finance', user: po.financeApprovedBy, date: po.financeApprovedAt, typedFallback: null }
   ];
 
   const hasAny = slots.some(

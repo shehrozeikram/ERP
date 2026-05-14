@@ -182,6 +182,7 @@ async function run() {
     vendorId: vendor._id,
     amount: total,
     paymentMethod: 'bank_transfer',
+    bankAccountId: accId('1002') || accId('1001'),
     reference: `ADV-FULL-${stamp}`,
     paymentDate: new Date().toISOString(),
     referenceType: 'purchase_order',
@@ -196,7 +197,6 @@ async function run() {
 
   // 8) GRN
   await api.put(`/procurement/purchase-orders/${poId}/send-to-store`, { comments: 'ok' });
-  await api.post(`/procurement/store/po/${poId}/qa-check`, { status: 'Passed', remarks: 'ok' });
   const grn = await api.post('/procurement/goods-receive', {
     receiveDate: today,
     project: project._id,

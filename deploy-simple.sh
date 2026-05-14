@@ -4,7 +4,8 @@
 # - Builds client locally
 # - Uploads build and production env to server
 # - Updates server code from origin/main with preflight checks
-# - Restarts PM2 and runs API smoke checks
+# - npm install, sync static files, nginx, PM2 restart, smoke checks
+# - Final PM2 restart + health echo so the run visibly ends with backend verified
 
 set -euo pipefail
 
@@ -70,22 +71,34 @@ log_info "Uploading production environment..."
 # Stage env file in /tmp (outside the git repo) so git stash -u cannot swallow it.
 scp "$ENV_FILE" "${SERVER_USER}@${SERVER_IP}:/tmp/.sgc-erp-env-deploy"
 
-log_info "Deploying on server..."
-ssh "${SERVER_USER}@${SERVER_IP}" "SERVER_PATH='${SERVER_PATH}' AUTO_STASH_SERVER_CHANGES='${AUTO_STASH_SERVER_CHANGES}' bash -s" <<'ENDSSH'
+log_info "Deploying on server (remote log is line-buffered; npm install may take 1–3 min)..."
+# ServerAlive* keeps long npm install from timing out; stdbuf line-buffers remote stdout on the server.
+SSH_BASE=(ssh
+  -o "ConnectTimeout=30"
+  -o "ServerAliveInterval=20"
+  -o "ServerAliveCountMax=12"
+  "${SERVER_USER}@${SERVER_IP}"
+)
+
+# Remote: line-buffer when stdbuf exists (clearer live logs during npm install).
+"${SSH_BASE[@]}" "export SERVER_PATH='${SERVER_PATH}'; export AUTO_STASH_SERVER_CHANGES='${AUTO_STASH_SERVER_CHANGES}'; command -v stdbuf >/dev/null 2>&1 && exec stdbuf -oL -eL bash -s || exec bash -s" <<'ENDSSH'
 set -euo pipefail
 
+SERVER_TS() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+say() { echo "[server $(SERVER_TS)] $*"; }
+
 cd "$SERVER_PATH"
-echo "Server path: $(pwd)"
+say "Server path: $(pwd)"
 
 CURRENT_COMMIT="$(git rev-parse --short HEAD)"
-echo "Current commit: ${CURRENT_COMMIT}"
+say "Current commit: ${CURRENT_COMMIT}"
 
 if [ -n "$(git status --porcelain)" ]; then
   if [ "$AUTO_STASH_SERVER_CHANGES" = "1" ]; then
     STASH_NAME="deploy-auto-stash-$(date +%Y%m%d_%H%M%S)"
-    echo "Dirty server working tree detected. Auto-stashing as ${STASH_NAME}..."
+    say "Dirty server working tree detected. Auto-stashing as ${STASH_NAME}..."
     git stash push -u -m "${STASH_NAME}" >/dev/null
-    echo "Auto-stash created."
+    say "Auto-stash created."
   else
     echo "ERROR: Server working tree is dirty. Clean or stash changes, then redeploy."
     git status --short
@@ -93,16 +106,17 @@ if [ -n "$(git status --porcelain)" ]; then
   fi
 fi
 
-echo "Pulling latest code from origin/main..."
+export GIT_TERMINAL_PROMPT=0
+say "Pulling latest code from origin/main..."
 git pull --ff-only origin main
 NEW_COMMIT="$(git rev-parse --short HEAD)"
-echo "Updated commit: ${NEW_COMMIT}"
+say "Updated commit: ${NEW_COMMIT}"
 
 if [ -f "/tmp/.sgc-erp-env-deploy" ]; then
   mv "/tmp/.sgc-erp-env-deploy" ".env"
-  echo "Environment file updated from local .env.production (deploy upload)."
+  say "Environment file updated from local .env.production (deploy upload)."
 else
-  echo "WARNING: /tmp/.sgc-erp-env-deploy not found — .env NOT updated."
+  say "WARNING: /tmp/.sgc-erp-env-deploy not found — .env NOT updated."
 fi
 
 # Easy Apply CVs: when SGC_UPLOADS_DIR is set, ensure persistent tree exists (survives git deploy).
@@ -115,53 +129,58 @@ if [ -f ".env" ]; then
   SGC_UP="$(echo "$SGC_UP" | xargs)"
   if [ -n "$SGC_UP" ]; then
     mkdir -p "${SGC_UP}/cvs"
-    echo "Persistent CV uploads: ${SGC_UP}/cvs"
+    say "Persistent CV uploads: ${SGC_UP}/cvs"
   fi
 fi
 
-echo ""
-echo "========== SGC ERP (server): npm install (can take 1–3 min) =========="
+say "========== npm install (omit dev; can take 1–3 min) =========="
 npm install --omit=dev --omit=optional
-echo "========== SGC ERP (server): npm install finished =========="
+say "========== npm install finished =========="
 
 mkdir -p "client/build"
-echo "Syncing frontend build to /var/www/html..."
+say "Syncing frontend build to /var/www/html..."
 cp -a client/build/. /var/www/html/
 
 if [ -f "scripts/nginx-production-setup.sh" ]; then
-  echo "Applying nginx setup script..."
+  say "Applying nginx setup script..."
   bash scripts/nginx-production-setup.sh
 else
-  echo "Reloading nginx..."
+  say "Reloading nginx..."
   systemctl reload nginx
 fi
 
-echo ""
-echo "========== SGC ERP (server): restarting PM2 (loads new Node code) =========="
-echo "Restarting backend process..."
-mkdir -p logs
-mkdir -p server/uploads/cvs
-echo "CVs: set SGC_UPLOADS_DIR=/var/lib/sgc-erp/uploads in .env, run scripts/migrate-cvs-to-persistent-dir.sh once, then pm2 restart. See .env.production.example."
-if pm2 describe sgc-erp-backend >/dev/null 2>&1; then
-  if ! pm2 restart sgc-erp-backend --update-env; then
-    echo "Restart failed; attempting fresh start from ecosystem file..."
-    pm2 delete sgc-erp-backend >/dev/null 2>&1 || true
+# --- PM2: restart backend (loads new Node code + .env) ---
+restart_sgc_backend() {
+  local phase="${1:-restart}"
+  say "========== PM2 (${phase}): sgc-erp-backend =========="
+  mkdir -p logs
+  mkdir -p server/uploads/cvs
+  if pm2 describe sgc-erp-backend >/dev/null 2>&1; then
+    if ! pm2 restart sgc-erp-backend --update-env; then
+      say "PM2 restart failed; removing stale process and starting from ecosystem.config.js ..."
+      pm2 delete sgc-erp-backend >/dev/null 2>&1 || true
+      pm2 start ecosystem.config.js --env production --only sgc-erp-backend
+    fi
+  else
+    say "PM2 app missing; starting sgc-erp-backend from ecosystem.config.js ..."
     pm2 start ecosystem.config.js --env production --only sgc-erp-backend
   fi
-else
-  pm2 start ecosystem.config.js --env production --only sgc-erp-backend
-fi
-pm2 save
-echo "========== SGC ERP (server): PM2 restart finished =========="
+  pm2 save
+  say "========== PM2 (${phase}) finished =========="
+}
+
+restart_sgc_backend "after-deploy"
 
 sleep 3
-if ! pm2 list | grep -q "sgc-erp-backend.*online"; then
-  echo "ERROR: sgc-erp-backend is not online after restart."
+if [ -z "$(pm2 pid sgc-erp-backend 2>/dev/null)" ]; then
+  say "ERROR: sgc-erp-backend has no PID after PM2 restart (not running)."
+  pm2 list || true
   exit 1
 fi
 
-echo "Running smoke checks..."
+say "========== Smoke checks =========="
 curl -fsS "http://127.0.0.1:5001/api/health" >/dev/null
+say "Health: OK"
 
 REJECT_CODE="$(curl -s -o /tmp/reject-route-smoke.json -w '%{http_code}' \
   -X PUT 'http://127.0.0.1:5001/api/procurement/requisitions/000000000000000000000000/reject' \
@@ -169,14 +188,32 @@ REJECT_CODE="$(curl -s -o /tmp/reject-route-smoke.json -w '%{http_code}' \
   --data '{"observation":"smoke-test"}')"
 
 if [ "$REJECT_CODE" = "404" ]; then
-  echo "ERROR: Reject requisition route returned 404 (route missing)."
+  say "ERROR: Reject requisition route returned 404 (route missing)."
   cat /tmp/reject-route-smoke.json
   exit 1
 fi
 
-echo "Reject route smoke response code: $REJECT_CODE"
-echo "Server deploy completed successfully."
+say "Reject-route smoke HTTP code: ${REJECT_CODE} (expected non-404)"
+
+# Final PM2 restart: picks up any late file/env consistency; quick no-op if already fresh.
+restart_sgc_backend "final"
+
+sleep 3
+if [ -z "$(pm2 pid sgc-erp-backend 2>/dev/null)" ]; then
+  say "ERROR: sgc-erp-backend has no PID after final PM2 restart."
+  pm2 list || true
+  exit 1
+fi
+
+say "========== Final health (visible) =========="
+curl -fsS "http://127.0.0.1:5001/api/health" | tr -d '\r' || { say "ERROR: final health check failed"; exit 1; }
+echo ""
+say "PM2 describe sgc-erp-backend (excerpt):"
+pm2 describe sgc-erp-backend 2>/dev/null | head -n 25 || pm2 list
+
+say "========== Server deploy completed successfully. =========="
 ENDSSH
 
 log_ok "Deployment completed successfully."
-log_info "Check status: ssh ${SERVER_USER}@${SERVER_IP} 'cd ${SERVER_PATH} && pm2 status'"
+log_info "Remote steps included: git pull → npm install → static sync → nginx → PM2 (×2) → smoke + final health."
+log_info "Check backend: ssh ${SERVER_USER}@${SERVER_IP} 'cd ${SERVER_PATH} && pm2 status && curl -s http://127.0.0.1:5001/api/health'"

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams, useLocation, useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
@@ -23,8 +23,64 @@ import LocationSelector from '../../components/Procurement/Store/LocationSelecto
 const makeEmptyItem = () => ({
   inventoryItem: '', productCode: '', itemCode: '', itemName: '', unit: '',
   quantity: 1, quantityOrdered: null, unitPrice: '', notes: '',
-  selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' }
+  selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' },
+  poLineIndex: undefined
 });
+
+/** GRN table rows from PO lines (remaining qty). */
+const buildItemsFromPurchaseOrder = (po) => {
+  if (!po?.items?.length) return [makeEmptyItem()];
+  return po.items.map((it, j) => {
+    const orderedQty = Number(it.quantity) || 0;
+    const alreadyReceived = Number(it.receivedQuantity) || 0;
+    const remainingQty = Math.max(0, Math.round((orderedQty - alreadyReceived) * 100) / 100);
+    return {
+      poLineIndex: j,
+      inventoryItem: '',
+      productCode: it.productCode || '',
+      itemCode: it.productCode || '',
+      itemName: it.description || '',
+      unit: it.unit || '',
+      quantity: remainingQty,
+      quantityOrdered: remainingQty,
+      unitPrice: it.unitPrice ?? '',
+      notes: '',
+      selected: remainingQty > 0,
+      subStore: '',
+      location: { rack: '', shelf: '', bin: '' }
+    };
+  });
+};
+
+/** GRN table rows from a QA-passed DC: one row per open line, codes from DC snapshot. */
+const buildItemsFromDeliveryChallan = (dcDoc, invList) => {
+  const list = Array.isArray(invList) ? invList : [];
+  const out = [];
+  for (const it of dcDoc.items || []) {
+    const open = Math.round(((Number(it.quantity) || 0) - (Number(it.quantityReceived) || 0)) * 100) / 100;
+    if (open <= 0) continue;
+    const code = String(it.productCode || '').trim() || String(it.itemCode || '').trim();
+    const inv = code ? list.find((x) => String(x.itemCode || '').trim() === code) : null;
+    const plRaw = Number(it.poLineIndex);
+    const poLineIndex = Number.isNaN(plRaw) ? undefined : plRaw;
+    out.push({
+      poLineIndex,
+      inventoryItem: inv?._id || '',
+      productCode: code,
+      itemCode: String(it.itemCode || '').trim() || code,
+      itemName: String(it.itemName || '').trim(),
+      unit: String(it.unit || '').trim(),
+      quantity: open,
+      quantityOrdered: open,
+      unitPrice: it.unitPrice != null && it.unitPrice !== '' ? it.unitPrice : '',
+      notes: '',
+      selected: true,
+      subStore: '',
+      location: { rack: '', shelf: '', bin: '' }
+    });
+  }
+  return out.length ? out : [makeEmptyItem()];
+};
 
 const formatGRNDate = (d) => {
   if (!d) return '';
@@ -35,6 +91,21 @@ const formatGRNDate = (d) => {
 };
 
 const formatNumber = (n) => (n == null || n === '') ? '' : Number(n).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Ordered qty and remaining on PO line (remaining reflects other GRNs already posted). */
+const poLineOrderedAndRemaining = (poDetail, poLineIndex) => {
+  if (poLineIndex == null || Number.isNaN(Number(poLineIndex)) || !poDetail?.items?.length) {
+    return { ordered: null, remaining: null };
+  }
+  const j = Number(poLineIndex);
+  if (j < 0 || j >= poDetail.items.length) return { ordered: null, remaining: null };
+  const line = poDetail.items[j];
+  if (!line) return { ordered: null, remaining: null };
+  const ordered = Number(line.quantity) || 0;
+  const received = Number(line.receivedQuantity) || 0;
+  const remaining = Math.max(0, Math.round((ordered - received) * 100) / 100);
+  return { ordered, remaining };
+};
 
 const GoodsReceive = () => {
   const theme = useTheme();
@@ -47,6 +118,10 @@ const GoodsReceive = () => {
   const [success, setSuccess] = useState('');
   const [receives, setReceives] = useState([]);
   const [inventory, setInventory] = useState([]);
+  const inventoryRef = useRef([]);
+  useEffect(() => {
+    inventoryRef.current = inventory;
+  }, [inventory]);
   const [suppliers, setSuppliers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [page, setPage] = useState(0);
@@ -61,6 +136,12 @@ const GoodsReceive = () => {
   const [mainStores, setMainStores] = useState([]);
   const [barcodePrintOpen, setBarcodePrintOpen] = useState(false);
   const [barcodePrintItems, setBarcodePrintItems] = useState([]);
+  /** Full-advance POs (by payment terms) must post GRN against a QA-passed delivery challan. */
+  const [grnRequiresDeliveryChallan, setGrnRequiresDeliveryChallan] = useState(false);
+  const [grnDcStatusNote, setGrnDcStatusNote] = useState('');
+  const [deliveryChallanOptions, setDeliveryChallanOptions] = useState([]);
+  /** Latest PO lines (quantity / receivedQuantity) while Create GRN dialog is open — for PO Qty / Left on PO columns. */
+  const [grnPoDetail, setGrnPoDetail] = useState(null);
   const [formData, setFormData] = useState({
     receiveDate: new Date().toISOString().split('T')[0],
     supplier: '',
@@ -69,7 +150,6 @@ const GoodsReceive = () => {
     purchaseOrder: '',
     poNumber: '',
     narration: '',
-    prNumber: '',
     store: '',
     project: '',
     gatePassNo: '',
@@ -81,8 +161,9 @@ const GoodsReceive = () => {
     serviceCharges: 0,
     packingCharges: 0,
     loadingCharges: 0,
-    items: [{ inventoryItem: '', productCode: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' } }],
-    notes: ''
+    items: [{ inventoryItem: '', productCode: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' }, poLineIndex: undefined }],
+    notes: '',
+    deliveryChallan: ''
   });
 
   useEffect(() => {
@@ -92,6 +173,26 @@ const GoodsReceive = () => {
     loadProjects();
     loadMainStores();
   }, [page, rowsPerPage, search]);
+
+  useEffect(() => {
+    if (!formDialog.open || !formData.purchaseOrder) {
+      setGrnPoDetail(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(`/procurement/purchase-orders/${formData.purchaseOrder}`);
+        if (!cancelled && res.data?.success && res.data?.data) {
+          const po = res.data.data;
+          setGrnPoDetail({ items: po.items || [], orderNumber: po.orderNumber });
+        }
+      } catch (_) {
+        if (!cancelled) setGrnPoDetail(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [formDialog.open, formData.purchaseOrder]);
 
   const loadMainStores = async () => {
     try {
@@ -183,7 +284,6 @@ const GoodsReceive = () => {
       purchaseOrder: po._id,
       poNumber: po.orderNumber || '',
       narration: po.indent?.title || po.indent?.indentNumber || '',
-      prNumber: '',
       store: '',        // will be selected by user as ObjectId
       gatePassNo: '',
       currency: 'Rupees',
@@ -194,31 +294,59 @@ const GoodsReceive = () => {
       serviceCharges: 0,
       packingCharges: 0,
       loadingCharges: 0,
-      items: (po.items && po.items.length)
-        ? po.items.map((it) => {
-            const orderedQty = Number(it.quantity) || 0;
-            const alreadyReceived = Number(it.receivedQuantity) || 0;
-            const remainingQty = Math.max(0, Math.round((orderedQty - alreadyReceived) * 100) / 100);
-            return {
-              inventoryItem: '',
-              productCode: it.productCode || '',
-              itemCode: it.productCode || '',
-              itemName: it.description || '',
-              unit: it.unit || '',
-              // Default GRN quantity to required-left quantity for this PO line.
-              quantity: remainingQty,
-              quantityOrdered: remainingQty,
-              unitPrice: it.unitPrice ?? '',
-              notes: '',
-              selected: remainingQty > 0,
-              subStore: '',
-              location: { rack: '', shelf: '', bin: '' }
-            };
-          })
-        : [makeEmptyItem()],
+      items: buildItemsFromPurchaseOrder(po),
       project: '',
-      notes: ''
+      notes: '',
+      deliveryChallan: ''
     });
+  }, []);
+
+  const refreshDeliveryChallanForPo = useCallback(async (poId) => {
+    if (!poId) {
+      setGrnRequiresDeliveryChallan(false);
+      setGrnDcStatusNote('');
+      setDeliveryChallanOptions([]);
+      setFormData((prev) => ({ ...prev, deliveryChallan: '', gatePassNo: '' }));
+      return;
+    }
+    try {
+      const res = await api.get(`/procurement/purchase-orders/${poId}`);
+      const p = res.data?.data;
+      const req = p?.grnRequiresDeliveryChallan === true;
+      setGrnRequiresDeliveryChallan(req);
+      setGrnDcStatusNote(
+        req && p?.dcCreationAllowedByStatus === false ? (p.dcCreationBlockedReason || '') : ''
+      );
+      if (req) {
+        const dcRes = await api.get('/procurement/delivery-challans', {
+          params: { purchaseOrder: poId, status: 'qa_passed', limit: 50 }
+        });
+        const opts = dcRes.data?.data?.items || [];
+        setDeliveryChallanOptions(opts);
+        setFormData((prev) => {
+          const keep = prev.deliveryChallan && opts.some((o) => String(o._id) === String(prev.deliveryChallan));
+          const selId = keep ? String(prev.deliveryChallan) : (opts.length === 1 ? String(opts[0]._id) : '');
+          const selDc = selId ? opts.find((o) => String(o._id) === selId) : null;
+          const nextItems = selId && selDc?.items?.length
+            ? buildItemsFromDeliveryChallan(selDc, inventoryRef.current)
+            : prev.items;
+          return {
+            ...prev,
+            deliveryChallan: selId,
+            gatePassNo: selDc?.gatePassNo || '',
+            items: nextItems
+          };
+        });
+      } else {
+        setDeliveryChallanOptions([]);
+        setFormData((prev) => ({ ...prev, deliveryChallan: '', gatePassNo: '' }));
+      }
+    } catch (_) {
+      setGrnRequiresDeliveryChallan(false);
+      setGrnDcStatusNote('');
+      setDeliveryChallanOptions([]);
+      setFormData((prev) => ({ ...prev, deliveryChallan: '', gatePassNo: '' }));
+    }
   }, []);
 
   useEffect(() => {
@@ -227,7 +355,7 @@ const GoodsReceive = () => {
     (async () => {
       try {
         setQaPassedPOsLoading(true);
-        const res = await api.get('/procurement/store/qa-list', { params: { qaStatus: 'Passed' } });
+        const res = await api.get('/procurement/store/grn-prefill-purchase-orders');
         if (!cancelled && res.data?.success && res.data?.data?.purchaseOrders) {
           setQaPassedPOs(res.data.data.purchaseOrders);
         }
@@ -250,14 +378,17 @@ const GoodsReceive = () => {
         const res = await api.get(`/procurement/purchase-orders/${poId}`);
         if (cancelled || !res.data?.success || !res.data?.data) return;
         prefillFormFromPO(res.data.data);
-        setFormDialog({ open: true });
-        setSearchParams({});
+        await refreshDeliveryChallanForPo(poId);
+        if (!cancelled) {
+          setFormDialog({ open: true });
+          setSearchParams({});
+        }
       } catch (e) {
         if (!cancelled) setError(e.response?.data?.message || 'Failed to load PO for GRN');
       }
     })();
     return () => { cancelled = true; };
-  }, [searchParams, prefillFormFromPO]);
+  }, [searchParams, prefillFormFromPO, refreshDeliveryChallanForPo, setSearchParams]);
 
   // When navigated from Procurement PO view with openGrnId: fetch GRN and open view dialog
   useEffect(() => {
@@ -281,6 +412,9 @@ const GoodsReceive = () => {
   }, [location.state?.openGrnId, location.pathname, navigate]);
 
   const handleCreate = () => {
+    setGrnRequiresDeliveryChallan(false);
+    setGrnDcStatusNote('');
+    setDeliveryChallanOptions([]);
     setFormData({
       receiveDate: new Date().toISOString().split('T')[0],
       supplier: '',
@@ -289,7 +423,6 @@ const GoodsReceive = () => {
       purchaseOrder: '',
       poNumber: '',
       narration: '',
-      prNumber: '',
       store: '',
       project: '',
       gatePassNo: '',
@@ -302,7 +435,8 @@ const GoodsReceive = () => {
       packingCharges: 0,
       loadingCharges: 0,
       items: [makeEmptyItem()],
-      notes: ''
+      notes: '',
+      deliveryChallan: ''
     });
     setFormDialog({ open: true });
   };
@@ -312,6 +446,10 @@ const GoodsReceive = () => {
   const handleSubmit = async () => {
     if (!formData.project) {
       setError('Please select a project');
+      return;
+    }
+    if (grnRequiresDeliveryChallan && !formData.deliveryChallan) {
+      setError('Select a QA-passed delivery challan for this full-advance PO (Store → Delivery challans).');
       return;
     }
     const selectedItems = formData.items.filter(
@@ -349,6 +487,11 @@ const GoodsReceive = () => {
       }).filter((i) => (i.itemCode || i.itemName)),
       otherCharges: (Number(formData.serviceCharges) || 0) + (Number(formData.packingCharges) || 0) + (Number(formData.loadingCharges) || 0)
     };
+    if (grnRequiresDeliveryChallan && formData.deliveryChallan) {
+      payload.deliveryChallan = formData.deliveryChallan;
+    } else {
+      delete payload.deliveryChallan;
+    }
     try {
       setLoading(true);
       const res = await api.post('/procurement/goods-receive', payload);
@@ -485,6 +628,7 @@ const GoodsReceive = () => {
                 <TableCell>Date</TableCell>
                 <TableCell>Supplier</TableCell>
                 <TableCell>PO Number</TableCell>
+                <TableCell>DC</TableCell>
                 <TableCell>Items</TableCell>
                 <TableCell>Total Qty</TableCell>
                 <TableCell>Status</TableCell>
@@ -493,9 +637,9 @@ const GoodsReceive = () => {
             </TableHead>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={8} align="center"><CircularProgress /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} align="center"><CircularProgress /></TableCell></TableRow>
               ) : receives.length === 0 ? (
-                <TableRow><TableCell colSpan={8} align="center">No records found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} align="center">No records found</TableCell></TableRow>
               ) : (
                 receives.map((receive) => (
                   <TableRow key={receive._id} hover>
@@ -503,6 +647,7 @@ const GoodsReceive = () => {
                     <TableCell>{formatDate(receive.receiveDate)}</TableCell>
                     <TableCell>{receive.supplierName || receive.supplier?.name || '-'}</TableCell>
                     <TableCell>{receive.poNumber || receive.purchaseOrder?.orderNumber || '-'}</TableCell>
+                    <TableCell>{receive.deliveryChallan?.dcNumber || '—'}</TableCell>
                     <TableCell>{receive.totalItems || 0}</TableCell>
                     <TableCell>{receive.totalQuantity || 0}</TableCell>
                     <TableCell>
@@ -579,7 +724,7 @@ const GoodsReceive = () => {
       </Paper>
 
       {/* Create Dialog - GRN layout */}
-      <Dialog open={formDialog.open} onClose={() => setFormDialog({ open: false })} maxWidth="lg" fullWidth>
+      <Dialog open={formDialog.open} onClose={() => { setFormDialog({ open: false }); setGrnRequiresDeliveryChallan(false); setGrnDcStatusNote(''); setDeliveryChallanOptions([]); }} maxWidth="lg" fullWidth>
         <DialogTitle>Create GRN (Goods Received Note)</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -592,16 +737,47 @@ const GoodsReceive = () => {
                 value={formData.purchaseOrder || ''}
                 onChange={async (e) => {
                   const poId = e.target.value;
-                  if (!poId) return;
+                  if (!poId) {
+                    setGrnRequiresDeliveryChallan(false);
+                    setGrnDcStatusNote('');
+                    setDeliveryChallanOptions([]);
+                    setFormData({
+                      receiveDate: new Date().toISOString().split('T')[0],
+                      supplier: '',
+                      supplierName: '',
+                      supplierAddress: '',
+                      purchaseOrder: '',
+                      poNumber: '',
+                      narration: '',
+                      store: '',
+                      project: '',
+                      gatePassNo: '',
+                      currency: 'Rupees',
+                      discount: 0,
+                      otherCharges: 0,
+                      observation: '',
+                      distributionBasis: 'Quantity',
+                      serviceCharges: 0,
+                      packingCharges: 0,
+                      loadingCharges: 0,
+                      items: [makeEmptyItem()],
+                      notes: '',
+                      deliveryChallan: ''
+                    });
+                    return;
+                  }
                   try {
                     const res = await api.get(`/procurement/purchase-orders/${poId}`);
-                    if (res.data?.success && res.data?.data) prefillFormFromPO(res.data.data);
+                    if (res.data?.success && res.data?.data) {
+                      prefillFormFromPO(res.data.data);
+                      await refreshDeliveryChallanForPo(poId);
+                    }
                   } catch (err) {
                     setError(err.response?.data?.message || 'Failed to load PO');
                   }
                 }}
                 disabled={qaPassedPOsLoading}
-                helperText={qaPassedPOs.length === 0 && !qaPassedPOsLoading ? 'No QA-passed POs. Create GRN from Store Dashboard or select a PO when available.' : 'Select a QA-passed PO to prefill from (same as Store Dashboard Create GRN)'}
+                helperText={qaPassedPOs.length === 0 && !qaPassedPOsLoading ? 'No open POs for GRN in this list.' : 'Select a PO to prefill (full-advance: pick QA-passed delivery challan on the form).'}
               >
                 <MenuItem value="">Select QA-passed PO (optional)</MenuItem>
                 {qaPassedPOs.map((po) => (
@@ -611,6 +787,81 @@ const GoodsReceive = () => {
                 ))}
               </TextField>
             </Grid>
+            {grnDcStatusNote && (
+              <Grid item xs={12}>
+                <Alert severity="warning" sx={{ mb: 1 }}>{grnDcStatusNote}</Alert>
+              </Grid>
+            )}
+            {grnRequiresDeliveryChallan && (
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  This PO is on full advance terms. Select a QA-passed delivery challan before saving the GRN.
+                </Alert>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'flex-start' }}>
+                  <TextField
+                    fullWidth
+                    select
+                    required
+                    label="Delivery challan (QA passed) *"
+                    value={formData.deliveryChallan || ''}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      void (async () => {
+                        const dcOpt = id ? deliveryChallanOptions.find((o) => String(o._id) === id) : null;
+                        let gatePassNo = '';
+                        let nextItems = null;
+
+                        if (!id) {
+                          const poId = formData.purchaseOrder;
+                          if (poId) {
+                            try {
+                              const res = await api.get(`/procurement/purchase-orders/${poId}`);
+                              if (res.data?.data) nextItems = buildItemsFromPurchaseOrder(res.data.data);
+                            } catch (_) { /* keep rows */ }
+                          }
+                        } else {
+                          gatePassNo = dcOpt?.gatePassNo || '';
+                          let dcFull = dcOpt;
+                          if (!dcFull?.items?.length) {
+                            try {
+                              const res = await api.get(`/procurement/delivery-challans/${id}`);
+                              if (res.data?.success && res.data?.data) dcFull = res.data.data;
+                            } catch (_) { /* use list row only */ }
+                          }
+                          if (dcFull?.gatePassNo) gatePassNo = dcFull.gatePassNo;
+                          if (dcFull?.items?.length) {
+                            nextItems = buildItemsFromDeliveryChallan(dcFull, inventoryRef.current);
+                          }
+                        }
+
+                        setFormData((prev) => ({
+                          ...prev,
+                          deliveryChallan: id,
+                          gatePassNo: id ? gatePassNo : '',
+                          items: nextItems != null ? nextItems : prev.items
+                        }));
+                      })();
+                    }}
+                    helperText={deliveryChallanOptions.length === 0 ? 'No QA-passed challans yet. Create one and pass QA from Delivery challans.' : 'Items below refresh from the selected challan.'}
+                  >
+                    <MenuItem value="">Select…</MenuItem>
+                    {deliveryChallanOptions.map((dc) => (
+                      <MenuItem key={dc._id} value={String(dc._id)}>
+                        {dc.dcNumber}{dc.gatePassNo ? ` (${dc.gatePassNo})` : ''}{dc.vendorDcReference ? ` — ${dc.vendorDcReference}` : ''}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Button
+                    component={RouterLink}
+                    to={formData.purchaseOrder ? `/procurement/store/delivery-challans?purchaseOrder=${formData.purchaseOrder}` : '/procurement/store/delivery-challans'}
+                    variant="outlined"
+                    sx={{ mt: { xs: 0, sm: 0.5 }, whiteSpace: 'nowrap' }}
+                  >
+                    Open delivery challans
+                  </Button>
+                </Stack>
+              </Grid>
+            )}
             {/* Two-column header like image */}
             <Grid item xs={12}><Typography variant="overline" color="textSecondary">Header details</Typography></Grid>
             <Grid item xs={12} md={6}>
@@ -650,8 +901,7 @@ const GoodsReceive = () => {
               <TextField fullWidth label="Narration" value={formData.narration} onChange={(e) => setFormData({ ...formData, narration: e.target.value })} placeholder="e.g. Indent No., Material Received for..., End user..." multiline rows={2} />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField fullWidth label="P.R No." value={formData.prNumber} onChange={(e) => setFormData({ ...formData, prNumber: e.target.value })} />
-              <TextField fullWidth label="P.O No." value={formData.poNumber} onChange={(e) => setFormData({ ...formData, poNumber: e.target.value })} sx={{ mt: 1 }} />
+              <TextField fullWidth label="P.O No." value={formData.poNumber} onChange={(e) => setFormData({ ...formData, poNumber: e.target.value })} />
               <TextField
                 fullWidth select label="Main Store" value={formData.store || ''} sx={{ mt: 1 }}
                 onChange={(e) => setFormData({ ...formData, store: e.target.value })}
@@ -660,7 +910,18 @@ const GoodsReceive = () => {
                 <MenuItem value=""><em>— Select Store —</em></MenuItem>
                 {mainStores.map(s => <MenuItem key={s._id} value={s._id}>{s.name} ({s.code})</MenuItem>)}
               </TextField>
-              <TextField fullWidth label="Gate Pass No." value={formData.gatePassNo} onChange={(e) => setFormData({ ...formData, gatePassNo: e.target.value })} sx={{ mt: 1 }} />
+              <TextField
+                fullWidth
+                label="Gate Pass No."
+                value={formData.gatePassNo}
+                onChange={(e) => {
+                  if (grnRequiresDeliveryChallan) return;
+                  setFormData({ ...formData, gatePassNo: e.target.value });
+                }}
+                InputProps={grnRequiresDeliveryChallan ? { readOnly: true } : {}}
+                helperText={grnRequiresDeliveryChallan ? 'Issued with the selected delivery challan' : undefined}
+                sx={{ mt: 1 }}
+              />
             </Grid>
             {/* Barcode Scanner */}
             <Grid item xs={12}>
@@ -693,7 +954,30 @@ const GoodsReceive = () => {
               <Divider sx={{ my: 1 }} />
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                 <Typography variant="subtitle1" fontWeight="bold">Items</Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={addItem}>Add Item</Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {formData.purchaseOrder && (
+                    <Tooltip title="Reload PO line quantities (after another GRN is posted)">
+                      <IconButton
+                        size="small"
+                        onClick={async () => {
+                          try {
+                            const res = await api.get(`/procurement/purchase-orders/${formData.purchaseOrder}`);
+                            if (res.data?.success && res.data?.data) {
+                              const po = res.data.data;
+                              setGrnPoDetail({ items: po.items || [], orderNumber: po.orderNumber });
+                              setSuccess('PO quantities refreshed');
+                            }
+                          } catch (e) {
+                            setError(e.response?.data?.message || 'Failed to refresh PO');
+                          }
+                        }}
+                      >
+                        <RefreshIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  <Button size="small" startIcon={<AddIcon />} onClick={addItem}>Add Item</Button>
+                </Box>
               </Box>
             </Grid>
             <Grid item xs={12}>
@@ -706,6 +990,12 @@ const GoodsReceive = () => {
                       <TableCell sx={{ fontWeight: 'bold' }}>Product</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Spec Units</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">PO Qty</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">
+                        <Tooltip title="Open qty on PO after posted GRNs. Second line shows what would remain if you save this GRN with current quantities on this PO line.">
+                          <span>Left on PO</span>
+                        </Tooltip>
+                      </TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Qty Ordered</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Qty Received</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Rate</TableCell>
@@ -717,6 +1007,19 @@ const GoodsReceive = () => {
                   <TableBody>
                     {formData.items.map((item, index) => {
                       const d = getItemDisplay(item);
+                      const { ordered, remaining } = poLineOrderedAndRemaining(grnPoDetail, item.poLineIndex);
+                      const draftOnSameLine =
+                        item.poLineIndex != null && remaining != null
+                          ? formData.items.reduce((sum, row) => {
+                            if (row.selected === false) return sum;
+                            if (Number(row.poLineIndex) !== Number(item.poLineIndex)) return sum;
+                            return sum + (Number(row.quantity) || 0);
+                          }, 0)
+                          : 0;
+                      const afterThisGrn =
+                        remaining != null
+                          ? Math.round((remaining - draftOnSameLine) * 100) / 100
+                          : null;
                       return (
                         <TableRow key={index} hover selected={item.selected !== false}>
                           <TableCell padding="checkbox">
@@ -735,6 +1038,30 @@ const GoodsReceive = () => {
                           </TableCell>
                           <TableCell>
                             <TextField size="small" fullWidth value={item.unit ?? d.unit ?? ''} onChange={(e) => updateItem(index, 'unit', e.target.value)} placeholder="Spec Units" sx={{ width: 80 }} />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="text.secondary">
+                              {ordered != null ? formatNumber(ordered) : '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            {remaining != null ? (
+                              <>
+                                <Typography variant="body2" color="text.secondary">
+                                  {formatNumber(remaining)}
+                                </Typography>
+                                {draftOnSameLine > 0.0001 && afterThisGrn != null && (
+                                  <Typography variant="caption" display="block" color="text.disabled" sx={{ lineHeight: 1.2 }}>
+                                    After this GRN: {formatNumber(Math.max(0, afterThisGrn))}
+                                    {afterThisGrn < -0.0001 && (
+                                      <Box component="span" sx={{ color: 'error.main', display: 'block' }}>Over PO line</Box>
+                                    )}
+                                  </Typography>
+                                )}
+                              </>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">—</Typography>
+                            )}
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" sx={{ color: 'text.secondary' }}>
@@ -769,7 +1096,7 @@ const GoodsReceive = () => {
                     })}
                     {formData.items.length > 0 && (
                       <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.04), borderTop: 2, borderColor: 'divider' }}>
-                        <TableCell colSpan={5} align="right" sx={{ fontWeight: 'bold' }}>Total</TableCell>
+                        <TableCell colSpan={7} align="right" sx={{ fontWeight: 'bold' }}>Total</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
                           {formatNumber(formData.items.reduce((s, i) => s + (i.quantityOrdered != null ? Number(i.quantityOrdered) : 0), 0))}
                         </TableCell>
@@ -828,7 +1155,7 @@ const GoodsReceive = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFormDialog({ open: false })}>Cancel</Button>
+          <Button onClick={() => { setFormDialog({ open: false }); setGrnRequiresDeliveryChallan(false); setGrnDcStatusNote(''); setDeliveryChallanOptions([]); }}>Cancel</Button>
           <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.project || !formData.items.some((i) => (i.selected !== false) && (Number(i.quantity) || 0) > 0)}>
             Create GRN
           </Button>
@@ -856,7 +1183,7 @@ const GoodsReceive = () => {
                 </Grid>
                 <Grid item xs={4} />
               </Grid>
-              {/* Two-column: Left (No., Supplier, Address, Narration) | Right (Date, Currency, P.R No., P.O No., Store, Gate Pass No.) */}
+              {/* Two-column: Left (No., Supplier, Address, Narration) | Right (Date, Currency, P.O No., Store, Gate Pass No.) */}
               <Grid container spacing={3} sx={{ mb: 2 }}>
                 <Grid item xs={12} md={6}>
                   <Typography variant="caption" color="textSecondary">No.</Typography>
@@ -873,10 +1200,18 @@ const GoodsReceive = () => {
                   <Typography variant="body2">{formatGRNDate(viewDialog.data.receiveDate)}</Typography>
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Currency</Typography>
                   <Typography variant="body2">{viewDialog.data.currency || 'Rupees'}</Typography>
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.R No.</Typography>
-                  <Typography variant="body2">{viewDialog.data.prNumber || '—'}</Typography>
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.O No.</Typography>
                   <Typography variant="body2">{viewDialog.data.poNumber || viewDialog.data.purchaseOrder?.orderNumber || '—'}</Typography>
+                  {viewDialog.data.deliveryChallan && (
+                    <>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Delivery challan</Typography>
+                      <Typography variant="body2">
+                        {typeof viewDialog.data.deliveryChallan === 'object'
+                          ? `${viewDialog.data.deliveryChallan.dcNumber || ''}${viewDialog.data.deliveryChallan.gatePassNo ? ` · ${viewDialog.data.deliveryChallan.gatePassNo}` : ''} (${viewDialog.data.deliveryChallan.status || ''})`
+                          : String(viewDialog.data.deliveryChallan)}
+                      </Typography>
+                    </>
+                  )}
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Store</Typography>
                   <Typography variant="body2">{viewDialog.data.store || '—'}</Typography>
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Gate Pass No.</Typography>

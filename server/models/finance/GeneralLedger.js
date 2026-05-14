@@ -139,10 +139,69 @@ generalLedgerSchema.virtual('formattedBalance').get(function() {
   }).format(this.runningBalance);
 });
 
+/**
+ * When GeneralLedger rows are missing (legacy flows, failed insert, etc.), build the
+ * account ledger from posted JournalEntry lines — same economic source as trial-balance-v2.
+ */
+generalLedgerSchema.statics.buildLedgerRowsFromJournalEntries = async function(accountId, startDate, endDate) {
+  const JournalEntry = require('./JournalEntry');
+  const accOid = mongoose.Types.ObjectId.isValid(String(accountId))
+    ? new mongoose.Types.ObjectId(String(accountId))
+    : accountId;
+
+  const jeMatch = { status: 'posted' };
+  if (startDate || endDate) {
+    jeMatch.date = {};
+    if (startDate) jeMatch.date.$gte = startDate;
+    if (endDate) jeMatch.date.$lte = endDate;
+  }
+
+  const rows = await JournalEntry.aggregate([
+    { $match: jeMatch },
+    { $unwind: '$lines' },
+    { $match: { 'lines.account': accOid } },
+    { $sort: { date: 1, entryNumber: 1 } },
+    {
+      $project: {
+        _id: {
+          $concat: [
+            { $toString: '$_id' },
+            ':',
+            { $toString: { $ifNull: ['$lines._id', '0'] } }
+          ]
+        },
+        date: 1,
+        entryNumber: 1,
+        reference: 1,
+        description: { $ifNull: ['$lines.description', '$description'] },
+        debit: '$lines.debit',
+        credit: '$lines.credit',
+        department: { $ifNull: ['$lines.department', '$department'] },
+        module: 1,
+        referenceId: '$referenceId',
+        referenceType: '$referenceType',
+        createdBy: '$createdBy',
+        journalEntry: {
+          _id: '$_id',
+          entryNumber: '$entryNumber',
+          reference: '$reference',
+          description: '$description'
+        }
+      }
+    }
+  ]);
+
+  return rows;
+};
+
 // Static methods for ledger operations
 generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDate, endDate) {
+  const accOid = mongoose.Types.ObjectId.isValid(String(accountId))
+    ? new mongoose.Types.ObjectId(String(accountId))
+    : accountId;
+
   const query = {
-    account: accountId,
+    account: accOid,
     status: 'posted'
   };
 
@@ -152,16 +211,20 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
     if (endDate) query.date.$lte = endDate;
   }
 
-  const entries = await this.find(query)
+  let entries = await this.find(query)
     .populate('journalEntry', 'entryNumber reference description')
     .populate('account', 'accountNumber name type')
     .populate('createdBy', 'firstName lastName')
-    .sort({ date: 1, entryNumber: 1 });
+    .sort({ date: 1, entryNumber: 1 })
+    .lean();
 
-  // Calculate running balances
+  if (!entries.length) {
+    entries = await this.buildLedgerRowsFromJournalEntries(accOid, startDate, endDate);
+  }
+
   let runningBalance = 0;
-  entries.forEach(entry => {
-    runningBalance += (entry.debit - entry.credit);
+  entries.forEach((entry) => {
+    runningBalance += (Number(entry.debit) || 0) - (Number(entry.credit) || 0);
     entry.runningBalance = runningBalance;
   });
 

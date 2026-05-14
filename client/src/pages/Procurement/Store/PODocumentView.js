@@ -47,7 +47,7 @@ const numberToWords = (num) => {
 
 /**
  * Full Purchase Order document view (same layout as Store Dashboard PO view).
- * Used by Store Dashboard and Quality Assurance view dialogs.
+ * Used by Store Dashboard PO view dialog.
  * Includes audit observations, approval authority values, and supports workflow history from parent.
  */
 const PODocumentView = ({ data }) => {
@@ -183,22 +183,6 @@ const PODocumentView = ({ data }) => {
         <Typography sx={{ fontSize: '0.9rem' }}>1. Het Sne 1-8. Islamabad.</Typography>
       </Box>
 
-      {data.qaStatus && data.qaStatus !== 'Pending' && (
-        <Box sx={{ mb: 2, p: 1.5, bgcolor: data.qaStatus === 'Passed' ? 'success.light' : 'error.light', borderRadius: 1 }}>
-          <Typography variant="subtitle2" fontWeight={600}>Quality Assurance: {data.qaStatus}</Typography>
-          {data.qaCheckedAt && (
-            <Typography variant="body2">
-              Checked on {formatDateForPrint(data.qaCheckedAt)}
-              {data.qaCheckedBy && (typeof data.qaCheckedBy === 'object'
-                ? ` by ${(data.qaCheckedBy.firstName || '')} ${(data.qaCheckedBy.lastName || '')}`.trim()
-                : '')}
-            </Typography>
-          )}
-          {data.qaRemarks && <Typography variant="body2" sx={{ mt: 0.5 }}>Remarks: {data.qaRemarks}</Typography>}
-        </Box>
-      )}
-
-      <Divider sx={{ my: 2.5, borderWidth: 1, borderColor: '#ccc' }} />
 
       <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
         <Box sx={{ width: '45%', fontSize: '0.9rem' }}>

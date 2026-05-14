@@ -161,6 +161,8 @@ const ROLE_TO_MODULE_MAP = {
   'hr_manager': 'hr',
   'finance_manager': 'finance',
   'procurement_manager': 'procurement',
+  /** Dedicated DC QA login (legacy user.role); maps to procurement for RBAC module checks. */
+  'store_qa': 'procurement',
   'sales_manager': 'sales',
   'crm_manager': 'crm',
   'audit_manager': 'audit',

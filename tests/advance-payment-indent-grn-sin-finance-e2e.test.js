@@ -70,7 +70,7 @@ async function run() {
   const stamp = Date.now();
   const today = new Date().toISOString().split('T')[0];
   const nextMonth = new Date(Date.now() + 30 * 864e5).toISOString().split('T')[0];
-  const grnQty = 100; const sinQty = 10; const advanceAmt = 20000;
+  const grnQty = 100; const sinQty = 10;
 
   const dep = (await api.get('/indents/departments')).data?.data?.[0];
   const venList = (await api.get('/procurement/vendors', { params: { limit: 20 } })).data?.data?.vendors || [];
@@ -117,6 +117,7 @@ async function run() {
 
   const quote = await api.post('/procurement/quotations', {
     indent: indentId, vendor: ven._id, quotationDate: today, expiryDate: nextMonth, status: 'Received',
+    paymentTerms: 'Full advance',
     items: [{ description: 'x', quantity: grnQty, unit: 'bag', unitPrice: 840, taxRate: 0, discount: 0 }]
   });
   if (!quote.data?.success) fail('Quotation create failed', quote.data);
@@ -133,6 +134,8 @@ async function run() {
   if (!ceoApprove.data?.success) fail('CEO approve failed', ceoApprove.data);
   if (ceoApprove.data?.sentToFinance) await api.put(`/procurement/purchase-orders/${poId}/finance-approve`, { approvalComments: 'ok' });
 
+  const advanceAmt = Math.round((Number(po.data.data.totalAmount) || grnQty * 840) * 100) / 100;
+
   // Step 2: advance payment before GRN/bill adjustment
   const advRef = `E2E-ADV-${stamp}`;
   const adv = await api.post('/finance/accounts-payable/advance-payment', {
@@ -141,6 +144,7 @@ async function run() {
     vendorId: ven._id,
     amount: advanceAmt,
     paymentMethod: 'bank_transfer',
+    bankAccountId: has('1002') || has('1001'),
     reference: advRef,
     paymentDate: new Date().toISOString(),
     referenceType: 'purchase_order',
@@ -160,13 +164,30 @@ async function run() {
 
   // Continue operational flow
   await api.put(`/procurement/purchase-orders/${poId}/send-to-store`, { comments: 'ok' });
-  await api.post(`/procurement/store/po/${poId}/qa-check`, { status: 'Passed', remarks: 'ok' });
+
+  const dcRes = await api.post('/procurement/delivery-challans', {
+    purchaseOrder: poId,
+    vendorDcReference: `VDC-${stamp}`,
+    items: [{ poLineIndex: 0, quantity: grnQty }]
+  });
+  if (!dcRes.data?.success) fail('Delivery challan create failed', dcRes.data);
+  const dcId = dcRes.data.data._id;
+  const dcGate = dcRes.data.data.gatePassNo;
+  if (!dcGate || !String(dcGate).startsWith('GP-')) {
+    fail('Delivery challan missing auto gatePassNo', dcRes.data.data);
+  }
+  const dcQa = await api.patch(`/procurement/delivery-challans/${dcId}/qa`, { qaStatus: 'passed', qaRemarks: 'ok' });
+  if (!dcQa.data?.success) fail('Delivery challan QA failed', dcQa.data);
+
   const grn = await api.post('/procurement/goods-receive', {
     receiveDate: today, project: prj._id, store: store._id, supplier: ven._id, supplierName: ven.name,
-    purchaseOrder: poId, poNumber: poNo, status: 'Complete',
+    purchaseOrder: poId, poNumber: poNo, deliveryChallan: dcId, status: 'Complete',
     items: [{ inventoryItem: invId, quantity: grnQty, unitPrice: 840, itemName: `E2E ADV Item ${stamp}`, itemCode: `E2E-ADV-${stamp}`, unit: 'bag' }]
   });
   if (!grn.data?.success) fail('GRN failed', grn.data);
+  if (grn.data.data.gatePassNo !== dcGate) {
+    fail('GRN gate pass should match delivery challan', { grnGate: grn.data.data.gatePassNo, dcGate });
+  }
   const grnNo = grn.data.data.receiveNumber;
   const grnId = grn.data.data._id;
 
