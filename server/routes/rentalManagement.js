@@ -8,6 +8,7 @@ const {
   getEligibleUtilityBillApproverUserIds,
   assertUtilityBillApproversEligible
 } = require('../utils/utilityBillApproverEligibility');
+const { isWorkflowAuditBlockingEditStatus } = require('../utils/workflowAuditQueue');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 
@@ -176,6 +177,17 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
 // Update rental management record
 router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'update'), async (req, res) => {
   try {
+    const existing = await RentalManagement.findById(req.params.id).select('approvalStatus workflowStatus');
+    if (!existing) {
+      return res.status(404).json({ message: 'Rental management record not found' });
+    }
+    if (existing.approvalStatus === 'Approved' && isWorkflowAuditBlockingEditStatus(existing.workflowStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This record is with audit and cannot be edited until it is returned for correction.'
+      });
+    }
+
     const payload = { ...req.body };
     delete payload.approvalChain;
     delete payload.approvalStatus;
@@ -326,6 +338,67 @@ router.post('/:id/reject-authority', authMiddleware, permissions.checkSubRolePer
     res.json({ success: true, message: 'Rental management record rejected', data: populated });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post('/:id/resend-to-audit', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'update'), async (req, res) => {
+  try {
+    const record = await RentalManagement.findById(req.params.id);
+    if (!record) {
+      return res.status(404).json({ success: false, message: 'Rental management record not found' });
+    }
+    if (record.workflowStatus !== 'Returned from Audit') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only records returned from audit can be sent back to Pre-Audit.'
+      });
+    }
+    if (record.approvalStatus !== 'Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Record must be approved by internal authorities before it can re-enter the audit queue.'
+      });
+    }
+
+    const actorId = getActorId(req);
+    const observationAnswers = req.body?.observationAnswers;
+
+    if (Array.isArray(observationAnswers)) {
+      for (const entry of observationAnswers) {
+        const oid = entry?.observationId;
+        const text = String(entry?.answer || '').trim();
+        if (!oid || !text) continue;
+        try {
+          const sub = record.observations.id(oid);
+          if (sub) {
+            sub.answer = text;
+            sub.answeredBy = actorId;
+            sub.answeredAt = new Date();
+            sub.resolved = true;
+          }
+        } catch (e) {
+          // ignore invalid subdocument ids
+        }
+      }
+    }
+
+    const previousWorkflow = record.workflowStatus;
+    record.workflowStatus = 'Send to Audit';
+    const note = String(req.body?.resubmitComments || '').trim();
+    addWorkflowHistory(
+      record,
+      previousWorkflow,
+      record.workflowStatus,
+      actorId,
+      note ? `Resent to Pre-Audit: ${note}` : 'Resent to Pre-Audit after corrections'
+    );
+    record.updatedBy = actorId;
+    await record.save();
+    const populated = await populateRentalRecord(RentalManagement.findById(record._id));
+    await notifyAuditQueue({ actorId, record: populated });
+    res.json({ success: true, message: 'Record sent back to the Pre-Audit queue.', data: populated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message || 'Failed to resend to audit' });
   }
 });
 

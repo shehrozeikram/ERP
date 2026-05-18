@@ -74,6 +74,8 @@ import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
 import CashApprovalDetailTabsView from '../../components/Procurement/CashApprovalDetailTabsView';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
+import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
+import { formatDateTime } from '../../utils/dateUtils';
 
 const Payments = () => {
   const navigate = useNavigate();
@@ -551,6 +553,12 @@ const Payments = () => {
   };
 
   // Format date to match Payment Settlement style (22-Dec-25)
+  const userDisplayName = (userObj) => {
+    if (!userObj) return '—';
+    const name = [userObj.firstName, userObj.lastName].filter(Boolean).join(' ').trim();
+    return name || userObj.email || '—';
+  };
+
   const formatDateForDocument = (dateString) => {
     if (!dateString) return 'N/A';
     try {
@@ -2237,131 +2245,15 @@ const Payments = () => {
                 </Grid>
               </Box>
 
-              {/* Observations Section */}
-              {(() => {
-                const observations = viewDialog.settlement.workflowHistory?.filter(entry => 
-                  entry.comments && (
-                    entry.comments.toLowerCase().includes('observation') || 
-                    entry.comments.toLowerCase().includes('returned from pre audit with observations') ||
-                    entry.comments.toLowerCase().includes('returned from payments with observations') ||
-                    entry.comments.toLowerCase().includes('returned from ceo office')
-                  )
-                ) || [];
-
-                if (observations.length === 0) return null;
-
-                return (
-                  <Box sx={{ 
-                    mt: 4,
-                    borderTop: '2px solid #d32f2f',
-                    pt: 3
-                  }}>
-                    <Box sx={{ 
-                      display: 'flex',
-                      alignItems: 'center',
-                      mb: 2
-                    }}>
-                      <ErrorIcon sx={{ color: '#d32f2f', mr: 1, fontSize: '20px' }} />
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 700, 
-                        fontSize: '15px',
-                        color: '#d32f2f',
-                        textTransform: 'uppercase'
-                      }}>
-                        CRITICAL OBSERVATIONS:
-                      </Typography>
-                    </Box>
-                    <Box sx={{ 
-                      border: '2px solid #d32f2f',
-                      p: 2.5,
-                      background: '#ffebee',
-                      borderRadius: '4px'
-                    }}>
-                      {observations.map((entry, index) => {
-                        const observationMatch = entry.comments.match(/Observation\s+\d+\s*\(([^)]+)\):\s*(.+?)(?:;|$)/i);
-                        const returnedPreAuditMatch = entry.comments.match(/Returned from Pre Audit with observations:\s*(.+?)(?:\.\s*Observations:|$)/i);
-                        const returnedPaymentsMatch = entry.comments.match(/Returned from Payments with observations:\s*(.+?)(?:\.\s*Observations:|$)/i);
-                        const observationsMatch = entry.comments.match(/Observations:\s*(.+?)(?:\[Digital Signature|$)/i);
-                        
-                        let observationText = entry.comments;
-                        let severity = 'medium';
-                        
-                        if (observationMatch) {
-                          observationText = observationMatch[2].trim();
-                          severity = observationMatch[1].toLowerCase();
-                        } else if (returnedPreAuditMatch) {
-                          observationText = returnedPreAuditMatch[1].trim();
-                        } else if (returnedPaymentsMatch) {
-                          observationText = returnedPaymentsMatch[1].trim();
-                        } else if (observationsMatch) {
-                          observationText = observationsMatch[1].trim();
-                        }
-
-                        const isCritical = severity.includes('high') || severity.includes('critical') || severity.includes('urgent');
-
-                        return (
-                          <Box key={index} sx={{ 
-                            mb: index < observations.length - 1 ? 2.5 : 0,
-                            p: 1.5,
-                            background: isCritical ? '#ffcdd2' : '#fff',
-                            border: `1px solid ${isCritical ? '#d32f2f' : '#ef5350'}`,
-                            borderRadius: '4px'
-                          }}>
-                            {isCritical && (
-                              <Chip
-                                label="CRITICAL"
-                                size="small"
-                                sx={{
-                                  mb: 1,
-                                  background: '#d32f2f',
-                                  color: '#fff',
-                                  fontWeight: 700,
-                                  fontSize: '10px'
-                                }}
-                              />
-                            )}
-                            <Typography variant="body2" sx={{ 
-                              fontSize: '12px',
-                              whiteSpace: 'pre-wrap',
-                              lineHeight: 1.7,
-                              color: '#c62828',
-                              fontWeight: 500
-                            }}>
-                              {observationText}
-                            </Typography>
-                            {entry.changedBy && (
-                              <Typography variant="caption" sx={{ 
-                                display: 'block',
-                                mt: 1,
-                                color: '#d32f2f',
-                                fontSize: '11px'
-                              }}>
-                                — {entry.changedBy.firstName} {entry.changedBy.lastName}
-                                {(() => {
-                                  let department = '';
-                                  if (entry.toStatus) {
-                                    if (entry.toStatus.includes('AM Admin')) department = 'AM Admin';
-                                    else if (entry.toStatus.includes('HOD Admin')) department = 'HOD Admin';
-                                    else if (entry.toStatus.includes('Audit')) department = 'Audit';
-                                    else if (entry.toStatus.includes('Finance')) department = 'Finance';
-                                    else if (entry.toStatus.includes('CEO Office')) department = 'CEO Office';
-                                    else if (entry.toStatus.includes('Pre Audit')) department = 'Pre Audit';
-                                  }
-                                  return department ? ` (${department})` : '';
-                                })()}
-                                {entry.changedAt && ` • ${formatDateForDocument(entry.changedAt)}`}
-                              </Typography>
-                            )}
-                            {index < observations.length - 1 && (
-                              <Box sx={{ borderTop: '1px dashed #ef5350', mt: 2, pt: 2 }} />
-                            )}
-                          </Box>
-                        );
-                      })}
-                    </Box>
-                  </Box>
-                );
-              })()}
+              <Box sx={{ mt: 4 }}>
+                <WorkflowAuditFeedbackPanel
+                  document={viewDialog.settlement}
+                  formatDateTime={formatDateTime}
+                  userDisplayName={userDisplayName}
+                  visualVariant="settlement"
+                  returnedAuditStatus="Returned from CEO Office"
+                />
+              </Box>
 
               {/* Document Attachments Section */}
               {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 && (

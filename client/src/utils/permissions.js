@@ -901,6 +901,7 @@ export const MODULES = {
       { name: 'Event Management', path: '/admin/events' },
       { name: 'Staff Management', path: '/admin/staff-management' },
       { name: 'Utility Bills Management', path: '/admin/utility-bills' },
+      { name: 'Centralized Store', path: '/admin/centralized-store' },
       { name: 'Rental Agreements', path: '/admin/rental-agreements' },
       { name: 'Rental Management', path: '/admin/rental-management' },
       { name: 'Payment Settlement', path: '/admin/payment-settlement' }
@@ -1263,6 +1264,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/admin/events': 'event_management',
       '/admin/staff-management': 'staff_management',
       '/admin/utility-bills': 'utility_bills_management',
+      '/admin/centralized-store': 'utility_bills_management',
       '/admin/rental-agreements': 'rental_agreements',
       '/admin/rental-management': 'rental_management',
       '/admin/payment-settlement': 'payment_settlement',

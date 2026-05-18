@@ -50,6 +50,17 @@ const utilityBillService = {
     return response.data;
   },
 
+  /** After audit return: optional observation replies + back to Pre-Audit queue */
+  resendUtilityBillToAudit: async (id, body = {}) => {
+    const response = await api.post(`/utility-bills/${id}/resend-to-audit`, body);
+    return response.data;
+  },
+
+  postUtilityBillToFinance: async (id) => {
+    const response = await api.post(`/utility-bills/${id}/post-to-finance`);
+    return response.data;
+  },
+
   // Record payment
   recordPayment: async (id, paymentData) => {
     const response = await api.put(`/utility-bills/${id}/payment`, paymentData);
@@ -83,6 +94,11 @@ const utilityBillService = {
   // Get pending bills
   getPendingBills: async () => {
     const response = await api.get('/utility-bills/pending');
+    return response.data;
+  },
+
+  consolidateUtilityBills: async (body) => {
+    const response = await api.post('/utility-bills/consolidate', body);
     return response.data;
   }
 };

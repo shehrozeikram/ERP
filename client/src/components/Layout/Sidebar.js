@@ -140,6 +140,7 @@ const Sidebar = () => {
       '/admin/events': 'event_management',
       '/admin/staff-management': 'staff_management',
       '/admin/utility-bills': 'utility_bills_management',
+      '/admin/centralized-store': 'utility_bills_management',
       '/admin/rental-agreements': 'rental_agreements',
       '/admin/rental-management': 'rental_management',
       '/admin/payment-settlement': 'payment_settlement',

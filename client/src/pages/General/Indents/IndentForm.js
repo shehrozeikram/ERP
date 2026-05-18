@@ -1098,7 +1098,8 @@ const IndentForm = () => {
           Approvals
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Choose Head of Department approver before submitting. Their approval status appears here automatically.
+          Choose Head of Department approver before submitting (you may select yourself if you are the HOD).
+          Approval status appears here automatically after submit.
         </Typography>
         {isEdit && indentMeta.status && indentMeta.status !== 'Draft' && (indentMeta.approvalChain || []).length > 0 ? (
           <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
@@ -1170,7 +1171,7 @@ const IndentForm = () => {
                     {...params}
                     label="Head of Department approver"
                     size="small"
-                    placeholder="Search user…"
+                    placeholder="Search user (including yourself)…"
                     InputProps={{
                       ...params.InputProps,
                       endAdornment: (

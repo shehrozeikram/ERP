@@ -26,7 +26,8 @@ import {
   TableHead,
   TableRow,
   TableCell,
-  TableBody
+  TableBody,
+  Tooltip
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -53,14 +54,26 @@ import {
 import { format } from 'date-fns';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
+import toast from 'react-hot-toast';
 import { getImageUrl } from '../../../utils/imageService';
 import { useAuth } from '../../../contexts/AuthContext';
 import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
+import {
+  AuditReturnFeedbackSection,
+  ResendToPreAuditDialog,
+  useAdminWorkflowAuditReturn,
+  isWorkflowAuditBlockingEditStatus
+} from '../../../components/Admin/workflowAuditReturn';
 
-const RentalManagementDetail = ({ 
-  open = false, 
-  onClose, 
-  recordId, 
+const rentalObservationKey = (obs) => {
+  if (!obs) return '';
+  return String(obs._id || obs.id || '');
+};
+
+const RentalManagementDetail = ({
+  open = false,
+  onClose,
+  recordId,
   onEdit,
   onStatusChange
 }) => {
@@ -77,6 +90,44 @@ const RentalManagementDetail = ({
   const [imageZoom, setImageZoom] = useState(1);
   const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
   const [dragState, setDragState] = useState({ active: false, startX: 0, startY: 0 });
+
+  const computeRentalAuditUi = useCallback(
+    (r) => ({
+      auditBlocksEdit: r?.approvalStatus === 'Approved' && isWorkflowAuditBlockingEditStatus(r?.workflowStatus),
+      canResendToPreAudit: r?.workflowStatus === 'Returned from Audit' && r?.approvalStatus === 'Approved'
+    }),
+    []
+  );
+
+  const resendRentalToAudit = useCallback(
+    async (payload) => {
+      const res = await api.post(`/rental-management/${recordId}/resend-to-audit`, payload);
+      return res.data?.data ?? res.data;
+    },
+    [recordId]
+  );
+
+  const workflowAudit = useAdminWorkflowAuditReturn({
+    document: open ? record : null,
+    computeAuditUi: computeRentalAuditUi,
+    getObservationKey: rentalObservationKey,
+    onResend: resendRentalToAudit,
+    onDocumentUpdate: (updated) => {
+      const doc = updated?.data ?? updated;
+      if (doc) {
+        setRecord(doc);
+        onStatusChange?.(doc);
+      }
+    },
+    onError: (message) => {
+      setError(message);
+      toast.error(message);
+    },
+    onSuccess: (message) => {
+      setError('');
+      toast.success(message);
+    }
+  });
 
   const fetchRecord = useCallback(async () => {
     if (!recordId) return;
@@ -480,6 +531,22 @@ const RentalManagementDetail = ({
                 </Typography>
               </Box>
 
+              <AuditReturnFeedbackSection
+                auditStatus={record.workflowStatus}
+                returnedAuditStatus="Returned from Audit"
+                latestReturnHistory={workflowAudit.latestReturnHistory}
+                observations={workflowAudit.observations}
+                getObservationKey={rentalObservationKey}
+                formatDateTime={formatDateTime}
+                userDisplayName={userDisplayName}
+                returnedIntro={(
+                  <>
+                    This record was returned for correction. Review the points below, use <strong>Edit Record</strong>{' '}
+                    to update it if needed, then use <strong>Resend to Pre-Audit</strong> when you are ready.
+                  </>
+                )}
+              />
+
               <Box sx={{ mb: 3.5, p: { xs: 1.5, md: 2 }, border: '1px solid', borderColor: 'grey.200', borderRadius: 1.5, background: 'linear-gradient(180deg, #fafafa 0%, #ffffff 100%)' }}>
                 <Grid container spacing={1.25}>
                   <Grid item xs={12} md={8}>
@@ -653,17 +720,53 @@ const RentalManagementDetail = ({
                 </Button>
               </>
             )}
-          {onEdit && record && (
-            <Button
-              variant="contained"
-              startIcon={<EditIcon />}
-              onClick={() => onEdit(record)}
-            >
-              Edit Record
+          {record && workflowAudit.canResendToPreAudit && (
+            <Button variant="contained" color="warning" startIcon={<RestartAltIcon />} onClick={workflowAudit.openResendDialog}>
+              Resend to Pre-Audit
             </Button>
+          )}
+          {onEdit && record && (
+            <Tooltip
+              title={
+                workflowAudit.auditBlocksEdit
+                  ? 'This record is with audit and cannot be edited until it is returned for correction.'
+                  : ''
+              }
+            >
+              <span>
+                <Button
+                  variant="contained"
+                  startIcon={<EditIcon />}
+                  disabled={workflowAudit.auditBlocksEdit}
+                  onClick={() => onEdit(record)}
+                >
+                  Edit Record
+                </Button>
+              </span>
+            </Tooltip>
           )}
         </DialogActions>
       </Dialog>
+
+      <ResendToPreAuditDialog
+        open={workflowAudit.resendDialogOpen}
+        onClose={workflowAudit.closeResendDialog}
+        submitting={workflowAudit.resendSubmitting}
+        observations={workflowAudit.observations}
+        getObservationKey={rentalObservationKey}
+        resendComments={workflowAudit.resendComments}
+        onResendCommentsChange={workflowAudit.setResendComments}
+        resendAnswers={workflowAudit.resendAnswers}
+        onResendAnswerChange={(key, value) =>
+          workflowAudit.setResendAnswers((prev) => ({ ...prev, [key]: value }))}
+        onSubmit={workflowAudit.handleResendToAudit}
+        intro={(
+          <>
+            Save any changes with <strong>Edit Record</strong> before confirming. Add replies for each open observation,
+            then send the record back to the audit queue.
+          </>
+        )}
+      />
 
       {/* Image Viewer Dialog */}
       <Dialog

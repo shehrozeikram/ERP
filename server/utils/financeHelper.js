@@ -5,6 +5,8 @@ const Account = require('../models/finance/Account');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const AccountsReceivable = require('../models/finance/AccountsReceivable');
 const VendorAdvance = require('../models/finance/VendorAdvance');
+const FiscalPeriod = require('../models/finance/FiscalPeriod');
+const FinanceJournal = require('../models/finance/FinanceJournal');
 
 /**
  * Finance Helper Utility
@@ -27,7 +29,8 @@ const FinanceHelper = {
     REVENUE_RENT: '4030',
     COGS: '5000',            // Cost of Goods Sold — DR on SIN
     EXPENSE_GENERAL: '5001',
-    EXPENSE_SALARIES: '5001'
+    EXPENSE_SALARIES: '5001',
+    UTILITIES: '6200'
   },
 
   /**
@@ -300,7 +303,6 @@ const FinanceHelper = {
   createDraftJournalEntry: async (data) => {
     const postingDate = data.date || new Date();
     try {
-      const FiscalPeriod = mongoose.model('FiscalPeriod');
       await FiscalPeriod.validatePostingDate(postingDate);
     } catch (periodErr) {
       throw periodErr;
@@ -333,7 +335,6 @@ const FinanceHelper = {
       // Validate fiscal period (lenient: skips if no periods configured)
       const postingDate = data.date || new Date();
       try {
-        const FiscalPeriod = mongoose.model('FiscalPeriod');
         await FiscalPeriod.validatePostingDate(postingDate);
       } catch (periodErr) {
         throw periodErr; // Re-throw period validation errors
@@ -517,6 +518,7 @@ const FinanceHelper = {
    * Matches REF-FINAL-001 style: creates bill with lineItems, posts to GL, so it shows in AP and impacts other finance modules.
    */
   createAPFromBill: async (options) => {
+    let apEntry = null;
     try {
       const {
         vendorName, vendorEmail, vendorId,
@@ -527,7 +529,10 @@ const FinanceHelper = {
         lineItems: optsLineItems,
         lineDescription,
         paymentTerms,
-        linkedGRNs
+        linkedGRNs,
+        debitAccountNumber,
+        multiLineExpenseJournal = false,
+        expenseJournalLines = null
       } = options;
 
       // Normalize billDate to start of day so the bill appears in default date filters (e.g. current month)
@@ -540,7 +545,7 @@ const FinanceHelper = {
         ? optsLineItems
         : [{ description: lineDescription || `Amount as per approved document`, quantity: 1, unitPrice: amount }];
 
-      const apEntry = new AccountsPayable({
+      apEntry = new AccountsPayable({
         vendor: { name: vendorName, email: vendorEmail, vendorId: vendorId },
         billNumber,
         vendorInvoiceNumber: vendorInvoiceNumber || '',
@@ -580,14 +585,77 @@ const FinanceHelper = {
         if (isGrnBacked) {
           debitAccount = await FinanceHelper.resolveGrniAccountForBill({ referenceType, referenceId });
         }
+        if (!debitAccount && debitAccountNumber) {
+          debitAccount = await FinanceHelper.getAccountByNumber(String(debitAccountNumber));
+        }
         if (!debitAccount) {
           debitAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
         }
 
-        if (debitAccount) {
-          const debitDescription = isGrnBacked
-            ? `GRNI cleared – ${billNumber} (matched to GRN/PO)`
-            : `Expense for ${billNumber}`;
+        if (debitAccount || (Array.isArray(expenseJournalLines) && expenseJournalLines.length > 0)) {
+          let useCustomDebits = Array.isArray(expenseJournalLines) && expenseJournalLines.length > 0 && !isGrnBacked;
+          let journalLines;
+
+          if (useCustomDebits) {
+            journalLines = [];
+            for (const row of expenseJournalLines) {
+              let accRef = row.account;
+              if (!accRef && row.accountNumber) {
+                accRef = (await FinanceHelper.getAccountByNumber(String(row.accountNumber)))?._id;
+              }
+              if (!accRef) continue;
+              journalLines.push({
+                account: accRef,
+                description: (row.description || `Expense — ${billNumber}`).slice(0, 200),
+                debit: Math.round(Number(row.debit) * 100) / 100,
+                department
+              });
+            }
+            const creditAmount = Math.round(Number(amount) * 100) / 100;
+            if (journalLines.length === 0) {
+              useCustomDebits = false;
+            } else {
+              journalLines.push({
+                account: apAccount._id,
+                description: `Payable to ${vendorName}`,
+                credit: creditAmount,
+                department
+              });
+            }
+          }
+
+          if (!useCustomDebits) {
+            const useSplitDebits = multiLineExpenseJournal && lineItems.length > 1 && !isGrnBacked;
+            if (useSplitDebits) {
+              journalLines = lineItems.map((li) => ({
+                account: debitAccount._id,
+                description: (li.description || lineDescription || `Expense — ${billNumber}`).slice(0, 200),
+                debit: Math.round((Number(li.quantity) || 1) * (Number(li.unitPrice) || 0) * 100) / 100,
+                department
+              }));
+              const debitSum = journalLines.reduce((s, l) => s + l.debit, 0);
+              const creditAmount = Math.round(Number(amount) * 100) / 100;
+              if (Math.abs(debitSum - creditAmount) > 0.01 && journalLines.length > 0) {
+                journalLines[journalLines.length - 1].debit += creditAmount - debitSum;
+                journalLines[journalLines.length - 1].debit =
+                  Math.round(journalLines[journalLines.length - 1].debit * 100) / 100;
+              }
+              journalLines.push({
+                account: apAccount._id,
+                description: `Payable to ${vendorName}`,
+                credit: creditAmount,
+                department
+              });
+            } else {
+              const debitDescription = isGrnBacked
+                ? `GRNI cleared – ${billNumber} (matched to GRN/PO)`
+                : `Expense for ${billNumber}`;
+              journalLines = [
+                { account: debitAccount._id, description: debitDescription, debit: amount, department },
+                { account: apAccount._id, description: `Payable to ${vendorName}`, credit: amount, department }
+              ];
+            }
+          }
 
           await FinanceHelper.createAndPostJournalEntry({
             date: billDateNorm,
@@ -600,10 +668,7 @@ const FinanceHelper = {
             journalCode: 'PURCH',
             voucherSeries: 'BILL',
             createdBy,
-            lines: [
-              { account: debitAccount._id, description: debitDescription, debit: amount, department },
-              { account: apAccount._id, description: `Payable to ${vendorName}`, credit: amount, department }
-            ]
+            lines: journalLines
           });
         }
       }
@@ -619,6 +684,13 @@ const FinanceHelper = {
 
       return apEntry;
     } catch (error) {
+      if (apEntry?._id) {
+        try {
+          await AccountsPayable.findByIdAndDelete(apEntry._id);
+        } catch (deleteErr) {
+          console.error('Failed to roll back AP after journal error:', deleteErr.message);
+        }
+      }
       console.error('❌ Error creating AP from Bill:', error);
       throw error;
     }

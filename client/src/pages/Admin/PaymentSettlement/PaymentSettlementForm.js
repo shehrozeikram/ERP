@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Paper,
@@ -21,8 +21,10 @@ import {
   ListItemSecondaryAction,
   IconButton,
   Chip,
+  Stack,
+  Alert
 } from '@mui/material';
-import { Save, Cancel, AttachFile, Delete, CloudUpload } from '@mui/icons-material';
+import { Save, Cancel, AttachFile, Delete, CloudUpload, RestartAlt } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -36,6 +38,17 @@ import {
   optionsForManagerApprover,
   optionsForHodApprover
 } from '../../../utils/dualApproverAutocomplete';
+import {
+  AuditReturnFeedbackSection,
+  ResendToPreAuditDialog,
+  useAdminWorkflowAuditReturn,
+  isWorkflowAuditBlockingEditStatus
+} from '../../../components/Admin/workflowAuditReturn';
+
+const settlementObservationKey = (obs) => {
+  if (!obs) return '';
+  return String(obs._id || obs.id || '');
+};
 
 const PaymentSettlementForm = ({ 
   settlement = null, 
@@ -94,6 +107,15 @@ const PaymentSettlementForm = ({
     return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.employeeId || '';
   };
 
+  const formatDateTime = (value) => {
+    if (!value) return '';
+    try {
+      return format(new Date(value), 'dd/MM/yyyy HH:mm');
+    } catch {
+      return '';
+    }
+  };
+
   const requesterId = getUserId(user);
   const mergedApproverOptions = useMemo(
     () => mergeApproverOptionList(approverOptions, managerApprover, hodApprover),
@@ -108,6 +130,46 @@ const PaymentSettlementForm = ({
     [mergedApproverOptions, requesterId, managerApprover]
   );
 
+  const settlementDoc = isEdit ? (settlement || currentSettlement) : null;
+
+  const computeAuditUi = useCallback((s) => ({
+    auditBlocksEdit:
+      s?.approvalStatus === 'Approved' &&
+      isWorkflowAuditBlockingEditStatus(s?.workflowStatus),
+    canResendToPreAudit:
+      s?.workflowStatus === 'Returned from Audit' &&
+      s?.approvalStatus === 'Approved'
+  }), []);
+
+  const resendPaymentSettlementToAudit = useCallback(
+    async (payload) => {
+      const id = settlementId || settlement?._id || currentSettlement?._id;
+      const note = String(payload.resubmitComments || '').trim();
+      const res = await paymentSettlementService.updateWorkflowStatus(id, {
+        workflowStatus: 'Send to Audit',
+        observationAnswers: payload.observationAnswers,
+        comments: note ? `Resent to Pre-Audit: ${note}` : 'Resent to Pre-Audit after corrections'
+      });
+      return res?.data ?? res;
+    },
+    [settlementId, settlement?._id, currentSettlement?._id]
+  );
+
+  const workflowAudit = useAdminWorkflowAuditReturn({
+    document: settlementDoc,
+    computeAuditUi,
+    getObservationKey: settlementObservationKey,
+    onResend: resendPaymentSettlementToAudit,
+    onDocumentUpdate: (updated) => {
+      const doc = updated?.data ?? updated;
+      if (doc) setCurrentSettlement(doc);
+    },
+    onError: (message) => toast.error(message),
+    onSuccess: (message) => toast.success(message)
+  });
+
+  const lockFields = Boolean(isEdit && workflowAudit.auditBlocksEdit);
+
   // Fetch settlement data when settlementId is provided
   useEffect(() => {
     const fetchSettlement = async () => {
@@ -115,7 +177,8 @@ const PaymentSettlementForm = ({
         try {
           setLoading(true);
           const response = await paymentSettlementService.getPaymentSettlement(settlementId);
-          setCurrentSettlement(response.data);
+          const payload = response?.data !== undefined ? response.data : response;
+          setCurrentSettlement(payload?.data ?? payload);
         } catch (error) {
           toast.error('Failed to fetch settlement data');
         } finally {
@@ -368,7 +431,12 @@ const PaymentSettlementForm = ({
     if (loading) {
       return;
     }
-    
+
+    if (lockFields) {
+      toast.error('This settlement is with audit and cannot be edited until it is returned for correction.');
+      return;
+    }
+
     if (!validateForm()) {
       toast.error('Please fix the validation errors');
       return;
@@ -442,7 +510,44 @@ const PaymentSettlementForm = ({
           {isEdit ? 'Edit Payment Settlement' : 'Create Payment Settlement'}
         </Typography>
 
+        {settlementDoc && (
+          <>
+            <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center" flexWrap="wrap">
+              <Chip label={`Approval: ${settlementDoc.approvalStatus || '—'}`} color="primary" variant="outlined" size="small" />
+              {settlementDoc.workflowStatus ? (
+                <Chip label={`Workflow: ${settlementDoc.workflowStatus}`} size="small" variant="outlined" />
+              ) : null}
+              {workflowAudit.canResendToPreAudit && (
+                <Button variant="contained" color="warning" size="small" startIcon={<RestartAlt />} onClick={workflowAudit.openResendDialog}>
+                  Resend to Pre-Audit
+                </Button>
+              )}
+            </Stack>
+            <AuditReturnFeedbackSection
+              auditStatus={settlementDoc.workflowStatus}
+              returnedAuditStatus="Returned from Audit"
+              latestReturnHistory={workflowAudit.latestReturnHistory}
+              observations={workflowAudit.observations}
+              getObservationKey={settlementObservationKey}
+              formatDateTime={formatDateTime}
+              userDisplayName={userDisplayName}
+              returnedIntro={(
+                <>
+                  This settlement was returned for correction. Review the points below, use <strong>Update Draft</strong>{' '}
+                  to apply changes, then use <strong>Resend to Pre-Audit</strong> when you are ready.
+                </>
+              )}
+            />
+            {lockFields && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                This settlement is with audit and cannot be edited until it is returned for correction.
+              </Alert>
+            )}
+          </>
+        )}
+
         <form onSubmit={handleSubmit}>
+        <Box sx={lockFields ? { pointerEvents: 'none', opacity: 0.72 } : undefined}>
           {/* Company Details Section */}
           <Typography variant="h6" gutterBottom sx={{ mt: 3, mb: 2, color: 'text.secondary' }}>
             Company Details
@@ -749,6 +854,8 @@ const PaymentSettlementForm = ({
             </Card>
           )}
 
+        </Box>
+
           {/* Action Buttons */}
           <Box sx={{ mt: 4, display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
             <Button
@@ -763,7 +870,7 @@ const PaymentSettlementForm = ({
               type="submit"
               variant="contained"
               startIcon={loading ? <CircularProgress size={20} /> : <Save />}
-              disabled={loading}
+              disabled={loading || lockFields}
             >
               {loading ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update Draft' : 'Create Draft')}
             </Button>
@@ -772,7 +879,7 @@ const PaymentSettlementForm = ({
               variant="contained"
               color="success"
               startIcon={loading ? <CircularProgress size={20} /> : <Save />}
-              disabled={loading}
+              disabled={loading || lockFields}
               onClick={() => handleSave('submit')}
             >
               Submit for Approval
@@ -780,6 +887,26 @@ const PaymentSettlementForm = ({
           </Box>
         </form>
       </Paper>
+
+      <ResendToPreAuditDialog
+        open={workflowAudit.resendDialogOpen}
+        onClose={workflowAudit.closeResendDialog}
+        submitting={workflowAudit.resendSubmitting}
+        observations={workflowAudit.observations}
+        getObservationKey={settlementObservationKey}
+        resendComments={workflowAudit.resendComments}
+        onResendCommentsChange={workflowAudit.setResendComments}
+        resendAnswers={workflowAudit.resendAnswers}
+        onResendAnswerChange={(key, value) =>
+          workflowAudit.setResendAnswers((prev) => ({ ...prev, [key]: value }))}
+        onSubmit={workflowAudit.handleResendToAudit}
+        intro={(
+          <>
+            Save any changes with <strong>Update Draft</strong> before confirming. Add replies for each open observation,
+            then send the settlement back to the audit queue.
+          </>
+        )}
+      />
     </Box>
   );
 };

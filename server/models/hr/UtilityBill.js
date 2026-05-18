@@ -39,6 +39,29 @@ const utilityBillSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  vendorId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Supplier',
+    default: null,
+    index: true
+  },
+  /** Bill created from Centralized Store catalog (vendor + line items) */
+  useCentralizedStore: {
+    type: Boolean,
+    default: false
+  },
+  billLines: [{
+    storeItem: { type: mongoose.Schema.Types.ObjectId, ref: 'UtilityStoreItem' },
+    itemName: { type: String, trim: true },
+    description: { type: String, trim: true, default: '' },
+    utilityType: { type: String, trim: true },
+    meterNumber: { type: String, trim: true, default: '' },
+    location: { type: String, trim: true, default: '' },
+    site: { type: String, trim: true, default: '' },
+    amount: { type: Number, min: 0, default: 0 },
+    expenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
+    expenseAccountNumber: { type: String, trim: true, default: '' }
+  }],
   accountNumber: {
     type: String,
     trim: true
@@ -166,6 +189,22 @@ const utilityBillSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  /** Linked Finance AP bill (created after Audit Director final approval) */
+  financeApBillId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'AccountsPayable',
+    default: null,
+    index: true
+  },
+  financePostedAt: {
+    type: Date,
+    default: null
+  },
+  financePostedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
   paymentDate: {
     type: Date
   },
@@ -236,6 +275,35 @@ const utilityBillSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  /** True when this bill is the parent document that bundles several source bills */
+  isConsolidated: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  /** Snapshot + link to each utility bill rolled into this consolidated bill */
+  consolidatedFrom: [{
+    bill: { type: mongoose.Schema.Types.ObjectId, ref: 'UtilityBill' },
+    billId: { type: String, trim: true },
+    utilityType: { type: String, trim: true },
+    provider: { type: String, trim: true },
+    site: { type: String, trim: true },
+    department: { type: String, trim: true },
+    custodian: { type: String, trim: true },
+    accountNumber: { type: String, trim: true, default: '' },
+    forWhat: { type: String, trim: true, default: '' },
+    amount: { type: Number, min: 0 },
+    lastMonthAmount: { type: Number, default: 0, min: 0 },
+    billDate: { type: Date },
+    dueDate: { type: Date }
+  }],
+  /** When set, this bill is only a line inside a consolidated parent (see that bill for one workflow) */
+  consolidatedIntoBillId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'UtilityBill',
+    default: null,
+    index: true
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -280,6 +348,13 @@ utilityBillSchema.virtual('paymentPercentage').get(function() {
 
 // Pre-save middleware to update status
 utilityBillSchema.pre('save', function(next) {
+  if (this.isModified('auditStatus')) {
+    const status = String(this.auditStatus || '');
+    this.$locals = this.$locals || {};
+    this.$locals.postToFinanceAfterSave =
+      status.startsWith('Approved (from ') && !this.consolidatedIntoBillId;
+  }
+
   const now = new Date();
   
   if (this.paidAmount >= this.amount) {
@@ -296,6 +371,24 @@ utilityBillSchema.pre('save', function(next) {
   }
   
   next();
+});
+
+// Auto-post to Finance when Audit Director final approval is saved on auditStatus
+utilityBillSchema.post('save', async function postSaveUtilityBillFinance(doc) {
+  if (!doc.$locals?.postToFinanceAfterSave) return;
+
+  const actorId = doc.updatedBy || doc.financePostedBy || doc.createdBy;
+  try {
+    const { tryAutoPostUtilityBillToFinance } = require('../../utils/utilityBillFinance');
+    const result = await tryAutoPostUtilityBillToFinance(doc._id, actorId);
+    if (result?.posted) {
+      console.log(`[UtilityBill] Finance posted for ${doc.billId}: AP ${result.billNumber || result.apId}`);
+    } else if (result?.error) {
+      console.error(`[UtilityBill] Finance post failed for ${doc.billId}:`, result.error);
+    }
+  } catch (err) {
+    console.error(`[UtilityBill] Finance post error for ${doc.billId}:`, err.message);
+  }
 });
 
 // Virtual for utility type description

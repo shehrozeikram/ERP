@@ -51,7 +51,6 @@ import {
   Close as CloseIcon,
   Print as PrintIcon,
   Warning as WarningIcon,
-  Error as ErrorIcon,
   Info as InfoIcon,
   History as HistoryIcon,
   ZoomIn as ZoomInIcon,
@@ -64,6 +63,12 @@ import paymentSettlementService from '../../../services/paymentSettlementService
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
 import { getImageUrl } from '../../../utils/imageService';
+import {
+  AuditReturnFeedbackSection,
+  findLatestWorkflowFeedbackEntry,
+  getObservationsForSettlementView,
+  getWorkflowAuditStatusLabel
+} from '../../../components/Admin/workflowAuditReturn';
 
 const PaymentSettlementList = () => {
   const navigate = useNavigate();
@@ -1315,153 +1320,19 @@ const PaymentSettlementList = () => {
               )}
 
 
-              {/* Observations Section */}
+              {/* Observations / audit return (shared component) */}
               {(() => {
-                // Get observations from observations field (preferred) or extract from workflowHistory
-                const observations = viewDialog.settlement.observations && viewDialog.settlement.observations.length > 0
-                  ? viewDialog.settlement.observations
-                  : viewDialog.settlement.workflowHistory?.filter(entry => 
-                      entry.comments && (
-                        entry.comments.toLowerCase().includes('observation') || 
-                        entry.comments.toLowerCase().includes('returned from pre audit with observations')
-                      )
-                    ) || [];
-
-                if (observations.length === 0) return null;
-
+                const observations = getObservationsForSettlementView(viewDialog.settlement);
+                if (!observations.length) return null;
                 return (
-                  <Box sx={{ 
-                    mt: 4,
-                    borderTop: '2px solid #d32f2f',
-                    pt: 3
-                  }}>
-                    <Box sx={{ 
-                      display: 'flex',
-                      alignItems: 'center',
-                      mb: 2
-                    }}>
-                      <ErrorIcon sx={{ color: '#d32f2f', mr: 1, fontSize: '20px' }} />
-                      <Typography variant="body2" sx={{ 
-                        fontWeight: 700, 
-                        fontSize: '15px',
-                        color: '#d32f2f',
-                        textTransform: 'uppercase'
-                      }}>
-                        CRITICAL OBSERVATIONS:
-                      </Typography>
-                    </Box>
-                    <Box sx={{ 
-                      border: '2px solid #d32f2f',
-                      p: 2.5,
-                      background: '#ffebee',
-                      borderRadius: '4px'
-                    }}>
-                      {observations.map((obs, index) => {
-                        // Handle both observation objects and workflow history entries
-                        const isObservationObject = obs.observation !== undefined;
-                        const observationText = isObservationObject ? obs.observation : (obs.comments || '');
-                        const severity = isObservationObject ? (obs.severity || 'medium') : 'medium';
-                        const addedBy = isObservationObject ? obs.addedBy : obs.changedBy;
-                        const addedAt = isObservationObject ? obs.addedAt : obs.changedAt;
-                        const answer = isObservationObject ? obs.answer : null;
-                        const answeredBy = isObservationObject ? obs.answeredBy : null;
-                        const answeredAt = isObservationObject ? obs.answeredAt : null;
-                        const resolved = isObservationObject ? obs.resolved : false;
-
-                        const isCritical = severity.includes('high') || severity.includes('critical') || severity.includes('urgent');
-
-                        return (
-                          <Box key={obs._id || index} sx={{ 
-                            mb: index < observations.length - 1 ? 2.5 : 0,
-                            p: 1.5,
-                            background: isCritical ? '#ffcdd2' : '#fff',
-                            border: `1px solid ${isCritical ? '#d32f2f' : '#ef5350'}`,
-                            borderRadius: '4px'
-                          }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                              {isCritical && (
-                                <Chip
-                                  label={severity.toUpperCase()}
-                                  size="small"
-                                  sx={{
-                                    background: '#d32f2f',
-                                    color: '#fff',
-                                    fontWeight: 700,
-                                    fontSize: '10px'
-                                  }}
-                                />
-                              )}
-                              {resolved && (
-                                <Chip
-                                  label="RESOLVED"
-                                  size="small"
-                                  color="success"
-                                  sx={{ fontSize: '10px' }}
-                                />
-                              )}
-                            </Box>
-                            <Typography variant="body2" sx={{ 
-                              fontSize: '12px',
-                              whiteSpace: 'pre-wrap',
-                              lineHeight: 1.7,
-                              color: '#c62828',
-                              fontWeight: 500,
-                              mb: answer ? 2 : 0
-                            }}>
-                              {observationText}
-                            </Typography>
-                            {addedBy && (
-                              <Typography variant="caption" sx={{ 
-                                display: 'block',
-                                mt: 1,
-                                color: '#d32f2f',
-                                fontSize: '11px'
-                              }}>
-                                — Added by: {addedBy.firstName} {addedBy.lastName}
-                                {addedAt && ` • ${formatDate(addedAt)}`}
-                              </Typography>
-                            )}
-                            {answer && (
-                              <Box sx={{ 
-                                mt: 2, 
-                                pt: 2, 
-                                borderTop: '1px solid #4caf50',
-                                background: '#e8f5e9',
-                                p: 1.5,
-                                borderRadius: '4px'
-                              }}>
-                                <Typography variant="subtitle2" sx={{ color: '#2e7d32', fontWeight: 'bold', mb: 1 }}>
-                                  Answer:
-                                </Typography>
-                                <Typography variant="body2" sx={{ 
-                                  fontSize: '12px',
-                                  whiteSpace: 'pre-wrap',
-                                  lineHeight: 1.7,
-                                  color: '#1b5e20'
-                                }}>
-                                  {answer}
-                                </Typography>
-                                {answeredBy && (
-                                  <Typography variant="caption" sx={{ 
-                                    display: 'block',
-                                    mt: 1,
-                                    color: '#2e7d32',
-                                    fontSize: '11px'
-                                  }}>
-                                    — Answered by: {answeredBy.firstName} {answeredBy.lastName}
-                                    {answeredAt && ` • ${formatDate(answeredAt)}`}
-                                  </Typography>
-                                )}
-                              </Box>
-                            )}
-                            {index < observations.length - 1 && (
-                              <Box sx={{ borderTop: '1px dashed #ef5350', mt: 2, pt: 2 }} />
-                            )}
-                          </Box>
-                        );
-                      })}
-                    </Box>
-                  </Box>
+                  <AuditReturnFeedbackSection
+                    visualVariant="settlement"
+                    auditStatus={getWorkflowAuditStatusLabel(viewDialog.settlement)}
+                    latestReturnHistory={findLatestWorkflowFeedbackEntry(viewDialog.settlement?.workflowHistory)}
+                    observations={observations}
+                    formatDateTime={formatDateTime}
+                    userDisplayName={userDisplayName}
+                  />
                 );
               })()}
 

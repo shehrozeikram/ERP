@@ -975,13 +975,6 @@ router.post('/:id/submit',
       });
     }
 
-    if (unique.includes(requesterId) && !e2eBypass) {
-      return res.status(400).json({
-        success: false,
-        message: 'You cannot assign yourself as an approver.'
-      });
-    }
-
     const approverUsers = await User.find({
       _id: { $in: unique },
       isActive: true

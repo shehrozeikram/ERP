@@ -10,7 +10,17 @@ const permissions = require('../middleware/permissions');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 const { authorize } = require('../middleware/auth');
 const { getWorkflowModules, getModuleConfig } = require('../utils/adminWorkflowConfig');
+const {
+  hasWorkflowInitialAuditApproval,
+  mapWorkflowDocumentToPreAuditStatus
+} = require('../utils/preAuditWorkflowStatus');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const UtilityBill = require('../models/hr/UtilityBill');
+const {
+  postUtilityBillToFinance,
+  isUtilityBillAuditFinalApproved,
+  normalizeActorId
+} = require('../utils/utilityBillFinance');
 
 const normalizeRoleLabel = (value) =>
   String(value || '')
@@ -69,11 +79,6 @@ const hasAuditAccess = (user) => {
   if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'audit'))) return true;
   if (Array.isArray(user.subRoles) && user.subRoles.some((roleDoc) => normalizeRoleLabel(roleDoc?.module) === 'audit')) return true;
   return false;
-};
-
-const hasWorkflowInitialAuditApproval = (workflowDocument) => {
-  const history = Array.isArray(workflowDocument?.workflowHistory) ? workflowDocument.workflowHistory : [];
-  return history.some((h) => String(h?.toStatus || '').toLowerCase() === 'initial audit approval');
 };
 
 const getUserIdsByRoles = async (roles = []) => {
@@ -321,69 +326,8 @@ router.get('/',
         // Transform workflow documents to Pre Audit format
         for (const doc of docs) {
           const workflowStatus = doc[config.workflowStatusField] || 'Draft';
-          
-          // Map workflow status to Pre Audit status for tab filtering
-          // IMPORTANT: Order matters - check more specific statuses first
-          // Use strict matching to ensure documents appear in correct tabs
-          let preAuditStatus = 'pending';
-          
-          // Check for approved status first (must be explicitly approved from audit)
-          // Must match exactly: "Approved (from Send to Audit)" or "Approved (from Forwarded to Audit Director)" or start with it
-          if (workflowStatus && 
-              (workflowStatus === 'Approved (from Send to Audit)' || 
-               workflowStatus === 'Approved (from Forwarded to Audit Director)' ||
-               workflowStatus.startsWith('Approved (from Send to Audit)') ||
-               workflowStatus.startsWith('Approved (from Forwarded to Audit Director)'))) {
-            preAuditStatus = 'approved';
-          }
-          // Check for forwarded to director status
-          else if (workflowStatus === 'Forwarded to Audit Director') {
-            preAuditStatus = 'forwarded_to_director';
-          }
-          // Check for returned/rejected status
-          else if (workflowStatus === 'Returned from Audit' || 
-                   (workflowStatus && workflowStatus.startsWith('Rejected (from Send to Audit)'))) {
-            preAuditStatus = 'returned_with_observations';
-          }
-          // Check if document is under review (has observations but still in "Send to Audit" status)
-          // Must be exactly "Send to Audit" status
-          else if (workflowStatus === 'Send to Audit') {
-            // Check if document has observations in workflow history
-            // BUT: If document was previously returned and sent back, check if the last status change was "Send to Audit"
-            // This means it was resubmitted after being returned, so it should be treated as pending (new submission)
-            const workflowHistory = doc.workflowHistory || [];
-            const lastStatusChange = workflowHistory.length > 0 
-              ? workflowHistory[workflowHistory.length - 1]
-              : null;
-            
-            // If the last status change was TO "Send to Audit" (meaning it was just sent/resubmitted),
-            // treat it as pending regardless of previous observations
-            const wasJustResubmitted = lastStatusChange && 
-              lastStatusChange.toStatus === 'Send to Audit' &&
-              (lastStatusChange.fromStatus === 'Returned from Audit' || 
-               lastStatusChange.fromStatus === 'Draft' ||
-               lastStatusChange.fromStatus === 'Rejected (from Send to Audit)');
-            
-            if (wasJustResubmitted) {
-              // Document was just resubmitted after being returned - treat as pending (new submission)
-              preAuditStatus = 'pending';
-            } else {
-              // Check if document has observations in workflow history
-              const hasObservations = workflowHistory.some(h => 
-                h.comments && (h.comments.toLowerCase().includes('observation') || h.comments.toLowerCase().includes('observation:'))
-              );
-              if (hasObservations) {
-                preAuditStatus = 'under_review';
-              } else {
-                preAuditStatus = 'pending';
-              }
-            }
-          }
-          // Default to pending for any other status (shouldn't happen for documents sent to audit)
-          else {
-            preAuditStatus = 'pending';
-          }
-          
+          const preAuditStatus = mapWorkflowDocumentToPreAuditStatus(doc, config.workflowStatusField);
+
           workflowDocs.push({
             _id: doc._id,
             documentNumber: doc[config.titleField] || doc._id.toString(),
@@ -738,10 +682,8 @@ router.get('/:id',
             'Approved (from Forwarded to Audit Director)'
           ];
           if (workflowDoc && auditVisibleStatuses.includes(workflowStatus)) {
-            let preAuditStatus = 'pending';
-            if (workflowStatus === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
-            else if (workflowStatus === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
-            else if (String(workflowStatus || '').startsWith('Approved')) preAuditStatus = 'approved';
+            const preAuditStatus = mapWorkflowDocumentToPreAuditStatus(workflowDoc, config.workflowStatusField);
+            const initialApproved = hasWorkflowInitialAuditApproval(workflowDoc);
 
             return res.json({
               success: true,
@@ -760,8 +702,15 @@ router.get('/:id',
                 workflowStatus,
                 isWorkflowDocument: true,
                 workflowSubmodule: submodule,
+                workflowConfig: config,
                 originalDocument: workflowDoc,
-                workflowHistory: workflowDoc.workflowHistory || []
+                workflowHistory: workflowDoc.workflowHistory || [],
+                initialAuditApproved: initialApproved,
+                initialAuditApprovedAt: initialApproved
+                  ? (workflowDoc.workflowHistory || []).find(
+                      (h) => String(h?.toStatus || '').toLowerCase() === 'initial audit approval'
+                    )?.changedAt || null
+                  : null
               }
             });
           }
@@ -1261,10 +1210,27 @@ router.put('/:id/approve',
 
       workflowDocument.updatedBy = req.user.id;
       await workflowDocument.save();
+
+      let financePostResult = null;
+      const actorId = normalizeActorId(req.user);
+      if (
+        workflowConfig.submodule === 'utility_bills_management' &&
+        isUtilityBillAuditFinalApproved(workflowDocument[workflowConfig.workflowStatusField])
+      ) {
+        const freshBill = await UtilityBill.findById(workflowDocument._id);
+        financePostResult = await postUtilityBillToFinance(freshBill || workflowDocument, actorId);
+        if (financePostResult?.error) {
+          console.error(
+            `[pre-audit] Utility bill finance post failed (${freshBill?.billId || workflowDocument._id}):`,
+            financePostResult.error
+          );
+        }
+      }
       
       await workflowDocument.populate([
         { path: 'updatedBy', select: 'firstName lastName email' },
-        { path: 'createdBy', select: 'firstName lastName email' }
+        { path: 'createdBy', select: 'firstName lastName email' },
+        { path: 'financeApBillId', select: 'billNumber totalAmount status' }
       ]);
       await notifyPreAuditStakeholders({
         actorId: req.user.id,
@@ -1275,15 +1241,29 @@ router.put('/:id/approve',
         metadata: { queueStage: 'final_director_approved', targetTab: 'approved' }
       });
 
+      let approvalMessage = 'Document approved successfully';
+      if (workflowConfig.submodule === 'utility_bills_management') {
+        if (financePostResult?.posted) {
+          approvalMessage = financePostResult.repaired
+            ? 'Document approved. Finance GL was repaired for Accounts Payable.'
+            : 'Document approved and posted to Finance (Accounts Payable).';
+        } else if (financePostResult?.error) {
+          approvalMessage = `Document approved. Finance posting failed: ${financePostResult.error}`;
+        } else if (financePostResult?.reason === 'already_posted') {
+          approvalMessage = 'Document approved. Already linked to Finance Accounts Payable.';
+        }
+      }
+
       return res.json({
         success: true,
-        message: 'Document approved successfully',
+        message: approvalMessage,
         data: {
           _id: workflowDocument._id,
           isWorkflowDocument: true,
           workflowSubmodule: workflowConfig.submodule,
           status: 'approved',
-          workflowStatus: workflowDocument[workflowConfig.workflowStatusField]
+          workflowStatus: workflowDocument[workflowConfig.workflowStatusField],
+          financePost: financePostResult || undefined
         }
       });
     }
@@ -1803,15 +1783,25 @@ router.put('/:id/reject',
       workflowDocument[workflowConfig.workflowStatusField] = `Rejected (from ${sourceStatus})`;
       workflowDocument.workflowHistory = workflowDocument.workflowHistory || [];
       
-      // Add observations to workflow history
-      if (observations && Array.isArray(observations)) {
-        observations.forEach(obs => {
+      // Persist structured observations on the document (same as return flow)
+      if (observations && Array.isArray(observations) && observations.length > 0) {
+        workflowDocument.observations = workflowDocument.observations || [];
+        observations.forEach((obs) => {
+          const text = obs.observation || obs.text || obs;
+          if (!text) return;
+          workflowDocument.observations.push({
+            observation: text,
+            severity: obs.severity || 'medium',
+            addedBy: req.user.id,
+            addedAt: new Date(),
+            resolved: false
+          });
           workflowDocument.workflowHistory.push({
             fromStatus: sourceStatus,
             toStatus: `Rejected (from ${sourceStatus})`,
             changedBy: req.user.id,
             changedAt: new Date(),
-            comments: `Observation (${obs.severity || 'medium'}): ${obs.observation || obs}`,
+            comments: `Observation (${obs.severity || 'medium'}): ${text}`,
             ...stampMeta
           });
         });
@@ -1835,6 +1825,7 @@ router.put('/:id/reject',
       
       await workflowDocument.populate([
         { path: 'workflowHistory.changedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
+        { path: 'observations.addedBy', select: 'firstName lastName email' },
         { path: 'createdBy', select: 'firstName lastName email' }
       ]);
 

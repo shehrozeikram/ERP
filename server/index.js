@@ -87,6 +87,7 @@ const eventRoutes = require('./routes/events');
 const staffAssignmentRoutes = require('./routes/staffAssignments');
 const attendanceProxyRoutes = require('./routes/attendanceProxy');
 const utilityBillRoutes = require('./routes/utilityBills');
+const centralizedStoreRoutes = require('./routes/centralizedStore');
 const itRoutes = require('./routes/it');
 const arrearsRoutes = require('./routes/arrears');
 const rentalAgreementRoutes = require('./routes/rentalAgreements');
@@ -94,6 +95,10 @@ const tajRentalAgreementRoutes = require('./routes/tajRentalAgreements');
 const rentalManagementRoutes = require('./routes/rentalManagement');
 const staffManagementRoutes = require('./routes/staffManagement');
 const paymentSettlementRoutes = require('./routes/paymentSettlements');
+// Finance models used by utility-bill → AP posting (must load before audit/pre-audit routes)
+require('./models/finance/FinanceJournal');
+require('./models/finance/FiscalPeriod');
+
 const auditRoutes = require('./routes/audit');
 const auditFindingsRoutes = require('./routes/auditFindings');
 const auditTrailRoutes = require('./routes/auditTrail');
@@ -620,6 +625,7 @@ app.use('/api/staff-assignments', authMiddleware, activityLogger, staffAssignmen
 app.use('/api/staff-management', authMiddleware, activityLogger, staffManagementRoutes);
 app.use('/api/attendance-proxy', attendanceProxyRoutes);
 app.use('/api/utility-bills', authMiddleware, activityLogger, utilityBillRoutes);
+app.use('/api/admin/centralized-store', authMiddleware, activityLogger, centralizedStoreRoutes);
 app.use('/api/hr/arrears', authMiddleware, activityLogger, arrearsRoutes);
 // Register file routes separately (without authMiddleware, handles auth internally with query token)
 app.use('/api/rental-agreements', rentalAgreementRoutes.fileRouter);

@@ -154,7 +154,7 @@ const accountsPayableSchema = new mongoose.Schema({
   },
   referenceType: {
     type: String,
-    enum: ['purchase_order', 'grn', 'sin', 'receipt', 'service', 'product', 'bill', 'manual'],
+    enum: ['purchase_order', 'grn', 'sin', 'receipt', 'service', 'product', 'bill', 'manual', 'utility_bill'],
     default: 'manual'
   },
   // Line items

@@ -23,8 +23,14 @@ export function DigitalSignatureImage({ userOrPath, alt = 'Signature', sx = {} }
         filter: 'grayscale(1) contrast(2.7) brightness(0.62) drop-shadow(0 0 0.35px rgba(0,0,0,0.75))',
         display: 'block',
         mx: 'auto',
-        // Keep print clear and prominent as well.
-        '@media print': { maxHeight: 96, maxWidth: 280 },
+        // Screen-only filter; some engines omit or flatten filtered images on paper.
+        '@media print': {
+          maxHeight: 96,
+          maxWidth: 280,
+          filter: 'none',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact'
+        },
         ...sx
       }}
     />

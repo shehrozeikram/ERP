@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const UtilityBill = require('../models/hr/UtilityBill');
@@ -14,6 +15,11 @@ const {
   getEligibleUtilityBillApproverUserIds,
   assertUtilityBillApproversEligible
 } = require('../utils/utilityBillApproverEligibility');
+const {
+  postUtilityBillToFinance,
+  isUtilityBillAuditFinalApproved
+} = require('../utils/utilityBillFinance');
+const { applyBillLinesToPayload } = require('../utils/utilityBillLines');
 
 const populateUtilityBill = (query) => query
   .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
@@ -23,7 +29,13 @@ const populateUtilityBill = (query) => query
   .populate('rejectedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('observations.addedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
-  .populate('observations.answeredBy', 'firstName lastName email employeeId digitalSignature approvalStamp');
+  .populate('observations.answeredBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+  .populate('consolidatedFrom.bill', 'billId utilityType provider amount billDate accountNumber forWhat lastMonthAmount')
+  .populate('consolidatedIntoBillId', 'billId billDate')
+  .populate('financeApBillId', 'billNumber totalAmount status amountPaid')
+  .populate('vendorId', 'name supplierId')
+  .populate('billLines.storeItem', 'name utilityType meterNumber site location')
+  .populate('billLines.expenseAccount', 'accountNumber name');
 
 const populateUtilityBillDocument = async (bill) => {
   await bill.populate([
@@ -34,7 +46,13 @@ const populateUtilityBillDocument = async (bill) => {
     { path: 'rejectedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
     { path: 'workflowHistory.changedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
     { path: 'observations.addedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
-    { path: 'observations.answeredBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' }
+    { path: 'observations.answeredBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
+    { path: 'consolidatedFrom.bill', select: 'billId utilityType provider amount billDate accountNumber forWhat lastMonthAmount' },
+    { path: 'consolidatedIntoBillId', select: 'billId billDate' },
+    { path: 'financeApBillId', select: 'billNumber totalAmount status amountPaid' },
+    { path: 'vendorId', select: 'name supplierId' },
+    { path: 'billLines.storeItem', select: 'name utilityType meterNumber' },
+    { path: 'billLines.expenseAccount', select: 'accountNumber name' }
   ]);
   return bill;
 };
@@ -94,6 +112,21 @@ const normalizeApproverIds = (value) => {
 
 const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
 const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
+
+/** Bill is with Pre-Audit / director and must not be edited until returned. */
+const auditStatusesBlockingEdit = [
+  'Send to Audit',
+  'Forwarded to Audit Director',
+  'Approved (from Send to Audit)',
+  'Approved (from Forwarded to Audit Director)'
+];
+
+const billPeriodKeyFromBill = (bill) => {
+  const raw = bill.billDate || bill.dueDate;
+  const d = raw ? new Date(raw) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
 
 // Configure multer for image uploads
 const storage = multer.diskStorage({
@@ -416,6 +449,167 @@ router.get('/form-master-data', permissions.checkSubRolePermission('admin', 'uti
   }
 });
 
+// Create one consolidated utility bill from multiple bills (same calendar month by bill date)
+router.post('/consolidate', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'), async (req, res) => {
+  const actorId = getActorId(req);
+  if (!actorId || !mongoose.isValidObjectId(actorId)) {
+    return res.status(401).json({ success: false, message: 'Not authenticated' });
+  }
+
+  try {
+    const billIds = Array.isArray(req.body.billIds) ? req.body.billIds.map(String).filter(Boolean) : [];
+    if (billIds.length < 2) {
+      return res.status(400).json({ success: false, message: 'Select at least two utility bills to consolidate.' });
+    }
+
+    const uniqueIds = [...new Set(billIds)];
+    for (const id of uniqueIds) {
+      if (!mongoose.isValidObjectId(id)) {
+        return res.status(400).json({ success: false, message: `Invalid bill id: ${id}` });
+      }
+    }
+
+    const bills = await UtilityBill.find({ _id: { $in: uniqueIds } });
+    if (bills.length !== uniqueIds.length) {
+      return res.status(400).json({ success: false, message: 'One or more utility bills were not found.' });
+    }
+
+    for (const bill of bills) {
+      if (bill.consolidatedIntoBillId) {
+        return res.status(400).json({
+          success: false,
+          message: `Bill ${bill.billId} is already included in another consolidated bill.`
+        });
+      }
+      if (bill.isConsolidated) {
+        return res.status(400).json({
+          success: false,
+          message: `Bill ${bill.billId} is a consolidated parent and cannot be merged again.`
+        });
+      }
+    }
+
+    const periodKeys = [...new Set(bills.map((b) => billPeriodKeyFromBill(b)).filter(Boolean))];
+    if (periodKeys.length !== 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'All selected bills must belong to the same calendar month (by bill date).'
+      });
+    }
+    const periodKey = periodKeys[0];
+
+    const totalAmount = bills.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
+    if (totalAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Total consolidated amount must be greater than zero.' });
+    }
+
+    const sorted = [...bills].sort((a, b) => String(a.billId || '').localeCompare(String(b.billId || '')));
+    const primary = sorted[0];
+
+    const latestBillDate = bills.reduce((acc, b) => {
+      const t = b.billDate ? new Date(b.billDate) : null;
+      if (!t || Number.isNaN(t.getTime())) return acc;
+      return !acc || t > acc ? t : acc;
+    }, null) || new Date();
+
+    const latestDue = bills.reduce((acc, b) => {
+      const t = b.dueDate ? new Date(b.dueDate) : null;
+      if (!t || Number.isNaN(t.getTime())) return acc;
+      return !acc || t > acc ? t : acc;
+    }, null) || latestBillDate;
+
+    const dueDate = latestDue < latestBillDate ? new Date(latestBillDate.getTime() + 7 * 86400000) : latestDue;
+
+    const [py, pm] = periodKey.split('-').map(Number);
+    const billingStart = new Date(py, pm - 1, 1);
+    const billingEnd = new Date(py, pm, 0);
+
+    const consolidatedFrom = bills.map((b) => ({
+      bill: b._id,
+      billId: b.billId,
+      utilityType: b.utilityType,
+      provider: b.provider,
+      site: b.site,
+      department: b.department,
+      custodian: b.custodian,
+      accountNumber: b.accountNumber || '',
+      forWhat: String(b.forWhat || b.description || '').slice(0, 1000),
+      amount: Number(b.amount) || 0,
+      lastMonthAmount: Number(b.lastMonthAmount) || 0,
+      billDate: b.billDate || latestBillDate,
+      dueDate: b.dueDate || dueDate
+    }));
+
+    const sumLastMonth = bills.reduce((s, b) => s + (Number(b.lastMonthAmount) || 0), 0);
+    const draftIds = (primary.draftApproverIds || [])
+      .map((x) => (x && x._id ? x._id : x))
+      .filter((id) => id && mongoose.isValidObjectId(id))
+      .slice(0, 2);
+
+    const parentPayload = {
+      isConsolidated: true,
+      consolidatedFrom,
+      accountHead: primary.accountHead || '',
+      site: primary.site || 'Head Office',
+      utilityType: 'Other',
+      provider: 'Consolidated utilities (see breakdown)',
+      accountNumber: '',
+      billDate: latestBillDate,
+      dueDate,
+      amount: totalAmount,
+      lastMonthAmount: sumLastMonth,
+      balanceAmount: Math.max(totalAmount - sumLastMonth, 0),
+      grandTotal: totalAmount,
+      paidAmount: 0,
+      department: primary.department || '',
+      custodian: primary.custodian || '',
+      location: primary.location || 'Main Office',
+      forWhat: `Consolidated utility bundle (${periodKey}): ${bills.map((b) => b.billId).join(', ')}.`.slice(0, 1000),
+      description: `This bill combines ${bills.length} utility bill(s) into one document for approval and payment.`.slice(0, 500),
+      billingPeriod: { startDate: billingStart, endDate: billingEnd },
+      draftApproverIds: draftIds,
+      createdBy: actorId,
+      approvalStatus: 'Draft',
+      auditStatus: 'Not Sent'
+    };
+
+    let parent;
+    try {
+      const created = await UtilityBill.create([parentPayload]);
+      parent = created[0];
+      const updateResult = await UtilityBill.updateMany(
+        { _id: { $in: uniqueIds } },
+        { $set: { consolidatedIntoBillId: parent._id } }
+      );
+      if (updateResult.matchedCount !== uniqueIds.length) {
+        await UtilityBill.findByIdAndDelete(parent._id);
+        return res.status(500).json({
+          success: false,
+          message: 'Consolidation could not link all source bills. The draft was rolled back.'
+        });
+      }
+    } catch (innerErr) {
+      if (parent && parent._id) {
+        await UtilityBill.findByIdAndDelete(parent._id).catch(() => {});
+      }
+      throw innerErr;
+    }
+
+    await populateUtilityBillDocument(parent);
+    res.status(201).json({
+      success: true,
+      message: 'Consolidated utility bill created.',
+      data: parent
+    });
+  } catch (error) {
+    console.error('Error consolidating utility bills:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Bill ID collision; please try again.' });
+    }
+    res.status(500).json({ success: false, message: error.message || 'Failed to consolidate bills' });
+  }
+});
+
 // Get single utility bill
 router.get('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
@@ -449,6 +643,9 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
     delete billData.auditStatus;
     delete billData.observations;
     delete billData.updatedBy;
+    delete billData.isConsolidated;
+    delete billData.consolidatedFrom;
+    delete billData.consolidatedIntoBillId;
     billData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
     if (billData.draftApproverIds.length) {
       const approverCheck = await assertUtilityBillApproversEligible(billData.draftApproverIds);
@@ -479,6 +676,11 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
     }
     if (billData.billDate) billData.billDate = new Date(billData.billDate);
     if (billData.dueDate) billData.dueDate = new Date(billData.dueDate);
+
+    await applyBillLinesToPayload(billData);
+    if (!billData.provider?.trim()) {
+      return res.status(400).json({ success: false, message: 'Supplier / vendor is required' });
+    }
 
     const bill = new UtilityBill(billData);
     await bill.save();
@@ -512,6 +714,9 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
     delete updateData.auditStatus;
     delete updateData.observations;
     delete updateData.updatedBy;
+    delete updateData.isConsolidated;
+    delete updateData.consolidatedFrom;
+    delete updateData.consolidatedIntoBillId;
     if (req.body.draftApproverIds !== undefined) {
       updateData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
       if (updateData.draftApproverIds.length) {
@@ -544,6 +749,31 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
     }
     if (updateData.billDate) updateData.billDate = new Date(updateData.billDate);
     if (updateData.dueDate) updateData.dueDate = new Date(updateData.dueDate);
+
+    if (updateData.billLines !== undefined) {
+      await applyBillLinesToPayload(updateData);
+    }
+
+    const existingBill = await UtilityBill.findById(req.params.id)
+      .select('approvalStatus auditStatus consolidatedIntoBillId');
+    if (!existingBill) {
+      return res.status(404).json({ success: false, message: 'Utility bill not found' });
+    }
+    if (existingBill.consolidatedIntoBillId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bundled bills cannot be updated from this form. Open the consolidated main bill.'
+      });
+    }
+    if (
+      existingBill.approvalStatus === 'Approved' &&
+      auditStatusesBlockingEdit.includes(existingBill.auditStatus)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'This bill is with audit and cannot be edited until it is returned for correction.'
+      });
+    }
 
     const bill = await UtilityBill.findByIdAndUpdate(
       req.params.id,
@@ -734,6 +964,122 @@ router.post('/:id/reject', permissions.checkSubRolePermission('admin', 'utility_
   }
 });
 
+// After audit return: save optional observation replies and send bill back to Pre-Audit queue
+router.post('/:id/resend-to-audit', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
+  try {
+    const bill = await UtilityBill.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Utility bill not found' });
+    }
+    if (bill.consolidatedIntoBillId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bundled bills cannot be resent to audit from this screen.'
+      });
+    }
+    if (bill.auditStatus !== 'Returned from Audit') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only bills returned from audit can be sent back to Pre-Audit.'
+      });
+    }
+    if (bill.approvalStatus !== 'Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Bill must be approved by internal authorities before it can re-enter the audit queue.'
+      });
+    }
+
+    const actorId = getActorId(req);
+    const observationAnswers = req.body?.observationAnswers;
+
+    if (Array.isArray(observationAnswers)) {
+      for (const entry of observationAnswers) {
+        const oid = entry?.observationId;
+        const text = String(entry?.answer || '').trim();
+        if (!oid || !text) continue;
+        try {
+          const sub = bill.observations.id(oid);
+          if (sub) {
+            sub.answer = text;
+            sub.answeredBy = actorId;
+            sub.answeredAt = new Date();
+            sub.resolved = true;
+            const obsPreview = String(sub.observation || '').trim().slice(0, 120);
+            addWorkflowHistory(
+              bill,
+              bill.auditStatus,
+              bill.auditStatus,
+              actorId,
+              `Administration response to observation${obsPreview ? `: "${obsPreview}${sub.observation.length > 120 ? '…' : ''}"` : ''} — ${text}`
+            );
+          }
+        } catch (e) {
+          // ignore invalid subdocument ids
+        }
+      }
+    }
+
+    const previousAudit = bill.auditStatus;
+    bill.auditStatus = 'Send to Audit';
+    const note = String(req.body?.resubmitComments || '').trim();
+    addWorkflowHistory(
+      bill,
+      previousAudit,
+      bill.auditStatus,
+      actorId,
+      note ? `Resent to Pre-Audit: ${note}` : 'Resent to Pre-Audit after corrections'
+    );
+    bill.updatedBy = actorId;
+    await bill.save();
+    await populateUtilityBillDocument(bill);
+    await notifyAuditQueue({ actorId, bill });
+
+    res.json({ success: true, message: 'Bill sent back to the Pre-Audit queue.', data: bill });
+  } catch (error) {
+    console.error('Error resending utility bill to audit:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to resend to audit' });
+  }
+});
+
+// Post audit-approved bill to Finance (AP + GL) — manual retry if auto-post failed
+router.post('/:id/post-to-finance', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
+  try {
+    const bill = await UtilityBill.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Utility bill not found' });
+    }
+    if (!isUtilityBillAuditFinalApproved(bill.auditStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bill must be finally approved by Audit Director before posting to Finance.'
+      });
+    }
+    const actorId = req.user?.id || req.user?._id;
+    const result = await postUtilityBillToFinance(bill, actorId);
+    await populateUtilityBillDocument(bill);
+
+    if (result.error && !result.posted && !result.apId) {
+      return res.status(500).json({
+        success: false,
+        message: result.error || 'Failed to post to Finance',
+        data: result
+      });
+    }
+
+    const message = result.posted
+      ? (result.repaired ? 'Finance GL repaired and linked to this utility bill.' : 'Posted to Finance (Accounts Payable).')
+      : result.reason === 'already_posted'
+        ? 'Already posted to Finance.'
+        : 'No changes made.';
+
+    res.json({ success: true, message, data: { bill, financePost: result } });
+  } catch (error) {
+    console.error('Error posting utility bill to finance:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to post to Finance' });
+  }
+});
+
 // Record payment
 router.put('/:id/payment', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
   try {
@@ -744,6 +1090,13 @@ router.put('/:id/payment', permissions.checkSubRolePermission('admin', 'utility_
       return res.status(404).json({
         success: false,
         message: 'Utility bill not found'
+      });
+    }
+
+    if (bill.financeApBillId) {
+      return res.status(400).json({
+        success: false,
+        message: 'This bill was posted to Finance Accounts Payable. Record payment in Finance → Accounts Payable, not here.'
       });
     }
 
@@ -774,7 +1127,7 @@ router.put('/:id/payment', permissions.checkSubRolePermission('admin', 'utility_
 // Delete utility bill
 router.delete('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'delete'), async (req, res) => {
   try {
-    const bill = await UtilityBill.findByIdAndDelete(req.params.id);
+    const bill = await UtilityBill.findById(req.params.id);
 
     if (!bill) {
       return res.status(404).json({
@@ -782,6 +1135,22 @@ router.delete('/:id', permissions.checkSubRolePermission('admin', 'utility_bills
         message: 'Utility bill not found'
       });
     }
+
+    if (bill.consolidatedIntoBillId) {
+      return res.status(400).json({
+        success: false,
+        message: 'This bill is part of a consolidated bundle. Remove it from the parent bill workflow first (or delete the consolidated parent).'
+      });
+    }
+
+    if (bill.isConsolidated) {
+      await UtilityBill.updateMany(
+        { consolidatedIntoBillId: bill._id },
+        { $set: { consolidatedIntoBillId: null } }
+      );
+    }
+
+    await UtilityBill.findByIdAndDelete(req.params.id);
 
     res.json({
       success: true,

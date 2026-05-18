@@ -21,6 +21,7 @@ const {
   getEligibleUtilityBillApproverUserIds,
   assertUtilityBillApproversEligible
 } = require('../utils/utilityBillApproverEligibility');
+const { isWorkflowAuditBlockingEditStatus } = require('../utils/workflowAuditQueue');
 
 const normalizeApproverIds = (value) => {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -542,6 +543,25 @@ const createPaymentSettlement = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const updatePaymentSettlement = asyncHandler(async (req, res) => {
   try {
+    const existingSettlement = await PaymentSettlement.findById(req.params.id)
+      .select('approvalStatus workflowStatus')
+      .lean();
+    if (!existingSettlement) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment settlement not found'
+      });
+    }
+    if (
+      existingSettlement.approvalStatus === 'Approved' &&
+      isWorkflowAuditBlockingEditStatus(existingSettlement.workflowStatus)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'This settlement is with audit and cannot be edited until it is returned for correction.'
+      });
+    }
+
     const updateData = {
       ...req.body,
       updatedBy: getActorId(req)
@@ -574,10 +594,10 @@ const updatePaymentSettlement = asyncHandler(async (req, res) => {
         uploadedAt: new Date()
       }));
 
-      // Get existing settlement to merge attachments
-      const existingSettlement = await PaymentSettlement.findById(req.params.id);
-      if (existingSettlement) {
-        updateData.attachments = [...(existingSettlement.attachments || []), ...newAttachments];
+      // Merge with latest attachments from DB (full document)
+      const docForAttachments = await PaymentSettlement.findById(req.params.id);
+      if (docForAttachments) {
+        updateData.attachments = [...(docForAttachments.attachments || []), ...newAttachments];
       } else {
         updateData.attachments = newAttachments;
       }
@@ -743,6 +763,8 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
       });
     }
 
+    const wasReturnedFromAudit = settlement.workflowStatus === 'Returned from Audit';
+
     // Check if user has permission to change status from current status
     const userRole = req.user.role;
     const userEmail = req.user.email;
@@ -851,6 +873,10 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
     settlement.updatedBy = req.user.id;
 
     await settlement.save();
+
+    if (wasReturnedFromAudit && workflowStatus === 'Send to Audit') {
+      await notifyAuditQueue({ actorId: req.user.id, settlement });
+    }
 
     // Realtime notification on forward-to-CEO transition (CEO Secretariat / CEO queue)
     if (workflowStatus === 'Forwarded to CEO') {

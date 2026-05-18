@@ -181,6 +181,7 @@ import UtilityBillDashboard from './pages/Admin/UtilityBillManagement/UtilityBil
 import UtilityBillList from './pages/Admin/UtilityBillManagement/UtilityBillList';
 import UtilityBillForm from './pages/Admin/UtilityBillManagement/UtilityBillForm';
 import UtilityBillDetails from './pages/Admin/UtilityBillManagement/UtilityBillDetails';
+import CentralizedStoreManagement from './pages/Admin/UtilityBillManagement/CentralizedStoreManagement';
 import RentalAgreementList from './pages/Admin/RentalAgreements/RentalAgreementList';
 import RentalAgreementDetail from './pages/Admin/RentalAgreements/RentalAgreementDetail';
 import RentalManagementDashboard from './pages/Admin/RentalManagement/RentalManagementDashboard';
@@ -1774,8 +1775,12 @@ function App() {
 
             {/* Utility Bills Management Routes */}
             <Route 
-              path="/admin/utility-bills" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillDashboard /></ProtectedRoute>} 
+              path="/admin/utility-bills"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillDashboard /></ProtectedRoute>}
+            />
+            <Route
+              path="/admin/centralized-store"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><CentralizedStoreManagement /></ProtectedRoute>}
             />
             <Route 
               path="/admin/utility-bills/list" 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Alert,
   Autocomplete,
@@ -9,22 +9,19 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  Grid,
   IconButton,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
   Skeleton,
   Snackbar,
   Stack,
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 import {
@@ -33,7 +30,6 @@ import {
   CheckCircle as CheckCircleIcon,
   Close as CloseIcon,
   Edit as EditIcon,
-  Payment as PaymentIcon,
   Print as PrintIcon,
   Send as SendIcon,
   ZoomIn as ZoomInIcon,
@@ -44,6 +40,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import utilityBillService from '../../../services/utilityBillService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
+import {
+  consolidatedMemoSecondaryHeading,
+  getConsolidatedLineTotals,
+  hasConsolidatedBreakdown,
+  sortedConsolidatedLines,
+  UTILITY_MEMO_COL_WIDTHS,
+  utilityMemoDateCellSx,
+  utilityMemoRefCellSx,
+  utilityMemoTableSx
+} from '../../../utils/utilityBillMemoUtils';
 import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
 import {
   approverSearchOnInputChange,
@@ -51,8 +57,12 @@ import {
   optionsForManagerApprover,
   optionsForHodApprover
 } from '../../../utils/dualApproverAutocomplete';
-
-const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Credit Card', 'Other'];
+import {
+  AuditReturnFeedbackSection,
+  ResendToPreAuditDialog,
+  useAdminWorkflowAuditReturn,
+  isWorkflowAuditBlockingEditStatus
+} from '../../../components/Admin/workflowAuditReturn';
 
 const formatMemoDate = (date) => {
   if (!date) return '';
@@ -90,6 +100,12 @@ const getUserId = (value) => {
 };
 const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
 
+const utilityBillObservationKey = (obs) => {
+  if (!obs) return '';
+  return String(obs._id || obs.id || '');
+};
+
+/** Bill detail page: payment recording is not offered here (removed from toolbar). */
 const UtilityBillDetails = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -97,7 +113,6 @@ const UtilityBillDetails = () => {
   const [bill, setBill] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [paymentDialog, setPaymentDialog] = useState(false);
   const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
   const [managerApprover, setManagerApprover] = useState(null);
   const [hodApprover, setHodApprover] = useState(null);
@@ -121,13 +136,7 @@ const UtilityBillDetails = () => {
   const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
   const [dragState, setDragState] = useState({ active: false, startX: 0, startY: 0 });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const [paymentData, setPaymentData] = useState({
-    paidAmount: 0,
-    paymentMethod: '',
-    paymentDate: new Date().toISOString().split('T')[0],
-    notes: ''
-  });
-
+  const [postingFinance, setPostingFinance] = useState(false);
   useEffect(() => {
     fetchBill();
   }, [id]);
@@ -146,7 +155,6 @@ const UtilityBillDetails = () => {
   };
 
   const getGrandTotal = () => bill?.grandTotal ?? ((Number(bill?.amount) || 0) + (Number(bill?.balanceAmount) || 0));
-  const getRemainingAmount = () => Math.max((Number(getGrandTotal()) || 0) - (Number(bill?.paidAmount) || 0), 0);
   const getBalanceToPay = () => (
     Number(bill?.balanceAmount) || Math.max((Number(getGrandTotal()) || 0) - (Number(bill?.lastMonthAmount) || 0), 0)
   );
@@ -262,7 +270,8 @@ const UtilityBillDetails = () => {
     ].filter((row) => row.stampImage);
   };
   const getPrimaryHeading = () => (bill?.accountHead || bill?.site || bill?.location || bill?.provider || bill?.utilityType || 'Utility Bill').toUpperCase();
-  const getSecondaryHeading = () => [bill?.provider, bill?.utilityType].filter(Boolean).join(' - ');
+  const getSecondaryHeading = () =>
+    consolidatedMemoSecondaryHeading(bill, [bill?.provider, bill?.utilityType].filter(Boolean).join(' - '));
   const approvalStatus = bill?.approvalStatus || 'Draft';
   const pendingApproval = (bill?.approvalChain || []).find((step) => step.status === 'pending');
   const pendingApproverId = getUserId(pendingApproval?.approver);
@@ -272,6 +281,33 @@ const UtilityBillDetails = () => {
   const isPendingApprover = pendingApproverId && userId && pendingApproverId === userId && !isRequester;
   const canSubmitForApproval = ['Draft', 'Rejected'].includes(approvalStatus);
   const canApproveReject = approvalStatus === 'Submitted' && isPendingApprover;
+  const computeAuditUi = useCallback((b) => ({
+    auditBlocksEdit:
+      b?.approvalStatus === 'Approved' &&
+      isWorkflowAuditBlockingEditStatus(b?.auditStatus),
+    canResendToPreAudit:
+      b?.auditStatus === 'Returned from Audit' &&
+      b?.approvalStatus === 'Approved' &&
+      !b?.consolidatedIntoBillId
+  }), []);
+
+  const resendToAuditApi = useCallback(
+    async (payload) => {
+      const response = await utilityBillService.resendUtilityBillToAudit(bill._id, payload);
+      return response.data;
+    },
+    [bill?._id]
+  );
+
+  const workflowAudit = useAdminWorkflowAuditReturn({
+    document: bill,
+    computeAuditUi,
+    getObservationKey: utilityBillObservationKey,
+    onResend: resendToAuditApi,
+    onDocumentUpdate: setBill,
+    onError: (message) => setSnackbar({ open: true, message, severity: 'error' }),
+    onSuccess: (message) => setSnackbar({ open: true, message, severity: 'success' })
+  });
 
   const getApprovalColor = (status) => {
     switch (status) {
@@ -279,6 +315,34 @@ const UtilityBillDetails = () => {
       case 'Submitted': return 'warning';
       case 'Rejected': return 'error';
       default: return 'default';
+    }
+  };
+
+  const getAuditStatusColor = (auditLabel) => {
+    const s = String(auditLabel || '');
+    if (s === 'Returned from Audit' || s.includes('Rejected')) return 'error';
+    if (s.startsWith('Approved')) return 'success';
+    if (s === 'Not Sent') return 'default';
+    return 'warning';
+  };
+
+  const isAuditFinallyApproved = String(bill?.auditStatus || '').startsWith('Approved (from ');
+  const needsFinancePost = isAuditFinallyApproved && !bill?.consolidatedIntoBillId && !bill?.financeApBillId;
+
+  const handlePostToFinance = async () => {
+    try {
+      setPostingFinance(true);
+      const response = await utilityBillService.postUtilityBillToFinance(bill._id);
+      setBill(response.data?.bill || response.data);
+      setSnackbar({ open: true, message: response.message || 'Posted to Finance', severity: 'success' });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to post to Finance',
+        severity: 'error'
+      });
+    } finally {
+      setPostingFinance(false);
     }
   };
 
@@ -349,15 +413,6 @@ const UtilityBillDetails = () => {
     }
   };
 
-  const handlePayment = () => {
-    setPaymentData({
-      paidAmount: getRemainingAmount(),
-      paymentMethod: '',
-      paymentDate: new Date().toISOString().split('T')[0],
-      notes: ''
-    });
-    setPaymentDialog(true);
-  };
   const changeImageZoom = (delta) => {
     setImageZoom((prev) => Math.min(3, Math.max(0.5, +(prev + delta).toFixed(2))));
   };
@@ -381,15 +436,46 @@ const UtilityBillDetails = () => {
     if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
   };
 
-  const handlePaymentSubmit = async () => {
-    try {
-      await utilityBillService.recordPayment(bill._id, paymentData);
-      setPaymentDialog(false);
-      fetchBill();
-    } catch (err) {
-      setError('Failed to record payment');
-      console.error('Error recording payment:', err);
+  const buildMemoTableBodyHtml = () => {
+    if (hasConsolidatedBreakdown(bill)) {
+      const lines = sortedConsolidatedLines(bill);
+      const totals = getConsolidatedLineTotals(bill);
+      const lineRows = lines
+        .map((line) => {
+          const ref = displayValue(line.accountNumber) || line.billId || '—';
+          const forWhatLine = displayValue(line.forWhat) || line.utilityType || '—';
+          return `
+              <tr class="body-row">
+                <td>${formatMemoDate(line.billDate)}</td>
+                <td>${ref}${line.billId ? `<br /><span style="font-size:11px;color:#666;">Bill ${line.billId}</span>` : ''}</td>
+                <td>${displayValue(line.provider)}</td>
+                <td>${forWhatLine}</td>
+                <td class="amount-col">${formatMemoAmount(line.amount)}</td>
+                <td class="last-col">${formatMemoAmount(Number(line.lastMonthAmount) || 0)}</td>
+              </tr>`;
+        })
+        .join('');
+      const totalRow = `
+              <tr class="totals">
+                <td colspan="4" class="total-label">Total</td>
+                <td class="amount-col">${formatMemoAmount(totals.amountTotal)}</td>
+                <td class="last-col">${formatMemoAmount(totals.lastMonthTotal)}</td>
+              </tr>`;
+      return lineRows + totalRow;
     }
+
+    return `
+              <tr class="body-row">
+                <td>${formatMemoDate(bill?.billDate)}</td>
+                <td>${displayValue(bill?.accountNumber)}</td>
+                <td>${displayValue(bill?.provider)}</td>
+                <td>${getForWhat()}</td>
+                <td class="amount-col">${formatMemoAmount(bill?.amount)}</td>
+                <td class="last-col">${formatMemoAmount(bill?.lastMonthAmount)}</td>
+              </tr>
+              <tr class="totals"><td colspan="4" class="total-label">Grand Total</td><td class="amount-col">${formatMemoAmount(getGrandTotal())}</td><td></td></tr>
+              <tr class="totals"><td colspan="4" class="total-label">Cash Deposit Last Month</td><td class="amount-col">${formatMemoAmount(bill?.lastMonthAmount)}</td><td></td></tr>
+              <tr class="totals"><td colspan="4" class="total-label">Balance Amount to be Paid</td><td class="amount-col">${formatMemoAmount(getBalanceToPay())}</td><td></td></tr>`;
   };
 
   const getPrintContent = () => `
@@ -410,11 +496,11 @@ const UtilityBillDetails = () => {
           th { font-size: 10.5px; font-weight: 800; text-align: center; border-bottom: 1px solid #c7c7c7; padding: 7px 8px; color: #333; background: #f8f8f8; }
           td { padding: 9px 8px; vertical-align: top; }
           .main-table { margin-top: 6px; border-top: 1px solid #c7c7c7; border-bottom: 1px solid #c7c7c7; }
-          .date-col { width: 9%; }
-          .ref-col { width: 13%; }
-          .paid-col { width: 22%; }
-          .for-col { width: 30%; }
-          .amount-col { width: 11%; text-align: right; }
+          .date-col { width: 11%; white-space: normal; }
+          .ref-col { width: 14%; word-break: break-word; overflow-wrap: anywhere; }
+          .paid-col { width: 20%; }
+          .for-col { width: 27%; }
+          .amount-col { width: 13%; text-align: right; }
           .last-col { width: 15%; text-align: right; }
           .main-table th, .main-table td { border-right: 1px solid #ededed; }
           .main-table th:last-child, .main-table td:last-child { border-right: 0; }
@@ -466,17 +552,7 @@ const UtilityBillDetails = () => {
               </tr>
             </thead>
             <tbody>
-              <tr class="body-row">
-                <td>${formatMemoDate(bill?.billDate)}</td>
-                <td>${displayValue(bill?.accountNumber)}</td>
-                <td>${displayValue(bill?.provider)}</td>
-                <td>${getForWhat()}</td>
-                <td class="amount-col">${formatMemoAmount(bill?.amount)}</td>
-                <td class="last-col">${formatMemoAmount(bill?.lastMonthAmount)}</td>
-              </tr>
-              <tr class="totals"><td colspan="4" class="total-label">Grand Total</td><td class="amount-col">${formatMemoAmount(getGrandTotal())}</td><td></td></tr>
-              <tr class="totals"><td colspan="4" class="total-label">Cash Deposit Last Month</td><td class="amount-col">${formatMemoAmount(bill?.lastMonthAmount)}</td><td></td></tr>
-              <tr class="totals"><td colspan="4" class="total-label">Balance Amount to be Paid</td><td class="amount-col">${formatMemoAmount(getBalanceToPay())}</td><td></td></tr>
+              ${buildMemoTableBodyHtml()}
             </tbody>
           </table>
           <table class="approval-table">
@@ -550,6 +626,14 @@ const UtilityBillDetails = () => {
         </Button>
         <Stack direction="row" spacing={1}>
           <Chip label={`Approval: ${approvalStatus}`} color={getApprovalColor(approvalStatus)} sx={{ alignSelf: 'center' }} />
+          {bill.auditStatus && bill.auditStatus !== 'Not Sent' && (
+            <Chip
+              label={`Audit: ${bill.auditStatus}`}
+              color={getAuditStatusColor(bill.auditStatus)}
+              sx={{ alignSelf: 'center' }}
+              variant="outlined"
+            />
+          )}
           {canSubmitForApproval && (
             <Button variant="contained" color="info" startIcon={<SendIcon />} onClick={() => setSubmitDialogOpen(true)}>
               Submit
@@ -568,18 +652,66 @@ const UtilityBillDetails = () => {
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print
           </Button>
-          <Button variant="outlined" startIcon={<PaymentIcon />} onClick={handlePayment} disabled={bill.status === 'Paid'}>
-            Record Payment
-          </Button>
-          <Button variant="contained" startIcon={<EditIcon />} onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}>
-            Edit Bill
-          </Button>
+          {workflowAudit.canResendToPreAudit && (
+            <Button variant="contained" color="warning" startIcon={<RestartAltIcon />} onClick={workflowAudit.openResendDialog}>
+              Resend to Pre-Audit
+            </Button>
+          )}
+          <Tooltip
+            title={
+              workflowAudit.auditBlocksEdit
+                ? 'This bill is with audit and cannot be edited until it is returned for correction.'
+                : 'Edit bill fields'
+            }
+          >
+            <span>
+              <Button
+                variant="contained"
+                startIcon={<EditIcon />}
+                disabled={Boolean(bill.consolidatedIntoBillId) || workflowAudit.auditBlocksEdit}
+                onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}
+              >
+                Edit Bill
+              </Button>
+            </span>
+          </Tooltip>
         </Stack>
       </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
           {error}
+        </Alert>
+      )}
+
+      {bill.consolidatedIntoBillId && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          This bill is included in a consolidated main bill. Use that document for approval.{' '}
+          <Button
+            variant="text"
+            size="small"
+            onClick={() => {
+              const pid = bill.consolidatedIntoBillId?._id || bill.consolidatedIntoBillId;
+              if (pid) navigate(`/admin/utility-bills/${pid}`);
+            }}
+          >
+            Open consolidated bill {bill.consolidatedIntoBillId?.billId ? `(${bill.consolidatedIntoBillId.billId})` : ''}
+          </Button>
+        </Alert>
+      )}
+
+      {needsFinancePost && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Audit approved but this bill is not in Finance yet. Post it to create Accounts Payable and debit utilities account 6200.
+          <Button
+            variant="contained"
+            size="small"
+            sx={{ ml: 1 }}
+            disabled={postingFinance}
+            onClick={handlePostToFinance}
+          >
+            {postingFinance ? 'Posting…' : 'Post to Finance'}
+          </Button>
         </Alert>
       )}
 
@@ -631,6 +763,30 @@ const UtilityBillDetails = () => {
           </Typography>
         </Box>
 
+        <AuditReturnFeedbackSection
+          visualVariant="settlement"
+          auditStatus={bill.auditStatus}
+          returnedAuditStatus="Returned from Audit"
+          latestReturnHistory={workflowAudit.latestReturnHistory}
+          observations={workflowAudit.observations}
+          getObservationKey={utilityBillObservationKey}
+          formatDateTime={formatDateTime}
+          userDisplayName={userDisplayName}
+          answerTitle="Administration response:"
+          answeredIntro={(
+            <>
+              Replies below are shown on this bill and in Pre-Audit when you resend. Open observations still need a reply
+              in <strong>Resend to Pre-Audit</strong>.
+            </>
+          )}
+          returnedIntro={(
+            <>
+              This bill was returned for correction. Review the points below, use <strong>Edit Bill</strong> to update the
+              memo if needed, then use <strong>Resend to Pre-Audit</strong> when you are ready.
+            </>
+          )}
+        />
+
         <Box
           sx={{
             display: 'grid',
@@ -669,11 +825,11 @@ const UtilityBillDetails = () => {
           </Box>
         </Box>
 
+        <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
         <Table
           size="small"
           sx={{
-            width: '100%',
-            tableLayout: 'fixed',
+            ...utilityMemoTableSx,
             mt: 1,
             borderTop: '1px solid',
             borderBottom: '1px solid',
@@ -708,12 +864,9 @@ const UtilityBillDetails = () => {
           }}
         >
           <colgroup>
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '13%' }} />
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '30%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '15%' }} />
+            {UTILITY_MEMO_COL_WIDTHS.map((width, colIdx) => (
+              <col key={`memo-col-${colIdx}`} style={{ width }} />
+            ))}
           </colgroup>
           <TableHead>
             <TableRow>
@@ -737,52 +890,110 @@ const UtilityBillDetails = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>
-                {formatMemoDate(bill.billDate)}
-              </TableCell>
-              <TableCell sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.accountNumber)}</TableCell>
-              <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
-              <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-                {getForWhat()}
-              </TableCell>
-              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
-                {formatMemoAmount(bill.amount)}
-              </TableCell>
-              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
-                {formatMemoAmount(bill.lastMonthAmount)}
-              </TableCell>
-            </TableRow>
+            {hasConsolidatedBreakdown(bill) ? (
+              <>
+                {sortedConsolidatedLines(bill).map((line, idx) => {
+                  const ref = displayValue(line.accountNumber) || line.billId || '—';
+                  const forWhatLine = displayValue(line.forWhat) || line.utilityType || '—';
+                  return (
+                    <TableRow key={line.bill?._id || line.bill || idx}>
+                      <TableCell sx={utilityMemoDateCellSx}>
+                        {formatMemoDate(line.billDate)}
+                      </TableCell>
+                      <TableCell sx={utilityMemoRefCellSx}>
+                        <Typography component="span" sx={{ fontWeight: 700 }}>{ref}</Typography>
+                        {line.billId ? (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            Bill {line.billId}
+                          </Typography>
+                        ) : null}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                        {displayValue(line.provider)}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                        {forWhatLine}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                        {formatMemoAmount(line.amount)}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                        {formatMemoAmount(Number(line.lastMonthAmount) || 0)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {(() => {
+                  const totals = getConsolidatedLineTotals(bill);
+                  return (
+                    <TableRow>
+                      <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
+                        Total
+                      </TableCell>
+                      <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
+                        {formatMemoAmount(totals.amountTotal)}
+                      </TableCell>
+                      <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
+                        {formatMemoAmount(totals.lastMonthTotal)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                <TableRow>
+                  <TableCell sx={utilityMemoDateCellSx}>
+                    {formatMemoDate(bill.billDate)}
+                  </TableCell>
+                  <TableCell sx={utilityMemoRefCellSx}>{displayValue(bill.accountNumber)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                    {getForWhat()}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                    {formatMemoAmount(bill.amount)}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                    {formatMemoAmount(bill.lastMonthAmount)}
+                  </TableCell>
+                </TableRow>
 
-            {[
-              ['Grand Total', formatMemoAmount(getGrandTotal())],
-              ['Cash Deposit Last Month', formatMemoAmount(bill.lastMonthAmount)],
-              ['Balance Amount to be Paid', formatMemoAmount(getBalanceToPay())]
-            ].map(([label, value]) => (
-              <TableRow key={label}>
-                <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
-                  {label}
-                </TableCell>
-                <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
-                  {value}
-                </TableCell>
-                <TableCell sx={{ borderTop: 0 }} />
-              </TableRow>
-            ))}
+                {[
+                  ['Grand Total', formatMemoAmount(getGrandTotal())],
+                  ['Cash Deposit Last Month', formatMemoAmount(bill.lastMonthAmount)],
+                  ['Balance Amount to be Paid', formatMemoAmount(getBalanceToPay())]
+                ].map(([label, value]) => (
+                  <TableRow key={label}>
+                    <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                      {label}
+                    </TableCell>
+                    <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                      {value}
+                    </TableCell>
+                    <TableCell sx={{ borderTop: 0 }} />
+                  </TableRow>
+                ))}
+              </>
+            )}
           </TableBody>
         </Table>
-        {getStampRows().length > 0 && (
-          <Box sx={{ mt: 3, p: 2.5, border: '2px solid', borderColor: 'grey.300', borderRadius: 1.5, backgroundColor: 'grey.50' }}>
-            <Typography sx={{ fontWeight: 900, fontSize: 17, mb: 2 }}>Approval Stamp</Typography>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              {getStampRows().map((stampRow) => (
-                <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
-                  <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
-                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
-                  <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
-                </Box>
-              ))}
-            </Stack>
+        </TableContainer>
+
+        {hasConsolidatedBreakdown(bill) && (
+          <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+              Original bills:
+            </Typography>
+            {bill.consolidatedFrom.map((line, idx) => {
+              const bid = line.bill?._id || line.bill;
+              const label = line.billId || line.bill?.billId || `Bill ${idx + 1}`;
+              return bid ? (
+                <Button key={bid} size="small" variant="outlined" onClick={() => navigate(`/admin/utility-bills/${bid}`)}>
+                  {label}
+                </Button>
+              ) : null;
+            })}
           </Box>
         )}
 
@@ -843,6 +1054,21 @@ const UtilityBillDetails = () => {
           </TableBody>
         </Table>
 
+        {getStampRows().length > 0 && (
+          <Box sx={{ mt: 3, p: 2.5, border: '2px solid', borderColor: 'grey.300', borderRadius: 1.5, backgroundColor: 'grey.50' }}>
+            <Typography sx={{ fontWeight: 900, fontSize: 17, mb: 2 }}>Approval Stamp</Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              {getStampRows().map((stampRow) => (
+                <Box key={stampRow.authority} sx={{ flex: 1, minWidth: 260, p: 2, bgcolor: 'white', border: '1.5px solid', borderColor: 'grey.400', borderRadius: 1.5, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
+                  <Typography sx={{ fontWeight: 700, mb: 1 }}>{stampRow.authority}</Typography>
+                  <Box component="img" src={getImageUrl(stampRow.stampImage)} alt={stampRow.authority} sx={{ display: 'block', maxHeight: 170, width: '100%', objectFit: 'contain', border: '2px dashed', borderColor: 'grey.400', p: 1.5, backgroundColor: '#fff'  }} />
+                  <Typography sx={{ mt: 1, fontSize: 12.5, color: 'grey.700' }}>{stampRow.dateTime || '-'}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
+
         <Box sx={{ mt: 5, minHeight: 120 }} />
 
         {bill.billImage && (
@@ -863,6 +1089,26 @@ const UtilityBillDetails = () => {
           </Box>
         )}
       </Paper>
+
+      <ResendToPreAuditDialog
+        open={workflowAudit.resendDialogOpen}
+        onClose={workflowAudit.closeResendDialog}
+        submitting={workflowAudit.resendSubmitting}
+        observations={workflowAudit.observations}
+        getObservationKey={utilityBillObservationKey}
+        resendComments={workflowAudit.resendComments}
+        onResendCommentsChange={workflowAudit.setResendComments}
+        resendAnswers={workflowAudit.resendAnswers}
+        onResendAnswerChange={(key, value) =>
+          workflowAudit.setResendAnswers((prev) => ({ ...prev, [key]: value }))}
+        onSubmit={workflowAudit.handleResendToAudit}
+        intro={(
+          <>
+            Save any memo changes with <strong>Edit Bill</strong> before confirming. Add replies for each open
+            observation, then send the bill back to the audit queue.
+          </>
+        )}
+      />
 
       <Dialog open={submitDialogOpen} onClose={() => setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Select Approval Authorities</DialogTitle>
@@ -912,62 +1158,6 @@ const UtilityBillDetails = () => {
           <Button variant="contained" startIcon={<SendIcon />} onClick={handleSubmitForApproval}>
             Submit for Approval
           </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Record Payment</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Payment Amount"
-                type="number"
-                value={paymentData.paidAmount}
-                onChange={(e) => setPaymentData({ ...paymentData, paidAmount: parseFloat(e.target.value) || 0 })}
-                inputProps={{ min: 0, step: 0.01 }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Payment Method</InputLabel>
-                <Select
-                  value={paymentData.paymentMethod}
-                  onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
-                  label="Payment Method"
-                >
-                  {paymentMethods.map((method) => (
-                    <MenuItem key={method} value={method}>{method}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Payment Date"
-                type="date"
-                value={paymentData.paymentDate}
-                onChange={(e) => setPaymentData({ ...paymentData, paymentDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Notes"
-                value={paymentData.notes}
-                onChange={(e) => setPaymentData({ ...paymentData, notes: e.target.value })}
-                multiline
-                rows={2}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
-          <Button onClick={handlePaymentSubmit} variant="contained">Record Payment</Button>
         </DialogActions>
       </Dialog>
 

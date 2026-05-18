@@ -16,8 +16,19 @@ import {
   Skeleton,
   Avatar,
   IconButton,
-  Stack
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  FormControlLabel,
+  Switch,
+  Link
 } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
+import api from '../../../services/api';
+import centralizedStoreService from '../../../services/centralizedStoreService';
 import {
   CloudUpload as CloudUploadIcon,
   Delete as DeleteIcon,
@@ -34,6 +45,11 @@ import {
   optionsForManagerApprover,
   optionsForHodApprover
 } from '../../../utils/dualApproverAutocomplete';
+import {
+  isWorkflowAuditBlockingEditStatus,
+  WorkflowAuditFeedbackPanel
+} from '../../../components/Admin/workflowAuditReturn';
+import { formatDateTime } from '../../../utils/dateUtils';
 
 const userDisplayName = (user) => {
   if (!user) return '';
@@ -45,6 +61,16 @@ const getUserId = (value) => {
   return String(value._id || value.id || value.userId || '');
 };
 
+/** Local YYYY-MM-DD after adding whole months (noon avoids DST edge cases). */
+const addCalendarMonthsYmd = (value, monthsToAdd) => {
+  if (value == null || value === '') return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setHours(12, 0, 0, 0);
+  d.setMonth(d.getMonth() + monthsToAdd);
+  return d.toISOString().split('T')[0];
+};
+
 const UtilityBillForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -52,6 +78,7 @@ const UtilityBillForm = () => {
   const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
   const defaultType = searchParams.get('type') || 'Electricity';
+  const cloneFromId = searchParams.get('from');
   const accountHeadOptions = ['President Personal', 'SGCHQ', 'Boly.pk', 'Usman Solar'];
 
   const [formData, setFormData] = useState({
@@ -81,6 +108,20 @@ const UtilityBillForm = () => {
   const [hodApprover, setHodApprover] = useState(null);
   const [approverOptions, setApproverOptions] = useState([]);
   const [approverLoading, setApproverLoading] = useState(false);
+  const [cloneSourceLoading, setCloneSourceLoading] = useState(false);
+  const [cloneSourceLabel, setCloneSourceLabel] = useState('');
+  const [workflowLocksEdit, setWorkflowLocksEdit] = useState(false);
+  const [auditReturnedNotice, setAuditReturnedNotice] = useState(false);
+  /** Full bill from API in edit mode — used to show audit observation thread (incl. admin replies). */
+  const [loadedBillForAudit, setLoadedBillForAudit] = useState(null);
+  /** Loaded bill approval state (edit mode only); null before fetch or on create */
+  const [loadedApprovalStatus, setLoadedApprovalStatus] = useState(null);
+  const [editIsConsolidated, setEditIsConsolidated] = useState(false);
+  const [useStoreBill, setUseStoreBill] = useState(true);
+  const [vendors, setVendors] = useState([]);
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [storeItems, setStoreItems] = useState([]);
+  const [billLines, setBillLines] = useState([]);
 
   const requesterId = getUserId(user);
   const mergedApproverOptions = useMemo(
@@ -100,16 +141,85 @@ const UtilityBillForm = () => {
     fetchMasterData();
     if (isEdit) {
       fetchBill();
+    } else {
+      setWorkflowLocksEdit(false);
+      setAuditReturnedNotice(false);
+      setLoadedApprovalStatus(null);
+      setEditIsConsolidated(false);
     }
   }, [id, isEdit]);
+
+  useEffect(() => {
+    if (isEdit || !cloneFromId) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setCloneSourceLoading(true);
+        setError(null);
+        const response = await utilityBillService.getUtilityBill(cloneFromId);
+        if (cancelled) return;
+        const bill = response.data;
+        setCloneSourceLabel(bill.billId || cloneFromId);
+
+        const prevAmount = Number(bill.amount) || 0;
+        const billDateYmd = bill.billDate ? new Date(bill.billDate).toISOString().split('T')[0] : '';
+        const dueYmd = bill.dueDate ? new Date(bill.dueDate).toISOString().split('T')[0] : '';
+        const nextBillDate =
+          addCalendarMonthsYmd(billDateYmd || bill.billDate, 1) || new Date().toISOString().split('T')[0];
+        const nextDueDate = dueYmd ? addCalendarMonthsYmd(dueYmd, 1) : nextBillDate;
+
+        setFormData({
+          accountHead: bill.accountHead || '',
+          site: bill.site || '',
+          utilityType: bill.utilityType || defaultType,
+          provider: bill.provider || '',
+          accountNumber: bill.accountNumber || '',
+          billDate: nextBillDate,
+          dueDate: nextDueDate,
+          amount: prevAmount,
+          lastMonthAmount: prevAmount,
+          forWhat: bill.forWhat || '',
+          location: bill.location || 'Main Office',
+          department: bill.department || '',
+          custodian: bill.custodian || ''
+        });
+
+        setSelectedImage(null);
+        setImagePreview(null);
+
+        const draftApprovers = bill.draftApproverIds || [];
+        const chainApprovers = (bill.approvalChain || []).map((step) => step.approver).filter(Boolean);
+        const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
+        setManagerApprover(approvers[0] && typeof approvers[0] === 'object' ? approvers[0] : null);
+        setHodApprover(approvers[1] && typeof approvers[1] === 'object' ? approvers[1] : null);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.response?.data?.message || 'Could not load the bill to copy from. Check the link or pick another bill.');
+          setCloneSourceLabel('');
+        }
+      } finally {
+        if (!cancelled) setCloneSourceLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloneFromId, isEdit, defaultType]);
 
   const fetchMasterData = async () => {
     try {
       setMasterDataLoading(true);
-      const res = await utilityBillService.getFormMasterData();
+      const [res, catalogRes, vendorsRes] = await Promise.all([
+        utilityBillService.getFormMasterData(),
+        centralizedStoreService.getCatalog().catch(() => ({ data: {} })),
+        api.get('/procurement/vendors', { params: { limit: 500, status: 'Active' } }).catch(() => ({ data: { data: { vendors: [] } } }))
+      ]);
       const payload = res?.data || {};
       setDepartments(payload.departments || []);
       setEmployees(payload.employees || []);
+      setStoreItems(catalogRes?.data?.items || []);
+      setVendors(vendorsRes?.data?.data?.vendors || vendorsRes?.data?.vendors || []);
     } catch (err) {
       console.error('Error fetching utility bill master data:', err);
       setError(err.response?.data?.message || 'Failed to load department and custodian lists');
@@ -118,12 +228,69 @@ const UtilityBillForm = () => {
     }
   };
 
+  const billLinesTotal = billLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+
+  const addBillLineFromItem = (storeItem) => {
+    if (!storeItem) return;
+    const categoryName = storeItem.category?.name || '';
+    const lineLabel = categoryName ? `${categoryName} — ${storeItem.name}` : storeItem.name;
+    setBillLines((prev) => [
+      ...prev,
+      {
+        storeItem: storeItem._id,
+        itemName: lineLabel,
+        description: storeItem.description || storeItem.name,
+        utilityType: storeItem.utilityType,
+        meterNumber: storeItem.meterNumber || '',
+        location: storeItem.location || '',
+        site: storeItem.site || '',
+        amount: storeItem.defaultAmount || 0,
+        expenseAccount: storeItem.expenseAccount?._id || storeItem.expenseAccount,
+        expenseAccountNumber: storeItem.expenseAccount?.accountNumber || ''
+      }
+    ]);
+  };
+
+  const updateBillLine = (index, field, value) => {
+    setBillLines((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  };
+
+  const removeBillLine = (index) => {
+    setBillLines((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const fetchBill = async () => {
+    setLoadedApprovalStatus(null);
+    setEditIsConsolidated(false);
     try {
       setLoading(true);
       const response = await utilityBillService.getUtilityBill(id);
       const bill = response.data;
-      
+
+      setLoadedApprovalStatus(bill.approvalStatus || 'Draft');
+      setEditIsConsolidated(Boolean(bill.isConsolidated));
+      setUseStoreBill(Boolean(bill.useCentralizedStore && bill.billLines?.length));
+      setBillLines(
+        (bill.billLines || []).map((line) => ({
+          storeItem: line.storeItem?._id || line.storeItem,
+          itemName: line.itemName || '',
+          description: line.description || '',
+          utilityType: line.utilityType || '',
+          meterNumber: line.meterNumber || '',
+          location: line.location || '',
+          site: line.site || '',
+          amount: line.amount || 0,
+          expenseAccount: line.expenseAccount?._id || line.expenseAccount,
+          expenseAccountNumber: line.expenseAccount?.accountNumber || line.expenseAccountNumber || ''
+        }))
+      );
+      if (bill.vendorId) {
+        const v = typeof bill.vendorId === 'object' ? bill.vendorId : null;
+        setSelectedVendor(v || { _id: bill.vendorId, name: bill.provider });
+      } else {
+        setSelectedVendor(null);
+      }
+
       setFormData({
         accountHead: bill.accountHead || '',
         site: bill.site || '',
@@ -150,6 +317,12 @@ const UtilityBillForm = () => {
       const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
       setManagerApprover(approvers[0] && typeof approvers[0] === 'object' ? approvers[0] : null);
       setHodApprover(approvers[1] && typeof approvers[1] === 'object' ? approvers[1] : null);
+
+      setWorkflowLocksEdit(
+        bill.approvalStatus === 'Approved' && isWorkflowAuditBlockingEditStatus(bill.auditStatus)
+      );
+      setAuditReturnedNotice(bill.auditStatus === 'Returned from Audit');
+      setLoadedBillForAudit(bill);
     } catch (err) {
       setError('Failed to fetch utility bill details');
       console.error('Error fetching bill:', err);
@@ -204,7 +377,22 @@ const UtilityBillForm = () => {
     loadApproverOptions('');
   }, []);
 
+  const showSubmitForApproval =
+    !isEdit ||
+    loadedApprovalStatus == null ||
+    loadedApprovalStatus === 'Draft' ||
+    loadedApprovalStatus === 'Rejected';
+  const internalApprovalComplete = isEdit && loadedApprovalStatus === 'Approved';
+
   const saveBill = async (mode = 'draft') => {
+    if (isEdit && workflowLocksEdit) {
+      setError('This bill cannot be edited while it is with audit. Wait until it is returned for correction.');
+      return;
+    }
+    if (mode === 'submit' && !showSubmitForApproval) {
+      setError('This bill is not in a state that can be sent to approval authorities again.');
+      return;
+    }
     if (mode === 'submit' && (!managerApprover?._id || !hodApprover?._id)) {
       setError('Please select Manager Approver and Head Of Department Approver before submitting.');
       return;
@@ -223,22 +411,47 @@ const UtilityBillForm = () => {
       setError('Manager Approver and Head Of Department Approver must be different.');
       return;
     }
+
+    if (useStoreBill) {
+      if (!selectedVendor?._id) {
+        setError('Select a supplier / vendor from the list.');
+        return;
+      }
+      if (!billLines.length || billLines.every((l) => !(Number(l.amount) > 0))) {
+        setError('Add at least one bill line with an amount from the centralized store.');
+        return;
+      }
+    }
     
     try {
       setLoading(true);
       setError(null);
 
+      const payload = { ...formData };
+      if (useStoreBill) {
+        payload.provider = selectedVendor.name;
+        payload.amount = billLinesTotal;
+        payload.useCentralizedStore = true;
+      }
+
       const submitData = new FormData();
       
-      // Add form data
-      Object.keys(formData).forEach(key => {
-        if (formData[key] !== null && formData[key] !== undefined && formData[key] !== '') {
-          submitData.append(key, formData[key]);
+      Object.keys(payload).forEach(key => {
+        if (payload[key] !== null && payload[key] !== undefined && payload[key] !== '') {
+          submitData.append(key, payload[key]);
         }
       });
 
+      if (useStoreBill) {
+        submitData.append('vendorId', selectedVendor._id);
+        submitData.append('useCentralizedStore', 'true');
+        submitData.append('billLines', JSON.stringify(billLines));
+      }
+
       const approverIds = [managerApproverId, hodApproverId].filter(Boolean);
-      submitData.append('draftApproverIds', JSON.stringify(approverIds));
+      if (!internalApprovalComplete) {
+        submitData.append('draftApproverIds', JSON.stringify(approverIds));
+      }
 
       // Add image if selected
       if (selectedImage) {
@@ -257,6 +470,11 @@ const UtilityBillForm = () => {
       if (mode === 'submit') {
         await utilityBillService.submitUtilityBill(savedBill._id, { approverIds });
         navigate(`/admin/utility-bills/${savedBill._id}`);
+        return;
+      }
+
+      if (internalApprovalComplete && isEdit) {
+        navigate(`/admin/utility-bills/${id}`);
         return;
       }
 
@@ -292,6 +510,27 @@ const UtilityBillForm = () => {
     const employeeName = getEmployeeName(employee);
     return employee.employeeId ? `${employeeName} (${employee.employeeId})` : employeeName;
   };
+
+  if (cloneSourceLoading && !isEdit && cloneFromId) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Typography variant="h4" component="h1">
+            Create New Utility Bill
+          </Typography>
+          <Button variant="outlined" onClick={() => navigate('/admin/utility-bills')}>
+            Back to Bills
+          </Button>
+        </Box>
+        <Card>
+          <CardContent>
+            <Typography color="text.secondary">Loading template bill…</Typography>
+            <Skeleton variant="rectangular" height={200} sx={{ mt: 2 }} />
+          </CardContent>
+        </Card>
+      </Box>
+    );
+  }
 
   if (loading && isEdit) {
     return (
@@ -368,9 +607,16 @@ const UtilityBillForm = () => {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" component="h1">
-          {isEdit ? 'Edit Utility Bill' : 'Create New Utility Bill'}
-        </Typography>
+        <Box>
+          <Typography variant="h4" component="h1">
+            {isEdit ? 'Edit Utility Bill' : 'Create New Utility Bill'}
+          </Typography>
+          {!isEdit && cloneFromId && cloneSourceLabel && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Prefilled from bill {cloneSourceLabel} — dates shifted one month; everything stays editable.
+            </Typography>
+          )}
+        </Box>
         <Button
           variant="outlined"
           onClick={() => navigate('/admin/utility-bills')}
@@ -379,9 +625,60 @@ const UtilityBillForm = () => {
         </Button>
       </Box>
 
+      {!isEdit && cloneFromId && cloneSourceLabel && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          This draft copies site, provider, department, custodian, and approvers from the previous bill. Bill date and due date are set to the next calendar month. The last-month amount field is prefilled with the previous bill total — upload the new bill image and adjust figures before saving.
+        </Alert>
+      )}
+
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
+        </Alert>
+      )}
+
+      {isEdit && loadedBillForAudit && (
+        <WorkflowAuditFeedbackPanel
+          document={loadedBillForAudit}
+          formatDateTime={formatDateTime}
+          userDisplayName={userDisplayName}
+          visualVariant="settlement"
+          answerTitle="Your reply:"
+          answeredIntro={null}
+          returnedIntro={
+            <>
+              Audit feedback and your replies are shown below. Update the bill if needed, then open{' '}
+              <strong>bill detail</strong> and use <strong>Resend to Pre-Audit</strong>.
+            </>
+          }
+        />
+      )}
+
+      {isEdit && workflowLocksEdit && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          This bill is currently with audit. Editing is disabled until audit returns it for correction.
+        </Alert>
+      )}
+      {isEdit && internalApprovalComplete && !workflowLocksEdit && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          {editIsConsolidated && (
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              This is a <strong>consolidated main</strong> bill (it bundles multiple source bills).
+            </Typography>
+          )}
+          Manager and Head of Department have already approved this bill. Use <strong>Update bill</strong> to save memo
+          changes only — this does <strong>not</strong> send the bill back to approval authorities.{' '}
+          {auditReturnedNotice ? (
+            <>
+              When you are done, open the <strong>bill detail</strong> page and use <strong>Resend to Pre-Audit</strong>{' '}
+              to return it to the audit queue.
+            </>
+          ) : (
+            <>
+              Use the <strong>bill detail</strong> page for the next workflow step (for example Pre-Audit or other
+              departments), when those actions are available.
+            </>
+          )}
         </Alert>
       )}
 
@@ -389,13 +686,90 @@ const UtilityBillForm = () => {
       <Card>
         <CardContent>
           <form onSubmit={handleSubmit}>
+            <fieldset
+              disabled={workflowLocksEdit}
+              style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}
+            >
             <Grid container spacing={3}>
               {/* Basic Information */}
               <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>
-                  Basic Information
-                </Typography>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+                  <Typography variant="h6">Basic Information</Typography>
+                  <FormControlLabel
+                    control={<Switch checked={useStoreBill} onChange={(e) => setUseStoreBill(e.target.checked)} />}
+                    label="Use Centralized Store (vendor + line items)"
+                  />
+                  <Link component={RouterLink} to="/admin/centralized-store" variant="body2">
+                    Manage store setup
+                  </Link>
+                </Stack>
               </Grid>
+
+              {useStoreBill && (
+                <>
+                  <Grid item xs={12} md={6}>
+                    <Autocomplete
+                      options={vendors}
+                      getOptionLabel={(o) => o?.name || ''}
+                      value={selectedVendor}
+                      onChange={(_, v) => setSelectedVendor(v)}
+                      renderInput={(params) => <TextField {...params} label="Supplier / Vendor" required />}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Autocomplete
+                      options={storeItems}
+                      getOptionLabel={(o) => {
+                        const cat = o?.category?.name;
+                        return cat ? `${cat} — ${o.name}` : (o?.name || '');
+                      }}
+                      groupBy={(o) => o?.category?.name || 'Other'}
+                      onChange={(_, item) => item && addBillLineFromItem(item)}
+                      renderInput={(params) => <TextField {...params} label="Add line (category — meter)" placeholder="e.g. Electricity — Meter 1" />}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Item</TableCell>
+                          <TableCell>Description</TableCell>
+                          <TableCell align="right">Amount</TableCell>
+                          <TableCell>Location</TableCell>
+                          <TableCell width={48} />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {billLines.map((line, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{line.itemName}</TableCell>
+                            <TableCell>
+                              <TextField size="small" fullWidth value={line.description} onChange={(e) => updateBillLine(idx, 'description', e.target.value)} />
+                            </TableCell>
+                            <TableCell align="right">
+                              <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} />
+                            </TableCell>
+                            <TableCell>{line.location || line.site || '—'}</TableCell>
+                            <TableCell>
+                              <IconButton size="small" color="error" onClick={() => removeBillLine(idx)}><DeleteIcon /></IconButton>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {!billLines.length && (
+                          <TableRow>
+                            <TableCell colSpan={5} align="center" sx={{ color: 'text.secondary' }}>
+                              Add items from the catalog dropdown above
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                    <Typography variant="subtitle2" align="right" sx={{ mt: 1 }}>
+                      Total: PKR {billLinesTotal.toLocaleString()}
+                    </Typography>
+                  </Grid>
+                </>
+              )}
 
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
@@ -444,16 +818,18 @@ const UtilityBillForm = () => {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Provider"
-                  value={formData.provider}
-                  onChange={handleChange('provider')}
-                  required
-                  placeholder="e.g., K-Electric"
-                />
-              </Grid>
+              {!useStoreBill && (
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Provider"
+                    value={formData.provider}
+                    onChange={handleChange('provider')}
+                    required
+                    placeholder="e.g., K-Electric"
+                  />
+                </Grid>
+              )}
 
               <Grid item xs={12} md={6}>
                 <TextField
@@ -663,7 +1039,9 @@ const UtilityBillForm = () => {
                 )}
               </Grid>
 
-              {/* Approval Section */}
+              {/* Approval Section — only when bill can still be submitted to Manager / HOD */}
+              {showSubmitForApproval && (
+              <>
               <Grid item xs={12}>
                 <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
                   Approvals
@@ -723,10 +1101,14 @@ const UtilityBillForm = () => {
                   )}
                 />
               </Grid>
+              </>
+              )}
+            </Grid>
+            </fieldset>
 
-              {/* Submit Button */}
+            <Grid container spacing={3}>
               <Grid item xs={12}>
-                <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+                <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 1 }}>
                   <Button
                     variant="outlined"
                     onClick={() => navigate('/admin/utility-bills')}
@@ -738,20 +1120,22 @@ const UtilityBillForm = () => {
                     type="submit"
                     variant="contained"
                     startIcon={<SaveIcon />}
-                    disabled={loading}
+                    disabled={loading || workflowLocksEdit}
                   >
-                    {loading ? 'Saving...' : 'Save Draft'}
+                    {loading ? 'Saving...' : internalApprovalComplete ? 'Update bill' : 'Save Draft'}
                   </Button>
+                  {showSubmitForApproval && (
                   <Button
                     type="button"
                     variant="contained"
                     color="success"
                     startIcon={<SendIcon />}
-                    disabled={loading}
+                    disabled={loading || workflowLocksEdit}
                     onClick={() => saveBill('submit')}
                   >
                     Submit for Approval
                   </Button>
+                  )}
                 </Stack>
               </Grid>
             </Grid>

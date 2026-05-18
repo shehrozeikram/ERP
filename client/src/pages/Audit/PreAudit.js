@@ -75,6 +75,29 @@ import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import {
+  consolidatedMemoSecondaryHeading,
+  getConsolidatedLineTotals,
+  hasConsolidatedBreakdown,
+  sortedConsolidatedLines,
+  UTILITY_MEMO_COL_WIDTHS,
+  utilityMemoDateCellSx,
+  utilityMemoRefCellSx,
+  utilityMemoTableSx
+} from '../../utils/utilityBillMemoUtils';
+import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
+
+/** Comment from the most recent workflow step that moved the document to Pre-Audit (Send to Audit), e.g. resubmit notes. */
+function getLatestSendToAuditWorkflowComment(workflowHistory) {
+  if (!Array.isArray(workflowHistory) || !workflowHistory.length) return '';
+  for (let i = workflowHistory.length - 1; i >= 0; i -= 1) {
+    const entry = workflowHistory[i];
+    if (String(entry?.toStatus || '').trim() !== 'Send to Audit') continue;
+    const text = String(entry?.comments || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
 
 const PreAudit = () => {
   const theme = useTheme();
@@ -299,35 +322,29 @@ const PreAudit = () => {
     try {
       setError(null);
       const doc = approveDialog.document;
-      
-      // Pre-GRN PO: Audit Director approves via procurement after forward (super_admin may approve from Pending on server)
+
+      let approveResponse;
       if (doc.isCashApproval) {
-        await api.put(`/cash-approvals/${doc._id}/audit-approve`, {
+        approveResponse = await api.put(`/cash-approvals/${doc._id}/audit-approve`, {
           approvalComments
         });
       } else if (doc.isPurchaseOrder && !doc.isPostGrnAudit) {
-        await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
+        approveResponse = await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
           approvalComments
         });
-      } else if (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') {
-        await api.put(`/pre-audit/${doc._id}/approve`, {
-          approvalComments,
-          useStamp: useStampForAction
-        });
-      } else if (doc.isWorkflowDocument) {
-        await api.put(`/pre-audit/${doc._id}/approve`, {
-          approvalComments,
-          useStamp: useStampForAction
-        });
       } else {
-        // For regular Pre Audit documents
-        await api.put(`/pre-audit/${doc._id}/approve`, {
+        approveResponse = await api.put(`/pre-audit/${doc._id}/approve`, {
           approvalComments,
           useStamp: useStampForAction
         });
       }
-      
-      setSuccess('Document approved successfully');
+
+      const serverMessage = approveResponse?.data?.message;
+      const financePost = approveResponse?.data?.data?.financePost;
+      if (financePost?.error) {
+        setError(`Approved, but Finance posting failed: ${financePost.error}`);
+      }
+      setSuccess(serverMessage || 'Document approved successfully');
       setApproveDialog({ open: false, document: null });
       setApprovalComments('');
       setUseStampForAction(false);
@@ -765,11 +782,39 @@ const PreAudit = () => {
     return images;
   };
 
+  const renderWorkflowSendToAuditNoteBanner = (entity) => {
+    const text = getLatestSendToAuditWorkflowComment(entity?.workflowHistory);
+    if (!text) return null;
+    return (
+      <Alert severity="info" icon={<CommentIcon />} sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+          Note with this submission
+        </Typography>
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {text}
+        </Typography>
+      </Alert>
+    );
+  };
+
+  const renderAuditFeedbackPanel = (entity) => (
+    <WorkflowAuditFeedbackPanel
+      document={entity}
+      formatDateTime={formatDateTime}
+      userDisplayName={userDisplayName}
+      visualVariant="settlement"
+      answerTitle="Administration response:"
+    />
+  );
+
   const renderUtilityBillMemoView = (bill) => {
     if (!bill) return null;
     const billImages = getWorkflowDocImageAttachments(bill, 'utility_bills_management');
     const primaryHeading = (bill.accountHead || bill.site || bill.location || bill.provider || bill.utilityType || 'Utility Bill').toUpperCase();
-    const secondaryHeading = [bill.provider, bill.utilityType].filter(Boolean).join(' - ');
+    const secondaryHeading = consolidatedMemoSecondaryHeading(
+      bill,
+      [bill.provider, bill.utilityType].filter(Boolean).join(' - ')
+    );
     return (
       <Paper
         elevation={0}
@@ -784,6 +829,8 @@ const PreAudit = () => {
           borderColor: 'grey.200'
         }}
       >
+        {renderWorkflowSendToAuditNoteBanner(bill)}
+        {renderAuditFeedbackPanel(bill)}
         <Box
           textAlign="center"
           sx={{ lineHeight: 1.12, mb: 1.75, pb: 1.25, borderBottom: '1px solid', borderColor: 'grey.200' }}
@@ -832,11 +879,11 @@ const PreAudit = () => {
           </Box>
         </Box>
 
+        <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
         <Table
           size="small"
           sx={{
-            width: '100%',
-            tableLayout: 'fixed',
+            ...utilityMemoTableSx,
             mt: 1,
             borderTop: '1px solid',
             borderBottom: '1px solid',
@@ -867,12 +914,9 @@ const PreAudit = () => {
           }}
         >
           <colgroup>
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '13%' }} />
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '30%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '15%' }} />
+            {UTILITY_MEMO_COL_WIDTHS.map((width, colIdx) => (
+              <col key={`memo-col-${colIdx}`} style={{ width }} />
+            ))}
           </colgroup>
           <TableHead>
             <TableRow>
@@ -884,35 +928,88 @@ const PreAudit = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>
-                {formatDateForDocument(bill.billDate)}
-              </TableCell>
-              <TableCell sx={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.accountNumber)}</TableCell>
-              <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
-              <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-                {bill.forWhat || bill.description || ''}
-              </TableCell>
-              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatUtilityAmount(bill.amount)}</TableCell>
-              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatUtilityAmount(bill.lastMonthAmount)}</TableCell>
-            </TableRow>
-            {[
-              ['Grand Total', formatUtilityAmount(getUtilityGrandTotal(bill))],
-              ['Cash Deposit Last Month', formatUtilityAmount(bill.lastMonthAmount)],
-              ['Balance Amount to be Paid', formatUtilityAmount(getUtilityBalanceToPay(bill))]
-            ].map(([label, value]) => (
-              <TableRow key={label}>
-                <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
-                  {label}
-                </TableCell>
-                <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
-                  {value}
-                </TableCell>
-                <TableCell sx={{ borderTop: 0 }} />
-              </TableRow>
-            ))}
+            {hasConsolidatedBreakdown(bill) ? (
+              <>
+                {sortedConsolidatedLines(bill).map((line, idx) => {
+                  const ref = displayValue(line.accountNumber) || line.billId || '—';
+                  const forWhatLine = displayValue(line.forWhat) || line.utilityType || '—';
+                  return (
+                    <TableRow key={line.bill?._id || line.bill || idx}>
+                      <TableCell sx={utilityMemoDateCellSx}>
+                        {formatDateForDocument(line.billDate)}
+                      </TableCell>
+                      <TableCell sx={utilityMemoRefCellSx}>
+                        <Typography component="span" sx={{ fontWeight: 700 }}>{ref}</Typography>
+                        {line.billId ? (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            Bill {line.billId}
+                          </Typography>
+                        ) : null}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                        {displayValue(line.provider)}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                        {forWhatLine}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatUtilityAmount(line.amount)}</TableCell>
+                      <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                        {formatUtilityAmount(Number(line.lastMonthAmount) || 0)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {(() => {
+                  const totals = getConsolidatedLineTotals(bill);
+                  return (
+                    <TableRow>
+                      <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
+                        Total
+                      </TableCell>
+                      <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
+                        {formatUtilityAmount(totals.amountTotal)}
+                      </TableCell>
+                      <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
+                        {formatUtilityAmount(totals.lastMonthTotal)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                <TableRow>
+                  <TableCell sx={utilityMemoDateCellSx}>
+                    {formatDateForDocument(bill.billDate)}
+                  </TableCell>
+                  <TableCell sx={utilityMemoRefCellSx}>{displayValue(bill.accountNumber)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                    {bill.forWhat || bill.description || ''}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatUtilityAmount(bill.amount)}</TableCell>
+                  <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>{formatUtilityAmount(bill.lastMonthAmount)}</TableCell>
+                </TableRow>
+                {[
+                  ['Grand Total', formatUtilityAmount(getUtilityGrandTotal(bill))],
+                  ['Cash Deposit Last Month', formatUtilityAmount(bill.lastMonthAmount)],
+                  ['Balance Amount to be Paid', formatUtilityAmount(getUtilityBalanceToPay(bill))]
+                ].map(([label, value]) => (
+                  <TableRow key={label}>
+                    <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                      {label}
+                    </TableCell>
+                    <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                      {value}
+                    </TableCell>
+                    <TableCell sx={{ borderTop: 0 }} />
+                  </TableRow>
+                ))}
+              </>
+            )}
           </TableBody>
         </Table>
+        </TableContainer>
         {billImages.length > 0 && (
           <Box sx={{ mt: 3 }}>
             <Typography sx={{ fontWeight: 800, mb: 1.25 }}>Attached Bill Image{billImages.length > 1 ? 's' : ''}</Typography>
@@ -1012,6 +1109,8 @@ const PreAudit = () => {
           borderColor: 'grey.200'
         }}
       >
+        {renderWorkflowSendToAuditNoteBanner(document)}
+        {renderAuditFeedbackPanel(document)}
         <Box
           textAlign="center"
           sx={{ lineHeight: 1.12, mb: 1.75, pb: 1.25, borderBottom: '1px solid', borderColor: 'grey.200' }}
@@ -1269,6 +1368,8 @@ const PreAudit = () => {
           borderColor: 'grey.200'
         }}
       >
+        {renderWorkflowSendToAuditNoteBanner(document)}
+        {renderAuditFeedbackPanel(document)}
         <Box textAlign="center" sx={{ lineHeight: 1.12, mb: 1.75, pb: 1.25, borderBottom: '1px solid', borderColor: 'grey.200' }}>
           <Typography
             variant="h6"
@@ -2318,6 +2419,27 @@ const PreAudit = () => {
                                                   {doc.description}
                                                 </Typography>
                                               )}
+                                              {doc.isWorkflowDocument && (() => {
+                                                const sendNote = getLatestSendToAuditWorkflowComment(doc.workflowHistory);
+                                                if (!sendNote) return null;
+                                                return (
+                                                  <Typography
+                                                    variant="caption"
+                                                    component="div"
+                                                    color="info.dark"
+                                                    sx={{
+                                                      mt: 0.5,
+                                                      maxWidth: 400,
+                                                      whiteSpace: 'normal',
+                                                      lineHeight: 1.4,
+                                                      wordBreak: 'break-word'
+                                                    }}
+                                                  >
+                                                    <Box component="span" sx={{ fontWeight: 700 }}>Submission note: </Box>
+                                                    {sendNote}
+                                                  </Typography>
+                                                );
+                                              })()}
                                             </TableCell>
                                             <TableCell>
                                               <Chip label={doc.sourceModule} size="small" variant="outlined" />
@@ -4145,8 +4267,14 @@ const PreAudit = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Print Styles for Purchase Order / Cash Approval wide dialogs */}
-      {(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) && (
+      {/* Print styles: hide rest of app, show dialog + .print-content (PO, CA, and admin workflow memos incl. utility bills). */}
+      {(viewDialog.document?.isPurchaseOrder ||
+        viewDialog.document?.isCashApproval ||
+        (viewDialog.document?.isWorkflowDocument &&
+          (viewDialog.fullDocument?.isPurchaseOrder ||
+            viewDialog.document?.workflowSubmodule === 'utility_bills_management' ||
+            viewDialog.document?.workflowSubmodule === 'payment_settlement' ||
+            viewDialog.document?.workflowSubmodule === 'rental_management'))) && (
         <Box
           component="style"
           dangerouslySetInnerHTML={{
@@ -4207,6 +4335,10 @@ const PreAudit = () => {
                 }
                 .MuiPaper-root {
                   box-shadow: none !important;
+                }
+                .print-content img {
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
                 }
               }
             `
