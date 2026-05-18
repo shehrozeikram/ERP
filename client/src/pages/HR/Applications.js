@@ -53,6 +53,8 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import applicationService from '../../services/applicationService';
+import jobPostingService from '../../services/jobPostingService';
+import api from '../../services/api';
 
 const Applications = () => {
   const theme = useTheme();
@@ -68,9 +70,12 @@ const Applications = () => {
   const [filters, setFilters] = useState({
     status: '',
     search: '',
-    jobPosting: '',
+    department: '',
+    jobPosition: '',
     candidate: ''
   });
+  const [departments, setDepartments] = useState([]);
+  const [jobPositions, setJobPositions] = useState([]);
   const hasInitializedSearch = useRef(false);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, application: null });
   const [cvPreview, setCvPreview] = useState(null);
@@ -213,7 +218,8 @@ const Applications = () => {
       if (filters.status) params.status = filters.status;
       if (filters.manualStatus) params.manualStatus = filters.manualStatus;
       if (filters.search) params.search = filters.search;
-      if (filters.jobPosting) params.jobPosting = filters.jobPosting;
+      if (filters.department) params.department = filters.department;
+      if (filters.jobPosition) params.position = filters.jobPosition;
       if (filters.candidate) params.candidate = filters.candidate;
 
       const response = await applicationService.getApplications(params);
@@ -268,7 +274,40 @@ const Applications = () => {
   useEffect(() => {
     loadApplications();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadApplications + filters.search handled by debounced effect
-  }, [filters.status, filters.manualStatus, filters.jobPosting, filters.candidate, page, rowsPerPage]);
+  }, [filters.status, filters.manualStatus, filters.department, filters.jobPosition, filters.candidate, page, rowsPerPage]);
+
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const [deptRes, jobsRes] = await Promise.all([
+        api.get('/hr/departments'),
+        jobPostingService.getJobPostings({ page: 1, limit: 500 })
+      ]);
+
+      if (deptRes.data?.success) {
+        setDepartments(deptRes.data.data || []);
+      }
+
+      const postings = jobsRes?.data?.docs || [];
+      const positionMap = new Map();
+      postings.forEach((jp) => {
+        const pos = jp.position;
+        const posId = pos?._id || pos;
+        if (!posId) return;
+        const title = pos?.title || 'Untitled position';
+        positionMap.set(String(posId), title);
+      });
+      const positions = Array.from(positionMap.entries())
+        .map(([_id, title]) => ({ _id, title }))
+        .sort((a, b) => a.title.localeCompare(b.title));
+      setJobPositions(positions);
+    } catch (err) {
+      console.error('Failed to load application filter options:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFilterOptions();
+  }, [loadFilterOptions]);
 
   // Debounced search effect
   useEffect(() => {
@@ -532,25 +571,41 @@ const Applications = () => {
             </Grid>
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
-                <InputLabel>Job Posting</InputLabel>
+                <InputLabel>Department</InputLabel>
                 <Select
-                  value={filters.jobPosting}
+                  value={filters.department}
                   onChange={(e) => {
                     setPage(0);
-                    setFilters(prev => ({ ...prev, jobPosting: e.target.value }));
+                    setFilters((prev) => ({ ...prev, department: e.target.value }));
                   }}
-                  label="Job Posting"
-                  sx={{
-                    '& .MuiSelect-select': {
-                      paddingRight: '32px', // Ensure space for dropdown icon
-                    },
-                    '& .MuiSelect-icon': {
-                      right: '8px', // Position icon properly
-                    }
-                  }}
+                  label="Department"
                 >
-                  <MenuItem value="">All Jobs</MenuItem>
-                  {/* This would be populated with actual job postings */}
+                  <MenuItem value="">All Departments</MenuItem>
+                  {departments.map((dept) => (
+                    <MenuItem key={dept._id} value={dept._id}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Job Position</InputLabel>
+                <Select
+                  value={filters.jobPosition}
+                  onChange={(e) => {
+                    setPage(0);
+                    setFilters((prev) => ({ ...prev, jobPosition: e.target.value }));
+                  }}
+                  label="Job Position"
+                >
+                  <MenuItem value="">All Positions</MenuItem>
+                  {jobPositions.map((pos) => (
+                    <MenuItem key={pos._id} value={pos._id}>
+                      {pos.title}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>

@@ -27,6 +27,8 @@ router.get('/',
       status,
       manualStatus,
       jobPosting,
+      position,
+      department,
       candidate,
       search
     } = req.query;
@@ -35,8 +37,17 @@ router.get('/',
 
     if (status) filter.status = status;
     if (manualStatus) filter['evaluation.manualStatus'] = manualStatus;
-    if (jobPosting) filter.jobPosting = jobPosting;
     if (candidate) filter.candidate = candidate;
+
+    if (jobPosting) {
+      filter.jobPosting = jobPosting;
+    } else if (position || department) {
+      const jobPostingQuery = {};
+      if (department) jobPostingQuery.department = department;
+      if (position) jobPostingQuery.position = position;
+      const postingIds = await JobPosting.find(jobPostingQuery).distinct('_id');
+      filter.jobPosting = postingIds.length ? { $in: postingIds } : { $in: [] };
+    }
     if (search) {
       filter.$or = [
         { applicationId: { $regex: search, $options: 'i' } },
