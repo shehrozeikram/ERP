@@ -211,12 +211,15 @@ async function executeRecoveryWhatsAppSend(payload, user, options = {}) {
         'Campaign';
     }
 
-    if (assignmentId) {
+    if (assignmentId && !isAutoFollowUp) {
       try {
         const update = {};
         if (campaignLabel) {
           update.lastCampaignSentAt = new Date();
           update.lastCampaignName = campaignLabel;
+        }
+        if (campaignId) {
+          update.lastCampaignId = campaignId;
         }
         if (Object.keys(update).length) {
           await RecoveryAssignment.findByIdAndUpdate(assignmentId, update, { new: false });

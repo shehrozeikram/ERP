@@ -21,6 +21,8 @@ const recoveryAssignmentSchema = new mongoose.Schema(
     callFeedback: { type: String, trim: true, default: '' },
     lastCampaignSentAt: { type: Date },
     lastCampaignName: { type: String, trim: true, default: '' },
+    /** RecoveryCampaign used for the last manual/campaign send (drives per-campaign follow-up). */
+    lastCampaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'RecoveryCampaign' },
     /** Last outbound WhatsApp (any type) — starts / tracks the messaging cycle. */
     lastOutboundAt: { type: Date },
     /** Last customer reply via webhook (any incoming message). */

@@ -27,8 +27,7 @@ import {
   CircularProgress,
   Chip,
   FormControlLabel,
-  Switch,
-  Divider
+  Switch
 } from '@mui/material';
 import { Campaign as CampaignIcon, Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Schedule as ScheduleIcon } from '@mui/icons-material';
 import {
@@ -80,12 +79,18 @@ const RecoveryCampaigns = () => {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
-  const [form, setForm] = useState({ whatsappTemplateName: '', whatsappLanguageCode: '', messagePreview: '' });
+  const [form, setForm] = useState({
+    whatsappTemplateName: '',
+    whatsappLanguageCode: '',
+    messagePreview: '',
+    followUpCampaignId: ''
+  });
   const [followUp, setFollowUp] = useState({
     enabled: false,
-    campaignId: '',
+    defaultCampaignId: '',
     delayHours: 14
   });
+  const [rowFollowUpSaving, setRowFollowUpSaving] = useState(null);
   const [followUpMeta, setFollowUpMeta] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [followUpRunning, setFollowUpRunning] = useState(false);
@@ -96,7 +101,7 @@ const RecoveryCampaigns = () => {
       const data = res.data?.data || {};
       setFollowUp({
         enabled: !!data.enabled,
-        campaignId: data.campaignId?._id || data.campaignId || '',
+        defaultCampaignId: data.campaignId?._id || data.campaignId || '',
         delayHours: data.delayHours ?? 14
       });
       setFollowUpMeta({
@@ -127,15 +132,11 @@ const RecoveryCampaigns = () => {
   }, [loadCampaigns, loadFollowUpSettings]);
 
   const handleSaveFollowUp = async () => {
-    if (followUp.enabled && !followUp.campaignId) {
-      setSnackbar({ open: true, message: 'Select an approved campaign for automatic follow-up', severity: 'warning' });
-      return;
-    }
     try {
       setFollowUpSaving(true);
       const res = await saveRecoveryFollowUpSettings({
         enabled: followUp.enabled,
-        campaignId: followUp.campaignId || null,
+        campaignId: followUp.defaultCampaignId || null,
         delayHours: Number(followUp.delayHours) || 14
       });
       setSnackbar({ open: true, message: 'Automatic follow-up settings saved', severity: 'success' });
@@ -164,8 +165,12 @@ const RecoveryCampaigns = () => {
       const d = res.data?.data || {};
       if (d.skipped && d.reason === 'disabled') {
         setSnackbar({ open: true, message: 'Enable automatic follow-up and save first', severity: 'warning' });
-      } else if (d.skipped && d.reason === 'no_campaign') {
-        setSnackbar({ open: true, message: 'Assign a campaign before running', severity: 'warning' });
+      } else if (d.skipped && d.reason === 'no_mappings') {
+        setSnackbar({
+          open: true,
+          message: 'Set a follow-up on each campaign (table below) or choose a default fallback',
+          severity: 'warning'
+        });
       } else {
         setSnackbar({
           open: true,
@@ -181,9 +186,37 @@ const RecoveryCampaigns = () => {
     }
   };
 
+  const activeCampaignOptions = campaigns.filter((c) => c.isActive !== false && c.whatsappTemplateName);
+
+  const getFollowUpLabel = (c) => {
+    const fu = c.followUpCampaignId;
+    if (!fu) return null;
+    const id = fu._id || fu;
+    const match = campaigns.find((x) => x._id === id);
+    return match?.whatsappTemplateName || '—';
+  };
+
+  const handleRowFollowUpChange = async (campaignId, followUpCampaignId) => {
+    try {
+      setRowFollowUpSaving(campaignId);
+      await updateRecoveryCampaign(campaignId, {
+        followUpCampaignId: followUpCampaignId || null
+      });
+      await loadCampaigns();
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to update follow-up',
+        severity: 'error'
+      });
+    } finally {
+      setRowFollowUpSaving(null);
+    }
+  };
+
   const handleOpenAdd = () => {
     setEditingId(null);
-    setForm({ whatsappTemplateName: '', whatsappLanguageCode: '', messagePreview: '' });
+    setForm({ whatsappTemplateName: '', whatsappLanguageCode: '', messagePreview: '', followUpCampaignId: '' });
     setDialogOpen(true);
   };
 
@@ -192,7 +225,8 @@ const RecoveryCampaigns = () => {
     setForm({
       whatsappTemplateName: c.whatsappTemplateName || '',
       whatsappLanguageCode: c.whatsappLanguageCode || '',
-      messagePreview: c.messagePreview || ''
+      messagePreview: c.messagePreview || '',
+      followUpCampaignId: c.followUpCampaignId?._id || c.followUpCampaignId || ''
     });
     setDialogOpen(true);
   };
@@ -213,14 +247,16 @@ const RecoveryCampaigns = () => {
         await updateRecoveryCampaign(editingId, {
           whatsappTemplateName: form.whatsappTemplateName.trim(),
           whatsappLanguageCode: form.whatsappLanguageCode?.trim() || '',
-          messagePreview: form.messagePreview?.trim() || ''
+          messagePreview: form.messagePreview?.trim() || '',
+          followUpCampaignId: form.followUpCampaignId || null
         });
         setSnackbar({ open: true, message: 'Campaign updated', severity: 'success' });
       } else {
         await createRecoveryCampaign({
           whatsappTemplateName: form.whatsappTemplateName.trim(),
           whatsappLanguageCode: form.whatsappLanguageCode?.trim() || '',
-          messagePreview: form.messagePreview?.trim() || ''
+          messagePreview: form.messagePreview?.trim() || '',
+          followUpCampaignId: form.followUpCampaignId || null
         });
         setSnackbar({ open: true, message: 'Campaign created', severity: 'success' });
       }
@@ -271,9 +307,9 @@ const RecoveryCampaigns = () => {
             </Typography>
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            If a customer has no reply after your message, WhatsApp&apos;s 24-hour window closes and free replies stop working.
-            Enable this to automatically send an <strong>approved campaign template</strong> after the delay (default 14 hours)
-            to people already messaged from My Tasks — only when they have not replied.
+            If a customer has no reply after your message, WhatsApp&apos;s 24-hour window closes. Enable this to send a
+            <strong> follow-up template per campaign</strong> (set in the table below) after the delay — only when they have not replied.
+            Use the default fallback only when the original campaign has no follow-up assigned.
           </Typography>
           <FormControlLabel
             control={
@@ -286,21 +322,19 @@ const RecoveryCampaigns = () => {
           />
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 2, alignItems: 'flex-start' }}>
             <FormControl size="small" sx={{ minWidth: 280 }} disabled={!followUp.enabled}>
-              <InputLabel>Follow-up campaign (Meta template)</InputLabel>
+              <InputLabel>Default fallback follow-up</InputLabel>
               <Select
-                label="Follow-up campaign (Meta template)"
-                value={followUp.campaignId}
-                onChange={(e) => setFollowUp((f) => ({ ...f, campaignId: e.target.value }))}
+                label="Default fallback follow-up"
+                value={followUp.defaultCampaignId}
+                onChange={(e) => setFollowUp((f) => ({ ...f, defaultCampaignId: e.target.value }))}
               >
-                <MenuItem value="">— Select campaign —</MenuItem>
-                {campaigns
-                  .filter((c) => c.isActive !== false && c.whatsappTemplateName)
-                  .map((c) => (
-                    <MenuItem key={c._id} value={c._id}>
-                      {c.whatsappTemplateName}
-                      {c.messagePreview ? ` — ${String(c.messagePreview).slice(0, 40)}` : ''}
-                    </MenuItem>
-                  ))}
+                <MenuItem value="">— None —</MenuItem>
+                {activeCampaignOptions.map((c) => (
+                  <MenuItem key={c._id} value={c._id}>
+                    {c.whatsappTemplateName}
+                    {c.messagePreview ? ` — ${String(c.messagePreview).slice(0, 40)}` : ''}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
             <TextField
@@ -347,6 +381,7 @@ const RecoveryCampaigns = () => {
                     <TableCell><strong>Template name (Meta)</strong></TableCell>
                     <TableCell><strong>Language</strong></TableCell>
                     <TableCell><strong>Message preview</strong></TableCell>
+                    <TableCell><strong>Auto follow-up</strong></TableCell>
                     <TableCell><strong>Created by</strong></TableCell>
                     <TableCell><strong>Created</strong></TableCell>
                     <TableCell><strong>Status</strong></TableCell>
@@ -362,6 +397,29 @@ const RecoveryCampaigns = () => {
                         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                           {String(c.messagePreview || '').trim() || '—'}
                         </Typography>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 220 }}>
+                        <FormControl size="small" fullWidth disabled={rowFollowUpSaving === c._id}>
+                          <Select
+                            displayEmpty
+                            value={c.followUpCampaignId?._id || c.followUpCampaignId || ''}
+                            onChange={(e) => handleRowFollowUpChange(c._id, e.target.value)}
+                            renderValue={(v) => {
+                              if (!v) return <Typography variant="body2" color="text.secondary">— None —</Typography>;
+                              const match = campaigns.find((x) => x._id === v);
+                              return match?.whatsappTemplateName || getFollowUpLabel(c) || '—';
+                            }}
+                          >
+                            <MenuItem value="">— None —</MenuItem>
+                            {activeCampaignOptions
+                              .filter((opt) => opt._id !== c._id)
+                              .map((opt) => (
+                                <MenuItem key={opt._id} value={opt._id}>
+                                  {opt.whatsappTemplateName}
+                                </MenuItem>
+                              ))}
+                          </Select>
+                        </FormControl>
                       </TableCell>
                       <TableCell>{getCreatedByName(c)}</TableCell>
                       <TableCell>{formatDate(c.createdAt)}</TableCell>
@@ -418,6 +476,26 @@ const RecoveryCampaigns = () => {
             minRows={3}
             placeholder="Write the exact campaign message text you want visible in View replies."
           />
+          <FormControl fullWidth margin="normal" size="small">
+            <InputLabel>Auto follow-up campaign</InputLabel>
+            <Select
+              label="Auto follow-up campaign"
+              value={form.followUpCampaignId}
+              onChange={(e) => setForm((f) => ({ ...f, followUpCampaignId: e.target.value }))}
+            >
+              <MenuItem value="">— None —</MenuItem>
+              {activeCampaignOptions
+                .filter((opt) => opt._id !== editingId)
+                .map((opt) => (
+                  <MenuItem key={opt._id} value={opt._id}>
+                    {opt.whatsappTemplateName}
+                  </MenuItem>
+                ))}
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+            Sent automatically if no reply after the delay (when auto follow-up is enabled).
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>

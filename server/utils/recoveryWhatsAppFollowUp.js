@@ -15,6 +15,23 @@ const { normalizePhoneForLookup } = require('./recoveryWhatsAppPhone');
 
 const SETTINGS_KEY = 'default';
 
+async function validateFollowUpCampaignId(sourceCampaignId, followUpCampaignId) {
+  if (!followUpCampaignId) return null;
+  const fid = String(followUpCampaignId);
+  if (sourceCampaignId && String(sourceCampaignId) === fid) {
+    throw new Error('Follow-up campaign cannot be the same as the main campaign');
+  }
+  const followUp = await RecoveryCampaign.findOne({
+    _id: followUpCampaignId,
+    isActive: { $ne: false },
+    whatsappTemplateName: { $exists: true, $ne: '' }
+  }).lean();
+  if (!followUp) {
+    throw new Error('Follow-up campaign not found or has no approved Meta template');
+  }
+  return followUp;
+}
+
 async function getFollowUpSettings() {
   let doc = await RecoveryWhatsAppFollowUpSettings.findOne({ configKey: SETTINGS_KEY }).lean();
   if (!doc) {
@@ -33,14 +50,7 @@ async function saveFollowUpSettings({ enabled, campaignId, delayHours }, userId)
   const delay = Math.min(23, Math.max(1, Number(delayHours) || 14));
 
   if (campaignId) {
-    const campaign = await RecoveryCampaign.findOne({
-      _id: campaignId,
-      isActive: { $ne: false },
-      whatsappTemplateName: { $exists: true, $ne: '' }
-    }).lean();
-    if (!campaign) {
-      throw new Error('Selected campaign not found or has no approved Meta template');
-    }
+    await validateFollowUpCampaignId(null, campaignId);
   }
 
   const doc = await RecoveryWhatsAppFollowUpSettings.findOneAndUpdate(
@@ -61,25 +71,74 @@ async function saveFollowUpSettings({ enabled, campaignId, delayHours }, userId)
   return doc;
 }
 
+/** Map source campaign id string -> follow-up campaign lean doc */
+async function buildFollowUpCampaignMap() {
+  const withFollowUp = await RecoveryCampaign.find({
+    isActive: { $ne: false },
+    followUpCampaignId: { $ne: null }
+  })
+    .select('_id followUpCampaignId whatsappTemplateName')
+    .lean();
+
+  const followUpIds = [...new Set(withFollowUp.map((c) => String(c.followUpCampaignId)).filter(Boolean))];
+  const followUpDocs = followUpIds.length
+    ? await RecoveryCampaign.find({
+        _id: { $in: followUpIds },
+        isActive: { $ne: false },
+        whatsappTemplateName: { $exists: true, $ne: '' }
+      }).lean()
+    : [];
+  const followUpById = new Map(followUpDocs.map((c) => [String(c._id), c]));
+
+  const map = new Map();
+  for (const source of withFollowUp) {
+    const fu = followUpById.get(String(source.followUpCampaignId));
+    if (fu) map.set(String(source._id), fu);
+  }
+  return map;
+}
+
+function resolveFollowUpForAssignment(row, followUpBySourceId, globalFallbackCampaign) {
+  const sourceId = row.lastCampaignId ? String(row.lastCampaignId) : '';
+  if (sourceId && followUpBySourceId.has(sourceId)) {
+    return { campaign: followUpBySourceId.get(sourceId), reason: 'per_campaign' };
+  }
+  if (globalFallbackCampaign) {
+    return { campaign: globalFallbackCampaign, reason: 'global_fallback' };
+  }
+  return null;
+}
+
 /**
- * Run one pass: send configured campaign to stale My Tasks conversations (no reply since anchor).
+ * Run one pass: per-campaign follow-up (or global fallback) for stale My Tasks conversations.
  */
 async function runRecoveryWhatsAppFollowUp() {
   const settings = await getFollowUpSettings();
   if (!settings.enabled) {
     return { skipped: true, reason: 'disabled', sent: 0, skippedCount: 0 };
   }
-  if (!settings.campaignId) {
-    return { skipped: true, reason: 'no_campaign', sent: 0, skippedCount: 0 };
+
+  const followUpBySourceId = await buildFollowUpCampaignMap();
+  let globalFallbackCampaign = null;
+  if (settings.campaignId) {
+    globalFallbackCampaign = await RecoveryCampaign.findOne({
+      _id: settings.campaignId,
+      isActive: { $ne: false },
+      whatsappTemplateName: { $exists: true, $ne: '' }
+    }).lean();
   }
 
-  const campaign = await RecoveryCampaign.findById(settings.campaignId).lean();
-  if (!campaign?.whatsappTemplateName || campaign.isActive === false) {
+  if (followUpBySourceId.size === 0 && !globalFallbackCampaign) {
     await RecoveryWhatsAppFollowUpSettings.updateOne(
       { configKey: SETTINGS_KEY },
-      { $set: { lastRunError: 'Assigned campaign missing or inactive', lastRunAt: new Date() } }
+      {
+        $set: {
+          lastRunError: 'No follow-up mappings: assign a follow-up on each campaign or set a default fallback',
+          lastRunAt: new Date()
+        }
+      }
     );
-    return { skipped: true, reason: 'invalid_campaign', sent: 0, skippedCount: 0 };
+    return { skipped: true, reason: 'no_mappings', sent: 0, skippedCount: 0 };
   }
 
   const orConditions = await getActiveMyTasksOrConditions();
@@ -125,14 +184,11 @@ async function runRecoveryWhatsAppFollowUp() {
       }
     ]
   })
-    .select('_id mobileNumber sessionAnchorAt lastOutboundAt lastCampaignSentAt lastCustomerReplyAt autoFollowUpSentAt')
-    .limit(maxPerRun * 3)
+    .select(
+      '_id mobileNumber sessionAnchorAt lastOutboundAt lastCampaignSentAt lastCustomerReplyAt autoFollowUpSentAt lastCampaignId'
+    )
+    .limit(maxPerRun * 5)
     .lean();
-
-  const campaignName =
-    String(campaign.messagePreview || '').trim().slice(0, 80) ||
-    campaign.whatsappTemplateName;
-  const campaignMessage = campaign.messagePreview || '';
 
   let sent = 0;
   let skippedCount = 0;
@@ -146,6 +202,13 @@ async function runRecoveryWhatsAppFollowUp() {
       continue;
     }
 
+    const resolved = resolveFollowUpForAssignment(row, followUpBySourceId, globalFallbackCampaign);
+    if (!resolved) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const { campaign } = resolved;
     const anchor = resolveSessionAnchor(row);
     const phone = normalizePhoneForLookup(row.mobileNumber);
     if (!phone) {
@@ -160,6 +223,10 @@ async function runRecoveryWhatsAppFollowUp() {
       skippedCount += 1;
       continue;
     }
+
+    const campaignName =
+      String(campaign.messagePreview || '').trim().slice(0, 80) || campaign.whatsappTemplateName;
+    const campaignMessage = campaign.messagePreview || '';
 
     const result = await executeRecoveryWhatsAppSend(
       {
@@ -208,5 +275,6 @@ async function runRecoveryWhatsAppFollowUp() {
 module.exports = {
   getFollowUpSettings,
   saveFollowUpSettings,
-  runRecoveryWhatsAppFollowUp
+  runRecoveryWhatsAppFollowUp,
+  validateFollowUpCampaignId
 };

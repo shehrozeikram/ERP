@@ -5,7 +5,8 @@ const RecoveryCampaign = require('../models/finance/RecoveryCampaign');
 const {
   getFollowUpSettings,
   saveFollowUpSettings,
-  runRecoveryWhatsAppFollowUp
+  runRecoveryWhatsAppFollowUp,
+  validateFollowUpCampaignId
 } = require('../utils/recoveryWhatsAppFollowUp');
 
 const router = express.Router();
@@ -26,12 +27,6 @@ router.put(
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { enabled, campaignId, delayHours } = req.body;
-    if (enabled && !campaignId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Select an approved campaign to enable automatic follow-up'
-      });
-    }
     try {
       const data = await saveFollowUpSettings(
         { enabled, campaignId: campaignId || null, delayHours },
@@ -65,6 +60,7 @@ router.get(
 
     const campaigns = await RecoveryCampaign.find(query)
       .populate({ path: 'createdBy', select: 'firstName lastName employeeId' })
+      .populate({ path: 'followUpCampaignId', select: 'whatsappTemplateName messagePreview isActive' })
       .sort({ createdAt: -1 })
       .lean();
 
@@ -77,7 +73,7 @@ router.post(
   '/',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { whatsappTemplateName, whatsappLanguageCode, messagePreview } = req.body;
+    const { whatsappTemplateName, whatsappLanguageCode, messagePreview, followUpCampaignId } = req.body;
 
     if (!whatsappTemplateName || !String(whatsappTemplateName).trim()) {
       return res.status(400).json({ success: false, message: 'WhatsApp template name (Meta) is required' });
@@ -88,8 +84,17 @@ router.post(
       whatsappTemplateName: String(whatsappTemplateName).trim(),
       whatsappLanguageCode: whatsappLanguageCode != null ? String(whatsappLanguageCode).trim() : '',
       messagePreview: messagePreview != null ? String(messagePreview).trim() : '',
+      followUpCampaignId: followUpCampaignId || null,
       createdBy: req.user._id
     });
+
+    if (campaign.followUpCampaignId) {
+      try {
+        await validateFollowUpCampaignId(null, campaign.followUpCampaignId);
+      } catch (err) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+    }
 
     await campaign.save();
     await campaign.populate({ path: 'createdBy', select: 'firstName lastName employeeId' });
@@ -106,7 +111,7 @@ router.put(
     const campaign = await RecoveryCampaign.findById(req.params.id);
     if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
 
-    const { isActive, whatsappTemplateName, whatsappLanguageCode, messagePreview } = req.body;
+    const { isActive, whatsappTemplateName, whatsappLanguageCode, messagePreview, followUpCampaignId } = req.body;
 
     if (isActive !== undefined) campaign.isActive = !!isActive;
     if (whatsappTemplateName !== undefined) {
@@ -116,6 +121,17 @@ router.put(
     }
     if (whatsappLanguageCode !== undefined) campaign.whatsappLanguageCode = String(whatsappLanguageCode || '').trim();
     if (messagePreview !== undefined) campaign.messagePreview = String(messagePreview || '').trim();
+    if (followUpCampaignId !== undefined) {
+      const fid = followUpCampaignId === '' || followUpCampaignId == null ? null : followUpCampaignId;
+      if (fid) {
+        try {
+          await validateFollowUpCampaignId(campaign._id, fid);
+        } catch (err) {
+          return res.status(400).json({ success: false, message: err.message });
+        }
+      }
+      campaign.followUpCampaignId = fid;
+    }
     campaign.updatedBy = req.user._id;
 
     await campaign.save();
