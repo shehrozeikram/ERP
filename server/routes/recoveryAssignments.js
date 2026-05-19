@@ -22,6 +22,7 @@ const {
   normalizePhoneForLookup,
   variantsForRecoveryPhone
 } = require('../utils/recoveryWhatsAppPhone');
+const { MY_TASKS_ACTIVE_STATUS_FILTER } = require('../utils/recoveryAssignmentUnassign');
 
 const router = express.Router();
 
@@ -265,7 +266,7 @@ router.get(
         });
       }
 
-      const query = { $or: orConditions, taskStatus: { $ne: 'completed' } };
+      const query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
       if (search && search.trim()) {
         const searchRegex = { $regex: search.trim(), $options: 'i' };
         query.$and = (query.$and || []).concat([
@@ -372,7 +373,7 @@ router.get(
       });
     }
 
-    const query = { $or: orConditions, taskStatus: { $ne: 'completed' } };
+    const query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       query.$and = (query.$and || []).concat([

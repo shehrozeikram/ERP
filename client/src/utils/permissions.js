@@ -362,6 +362,7 @@ export const SUBMODULES = {
   [MODULE_KEYS.GENERAL]: [
     'document_tracking',
     'indents',
+    'general_cash_approvals',
     'user_tracking',
     'project_management',
     'ceo_secretariat'
@@ -612,6 +613,7 @@ export const MODULES = {
         name: 'Vendors',
         path: '/finance/accounts-payable',
         subItems: [
+          { name: 'Vendor List',          path: '/finance/vendors'              },
           { name: 'Vendor Bills',         path: '/finance/accounts-payable'     },
           { name: 'Vendor Advance',       path: '/finance/vendor-advance'        },
           { name: 'Cash Approvals',       path: '/finance/cash-approvals'        },
@@ -901,7 +903,15 @@ export const MODULES = {
       { name: 'Event Management', path: '/admin/events' },
       { name: 'Staff Management', path: '/admin/staff-management' },
       { name: 'Utility Bills Management', path: '/admin/utility-bills' },
-      { name: 'Centralized Store', path: '/admin/centralized-store' },
+      {
+        name: 'Centralized Store',
+        path: '/admin/centralized-store',
+        subItems: [
+          { name: 'Store Setup', path: '/admin/centralized-store' },
+          { name: 'Create Bill', path: '/admin/centralized-store/bill/new' },
+          { name: 'Bills', path: '/admin/centralized-store/bills' }
+        ]
+      },
       { name: 'Rental Agreements', path: '/admin/rental-agreements' },
       { name: 'Rental Management', path: '/admin/rental-management' },
       { name: 'Payment Settlement', path: '/admin/payment-settlement' }
@@ -994,6 +1004,14 @@ export const MODULES = {
           { name: 'Dashboard', path: '/general/indents/dashboard' },
           { name: 'All Indents', path: '/general/indents' },
           { name: 'Create Indent', path: '/general/indents/create' }
+        ]
+      },
+      {
+        name: 'Cash Approvals',
+        path: '/general/cash-approvals',
+        subItems: [
+          { name: 'All requests', path: '/general/cash-approvals' },
+          { name: 'New request', path: '/general/cash-approvals/create' }
         ]
       },
       {
@@ -1204,6 +1222,9 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   // Purchase Orders route relies on backend assignment checks for visibility and actions.
   // Keep this route reachable for cross-module authority approvers (audit/hr/general/etc).
   if (path === '/procurement/purchase-orders' || path.startsWith('/procurement/purchase-orders/')) return true;
+
+  // General cash approval document (shared view from audit, CEO, notifications).
+  if (/^\/cash-approvals\/[^/]+\/view/.test(path)) return true;
   
   // Developer: full access except core Finance and CEO Secretariat; allow Taj Utilities & Charges + Recovery
   if (userRole === ROLES.DEVELOPER) {
@@ -1265,6 +1286,9 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/admin/staff-management': 'staff_management',
       '/admin/utility-bills': 'utility_bills_management',
       '/admin/centralized-store': 'utility_bills_management',
+      '/admin/centralized-store/bills': 'utility_bills_management',
+      '/admin/centralized-store/bill/new': 'utility_bills_management',
+      '/admin/centralized-store/bill': 'utility_bills_management',
       '/admin/rental-agreements': 'rental_agreements',
       '/admin/rental-management': 'rental_management',
       '/admin/payment-settlement': 'payment_settlement',
@@ -1296,6 +1320,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/general/indents': 'indents',
       '/general/indents/dashboard': 'indents',
       '/general/indents/create': 'indents',
+      '/general/cash-approvals': 'general_cash_approvals',
+      '/general/cash-approvals/create': 'general_cash_approvals',
       '/general/user-tracking': 'user_tracking',
       '/general/project-management': 'project_management',
       '/general/project-management/overview': 'project_management',
@@ -1323,6 +1349,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/inventory-valuation': 'inventory_valuation',
       '/finance/general-ledger': 'general_ledger',
       '/finance/accounts-receivable': 'accounts_receivable',
+      '/finance/vendors': 'accounts_payable',
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/cash-approvals': 'accounts_payable',
       '/finance/vendor-advance': 'accounts_payable',

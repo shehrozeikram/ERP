@@ -27,6 +27,12 @@ const applyBillLinesToPayload = async (billData) => {
     const amt = round2(raw.amount);
     if (amt <= 0) continue;
 
+    let lineDue = null;
+    if (raw.dueDate) {
+      const d = new Date(raw.dueDate);
+      if (!Number.isNaN(d.getTime())) lineDue = d;
+    }
+
     let storeItem = null;
     if (raw.storeItem) {
       storeItem = await UtilityStoreItem.findById(raw.storeItem)
@@ -40,8 +46,12 @@ const applyBillLinesToPayload = async (billData) => {
       expenseAccountNumber = acc?.accountNumber || '';
     }
 
+    const attachmentUrl = typeof raw.attachmentUrl === 'string' ? raw.attachmentUrl.trim() : '';
+    const itemCode = String(storeItem?.code || raw.itemCode || '').trim();
+
     normalized.push({
       storeItem: storeItem?._id || raw.storeItem || null,
+      itemCode,
       itemName: (raw.itemName || storeItem?.name || 'Item').trim(),
       description: (raw.description || storeItem?.description || '').trim(),
       utilityType: raw.utilityType || storeItem?.utilityType || billData.utilityType || 'Other',
@@ -50,7 +60,9 @@ const applyBillLinesToPayload = async (billData) => {
       site: raw.site || storeItem?.site || billData.site || '',
       amount: amt,
       expenseAccount: expenseAccount || null,
-      expenseAccountNumber
+      expenseAccountNumber,
+      ...(lineDue ? { dueDate: lineDue } : {}),
+      ...(attachmentUrl ? { attachmentUrl } : {})
     });
   }
 
@@ -66,9 +78,20 @@ const applyBillLinesToPayload = async (billData) => {
   billData.grandTotal = billData.amount;
   billData.balanceAmount = Math.max(billData.amount - (Number(billData.lastMonthAmount) || 0), 0);
 
-  if (billData.vendorId) {
+  if (billData.payeeEmployee) {
+    const Employee = require('../models/hr/Employee');
+    const emp = await Employee.findById(billData.payeeEmployee)
+      .select('firstName lastName employeeId')
+      .lean();
+    if (emp) {
+      const name = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId || '';
+      if (name) billData.provider = name;
+    }
+    billData.vendorId = null;
+  } else if (billData.vendorId) {
     const vendor = await Supplier.findById(billData.vendorId).select('name').lean();
     if (vendor?.name) billData.provider = vendor.name;
+    billData.payeeEmployee = null;
   }
 
   if (!billData.utilityType && normalized[0]) {

@@ -269,10 +269,10 @@ const RecoveryTaskAssignment = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Remove this assignment rule?')) return;
+    if (!window.confirm('Remove this assignment rule? Related records will be unassigned from My Tasks if no other rule covers them.')) return;
     try {
-      await deleteRecoveryTaskRule(id);
-      setSnackbar({ open: true, message: 'Rule removed', severity: 'success' });
+      const res = await deleteRecoveryTaskRule(id);
+      setSnackbar({ open: true, message: res?.data?.message || 'Rule removed', severity: 'success' });
       loadRules();
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to remove rule', severity: 'error' });
@@ -398,10 +398,10 @@ const RecoveryTaskAssignment = () => {
   };
 
   const handleDeleteTask = async (id) => {
-    if (!window.confirm('Delete this task?')) return;
+    if (!window.confirm('Delete this task? Related records will be unassigned from My Tasks if no other rule covers them.')) return;
     try {
-      await deleteRecoveryTask(id);
-      setSnackbar({ open: true, message: 'Task deleted', severity: 'success' });
+      const res = await deleteRecoveryTask(id);
+      setSnackbar({ open: true, message: res?.data?.message || 'Task deleted', severity: 'success' });
       loadTasks();
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to delete task', severity: 'error' });

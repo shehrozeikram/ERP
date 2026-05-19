@@ -67,6 +67,24 @@ const isAuditDirectorUser = (user) => {
   return userHasRoleName(user, isAuditDirectorLabel);
 };
 
+/** Cash approvals in Pre-Audit (includes post–Audit Director statuses for Approved tab). */
+const CA_PRE_AUDIT_VISIBLE_STATUSES = [
+  'Pending Audit',
+  'Forwarded to Audit Director',
+  'Returned from Audit',
+  'Send to CEO Office',
+  'Pending Finance'
+];
+
+const mapCashApprovalToPreAuditStatus = (ca) => {
+  const status = ca?.status;
+  if (status === 'Returned from Audit') return 'returned_with_observations';
+  if (status === 'Forwarded to Audit Director') return 'forwarded_to_director';
+  if (status === 'Send to CEO Office' || status === 'Pending Finance') return 'approved';
+  if (status === 'Pending Audit' && ca?.preAuditInitialApprovedAt) return 'under_review';
+  return 'pending';
+};
+
 const hasModuleAccess = (roleDoc, moduleKey) => {
   if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
   return roleDoc.permissions.some((permission) => permission?.module === moduleKey);
@@ -426,11 +444,10 @@ router.get('/',
     // Cash Approvals in audit queue (same lifecycle as PO pre-audit / director forward)
     try {
       const CashApproval = require('../models/procurement/CashApproval');
-      const caAuditStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'];
-      const caQuery = { status: { $in: caAuditStatuses } };
+      const caQuery = { status: { $in: CA_PRE_AUDIT_VISIBLE_STATUSES } };
       if (search) {
         caQuery.$and = [
-          { status: { $in: caAuditStatuses } },
+          { status: { $in: CA_PRE_AUDIT_VISIBLE_STATUSES } },
           {
             $or: [
               { caNumber: { $regex: search, $options: 'i' } },
@@ -448,16 +465,14 @@ router.get('/',
         .sort({ createdAt: -1 })
         .lean();
       for (const doc of caDocs) {
-        let preAuditStatus = 'pending';
-        if (doc.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
-        else if (doc.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
+        const preAuditStatus = mapCashApprovalToPreAuditStatus(doc);
         workflowDocs.push({
           _id: doc._id,
           documentNumber: doc.caNumber || doc._id.toString(),
           title: `Cash Approval: ${doc.caNumber || 'CA'}`,
-          description: doc.notes || (doc.vendor ? `CA from ${doc.vendor.name}` : 'Cash Approval'),
-          sourceModule: 'procurement',
-          sourceDepartmentName: 'Procurement',
+          description: doc.notes || doc.purpose || (doc.vendor ? `CA from ${doc.vendor.name}` : 'Cash Approval'),
+          sourceModule: doc.originatingModule === 'general' ? 'general' : 'procurement',
+          sourceDepartmentName: doc.originatingModule === 'general' ? 'General' : 'Procurement',
           sourceDepartment: null,
           documentType: 'other',
           documentDate: doc.approvalDate || doc.createdAt,
@@ -476,7 +491,8 @@ router.get('/',
           workflowHistory: doc.workflowHistory || [],
           auditObservations: doc.auditObservations || [],
           preAuditInitialApprovedAt: doc.preAuditInitialApprovedAt || null,
-          initialAuditApproved: Boolean(doc.preAuditInitialApprovedAt)
+          initialAuditApproved: Boolean(doc.preAuditInitialApprovedAt),
+          auditApprovedAt: doc.auditApprovedAt || null
         });
       }
     } catch (caErr) {
@@ -605,20 +621,17 @@ router.get('/:id',
         .populate('auditObservations.answeredBy', 'firstName lastName email')
         .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .lean();
-      const caAuditVisible = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'];
-      if (ca && caAuditVisible.includes(ca.status)) {
-        let preAuditStatus = 'pending';
-        if (ca.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
-        else if (ca.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
+      if (ca && CA_PRE_AUDIT_VISIBLE_STATUSES.includes(ca.status)) {
+        const preAuditStatus = mapCashApprovalToPreAuditStatus(ca);
         return res.json({
           success: true,
           data: {
             _id: ca._id,
             documentNumber: ca.caNumber,
             title: `Cash Approval: ${ca.caNumber || 'CA'}`,
-            description: ca.notes || (ca.vendor ? `CA from ${ca.vendor.name}` : 'Cash Approval'),
-            sourceModule: 'procurement',
-            sourceDepartmentName: 'Procurement',
+            description: ca.notes || ca.purpose || (ca.vendor ? `CA from ${ca.vendor.name}` : 'Cash Approval'),
+            sourceModule: ca.originatingModule === 'general' ? 'general' : 'procurement',
+            sourceDepartmentName: ca.originatingModule === 'general' ? 'General' : 'Procurement',
             documentType: 'other',
             documentDate: ca.approvalDate,
             amount: ca.totalAmount,
@@ -631,7 +644,8 @@ router.get('/:id',
             originalDocument: ca,
             auditObservations: ca.auditObservations || [],
             preAuditInitialApprovedAt: ca.preAuditInitialApprovedAt || null,
-            initialAuditApproved: Boolean(ca.preAuditInitialApprovedAt)
+            initialAuditApproved: Boolean(ca.preAuditInitialApprovedAt),
+            auditApprovedAt: ca.auditApprovedAt || null
           }
         });
       }

@@ -60,6 +60,8 @@ import { formatPKR } from '../../../utils/currency';
 import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
 import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
 import CashApprovalDetailTabsView from '../../../components/Procurement/CashApprovalDetailTabsView';
+import CashApprovalGeneralDetailShell from '../../../components/CashApprovals/CashApprovalGeneralDetailShell';
+import { isGeneralModuleCashApproval } from '../../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
 import ComparativeStatementView from '../../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../../components/Procurement/QuotationDetailView';
 
@@ -2144,6 +2146,8 @@ const IndentsDashboard = () => {
                     </Box>
                   )}
                 </>
+              ) : viewDialog.isCashApproval && isGeneralModuleCashApproval(viewDialog.settlement) ? (
+                <CashApprovalGeneralDetailShell embedded hideBack ca={viewDialog.settlement} />
               ) : viewDialog.isCashApproval ? (
                 <CashApprovalDetailTabsView
                   cashApproval={viewDialog.settlement}

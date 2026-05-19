@@ -752,17 +752,13 @@ const PaymentSettlementList = () => {
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ mb: 3 }}>
         <Typography variant="h4" component="h1">
           Payment Settlements
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => navigate('/admin/payment-settlement/create')}
-        >
-          Create Settlement
-        </Button>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          View payment settlement records only.
+        </Typography>
       </Box>
 
       {/* Stats Cards */}
@@ -994,23 +990,6 @@ const PaymentSettlementList = () => {
                             onClick={() => setViewDialog({ open: true, settlement })}
                           >
                             <ViewIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Edit">
-                          <IconButton
-                            size="small"
-                            onClick={() => navigate(`/admin/payment-settlement/edit/${settlement._id}`)}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => setDeleteDialog({ open: true, settlement })}
-                          >
-                            <DeleteIcon />
                           </IconButton>
                         </Tooltip>
                       </Box>
@@ -1505,17 +1484,6 @@ const PaymentSettlementList = () => {
               sx={{ minWidth: 100, mr: 1 }}
             >
               Print
-            </Button>
-            <Button 
-              variant="contained" 
-              startIcon={<EditIcon />}
-              onClick={() => {
-                setViewDialog({ open: false, settlement: null });
-                navigate(`/admin/payment-settlement/edit/${viewDialog.settlement._id}`);
-              }}
-              sx={{ minWidth: 100 }}
-            >
-              Edit
             </Button>
           </Box>
         </DialogActions>

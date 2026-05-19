@@ -25,6 +25,11 @@ import { DigitalSignatureImage } from '../../components/common/DigitalSignatureI
 import { formatPKR } from '../../utils/currency';
 import { useAuth } from '../../contexts/AuthContext';
 import CashApprovalDetailTabsView from '../../components/Procurement/CashApprovalDetailTabsView';
+import CashApprovalGeneralDetailShell from '../../components/CashApprovals/CashApprovalGeneralDetailShell';
+import { isGeneralModuleCashApproval } from '../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
+import CashApprovalAdvancePaymentDialog from '../../components/CashApprovals/CashApprovalAdvancePaymentDialog';
+import CashApprovalPaymentFieldsView from '../../components/CashApprovals/CashApprovalPaymentFieldsView';
+import { useCashApprovalPaymentFields } from '../../components/CashApprovals/useCashApprovalPaymentFields';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const STATUS_COLORS = {
@@ -409,7 +414,15 @@ const CashApprovalsPage = () => {
   };
 
   // ─── Action handlers ──────────────────────────────────────────────────────────
-  const openAction = (type, ca) => { setActionDialog({ open: true, type, ca }); setActionComments(''); };
+  const [advancePaymentDialog, setAdvancePaymentDialog] = useState({ open: false, ca: null });
+  const openAction = (type, ca) => {
+    if (type === 'issue-advance' && isGeneralModuleCashApproval(ca)) {
+      setAdvancePaymentDialog({ open: true, ca });
+      return;
+    }
+    setActionDialog({ open: true, type, ca });
+    setActionComments('');
+  };
   const closeAction = () => { setActionDialog({ open: false, type: '', ca: null }); setActionComments(''); };
 
   const handleSendToAudit = async (id, ca = null) => {
@@ -462,18 +475,37 @@ const CashApprovalsPage = () => {
         case 'ceo-reject': actionRes = await procurementService.caCeoReject(ca._id, actionComments); break;
         case 'ceo-return': actionRes = await procurementService.caCeoReturn(ca._id, actionComments); break;
         case 'issue-advance': actionRes = await procurementService.caIssueAdvance(ca._id, extraData); break;
-        case 'create-voucher':
+        case 'create-voucher': {
+          const isGeneral = isGeneralModuleCashApproval(ca);
+          const payRows = isGeneral ? generalPayment.getAllocationRows() : [];
+          const rowForCa = payRows.find((r) => String(r.cashApprovalId) === String(ca._id));
+          const advanceAmount = isGeneral
+            ? (rowForCa?.amount || parseFloat(generalPayment.paymentData.amount || 0))
+            : parseFloat(advanceForm.advanceAmount || 0);
           actionRes = await procurementService.caCreateVoucher(ca._id, {
             comments: actionComments,
-            remarks: advanceForm.advanceRemarks || '',
+            remarks: advanceForm.advanceRemarks || generalPayment.paymentData.advanceRemarks || '',
             voucherType: String(advanceForm.voucherType || 'PAYMENT').toLowerCase(),
-            paymentMethod: String(advanceForm.advancePaymentMethod || 'Bank Transfer').toLowerCase(),
+            paymentMethod: isGeneral
+              ? generalPayment.paymentData.paymentMethod
+              : String(advanceForm.advancePaymentMethod || 'Bank Transfer').toLowerCase(),
             advanceTo: advanceForm.advanceTo || null,
             advanceToName: advanceForm.advanceToName || '',
-            advanceAmount: parseFloat(advanceForm.advanceAmount || 0),
-            advancePaymentMethod: advanceForm.advancePaymentMethod || 'Cash',
-            signedCheckNumber: advanceForm.signedCheckNumber || '',
-            signedCheckDate: advanceForm.signedCheckDate || '',
+            advanceAmount,
+            advancePaymentMethod: isGeneral
+              ? generalPayment.paymentData.paymentMethod
+              : (advanceForm.advancePaymentMethod || 'Cash'),
+            bankAccountId: isGeneral ? (generalPayment.paymentData.bankAccountId || null) : null,
+            reference: isGeneral ? (generalPayment.paymentData.reference || '') : '',
+            paymentDate: isGeneral ? generalPayment.paymentData.paymentDate : '',
+            whtRate: isGeneral ? (Number(generalPayment.paymentData.whtRate) || 0) : 0,
+            advanceRemarks: advanceForm.advanceRemarks || generalPayment.paymentData.advanceRemarks || '',
+            signedCheckNumber: isGeneral
+              ? (generalPayment.paymentData.reference || '')
+              : (advanceForm.signedCheckNumber || ''),
+            signedCheckDate: isGeneral
+              ? (generalPayment.paymentData.paymentDate || '')
+              : (advanceForm.signedCheckDate || ''),
             signedCheckBankName: advanceForm.signedCheckBankName || '',
             signedCheckRemarks: advanceForm.signedCheckRemarks || '',
             financeApprovalAuthorities: {
@@ -483,6 +515,7 @@ const CashApprovalsPage = () => {
             }
           });
           break;
+        }
         case 'finance-approve': actionRes = await procurementService.caFinanceApprove(ca._id, actionComments); break;
         case 'finance-reject': actionRes = await procurementService.caFinanceReject(ca._id, actionComments); break;
         case 'submit-settlement-bill':
@@ -621,7 +654,12 @@ const CashApprovalsPage = () => {
         break;
       case 'Finance Authority Approved':
         if (isFinance || isAssignedAuthority) {
-          actions.push({ label: 'Issue Advance', type: 'issue-advance', color: 'primary', icon: <CashIcon /> });
+          actions.push({
+            label: isGeneralModuleCashApproval(ca) ? 'Post Payment' : 'Issue Advance',
+            type: 'issue-advance',
+            color: 'primary',
+            icon: <CashIcon />
+          });
         }
         break;
       case 'Advance Issued':
@@ -647,6 +685,17 @@ const CashApprovalsPage = () => {
 
   // ─── Advance Issue Dialog State ───────────────────────────────────────────────
   const [advanceForm, setAdvanceForm] = useState({ advanceTo: null, advanceToName: '', advanceAmount: '', advancePaymentMethod: 'Cash', advanceVoucherNo: '', advanceRemarks: '' });
+  const isGeneralCreateVoucherOpen = Boolean(
+    actionDialog.open
+    && actionDialog.type === 'create-voucher'
+    && actionDialog.ca
+    && isGeneralModuleCashApproval(actionDialog.ca)
+  );
+  const generalPayment = useCashApprovalPaymentFields(actionDialog.ca, {
+    active: isGeneralCreateVoucherOpen,
+    includePendingFinance: true,
+    seedCaId: actionDialog.ca?._id
+  });
   const [signedCheckAttachments, setSignedCheckAttachments] = useState([]);
   const [signedCheckUploadLoading, setSignedCheckUploadLoading] = useState(false);
   const [purchaseEvidenceAttachments, setPurchaseEvidenceAttachments] = useState([]);
@@ -1324,14 +1373,18 @@ const CashApprovalsPage = () => {
                 </Stepper>
               </Box>
 
-              <CashApprovalDetailTabsView
-                cashApproval={viewDialog.data}
-                tabValue={viewDialog.tab}
-                onTabChange={(tab) => setViewDialog((prev) => ({ ...prev, tab }))}
-                quotations={viewDialog.quotations || []}
-                linkedDocs={viewDialog.linkedDocs || []}
-                showFinanceOnlyTabs={canViewFinanceOnlyTabs}
-              />
+              {isGeneralModuleCashApproval(viewDialog.data) ? (
+                <CashApprovalGeneralDetailShell embedded hideBack ca={viewDialog.data} />
+              ) : (
+                <CashApprovalDetailTabsView
+                  cashApproval={viewDialog.data}
+                  tabValue={viewDialog.tab}
+                  onTabChange={(tab) => setViewDialog((prev) => ({ ...prev, tab }))}
+                  quotations={viewDialog.quotations || []}
+                  linkedDocs={viewDialog.linkedDocs || []}
+                  showFinanceOnlyTabs={canViewFinanceOnlyTabs}
+                />
+              )}
 
               <Box className="app-print-hide" sx={{ px: 2, pb: 2 }}>
                 {getAvailableActions(viewDialog.data).length > 0 && (
@@ -1562,14 +1615,30 @@ const CashApprovalsPage = () => {
       </Dialog>
 
       {/* Finance Advance Dialog (Create Voucher / Issue Advance) */}
-      <Dialog open={actionDialog.open && ['create-voucher', 'issue-advance'].includes(actionDialog.type)} onClose={closeAction} maxWidth="sm" fullWidth>
-        <DialogTitle>{actionDialog.type === 'issue-advance' ? 'Issue Advance' : 'Create Voucher'} — {actionDialog.ca?.caNumber}</DialogTitle>
+      <Dialog
+        open={actionDialog.open && ['create-voucher', 'issue-advance'].includes(actionDialog.type)}
+        onClose={closeAction}
+        maxWidth={isGeneralCreateVoucherOpen ? 'md' : 'sm'}
+        fullWidth
+      >
+        <DialogTitle>
+          {actionDialog.type === 'issue-advance'
+            ? 'Issue Advance'
+            : 'Create Voucher'}
+          {' '}
+          — {actionDialog.ca?.caNumber}
+          {isGeneralCreateVoucherOpen && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Amount to post: {formatPKR(generalPayment.paymentData.amount || 0)}
+            </Typography>
+          )}
+        </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12}>
               <Alert severity="info">Total CA Amount: <strong>{formatPKR(actionDialog.ca?.totalAmount)}</strong></Alert>
             </Grid>
-            {actionDialog.type === 'create-voucher' && (
+            {actionDialog.type === 'create-voucher' && !isGeneralModuleCashApproval(actionDialog.ca) && (
             <Grid item xs={12}>
               <Autocomplete
                 options={employees}
@@ -1579,13 +1648,13 @@ const CashApprovalsPage = () => {
               />
             </Grid>
             )}
-            {actionDialog.type === 'create-voucher' && (
+            {actionDialog.type === 'create-voucher' && !isGeneralModuleCashApproval(actionDialog.ca) && (
             <Grid item xs={12} md={6}>
               <TextField fullWidth size="small" type="number" label="Advance Amount *"
                 value={advanceForm.advanceAmount} onChange={(e) => setAdvanceForm({ ...advanceForm, advanceAmount: e.target.value })} />
             </Grid>
             )}
-            {actionDialog.type === 'create-voucher' && (
+            {actionDialog.type === 'create-voucher' && !isGeneralModuleCashApproval(actionDialog.ca) && (
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
@@ -1599,12 +1668,45 @@ const CashApprovalsPage = () => {
               </TextField>
             </Grid>
             )}
-            {actionDialog.type === 'create-voucher' && (
+            {actionDialog.type === 'create-voucher' && !isGeneralModuleCashApproval(actionDialog.ca) && (
             <Grid item xs={12} md={6}>
               <TextField fullWidth size="small" select label="Payment Method" value={advanceForm.advancePaymentMethod}
                 onChange={(e) => setAdvanceForm({ ...advanceForm, advancePaymentMethod: e.target.value })}>
                 {['Cash', 'Bank Transfer', 'Cheque', 'Online Transfer'].map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
               </TextField>
+            </Grid>
+            )}
+            {isGeneralCreateVoucherOpen && (
+            <>
+              <CashApprovalPaymentFieldsView
+                payeeEmployees={generalPayment.payeeEmployees}
+                selectedPayee={generalPayment.selectedPayee}
+                onPayeeChange={async (employeeId) => {
+                  const row = generalPayment.payeeEmployees.find((v) => String(v.employeeId) === String(employeeId));
+                  generalPayment.setSelectedPayee({ employeeId, employeeName: row?.employeeName || '' });
+                  await generalPayment.loadOutstandingByEmployee(employeeId, actionDialog.ca?._id);
+                }}
+                paymentData={generalPayment.paymentData}
+                onPaymentDataChange={generalPayment.setPaymentData}
+                bankAccounts={generalPayment.bankAccounts}
+                outstandingTransactions={generalPayment.outstandingTransactions}
+                onOutstandingRowChange={(idx, value, maxOutstanding) => {
+                  const next = [...generalPayment.outstandingTransactions];
+                  const v = Math.max(0, Math.min(Number(value) || 0, maxOutstanding || 0));
+                  next[idx] = { ...next[idx], payAmount: v };
+                  generalPayment.setOutstandingTransactions(next);
+                  const total = Math.round(next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
+                  generalPayment.setPaymentData((prev) => ({ ...prev, amount: total }));
+                }}
+                loadingOutstanding={generalPayment.loadingOutstanding}
+              />
+            </>
+            )}
+            {isGeneralCreateVoucherOpen && (
+            <Grid item xs={12}>
+              <Alert severity="info">
+                Assign finance approval authorities below. After all authorities approve, use <strong>Post Payment</strong> to issue the bank payment voucher (BPV).
+              </Alert>
             </Grid>
             )}
             <Grid item xs={12} md={6}>
@@ -1890,6 +1992,7 @@ const CashApprovalsPage = () => {
                 !financeAuthoritiesForm.accountsOfficerUser
                 || !financeAuthoritiesForm.accountsManagerUser
                 || !financeAuthoritiesForm.financeControllerUser
+                || (isGeneralCreateVoucherOpen && !(generalPayment.paymentData.amount > 0))
               ))
               || (actionDialog.type === 'issue-advance' && (
                 !advanceForm.advanceAmount
@@ -1897,10 +2000,24 @@ const CashApprovalsPage = () => {
               ))
             }
           >
-            {actionLoading ? <CircularProgress size={20} /> : (actionDialog.type === 'issue-advance' ? 'Issue Advance' : 'Create Voucher')}
+            {actionLoading ? <CircularProgress size={20} /> : (
+              actionDialog.type === 'issue-advance' ? 'Issue Advance' : 'Create Voucher'
+            )}
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CashApprovalAdvancePaymentDialog
+        open={advancePaymentDialog.open}
+        ca={advancePaymentDialog.ca}
+        onClose={() => setAdvancePaymentDialog({ open: false, ca: null })}
+        onSuccess={(msg) => {
+          setSuccess(msg || 'Advance payment posted');
+          setAdvancePaymentDialog({ open: false, ca: null });
+          refreshList();
+        }}
+        onError={(msg) => setError(msg || 'Failed to post payment')}
+      />
 
       {/* Delete Confirm */}
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, id: null })} maxWidth="xs">

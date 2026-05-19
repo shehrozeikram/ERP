@@ -5,6 +5,10 @@ const { recoveryTaskAssignmentListAccess } = require('../middleware/recoveryTask
 const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssignmentRule');
 const RecoveryMember = require('../models/finance/RecoveryMember');
 const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
+const {
+  REOPEN_FROM_STATUSES,
+  unassignOrphanedAssignmentsByScope
+} = require('../utils/recoveryAssignmentUnassign');
 
 const router = express.Router();
 
@@ -33,7 +37,7 @@ function buildRuleScopeQuery({ type, sector, minAmount, maxAmount }) {
 
 async function reopenCompletedAssignmentsByRuleScope({ type, sector, minAmount, maxAmount }) {
   const scopeQuery = buildRuleScopeQuery({ type, sector, minAmount, maxAmount });
-  const query = { ...scopeQuery, taskStatus: 'completed' };
+  const query = { ...scopeQuery, taskStatus: { $in: REOPEN_FROM_STATUSES } };
   const result = await RecoveryAssignment.updateMany(
     query,
     {
@@ -255,11 +259,27 @@ router.delete(
   '/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const rule = await RecoveryTaskAssignmentRule.findByIdAndDelete(req.params.id);
+    const rule = await RecoveryTaskAssignmentRule.findById(req.params.id);
     if (!rule) {
       return res.status(404).json({ success: false, message: 'Rule not found' });
     }
-    res.json({ success: true, message: 'Rule deleted' });
+
+    const unassignedCount = await unassignOrphanedAssignmentsByScope({
+      type: rule.type,
+      sector: rule.sector,
+      minAmount: rule.minAmount,
+      maxAmount: rule.maxAmount,
+      excludeRuleId: rule._id
+    });
+
+    await rule.deleteOne();
+
+    const message =
+      unassignedCount > 0
+        ? `Rule removed. ${unassignedCount} record(s) unassigned from active recovery work.`
+        : 'Rule removed';
+
+    res.json({ success: true, message, data: { unassignedCount } });
   })
 );
 

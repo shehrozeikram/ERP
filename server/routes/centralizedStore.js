@@ -11,6 +11,22 @@ const FinanceHelper = require('../utils/financeHelper');
 
 const getActorId = (req) => req.user?._id || req.user?.id;
 
+/** Assign CSI-###### codes to catalog rows that are still missing one (legacy / seed data). */
+const ensureStoreItemsHaveCodes = async (limit = 250) => {
+  const blanks = await UtilityStoreItem.find({
+    $or: [{ code: '' }, { code: null }, { code: { $exists: false } }]
+  })
+    .select('_id')
+    .limit(limit)
+    .lean();
+  if (!blanks.length) return;
+  const UtilityCentralStore = require('../models/hr/UtilityCentralStore');
+  for (const row of blanks) {
+    const code = await UtilityCentralStore.assignNextItemCode();
+    await UtilityStoreItem.updateOne({ _id: row._id }, { $set: { code } });
+  }
+};
+
 const populateItem = (q) => q
   .populate('category', 'name')
   .populate('expenseAccount', 'accountNumber name type')
@@ -33,6 +49,7 @@ router.get(
   async (req, res) => {
     try {
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
+      await ensureStoreItemsHaveCodes(300);
       const categories = await UtilityStoreCategory.find({ isActive: true })
         .sort({ sortOrder: 1, name: 1 })
         .lean();
@@ -71,6 +88,7 @@ router.get(
   async (req, res) => {
     try {
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
+      await ensureStoreItemsHaveCodes(300);
       const categories = await UtilityStoreCategory.find()
         .sort({ sortOrder: 1, name: 1 })
         .lean();

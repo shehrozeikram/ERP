@@ -139,6 +139,18 @@ const employeeSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  /** GL receivable for cash advances to this employee (child of 1120 Advances to employees) */
+  employeeAdvanceAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    default: null,
+    index: true
+  },
+  employeeAdvanceAccountNumber: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   joiningDate: {
     type: Date
   },

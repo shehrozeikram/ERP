@@ -75,6 +75,8 @@ import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import CashApprovalGeneralDetailShell from '../../components/CashApprovals/CashApprovalGeneralDetailShell';
+import { isGeneralModuleCashApproval } from '../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
 import {
   consolidatedMemoSecondaryHeading,
   getConsolidatedLineTotals,
@@ -3572,6 +3574,13 @@ const PreAudit = () => {
                     </Box>
                   )}
                 </>
+              ) : (viewDialog.document.isCashApproval && viewDialog.fullDocument && isGeneralModuleCashApproval(viewDialog.fullDocument)) ? (
+                <CashApprovalGeneralDetailShell
+                  embedded
+                  hideBack
+                  showStatusChips
+                  ca={viewDialog.fullDocument}
+                />
               ) : (viewDialog.document.isCashApproval && viewDialog.fullDocument) ? (
                 <>
                   <Tabs

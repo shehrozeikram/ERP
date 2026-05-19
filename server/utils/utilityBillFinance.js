@@ -40,8 +40,9 @@ const buildUtilityBillLineItems = (bill) => {
       const amt = round2(line.amount);
       const label = line.itemName || line.utilityType || 'Item';
       const loc = line.site || line.location || '';
+      const codePart = line.itemCode ? ` [${line.itemCode}]` : '';
       return {
-        description: `${label}${loc ? ` — ${loc}` : ''}${line.meterNumber ? ` (Meter ${line.meterNumber})` : ''}`.trim(),
+        description: `${label}${codePart}${loc ? ` — ${loc}` : ''}${line.meterNumber ? ` (Meter ${line.meterNumber})` : ''}`.trim(),
         quantity: 1,
         unitPrice: amt,
         expenseAccount: line.expenseAccount,
@@ -334,7 +335,8 @@ const postUtilityBillToFinance = async (bill, createdByUserId) => {
     const apEntry = await FinanceHelper.createAPFromBill({
       vendorName: bill.provider || 'Utility Provider',
       vendorEmail: '',
-      vendorId: bill.vendorId || null,
+      vendorId: bill.payeeEmployee ? null : (bill.vendorId || null),
+      payeeEmployeeId: bill.payeeEmployee || null,
       billNumber,
       vendorInvoiceNumber: bill.accountNumber || '',
       billDate,

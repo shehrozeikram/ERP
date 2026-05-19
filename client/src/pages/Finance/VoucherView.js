@@ -6,8 +6,6 @@ import {
   Typography,
   Button,
   CircularProgress,
-  Grid,
-  TextField,
   Table,
   TableBody,
   TableCell,
@@ -30,16 +28,7 @@ const VoucherView = () => {
   const [entry, setEntry] = useState(null);
   const [cashApproval, setCashApproval] = useState(null);
   const [vendorAdvanceDoc, setVendorAdvanceDoc] = useState(null);
-  const [uploadingCheck, setUploadingCheck] = useState(false);
-  const [savingCheckDetails, setSavingCheckDetails] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState('');
   const [approvalMsg, setApprovalMsg] = useState('');
-  const [checkDetails, setCheckDetails] = useState({
-    signedCheckNumber: '',
-    signedCheckDate: '',
-    signedCheckBankName: '',
-    signedCheckRemarks: ''
-  });
 
   useEffect(() => {
     const load = async () => {
@@ -85,64 +74,6 @@ const VoucherView = () => {
     };
     loadVendorAdvance();
   }, [entry?._id]);
-
-  useEffect(() => {
-    setCheckDetails({
-      signedCheckNumber: cashApproval?.signedCheckNumber || '',
-      signedCheckDate: cashApproval?.signedCheckDate ? new Date(cashApproval.signedCheckDate).toISOString().split('T')[0] : '',
-      signedCheckBankName: cashApproval?.signedCheckBankName || '',
-      signedCheckRemarks: cashApproval?.signedCheckRemarks || ''
-    });
-  }, [cashApproval]);
-
-  const resolveFileUrl = (url) => {
-    if (!url) return '';
-    if (/^https?:\/\//i.test(url)) return url;
-    const apiBase = (api?.defaults?.baseURL || '').replace(/\/api\/?$/, '');
-    if (!apiBase) return url;
-    return `${apiBase}${url.startsWith('/') ? '' : '/'}${url}`;
-  };
-
-  const uploadSignedCheck = async (fileList) => {
-    const files = Array.from(fileList || []);
-    if (!cashApproval?._id || !files.length) return;
-    try {
-      setUploadingCheck(true);
-      setUploadMsg('');
-      const formData = new FormData();
-      files.forEach((file) => formData.append('files', file));
-      await api.post(`/cash-approvals/${cashApproval._id}/signed-check-upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
-      setCashApproval(refreshed?.data?.data || cashApproval);
-      setUploadMsg('Cheque image/evidence uploaded successfully.');
-    } catch (_e) {
-      setUploadMsg('Failed to upload cheque image.');
-    } finally {
-      setUploadingCheck(false);
-    }
-  };
-
-  const saveSignedCheckDetails = async () => {
-    if (!cashApproval?._id) return;
-    try {
-      setSavingCheckDetails(true);
-      setUploadMsg('');
-      const res = await api.put(`/cash-approvals/${cashApproval._id}/signed-check-details`, {
-        signedCheckNumber: checkDetails.signedCheckNumber || '',
-        signedCheckDate: checkDetails.signedCheckDate || null,
-        signedCheckBankName: checkDetails.signedCheckBankName || '',
-        signedCheckRemarks: checkDetails.signedCheckRemarks || ''
-      });
-      setCashApproval(res?.data?.data || cashApproval);
-      setUploadMsg('Signed check details updated successfully.');
-    } catch (_e) {
-      setUploadMsg('Failed to update signed check details.');
-    } finally {
-      setSavingCheckDetails(false);
-    }
-  };
 
   const reloadEntry = async () => {
     try {
@@ -393,105 +324,6 @@ const VoucherView = () => {
             </TableBody>
           </Table>
         </Box>
-
-        {cashApproval?._id && (
-          <Box sx={{ mt: 4 }}>
-            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
-              Signed Check Evidence
-            </Typography>
-            {uploadMsg ? (
-              <Alert severity={uploadMsg.includes('Failed') ? 'error' : 'success'} sx={{ mb: 1.5 }}>
-                {uploadMsg}
-              </Alert>
-            ) : null}
-            <Grid className="app-print-hide" container spacing={2} sx={{ mb: 2 }}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Signed Check Number *"
-                  value={checkDetails.signedCheckNumber}
-                  onChange={(e) => setCheckDetails((prev) => ({ ...prev, signedCheckNumber: e.target.value }))}
-                  onBlur={saveSignedCheckDetails}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="date"
-                  label="Signed Check Date"
-                  InputLabelProps={{ shrink: true }}
-                  value={checkDetails.signedCheckDate}
-                  onChange={(e) => setCheckDetails((prev) => ({ ...prev, signedCheckDate: e.target.value }))}
-                  onBlur={saveSignedCheckDetails}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Bank Name"
-                  value={checkDetails.signedCheckBankName}
-                  onChange={(e) => setCheckDetails((prev) => ({ ...prev, signedCheckBankName: e.target.value }))}
-                  onBlur={saveSignedCheckDetails}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Button variant="outlined" component="label" fullWidth disabled={uploadingCheck || savingCheckDetails}>
-                  {uploadingCheck ? 'Uploading...' : 'Upload Signed Check Evidence'}
-                  <input
-                    hidden
-                    type="file"
-                    multiple
-                    accept="image/*,.pdf"
-                    onChange={(e) => uploadSignedCheck(e.target.files)}
-                  />
-                </Button>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  multiline
-                  minRows={3}
-                  label="Signed Check Remarks"
-                  value={checkDetails.signedCheckRemarks}
-                  onChange={(e) => setCheckDetails((prev) => ({ ...prev, signedCheckRemarks: e.target.value }))}
-                  onBlur={saveSignedCheckDetails}
-                />
-              </Grid>
-            </Grid>
-            {Array.isArray(cashApproval?.signedCheckAttachments) && cashApproval.signedCheckAttachments.length > 0 ? (
-              <Box sx={{ display: 'grid', gap: 1.5 }}>
-                {cashApproval.signedCheckAttachments.map((doc, idx) => {
-                  const isImage = String(doc?.mimeType || '').startsWith('image/');
-                  return (
-                    <Paper key={doc._id || doc.url || idx} variant="outlined" sx={{ p: 1.5 }}>
-                      <Typography variant="body2" fontWeight={600}>
-                        {doc.originalName || doc.filename || `Cheque file ${idx + 1}`}
-                      </Typography>
-                      {isImage ? (
-                        <Box
-                          component="img"
-                          src={resolveFileUrl(doc.url)}
-                          alt={doc.originalName || `Cheque ${idx + 1}`}
-                          sx={{ mt: 1, width: '100%', maxHeight: 260, objectFit: 'contain', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
-                        />
-                      ) : (
-                        <Button sx={{ mt: 1 }} size="small" variant="outlined" onClick={() => window.open(resolveFileUrl(doc.url), '_blank', 'noopener,noreferrer')}>
-                          Open File
-                        </Button>
-                      )}
-                    </Paper>
-                  );
-                })}
-              </Box>
-            ) : (
-              <Typography variant="body2" color="text.secondary">No cheque evidence uploaded yet.</Typography>
-            )}
-          </Box>
-        )}
       </Paper>
     </Box>
   );

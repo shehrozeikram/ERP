@@ -6,10 +6,25 @@ const cashApprovalSchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+  originatingModule: {
+    type: String,
+    enum: ['procurement', 'general', 'admin', 'hr', 'finance'],
+    default: 'procurement',
+    index: true
+  },
+  requestingDepartment: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  purpose: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   vendor: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Supplier',
-    required: true
+    ref: 'Supplier'
   },
   indent: {
     type: mongoose.Schema.Types.ObjectId,
@@ -25,8 +40,7 @@ const cashApprovalSchema = new mongoose.Schema({
     default: Date.now
   },
   expectedPurchaseDate: {
-    type: Date,
-    required: true
+    type: Date
   },
   deliveryAddress: {
     type: String,
@@ -65,17 +79,57 @@ const cashApprovalSchema = new mongoose.Schema({
 
   // ─── Items ───────────────────────────────────────────────────────────────────
   items: [{
+    itemName: { type: String, trim: true, default: '' },
     productCode: { type: String, trim: true },
-    description: { type: String, required: true, trim: true },
+    description: { type: String, trim: true, default: '' },
     specification: { type: String, trim: true },
+    location: { type: String, trim: true, default: '' },
     brand: { type: String, trim: true },
     quantity: { type: Number, required: true, min: 0 },
     unit: { type: String, required: true, trim: true },
     unitPrice: { type: Number, required: true, min: 0 },
     taxRate: { type: Number, default: 0, min: 0, max: 100 },
     discount: { type: Number, default: 0, min: 0 },
-    amount: { type: Number, required: true }
+    amount: { type: Number, required: true },
+    attachments: [{
+      filename: { type: String },
+      originalName: { type: String },
+      url: { type: String },
+      mimeType: { type: String },
+      uploadedAt: { type: Date, default: Date.now }
+    }]
   }],
+
+  /** General module: Manager + HOD approval (same pattern as utility / centralized store bills) */
+  departmentApprovalStatus: {
+    type: String,
+    enum: ['Draft', 'Submitted', 'Approved', 'Rejected'],
+    default: 'Draft',
+    index: true
+  },
+  draftApproverIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  departmentApprovalChain: [{
+    approver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    actedAt: { type: Date },
+    comment: { type: String, trim: true }
+  }],
+  departmentApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  departmentApprovedAt: { type: Date },
+  departmentRejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  departmentRejectedAt: { type: Date },
+  departmentRejectionReason: { type: String, trim: true },
   subtotal: { type: Number, required: true, default: 0 },
   taxAmount: { type: Number, default: 0 },
   discountAmount: { type: Number, default: 0 },
@@ -145,13 +199,39 @@ const cashApprovalSchema = new mongoose.Schema({
   // Who will physically receive the advance (procurement officer / buyer)
   advanceTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   advanceToName: { type: String, trim: true },
+  /** General module: HR employee receiving the advance */
+  advanceToEmployee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    default: null,
+    index: true
+  },
+  /** GL asset — Advances to employees (per-employee sub-account when applicable) */
+  advanceGlAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    default: null
+  },
+  advanceGlAccountNumber: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   advanceAmount: { type: Number, default: 0 },
+  /** Amount of this advance applied to external AP bills (Bill Payment adjustment) */
+  apAdvanceApplied: { type: Number, default: 0 },
   advancePaymentMethod: {
     type: String,
     enum: ['Cash', 'Bank Transfer', 'Cheque', 'Online Transfer'],
     default: 'Cash'
   },
   advanceVoucherNo: { type: String, trim: true },
+  advanceWhtRate: { type: Number, default: 0 },
+  advanceBankAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    default: null
+  },
   advanceRemarks: { type: String, trim: true },
   advanceIssuedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   advanceIssuedAt: { type: Date },

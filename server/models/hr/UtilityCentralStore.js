@@ -11,6 +11,12 @@ const utilityCentralStoreSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  /** Monotonic source for auto-generated UtilityStoreItem.code (CSI-000001, …). */
+  nextItemCodeSeq: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -23,6 +29,38 @@ utilityCentralStoreSchema.statics.getOrCreate = async function (userId) {
     store = await this.create({ name: 'Centralized Store', updatedBy: userId });
   }
   return store;
+};
+
+/**
+ * Returns the next unique catalog item code (CSI-######).
+ * Uses an atomic counter on this singleton; syncs from existing CSI-* codes when counter is still zero.
+ */
+utilityCentralStoreSchema.statics.assignNextItemCode = async function assignNextItemCode() {
+  const UtilityStoreItem = require('./UtilityStoreItem');
+  let doc = await this.findOne();
+  if (!doc) {
+    doc = await this.create({ name: 'Centralized Store', nextItemCodeSeq: 0 });
+  }
+  if ((doc.nextItemCodeSeq || 0) === 0) {
+    const withCodes = await UtilityStoreItem.find({ code: { $regex: /^CSI-\d{6}$/ } })
+      .select('code')
+      .lean();
+    let maxN = 0;
+    for (const r of withCodes) {
+      const m = /^CSI-(\d{6})$/.exec(r.code);
+      if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+    }
+    if (maxN > 0) {
+      await this.updateOne({ _id: doc._id }, { $set: { nextItemCodeSeq: maxN } });
+    }
+  }
+  const updated = await this.findOneAndUpdate(
+    {},
+    { $inc: { nextItemCodeSeq: 1 } },
+    { new: true }
+  );
+  const n = updated?.nextItemCodeSeq ?? 1;
+  return `CSI-${String(n).padStart(6, '0')}`;
 };
 
 module.exports = mongoose.model('UtilityCentralStore', utilityCentralStoreSchema);

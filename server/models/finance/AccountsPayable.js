@@ -33,6 +33,19 @@ const accountsPayableSchema = new mongoose.Schema({
       ref: 'Vendor' // If you have a separate Vendor model
     }
   },
+  /** Employee payee when bill settles a cash approval advance */
+  payeeEmployee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    default: null,
+    index: true
+  },
+  employeeAdvanceAllocations: [{
+    cashApprovalId: { type: mongoose.Schema.Types.ObjectId, ref: 'CashApproval' },
+    caNumber: { type: String, trim: true },
+    amount: { type: Number, default: 0 },
+    appliedAt: { type: Date, default: Date.now }
+  }],
   // Bill details
   billNumber: {
     type: String,

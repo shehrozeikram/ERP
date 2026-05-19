@@ -4,7 +4,6 @@ import {
   Card,
   CardContent,
   Typography,
-  Button,
   Table,
   TableBody,
   TableCell,
@@ -25,9 +24,6 @@ import {
   Avatar
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
   Visibility as ViewIcon,
   Search as SearchIcon,
   Refresh as RefreshIcon
@@ -54,7 +50,7 @@ const UtilityBillList = () => {
       setLoading(true);
       setError(null);
       
-      const params = {};
+      const params = { excludeCentralizedStore: true };
       if (searchTerm) params.search = searchTerm;
       if (utilityTypeFilter) params.utilityType = utilityTypeFilter;
       if (statusFilter) params.status = statusFilter;
@@ -66,18 +62,6 @@ const UtilityBillList = () => {
       console.error('Error fetching bills:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDelete = async (billId) => {
-    if (window.confirm('Are you sure you want to delete this utility bill?')) {
-      try {
-        await utilityBillService.deleteUtilityBill(billId);
-        fetchBills();
-      } catch (err) {
-        setError('Failed to delete utility bill');
-        console.error('Error deleting bill:', err);
-      }
     }
   };
 
@@ -197,23 +181,19 @@ const UtilityBillList = () => {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" component="h1">
-          Utility Bills List
-        </Typography>
         <Box>
-          <Tooltip title="Refresh">
-            <IconButton onClick={fetchBills} sx={{ mr: 1 }}>
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => navigate('/admin/utility-bills/new')}
-          >
-            New Bill
-          </Button>
+          <Typography variant="h4" component="h1">
+            Utility Bills List
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            View utility bill records only.
+          </Typography>
         </Box>
+        <Tooltip title="Refresh">
+          <IconButton onClick={fetchBills}>
+            <RefreshIcon />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {error && (
@@ -303,7 +283,7 @@ const UtilityBillList = () => {
                   <TableRow>
                     <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">
-                        No utility bills found. Create your first bill to get started.
+                        No utility bills found.
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -368,33 +348,14 @@ const UtilityBillList = () => {
                       </TableCell>
                       <TableCell>{formatDate(bill.dueDate)}</TableCell>
                       <TableCell>
-                        <Box display="flex" gap={1}>
-                          <Tooltip title="View Details">
-                            <IconButton
-                              size="small"
-                              onClick={() => navigate(`/admin/utility-bills/${bill._id}`)}
-                            >
-                              <ViewIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Edit Bill">
-                            <IconButton
-                              size="small"
-                              onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}
-                            >
-                              <EditIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete Bill">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleDelete(bill._id)}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
+                        <Tooltip title="View Details">
+                          <IconButton
+                            size="small"
+                            onClick={() => navigate(`/admin/utility-bills/${bill._id}`)}
+                          >
+                            <ViewIcon />
+                          </IconButton>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))

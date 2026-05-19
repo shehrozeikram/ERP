@@ -17,8 +17,89 @@ const JournalEntry = require('../models/finance/JournalEntry');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
 const FinanceHelper = require('../utils/financeHelper');
+const {
+  GENERAL_MODULE,
+  isGeneralCashApproval,
+  hasGeneralModuleAccess,
+  canManageGeneralCashApproval,
+  validateGeneralCashApprovalPayload,
+  resolveGeneralCashApprovalTotals,
+  buildGeneralCashApprovalDocument,
+  uniqueApproverIds,
+  applyGeneralSubmitApprovers,
+  getEligibleUtilityBillApproverUserIds,
+  approverIdFromStep,
+  getFirstPendingDepartmentStepIndex,
+  getActorPendingDepartmentStepIndex
+} = require('../utils/generalCashApproval');
+const { assertUtilityBillApproversEligible } = require('../utils/utilityBillApproverEligibility');
+const Employee = require('../models/hr/Employee');
+const {
+  listEmployeesForAdvancePicker,
+  resolveGeneralAdvanceRecipient,
+  resolveEmployeeAdvanceAccount,
+  ensureEmployeeAdvanceAccount,
+  employeeDisplayName
+} = require('../utils/employeeAdvanceAccount');
 
 const router = express.Router();
+
+const generalCaUploadDir = path.join(__dirname, '..', 'uploads', 'general', 'cash-approvals');
+if (!fs.existsSync(generalCaUploadDir)) fs.mkdirSync(generalCaUploadDir, { recursive: true });
+const generalCaStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, generalCaUploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '');
+    const base = path.basename(file.originalname || 'attachment', ext).replace(/[^a-zA-Z0-9-_]/g, '_');
+    cb(null, `${base}-${Date.now()}${ext}`);
+  }
+});
+const generalCaUpload = multer({
+  storage: generalCaStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowed.includes(file.mimetype)) return cb(new Error('Only JPG, PNG, WEBP, or PDF files are allowed'));
+    cb(null, true);
+  }
+});
+
+const maybeGeneralMultipart = (req, res, next) => {
+  if (req.is('multipart/form-data')) return generalCaUpload.any()(req, res, next);
+  return next();
+};
+
+const parseJsonBodyField = (val, fallback) => {
+  if (val == null || val === '') return fallback;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
+};
+
+const mergeGeneralLineUploads = (files, items) => {
+  if (!Array.isArray(items) || !files?.length) return items;
+  for (const f of files) {
+    const m = /^lineAttachment_(\d+)$/.exec(f.fieldname);
+    if (!m) continue;
+    const idx = parseInt(m[1], 10);
+    if (!Number.isFinite(idx) || !items[idx]) continue;
+    const url = `/uploads/general/cash-approvals/${f.filename}`;
+    if (!Array.isArray(items[idx].attachments)) items[idx].attachments = [];
+    items[idx].attachments.push({
+      filename: f.filename,
+      originalName: f.originalname,
+      url,
+      mimeType: f.mimetype,
+      uploadedAt: new Date()
+    });
+  }
+  return items;
+};
+
+const getActorId = (req) => String(req.user?.id || req.user?._id || '');
 
 const signedCheckUploadDir = path.join(__dirname, '..', 'uploads', 'procurement', 'cash-approvals', 'signed-checks');
 if (!fs.existsSync(signedCheckUploadDir)) fs.mkdirSync(signedCheckUploadDir, { recursive: true });
@@ -273,8 +354,42 @@ const notify = async ({ recipientIds, actorId, title, message, actionUrl, entity
   });
 };
 
+const notifyNextGeneralDepartmentApprover = async (ca, actorId) => {
+  const chain = ca.departmentApprovalChain || [];
+  const idx = getFirstPendingDepartmentStepIndex(chain);
+  if (idx < 0) return;
+  const recipientId = approverIdFromStep(chain[idx]);
+  if (!recipientId) return;
+  const roleLabel = idx === 0 ? 'Manager' : 'Head of Department';
+  await notify({
+    recipientIds: [recipientId],
+    actorId,
+    title: 'Cash Approval awaiting your approval',
+    message: `Cash Approval ${ca.caNumber} requires your ${roleLabel} approval.`,
+    actionUrl: `/cash-approvals/${ca._id}/view?from=audit`,
+    entityId: ca._id,
+    module: 'general'
+  });
+};
+
 const pushHistory = (ca, from, to, userId, comments, module) => {
   ca.workflowHistory.push({ fromStatus: from, toStatus: to, changedBy: userId, changedAt: new Date(), comments: comments || '', module: module || 'Procurement' });
+};
+
+const upsertCaAuthorityApproval = (ca, { key, label, approverId, approvedAt, comments }) => {
+  if (!key || !approverId) return;
+  const approvals = Array.isArray(ca.authorityApprovals) ? [...ca.authorityApprovals] : [];
+  const idx = approvals.findIndex((a) => String(a?.authorityKey || '').trim() === key);
+  const entry = {
+    authorityKey: key,
+    authorityLabel: label || key,
+    approver: approverId,
+    approvedAt: approvedAt || new Date(),
+    comments: comments || ''
+  };
+  if (idx >= 0) approvals[idx] = { ...approvals[idx], ...entry };
+  else approvals.push(entry);
+  ca.authorityApprovals = approvals;
 };
 
 const FINANCE_AUTHORITY_SLOT_CONFIG = [
@@ -310,6 +425,7 @@ const ensureVoucherForCashApproval = async (ca, userId, options = {}) => {
     creditAccount = creditAccount || fallback[1];
   }
 
+  const isCashVoucher = paymentMethod === 'cash';
   const voucher = await FinanceHelper.createAndPostJournalEntry({
     date: new Date(),
     reference: ca.caNumber,
@@ -318,7 +434,8 @@ const ensureVoucherForCashApproval = async (ca, userId, options = {}) => {
     module: 'finance',
     referenceId: ca._id,
     referenceType: ['payment', 'receipt', 'adjustment', 'manual', 'expense'].includes(voucherType) ? voucherType : 'payment',
-    journalCode: paymentMethod === 'cash' ? 'CASH' : 'BANK',
+    journalCode: isCashVoucher ? 'CASH' : 'BANK',
+    voucherSeries: isCashVoucher ? 'CPV' : 'BPV',
     createdBy: userId,
     notes: remarks || undefined,
     lines: [
@@ -390,7 +507,7 @@ const fullPopulate = (q) => q
   .populate('vendor', 'name email phone')
   .populate(indentWithComparativePopulate)
   .populate('quotation', 'quotationNumber')
-  .populate('createdBy', 'firstName lastName email')
+  .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('updatedBy', 'firstName lastName email')
   .populate('authorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
   .populate('financeApprovalAuthorities.accountsOfficerUser', 'firstName lastName email employeeId digitalSignature')
@@ -401,7 +518,11 @@ const fullPopulate = (q) => q
   .populate('financeRejectedBy', 'firstName lastName email')
   .populate('financeAuthoritiesAssignedBy', 'firstName lastName email')
   .populate('authorityApprovedBy', 'firstName lastName email employeeId digitalSignature')
-  .populate('advanceTo', 'firstName lastName email')
+  .populate('advanceTo', 'firstName lastName email employeeId department')
+  .populate('advanceToEmployee', 'firstName lastName employeeId email employeeAdvanceAccountNumber')
+  .populate('advanceGlAccount', 'accountNumber name detailType type')
+  .populate('advanceBankAccount', 'accountNumber name')
+  .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('advanceIssuedBy', 'firstName lastName email')
   .populate('evidenceSubmittedBy', 'firstName lastName email')
   .populate('settledBy', 'firstName lastName email')
@@ -413,24 +534,181 @@ const fullPopulate = (q) => q
   .populate('auditRejectedBy', 'firstName lastName email digitalSignature')
   .populate('auditObservations.addedBy', 'firstName lastName email')
   .populate('auditObservations.answeredBy', 'firstName lastName email')
-  .populate('ceoApprovedBy', 'firstName lastName email')
-  .populate('ceoForwardedBy', 'firstName lastName email')
-  .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
+  .populate('ceoApprovedBy', 'firstName lastName email employeeId digitalSignature')
+  .populate('ceoForwardedBy', 'firstName lastName email employeeId digitalSignature')
+  .populate('ceoReturnedBy', 'firstName lastName email')
+  .populate('ceoRejectedBy', 'firstName lastName email')
+  .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature')
+  .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+  .populate('departmentApprovalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+  .populate('departmentApprovedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+  .populate('departmentRejectedBy', 'firstName lastName email employeeId digitalSignature approvalStamp');
+
+// GET /api/cash-approvals/general/advance-employees
+router.get('/general/advance-employees', authMiddleware, asyncHandler(async (req, res) => {
+  if (!hasGeneralModuleAccess(req.user)) {
+    return res.status(403).json({ success: false, message: 'General module access required' });
+  }
+  const search = String(req.query.search || '').trim();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 500, 2000);
+  const data = await listEmployeesForAdvancePicker({
+    search,
+    limit,
+    createdBy: req.user.id
+  });
+  res.json({ success: true, data, total: data.length });
+}));
+
+const mapCaPaymentMethodLabel = (paymentMethod) => {
+  const v = String(paymentMethod || 'bank_transfer').toLowerCase().replace(/\s+/g, '_');
+  if (v === 'cash') return 'Cash';
+  if (v === 'check' || v === 'cheque') return 'Cheque';
+  if (v === 'bank_transfer' || v === 'bank') return 'Bank Transfer';
+  if (v === 'online_transfer' || v === 'other') return 'Online Transfer';
+  return 'Bank Transfer';
+};
+
+const isCashPaymentMethod = (paymentMethod) =>
+  String(paymentMethod || '').toLowerCase().replace(/\s+/g, '_') === 'cash';
+
+const getCaOpenAdvanceAmount = (ca) => {
+  const configured = Number(ca?.advanceAmount);
+  if (Number.isFinite(configured) && configured > 0) return Math.round(configured * 100) / 100;
+  return Math.round((Number(ca?.totalAmount) || 0) * 100) / 100;
+};
+
+// GET /api/cash-approvals/finance/advance-payment/employee-payees
+router.get('/finance/advance-payment/employee-payees', authMiddleware, asyncHandler(async (req, res) => {
+  if (!hasFinanceAccess(req.user) && !['super_admin', 'admin'].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Finance access required' });
+  }
+  const includePending = String(req.query.includePending || '').toLowerCase() === 'true';
+  const payeeStatuses = includePending
+    ? ['Pending Finance', 'Finance Authority Approved']
+    : ['Finance Authority Approved'];
+  const employeeIds = await CashApproval.distinct('advanceToEmployee', {
+    originatingModule: GENERAL_MODULE,
+    status: { $in: payeeStatuses },
+    advanceToEmployee: { $ne: null },
+    $or: [{ advanceIssuedAt: null }, { advanceIssuedAt: { $exists: false } }]
+  });
+  if (!employeeIds.length) {
+    return res.json({ success: true, data: [] });
+  }
+  const employees = await Employee.find({ _id: { $in: employeeIds }, isActive: true, isDeleted: { $ne: true } })
+    .select('employeeId firstName lastName email placementDepartment')
+    .populate('placementDepartment', 'name')
+    .sort({ firstName: 1, lastName: 1 })
+    .lean();
+  const rows = employees.map((e) => ({
+    employeeId: String(e._id),
+    employeeCode: e.employeeId || '',
+    employeeName: employeeDisplayName(e),
+    departmentName: e.placementDepartment?.name || ''
+  }));
+  res.json({ success: true, data: rows });
+}));
+
+// GET /api/cash-approvals/finance/advance-payment/outstanding?employeeId=
+router.get('/finance/advance-payment/outstanding', authMiddleware, asyncHandler(async (req, res) => {
+  if (!hasFinanceAccess(req.user) && !['super_admin', 'admin'].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Finance access required' });
+  }
+  const employeeId = String(req.query.employeeId || '').trim();
+  if (!employeeId) {
+    return res.status(400).json({ success: false, message: 'employeeId is required' });
+  }
+  const includePending = String(req.query.includePending || '').toLowerCase() === 'true';
+  const outstandingStatuses = includePending
+    ? ['Pending Finance', 'Finance Authority Approved']
+    : ['Finance Authority Approved'];
+  const cas = await CashApproval.find({
+    originatingModule: GENERAL_MODULE,
+    status: { $in: outstandingStatuses },
+    advanceToEmployee: employeeId,
+    $or: [{ advanceIssuedAt: null }, { advanceIssuedAt: { $exists: false } }]
+  })
+    .select('caNumber approvalDate expectedPurchaseDate totalAmount advanceAmount advanceToEmployee advanceToName')
+    .sort({ approvalDate: 1, createdAt: 1 })
+    .lean();
+  const rows = cas.map((ca) => ({
+    cashApprovalId: String(ca._id),
+    caNumber: ca.caNumber,
+    dueDate: ca.expectedPurchaseDate || ca.approvalDate,
+    totalAmount: Math.round((Number(ca.totalAmount) || 0) * 100) / 100,
+    outstanding: getCaOpenAdvanceAmount(ca)
+  })).filter((r) => r.outstanding > 0);
+  res.json({ success: true, data: rows });
+}));
+
+// GET /api/cash-approvals/general/approver-candidates
+router.get('/general/approver-candidates', authMiddleware, asyncHandler(async (req, res) => {
+  if (!hasGeneralModuleAccess(req.user)) {
+    return res.status(403).json({ success: false, message: 'General module access required' });
+  }
+  const search = String(req.query.search || '').trim();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const eligibleIds = await getEligibleUtilityBillApproverUserIds();
+  const filter = { isActive: true, _id: { $in: [...eligibleIds] } };
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escaped, 'i');
+    filter.$and = [
+      { _id: { $in: [...eligibleIds] } },
+      { $or: [{ firstName: rx }, { lastName: rx }, { email: rx }, { employeeId: rx }] }
+    ];
+    delete filter._id;
+  }
+  const users = await User.find(filter)
+    .select('firstName lastName email employeeId department')
+    .sort({ firstName: 1, lastName: 1 })
+    .limit(limit)
+    .lean();
+  res.json({ success: true, data: users });
+}));
 
 // ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 // GET /api/cash-approvals
 router.get('/', authMiddleware, asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, search = '', status = '', vendor = '', priority = '' } = req.query;
+  const {
+    page = 1,
+    limit = 20,
+    search = '',
+    status = '',
+    vendor = '',
+    priority = '',
+    originatingModule = '',
+    department = '',
+    mine = ''
+  } = req.query;
   const filter = {};
   if (status) filter.status = status;
   if (vendor) filter.vendor = vendor;
   if (priority) filter.priority = priority;
-  if (search) {
-    filter.$or = [
+  if (originatingModule) filter.originatingModule = originatingModule;
+  if (department) filter.requestingDepartment = department;
+  const searchOr = search
+    ? [
       { caNumber: { $regex: search, $options: 'i' } },
-      { notes: { $regex: search, $options: 'i' } }
+      { notes: { $regex: search, $options: 'i' } },
+      { purpose: { $regex: search, $options: 'i' } },
+      { requestingDepartment: { $regex: search, $options: 'i' } }
+    ]
+    : null;
+  if (originatingModule === 'general' && mine === 'true' && !['super_admin', 'admin'].includes(req.user.role)) {
+    const userId = req.user._id || req.user.id;
+    const mineOr = [
+      { createdBy: userId },
+      { 'departmentApprovalChain.approver': userId }
     ];
+    if (searchOr) {
+      filter.$and = [{ $or: mineOr }, { $or: searchOr }];
+    } else {
+      filter.$or = mineOr;
+    }
+  } else if (searchOr) {
+    filter.$or = searchOr;
   }
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const [data, total] = await Promise.all([
@@ -460,7 +738,22 @@ router.get('/ceo-secretariat',
   asyncHandler(async (req, res) => {
     const isCeoQueueUser = hasCeoSecretariatAccess(req.user);
     let filter = {
-      status: { $in: ['Send to CEO Office', 'Forwarded to CEO', 'Returned from CEO Office'] }
+      status: {
+        $in: [
+          'Send to CEO Office',
+          'Forwarded to CEO',
+          'Returned from CEO Office',
+          'Returned from CEO Secretariat',
+          'Pending Finance',
+          'Finance Authority Approved',
+          'Advance Issued',
+          'Evidence Submitted',
+          'Payment Settled',
+          'Sent to Procurement',
+          'Completed',
+          'Rejected'
+        ]
+      }
     };
     if (!isCeoQueueUser) {
       const indentIds = await getAssignedIndentIdsForUser(req.user.id);
@@ -571,9 +864,90 @@ router.put('/:id/signed-check-details', authMiddleware, asyncHandler(async (req,
   res.json({ success: true, message: 'Signed check details updated', data: updated });
 }));
 
+const applyAdvanceToName = async (doc, payeeId, explicitName) => {
+  if (explicitName) {
+    doc.advanceToName = explicitName;
+    return;
+  }
+  if (!payeeId) return;
+  const payee = await User.findById(payeeId).select('firstName lastName email').lean();
+  if (payee) {
+    doc.advanceToName = `${payee.firstName || ''} ${payee.lastName || ''}`.trim() || payee.email || '';
+  }
+};
+
 // POST /api/cash-approvals
-router.post('/', authMiddleware, asyncHandler(async (req, res) => {
-  const { quotationId, ...body } = req.body;
+router.post('/', authMiddleware, maybeGeneralMultipart, asyncHandler(async (req, res) => {
+  const { quotationId, submit, ...rawBody } = req.body;
+  const body = { ...rawBody };
+  if (body.items) body.items = parseJsonBodyField(body.items, []);
+  if (body.approverIds) body.approverIds = parseJsonBodyField(body.approverIds, []);
+  if (body.draftApproverIds) body.draftApproverIds = parseJsonBodyField(body.draftApproverIds, []);
+
+  const isGeneralRequest =
+    body.originatingModule === GENERAL_MODULE ||
+    body.generalModule === true ||
+    body.generalModule === 'true';
+
+  if (isGeneralRequest) {
+    if (!hasGeneralModuleAccess(req.user)) {
+      return res.status(403).json({ success: false, message: 'General module access required' });
+    }
+    body.items = mergeGeneralLineUploads(req.files, body.items || []);
+    if (!body.requestingDepartment?.trim()) {
+      body.requestingDepartment = String(req.user?.department || '').trim();
+    }
+    const shouldSubmit = submit === true || submit === 'true';
+    const advanceRecipient = await resolveGeneralAdvanceRecipient(body, req.user.id);
+    const built = buildGeneralCashApprovalDocument(body, req.user.id, advanceRecipient);
+    if (!built.ok) {
+      return res.status(400).json({ success: false, message: built.errors.join('; ') });
+    }
+    const { errors: submitErrors } = validateGeneralCashApprovalPayload(
+      { ...body, ...advanceRecipient },
+      { forSubmit: shouldSubmit }
+    );
+    if (shouldSubmit && submitErrors.length) {
+      return res.status(400).json({ success: false, message: submitErrors.join('; ') });
+    }
+    const ca = new CashApproval({
+      ...built.doc,
+      status: shouldSubmit ? 'Pending Approval' : 'Draft',
+      departmentApprovalStatus: shouldSubmit ? 'Submitted' : 'Draft'
+    });
+    await applyAdvanceToName(ca, built.doc.advanceTo, built.doc.advanceToName);
+    if (shouldSubmit) {
+      const approverIds = uniqueApproverIds(
+        body.approverIds?.length ? body.approverIds : body.draftApproverIds
+      );
+      await applyGeneralSubmitApprovers(ca, approverIds, getActorId(req));
+    } else if (body.draftApproverIds?.length) {
+      ca.draftApproverIds = uniqueApproverIds(body.draftApproverIds);
+    }
+    await ca.save();
+    pushHistory(
+      ca,
+      '—',
+      ca.status,
+      req.user.id,
+      shouldSubmit
+        ? 'Submitted from General module for Manager / HOD approval'
+        : 'Saved as draft in General module',
+      'General'
+    );
+    await ca.save();
+    if (shouldSubmit) {
+      await notifyNextGeneralDepartmentApprover(ca, req.user.id);
+    }
+    const saved = await fullPopulate(CashApproval.findById(ca._id));
+    return res.status(201).json({
+      success: true,
+      message: shouldSubmit
+        ? 'Cash Approval submitted for approval'
+        : 'Cash Approval draft saved successfully',
+      data: saved
+    });
+  }
 
   // Pre-fill from quotation if provided
   if (quotationId) {
@@ -617,25 +991,139 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
 }));
 
 // PUT /api/cash-approvals/:id
-router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
+router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+
+  if (isGeneralCashApproval(ca)) {
+    if (!canManageGeneralCashApproval(req.user, ca) && !hasGeneralModuleAccess(req.user)) {
+      return res.status(403).json({ success: false, message: 'Not allowed to edit this cash approval' });
+    }
+    const editableGeneral =
+      ['Draft', 'Pending Approval'].includes(ca.status) &&
+      ['Draft', 'Submitted', 'Rejected'].includes(ca.departmentApprovalStatus || 'Draft');
+    if (!editableGeneral && ca.status !== 'Returned from Audit') {
+      return res.status(400).json({ success: false, message: `Cannot edit cash approval in "${ca.status}" status` });
+    }
+    const body = { ...req.body };
+    if (body.items) body.items = mergeGeneralLineUploads(req.files, parseJsonBodyField(body.items, ca.items || []));
+    const merged = {
+      purpose: body.purpose ?? ca.purpose,
+      notes: body.notes ?? ca.notes,
+      internalNotes: body.internalNotes ?? ca.internalNotes,
+      priority: body.priority ?? ca.priority,
+      approvalDate: body.approvalDate ?? ca.approvalDate,
+      expectedPurchaseDate: body.expectedPurchaseDate ?? ca.expectedPurchaseDate,
+      requestingDepartment: body.requestingDepartment ?? ca.requestingDepartment,
+      advanceTo: body.advanceTo ?? ca.advanceTo?._id ?? ca.advanceTo,
+      advanceToName: body.advanceToName ?? ca.advanceToName,
+      shippingCost: body.shippingCost ?? ca.shippingCost,
+      items: body.items ?? ca.items
+    };
+    let advanceRecipient = null;
+    if (body.advanceToEmployee || body.advanceToEmployeeId) {
+      advanceRecipient = await resolveGeneralAdvanceRecipient(body, req.user.id);
+    } else if (ca.advanceToEmployee) {
+      advanceRecipient = {
+        advanceToEmployee: ca.advanceToEmployee,
+        advanceTo: ca.advanceTo,
+        advanceToName: ca.advanceToName,
+        advanceGlAccount: ca.advanceGlAccount,
+        advanceGlAccountNumber: ca.advanceGlAccountNumber
+      };
+    }
+    const mergedWithAdvance = advanceRecipient ? { ...merged, ...advanceRecipient } : merged;
+    const { errors } = validateGeneralCashApprovalPayload(mergedWithAdvance, { forSubmit: false });
+    if (errors.length) {
+      return res.status(400).json({ success: false, message: errors.join('; ') });
+    }
+    const totals = resolveGeneralCashApprovalTotals(merged);
+    Object.assign(ca, {
+      purpose: merged.purpose,
+      notes: merged.notes,
+      internalNotes: merged.internalNotes,
+      priority: merged.priority,
+      approvalDate: merged.approvalDate,
+      expectedPurchaseDate: merged.expectedPurchaseDate || merged.approvalDate,
+      requestingDepartment: merged.requestingDepartment,
+      advanceAmount: totals.totalAmount,
+      ...totals
+    });
+    if (advanceRecipient) {
+      Object.assign(ca, advanceRecipient);
+    }
+    if (body.draftApproverIds) {
+      ca.draftApproverIds = uniqueApproverIds(parseJsonBodyField(body.draftApproverIds, []));
+    }
+    ca.updatedBy = req.user.id;
+    await ca.save();
+    const updated = await fullPopulate(CashApproval.findById(ca._id));
+    return res.json({ success: true, message: 'Cash Approval updated', data: updated });
+  }
+
   const editableStatuses = ['Pending Approval', 'Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'];
   if (!editableStatuses.includes(ca.status)) {
     return res.status(400).json({ success: false, message: `Cannot edit a Cash Approval in "${ca.status}" status` });
   }
-  const { status: _s, caNumber: _n, createdBy: _c, workflowHistory: _w, ...updates } = req.body;
+  const { status: _s, caNumber: _n, createdBy: _c, workflowHistory: _w, originatingModule: _om, ...updates } = req.body;
+
   Object.assign(ca, updates);
+
   ca.updatedBy = req.user.id;
   await ca.save();
   const updated = await fullPopulate(CashApproval.findById(ca._id));
   res.json({ success: true, message: 'Cash Approval updated', data: updated });
 }));
 
-// DELETE /api/cash-approvals/:id
-router.delete('/:id', authMiddleware, authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
+// PUT /api/cash-approvals/:id/submit — General module draft → Manager / HOD queue
+router.put('/:id/submit', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  if (!isGeneralCashApproval(ca)) {
+    return res.status(400).json({ success: false, message: 'Submit endpoint is only for General module cash approvals' });
+  }
+  if (!canManageGeneralCashApproval(req.user, ca)) {
+    return res.status(403).json({ success: false, message: 'Not allowed to submit this cash approval' });
+  }
+  if (ca.status !== 'Draft') {
+    return res.status(400).json({ success: false, message: 'Only draft cash approvals can be submitted' });
+  }
+  const approverIds = uniqueApproverIds(
+    req.body?.approverIds || ca.draftApproverIds?.map((id) => String(id._id || id)) || []
+  );
+  const payload = {
+    purpose: ca.purpose,
+    requestingDepartment: ca.requestingDepartment,
+    advanceToEmployee: ca.advanceToEmployee?._id || ca.advanceToEmployee,
+    advanceGlAccount: ca.advanceGlAccount?._id || ca.advanceGlAccount,
+    items: ca.items,
+    shippingCost: ca.shippingCost,
+    approverIds
+  };
+  const { errors } = validateGeneralCashApprovalPayload(payload, { forSubmit: true });
+  if (errors.length) {
+    return res.status(400).json({ success: false, message: errors.join('; ') });
+  }
+  await applyGeneralSubmitApprovers(ca, approverIds, getActorId(req));
+  pushHistory(ca, 'Draft', 'Pending Approval', req.user.id, 'Submitted from General module for Manager / HOD approval', 'General');
+  ca.updatedBy = req.user.id;
+  await ca.save();
+  await notifyNextGeneralDepartmentApprover(ca, req.user.id);
+  const updated = await fullPopulate(CashApproval.findById(ca._id));
+  res.json({ success: true, message: 'Cash Approval submitted for approval', data: updated });
+}));
+
+// DELETE /api/cash-approvals/:id
+router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const ca = await CashApproval.findById(req.params.id);
+  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+  if (isGeneralCashApproval(ca)) {
+    if (!canManageGeneralCashApproval(req.user, ca) && !['super_admin', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Not allowed to delete this cash approval' });
+    }
+  } else if (!['super_admin', 'admin', 'procurement_manager'].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Procurement manager access required' });
+  }
   if (!['Pending Approval', 'Draft', 'Cancelled', 'Rejected'].includes(ca.status)) {
     return res.status(400).json({ success: false, message: 'Only Draft, Cancelled, or Rejected Cash Approvals can be deleted' });
   }
@@ -652,6 +1140,60 @@ router.put('/:id/approve', authMiddleware, asyncHandler(async (req, res) => {
   if (ca.status !== 'Pending Approval') {
     return res.status(400).json({ success: false, message: 'Only pending cash approvals can be approved' });
   }
+
+  if (isGeneralCashApproval(ca)) {
+    const userId = getActorId(req);
+    if (String(ca.createdBy) === userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Requester cannot approve Manager or Head Of Department approval authority'
+      });
+    }
+    const isAdmin = ['super_admin', 'admin'].includes(req.user.role);
+    let pendingIndex = getActorPendingDepartmentStepIndex(ca.departmentApprovalChain, userId);
+    if (pendingIndex === -1 && isAdmin) {
+      pendingIndex = getFirstPendingDepartmentStepIndex(ca.departmentApprovalChain);
+    }
+    if (pendingIndex === -1) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the current pending approval authority for this request (Manager approves first, then Head of Department)'
+      });
+    }
+    ca.departmentApprovalChain[pendingIndex].status = 'approved';
+    ca.departmentApprovalChain[pendingIndex].actedAt = new Date();
+    if (req.body?.comments) ca.departmentApprovalChain[pendingIndex].comment = req.body.comments;
+    const allApproved = (ca.departmentApprovalChain || []).every((step) => step.status === 'approved');
+    if (allApproved) {
+      ca.departmentApprovalStatus = 'Approved';
+      ca.departmentApprovedBy = req.user.id;
+      ca.departmentApprovedAt = new Date();
+      pushHistory(ca, 'Pending Approval', 'Pending Audit', req.user.id, 'Sent to Pre-Audit after Manager / HOD approval', 'General');
+      ca.status = 'Pending Audit';
+      const recipients = await getAuditRecipients();
+      await notify({
+        recipientIds: recipients,
+        actorId: req.user.id,
+        title: 'General Cash Approval pending Audit review',
+        message: `Cash Approval ${ca.caNumber} received Manager / HOD approval and is now in Pre-Audit queue.`,
+        actionUrl: '/audit',
+        entityId: ca._id,
+        module: 'general'
+      });
+    } else {
+      pushHistory(ca, 'Pending Approval', 'Pending Approval', req.user.id, req.body?.comments || 'Approval authority approved', 'General');
+    }
+    ca.updatedBy = req.user.id;
+    await ca.save();
+    if (!allApproved) {
+      await notifyNextGeneralDepartmentApprover(ca, req.user.id);
+    }
+    const message = allApproved
+      ? 'All approvals completed. Cash Approval sent to Pre-Audit'
+      : 'Approval recorded. Next approver has been notified';
+    return res.json({ success: true, message, data: await fullPopulate(CashApproval.findById(ca._id)) });
+  }
+
   const assignedAuthorityAccess =
     await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
     isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
@@ -724,6 +1266,38 @@ router.put('/:id/reject', authMiddleware, asyncHandler(async (req, res) => {
   if (ca.status !== 'Pending Approval') {
     return res.status(400).json({ success: false, message: 'Only pending cash approvals can be rejected' });
   }
+
+  if (isGeneralCashApproval(ca)) {
+    const reason = String(req.body?.rejectionReason || req.body?.rejectionComments || req.body?.comments || '').trim();
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required' });
+    }
+    const userId = getActorId(req);
+    const isAdmin = ['super_admin', 'admin'].includes(req.user.role);
+    let pendingIndex = getActorPendingDepartmentStepIndex(ca.departmentApprovalChain, userId);
+    if (pendingIndex === -1 && isAdmin) {
+      pendingIndex = getFirstPendingDepartmentStepIndex(ca.departmentApprovalChain);
+    }
+    if (pendingIndex === -1) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the current pending approval authority for this request'
+      });
+    }
+    ca.departmentApprovalChain[pendingIndex].status = 'rejected';
+    ca.departmentApprovalChain[pendingIndex].actedAt = new Date();
+    ca.departmentApprovalChain[pendingIndex].comment = reason;
+    ca.departmentApprovalStatus = 'Rejected';
+    ca.departmentRejectedBy = req.user.id;
+    ca.departmentRejectedAt = new Date();
+    ca.departmentRejectionReason = reason;
+    pushHistory(ca, 'Pending Approval', 'Rejected', req.user.id, reason, 'General');
+    ca.status = 'Rejected';
+    ca.updatedBy = req.user.id;
+    await ca.save();
+    return res.json({ success: true, message: 'Cash Approval rejected', data: await fullPopulate(CashApproval.findById(ca._id)) });
+  }
+
   const assignedAuthorityAccess =
     await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
     isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
@@ -807,9 +1381,17 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
     if (isAuditDirectorUser(req.user)) {
       return res.status(403).json({ success: false, message: 'Initial approval must be done by assistant/auditor, not the Audit Director.' });
     }
+    const initialAt = new Date();
     ca.preAuditInitialApprovedBy = req.user.id;
-    ca.preAuditInitialApprovedAt = new Date();
+    ca.preAuditInitialApprovedAt = initialAt;
     ca.preAuditInitialComments = approvalText;
+    upsertCaAuthorityApproval(ca, {
+      key: 'preAuditInitial',
+      label: 'Pre-Audit Authority',
+      approverId: req.user.id,
+      approvedAt: initialAt,
+      comments: approvalText || 'Initial pre-audit approval recorded'
+    });
     ca.updatedBy = req.user.id;
     pushHistory(ca, 'Pending Audit', 'Pending Audit', req.user.id, approvalText || 'Initial pre-audit approval recorded', 'Pre-Audit');
     await ca.save();
@@ -831,9 +1413,17 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
     pushHistory(ca, 'Forwarded to Audit Director', 'Send to CEO Office', req.user.id, approvalText, 'Pre-Audit');
     ca.status = 'Send to CEO Office';
   }
+  const directorAt = new Date();
   ca.auditApprovedBy = req.user.id;
-  ca.auditApprovedAt = new Date();
+  ca.auditApprovedAt = directorAt;
   ca.auditRemarks = approvalText;
+  upsertCaAuthorityApproval(ca, {
+    key: 'auditDirectorApproval',
+    label: 'Audit Director',
+    approverId: req.user.id,
+    approvedAt: directorAt,
+    comments: approvalText || (isSettlementFlow ? 'Settlement bill audit-approved' : 'Audit director approved')
+  });
   ca.updatedBy = req.user.id;
   await ca.save();
   if (isSettlementFlow) {
@@ -983,10 +1573,19 @@ router.put('/:id/forward-to-ceo', authMiddleware, asyncHandler(async (req, res) 
     });
   }
   const from = ca.status;
-  pushHistory(ca, from, 'Forwarded to CEO', req.user.id, req.body.comments || 'Forwarded to CEO for approval', 'CEO Secretariat');
+  const forwardAt = new Date();
+  const forwardComments = req.body.comments || 'Forwarded to CEO for approval';
+  pushHistory(ca, from, 'Forwarded to CEO', req.user.id, forwardComments, 'CEO Secretariat');
   ca.status = 'Forwarded to CEO';
   ca.ceoForwardedBy = req.user.id;
-  ca.ceoForwardedAt = new Date();
+  ca.ceoForwardedAt = forwardAt;
+  upsertCaAuthorityApproval(ca, {
+    key: 'ceoSecretariatForward',
+    label: 'PS to CEO',
+    approverId: req.user.id,
+    approvedAt: forwardAt,
+    comments: forwardComments
+  });
   ca.updatedBy = req.user.id;
   await ca.save();
   const ceoRecipients = await getCeoRecipients();
@@ -1088,12 +1687,21 @@ router.put('/:id/ceo-approve', authMiddleware, asyncHandler(async (req, res) => 
   if (ca.status !== 'Forwarded to CEO') {
     return res.status(400).json({ success: false, message: 'Cash Approval must be "Forwarded to CEO" to approve' });
   }
-  pushHistory(ca, 'Forwarded to CEO', 'Pending Finance', req.user.id, req.body.comments || 'CEO Approved', 'CEO');
+  const ceoApprovedAt = new Date();
+  const ceoComments = req.body.comments || 'CEO Approved';
+  pushHistory(ca, 'Forwarded to CEO', 'Pending Finance', req.user.id, ceoComments, 'CEO');
   ca.status = 'Pending Finance';
   ca.ceoApprovedBy = req.user.id;
-  ca.ceoApprovedAt = new Date();
-  ca.ceoApprovalComments = req.body.comments || '';
+  ca.ceoApprovedAt = ceoApprovedAt;
+  ca.ceoApprovalComments = ceoComments;
   ca.ceoDigitalSignature = req.body.digitalSignature || '';
+  upsertCaAuthorityApproval(ca, {
+    key: 'ceoApproval',
+    label: 'CEO',
+    approverId: req.user.id,
+    approvedAt: ceoApprovedAt,
+    comments: ceoComments
+  });
   ca.updatedBy = req.user.id;
   await ca.save();
   const financeRecipients = await getFinanceRecipients();
@@ -1199,7 +1807,21 @@ router.put('/:id/create-voucher', authMiddleware, asyncHandler(async (req, res) 
     return res.status(403).json({ success: false, message: 'Finance access required' });
   }
   if (ca.voucherEntryId) {
-    return res.json({ success: true, message: 'Voucher already created for this cash approval', data: await fullPopulate(CashApproval.findById(ca._id)) });
+    const existingJe = await JournalEntry.findById(ca.voucherEntryId).select('status entryNumber');
+    if (existingJe?.status === 'posted') {
+      return res.json({
+        success: true,
+        message: 'Voucher already posted for this cash approval',
+        data: await fullPopulate(CashApproval.findById(ca._id))
+      });
+    }
+    if (!isGeneralCashApproval(ca)) {
+      return res.json({
+        success: true,
+        message: 'Voucher already created for this cash approval',
+        data: await fullPopulate(CashApproval.findById(ca._id))
+      });
+    }
   }
 
   const fa = req.body?.financeApprovalAuthorities || {};
@@ -1222,30 +1844,60 @@ router.put('/:id/create-voucher', authMiddleware, asyncHandler(async (req, res) 
   ca.financeAuthoritiesAssignedAt = new Date();
   ca.advanceTo = req.body?.advanceTo || null;
   ca.advanceToName = req.body?.advanceToName || '';
-  ca.advanceAmount = Number(req.body?.advanceAmount || ca.totalAmount || 0);
-  ca.advancePaymentMethod = req.body?.advancePaymentMethod || 'Cash';
-  ca.advanceRemarks = req.body?.remarks || req.body?.comments || '';
-  ca.signedCheckNumber = req.body?.signedCheckNumber || '';
-  ca.signedCheckDate = req.body?.signedCheckDate ? new Date(req.body.signedCheckDate) : null;
+  const parsedAdvance = Number(req.body?.advanceAmount);
+  ca.advanceAmount = Number.isFinite(parsedAdvance) && parsedAdvance > 0
+    ? Math.round(parsedAdvance * 100) / 100
+    : Math.round((Number(ca.totalAmount) || 0) * 100) / 100;
+  ca.advancePaymentMethod = isGeneralCashApproval(ca)
+    ? mapCaPaymentMethodLabel(req.body?.paymentMethod || req.body?.advancePaymentMethod)
+    : (req.body?.advancePaymentMethod || 'Cash');
+  ca.advanceWhtRate = Math.max(0, Number(req.body?.whtRate) || 0);
+  if (req.body?.bankAccountId) ca.advanceBankAccount = req.body.bankAccountId;
+  ca.advanceRemarks = req.body?.remarks || req.body?.advanceRemarks || req.body?.comments || '';
+  ca.signedCheckNumber = String(req.body?.reference || req.body?.signedCheckNumber || '').trim();
+  const payDate = req.body?.paymentDate || req.body?.signedCheckDate;
+  ca.signedCheckDate = payDate ? new Date(payDate) : null;
   ca.signedCheckBankName = req.body?.signedCheckBankName || '';
   ca.signedCheckRemarks = req.body?.signedCheckRemarks || '';
 
-  await ensureVoucherForCashApproval(ca, req.user.id, {
-    voucherType: req.body?.voucherType,
-    paymentMethod: req.body?.paymentMethod,
-    remarks: req.body?.remarks || req.body?.comments
-  });
-  if (ca.voucherEntryId) {
-    const voucherDoc = await JournalEntry.findById(ca.voucherEntryId).select('entryNumber');
-    if (voucherDoc?.entryNumber) ca.advanceVoucherNo = voucherDoc.entryNumber;
+  if (!isGeneralCashApproval(ca)) {
+    await ensureVoucherForCashApproval(ca, req.user.id, {
+      voucherType: req.body?.voucherType,
+      paymentMethod: req.body?.paymentMethod,
+      remarks: req.body?.remarks || req.body?.comments
+    });
+    if (ca.voucherEntryId) {
+      const voucherDoc = await JournalEntry.findById(ca.voucherEntryId).select('entryNumber');
+      if (voucherDoc?.entryNumber) ca.advanceVoucherNo = voucherDoc.entryNumber;
+    }
+  } else {
+    await ensureDraftBpvForGeneralCashApproval(ca, req.user.id, {
+      advanceAmount: ca.advanceAmount,
+      paymentMethod: req.body?.paymentMethod || req.body?.advancePaymentMethod,
+      bankAccountId: req.body?.bankAccountId || ca.advanceBankAccount,
+      reference: req.body?.reference || req.body?.signedCheckNumber,
+      paymentDate: req.body?.paymentDate || req.body?.signedCheckDate,
+      whtRate: req.body?.whtRate
+    });
   }
-  pushHistory(ca, 'Pending Finance', 'Pending Finance', req.user.id, req.body?.comments || 'Voucher created by Finance', 'Finance');
+  pushHistory(
+    ca,
+    'Pending Finance',
+    'Pending Finance',
+    req.user.id,
+    req.body?.comments || (isGeneralCashApproval(ca)
+      ? 'Finance authorities configured for advance payment'
+      : 'Voucher created by Finance'),
+    'Finance'
+  );
   ca.updatedBy = req.user.id;
   await ca.save();
 
   return res.json({
     success: true,
-    message: 'Voucher created successfully. Continue remaining approvals from Vouchers.',
+    message: isGeneralCashApproval(ca)
+      ? `Draft BPV saved (${ca.advanceVoucherNo || 'pending number'}). Complete finance approvals, then Post Payment to post to GL.`
+      : 'Voucher created successfully. Continue remaining approvals from Vouchers.',
     data: await fullPopulate(CashApproval.findById(ca._id))
   });
 }));
@@ -1290,7 +1942,7 @@ router.put('/:id/finance-approve', authMiddleware, asyncHandler(async (req, res)
   ca.financeAuthorityApprovals = approvals;
 
   const approvedKeysThisAction = pendingMatchedSlots.map((slot) => slot.key);
-  if (approvedKeysThisAction.includes('accountsOfficerUser') && !ca.voucherEntryId) {
+  if (approvedKeysThisAction.includes('accountsOfficerUser') && !ca.voucherEntryId && !isGeneralCashApproval(ca)) {
     await ensureVoucherForCashApproval(ca, req.user.id);
     pushHistory(ca, 'Pending Finance', 'Pending Finance', req.user.id, 'Voucher auto-created after Accounts Officer / AM approval', 'Finance');
   }
@@ -1359,6 +2011,353 @@ router.put('/:id/finance-reject', authMiddleware, asyncHandler(async (req, res) 
   res.json({ success: true, message: 'Finance authority rejection recorded. Cash Approval has been rejected.', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
+const resolveBankAccountForCaPayment = async (bankAccountId, paymentMethod, userId) => {
+  let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+  if (bankAccountId && !bankAccount) {
+    const err = new Error('Selected bank or cash account was not found');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!bankAccount) {
+    bankAccount = await FinanceHelper.getAccountByNumber(
+      isCashPaymentMethod(paymentMethod) ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+    );
+  }
+  if (!bankAccount) {
+    const err = new Error('Bank or cash account not found for payment');
+    err.statusCode = 400;
+    throw err;
+  }
+  return bankAccount;
+};
+
+const buildGeneralAdvancePaymentLines = async ({
+  cas,
+  employee,
+  payRows,
+  bankAccount,
+  whtRate,
+  paymentMethod,
+  payRef,
+  createdBy
+}) => {
+  const grossAmount = Math.round(payRows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+  const wht = whtRate > 0 ? Math.round(grossAmount * (whtRate / 100) * 100) / 100 : 0;
+  const netBank = Math.round((grossAmount - wht) * 100) / 100;
+  const isCash = isCashPaymentMethod(paymentMethod);
+  const employeeName = employeeDisplayName(employee);
+  const jeLines = [];
+
+  for (const ca of cas) {
+    const row = payRows.find((r) => r.cashApprovalId === String(ca._id));
+    if (!row) continue;
+    let debitAdvanceAcc = null;
+    if (ca.advanceGlAccount) {
+      debitAdvanceAcc = await Account.findById(ca.advanceGlAccount);
+    }
+    if (!debitAdvanceAcc) {
+      debitAdvanceAcc = await resolveEmployeeAdvanceAccount(employee, { createdBy });
+    }
+    if (!debitAdvanceAcc) {
+      debitAdvanceAcc = await ensureEmployeeAdvanceAccount(employee, createdBy);
+    }
+    if (!debitAdvanceAcc) {
+      const err = new Error(`Could not resolve employee advance account for ${ca.caNumber}`);
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!ca.advanceGlAccount) {
+      ca.advanceGlAccount = debitAdvanceAcc._id;
+      ca.advanceGlAccountNumber = debitAdvanceAcc.accountNumber;
+    }
+    jeLines.push({
+      account: debitAdvanceAcc._id,
+      description: `Employee advance — ${ca.caNumber} (${employeeName})`,
+      debit: row.amount,
+      department: 'general'
+    });
+  }
+
+  jeLines.push({
+    account: bankAccount._id,
+    description: `${isCash ? 'Cash' : 'Bank'} payment — ${payRef || employeeName}`,
+    credit: netBank,
+    department: 'finance'
+  });
+
+  if (wht > 0) {
+    const whtAccount = await FinanceHelper.getAccountByNumber('2004');
+    if (whtAccount) {
+      jeLines.push({
+        account: whtAccount._id,
+        description: `WHT @ ${whtRate}% on employee advance payment`,
+        credit: wht,
+        department: 'finance'
+      });
+    } else {
+      jeLines[jeLines.length - 1].credit = grossAmount;
+    }
+  }
+
+  return { jeLines, grossAmount, isCash };
+};
+
+const postJournalEntryWithGl = async (entry, userId) => {
+  entry.status = 'posted';
+  entry.postedBy = userId;
+  entry.postedDate = new Date();
+  await entry.save();
+  await FinanceHelper.postToGeneralLedger(entry._id);
+  return entry;
+};
+
+const ensureDraftBpvForGeneralCashApproval = async (ca, userId, opts = {}) => {
+  if (!isGeneralCashApproval(ca) || !ca.advanceToEmployee) return null;
+
+  const amount = Math.round((Number(opts.advanceAmount) || getCaOpenAdvanceAmount(ca)) * 100) / 100;
+  if (amount <= 0) return null;
+
+  const paymentMethod = opts.paymentMethod || 'bank_transfer';
+  const payRef = String(opts.reference || ca.signedCheckNumber || ca.caNumber || '').trim();
+  const postingDate = opts.paymentDate ? new Date(opts.paymentDate) : (ca.signedCheckDate || new Date());
+  const whtRate = Math.max(0, Number(opts.whtRate) || 0);
+  const bankAccount = await resolveBankAccountForCaPayment(opts.bankAccountId, paymentMethod, userId);
+  const employee = await Employee.findById(ca.advanceToEmployee);
+  if (!employee) {
+    const err = new Error('Employee payee not found for voucher');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const payRows = [{ cashApprovalId: String(ca._id), amount }];
+  const { jeLines, isCash } = await buildGeneralAdvancePaymentLines({
+    cas: [ca],
+    employee,
+    payRows,
+    bankAccount,
+    whtRate,
+    paymentMethod,
+    payRef,
+    createdBy: userId
+  });
+
+  const employeeName = employeeDisplayName(employee);
+  const meta = {
+    date: postingDate,
+    reference: payRef,
+    description: `Cash approval advance — ${employeeName} — ${ca.caNumber}`,
+    department: 'general',
+    module: 'general',
+    referenceId: ca._id,
+    referenceType: 'payment',
+    journalCode: isCash ? 'CASH' : 'BANK',
+    voucherSeries: isCash ? 'CPV' : 'BPV'
+  };
+
+  if (ca.voucherEntryId) {
+    const existing = await JournalEntry.findById(ca.voucherEntryId);
+    if (existing?.status === 'posted') return existing;
+    if (existing?.status === 'draft') {
+      Object.assign(existing, meta);
+      existing.lines = jeLines;
+      await existing.save();
+      ca.advanceVoucherNo = existing.entryNumber || ca.advanceVoucherNo;
+      return existing;
+    }
+  }
+
+  const voucher = await FinanceHelper.createDraftJournalEntry({
+    ...meta,
+    createdBy: userId,
+    lines: jeLines
+  });
+  ca.voucherEntryId = voucher._id;
+  ca.advanceVoucherNo = voucher.entryNumber || '';
+  return voucher;
+};
+
+const assertFinanceAuthoritiesApproved = (ca) => {
+  const requiredFinanceSlots = getRequiredFinanceAuthoritySlots(ca);
+  if (!requiredFinanceSlots.length) {
+    const err = new Error('Configure finance approval authorities before issuing advance');
+    err.statusCode = 400;
+    throw err;
+  }
+  const approvedFinanceKeys = new Set(
+    (Array.isArray(ca.financeAuthorityApprovals) ? ca.financeAuthorityApprovals : [])
+      .filter((a) => String(a?.decision || 'approved').trim() !== 'rejected')
+      .map((a) => String(a?.authorityKey || '').trim())
+      .filter(Boolean)
+  );
+  const remainingFinanceApprovals = requiredFinanceSlots.filter((s) => !approvedFinanceKeys.has(s.key));
+  if (remainingFinanceApprovals.length > 0) {
+    const err = new Error(
+      `Advance cannot be issued until all finance authorities approve. Pending: ${remainingFinanceApprovals.map((s) => s.label).join(', ')}`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+};
+
+const postGeneralCashApprovalAdvancePayment = async ({
+  req,
+  primaryCa,
+  allocations,
+  paymentMethod,
+  bankAccountId,
+  reference,
+  paymentDate,
+  whtRate,
+  advanceRemarks,
+  signedCheckAttachments
+}) => {
+  const payRows = (Array.isArray(allocations) ? allocations : [])
+    .map((row) => ({
+      cashApprovalId: String(row?.cashApprovalId || row?.caId || '').trim(),
+      amount: Math.round((Number(row?.amount) || 0) * 100) / 100
+    }))
+    .filter((row) => row.cashApprovalId && row.amount > 0);
+  if (!payRows.length) {
+    const err = new Error('Enter payment amount against at least one outstanding cash approval');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const caIds = payRows.map((r) => r.cashApprovalId);
+  const cas = await CashApproval.find({
+    _id: { $in: caIds },
+    originatingModule: GENERAL_MODULE,
+    status: 'Finance Authority Approved'
+  });
+  if (cas.length !== payRows.length) {
+    const err = new Error('One or more cash approvals are not available for payment');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const employeeIds = new Set(cas.map((c) => String(c.advanceToEmployee || '')).filter(Boolean));
+  if (employeeIds.size !== 1) {
+    const err = new Error('All selected cash approvals must belong to the same employee payee');
+    err.statusCode = 400;
+    throw err;
+  }
+  const employeeId = [...employeeIds][0];
+  const employee = await Employee.findById(employeeId);
+  if (!employee) {
+    const err = new Error('Employee payee not found');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  for (const ca of cas) {
+    assertFinanceAuthoritiesApproved(ca);
+    const row = payRows.find((r) => r.cashApprovalId === String(ca._id));
+    const open = getCaOpenAdvanceAmount(ca);
+    if (row.amount > open + 0.01) {
+      const err = new Error(`Payment for ${ca.caNumber} exceeds open balance PKR ${open}`);
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  const methodLabel = mapCaPaymentMethodLabel(paymentMethod);
+  const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+  const payRef = String(reference || primaryCa?.caNumber || '').trim();
+  const bankAccount = await resolveBankAccountForCaPayment(bankAccountId, paymentMethod, req.user.id);
+  const employeeName = employeeDisplayName(employee);
+  const { jeLines, isCash } = await buildGeneralAdvancePaymentLines({
+    cas,
+    employee,
+    payRows,
+    bankAccount,
+    whtRate,
+    paymentMethod,
+    payRef,
+    createdBy: req.user.id
+  });
+
+  let voucher = null;
+  const draftId = primaryCa?.voucherEntryId || cas[0]?.voucherEntryId;
+  if (draftId) {
+    const draft = await JournalEntry.findById(draftId);
+    if (draft?.status === 'draft') {
+      draft.date = postingDate;
+      draft.reference = payRef || cas.map((c) => c.caNumber).join(', ');
+      draft.description = `Cash approval advance payment to ${employeeName}`;
+      draft.lines = jeLines;
+      draft.voucherSeries = isCash ? 'CPV' : 'BPV';
+      draft.journalCode = isCash ? 'CASH' : 'BANK';
+      voucher = await postJournalEntryWithGl(draft, req.user.id);
+    }
+  }
+
+  if (!voucher) {
+    voucher = await FinanceHelper.createAndPostJournalEntry({
+      date: postingDate,
+      reference: payRef || cas.map((c) => c.caNumber).join(', '),
+      description: `Cash approval advance payment to ${employeeName}`,
+      department: 'general',
+      module: 'general',
+      referenceId: primaryCa?._id || cas[0]._id,
+      referenceType: 'payment',
+      journalCode: isCash ? 'CASH' : 'BANK',
+      voucherSeries: isCash ? 'CPV' : 'BPV',
+      createdBy: req.user.id,
+      lines: jeLines
+    });
+  }
+
+  for (const ca of cas) {
+    if (ca.voucherEntryId && String(ca.voucherEntryId) !== String(voucher._id)) {
+      const orphan = await JournalEntry.findById(ca.voucherEntryId);
+      if (orphan?.status === 'draft') {
+        orphan.status = 'cancelled';
+        await orphan.save();
+      }
+    }
+  }
+
+  const attachmentPayload = (Array.isArray(signedCheckAttachments) ? signedCheckAttachments : [])
+    .filter((a) => a && a.url)
+    .map((a) => ({
+      filename: a.filename || '',
+      originalName: a.originalName || a.filename || '',
+      url: a.url,
+      mimeType: a.mimeType || '',
+      uploadedAt: a.uploadedAt || new Date()
+    }));
+
+  const updatedIds = [];
+  for (const ca of cas) {
+    const row = payRows.find((r) => r.cashApprovalId === String(ca._id));
+    pushHistory(
+      ca,
+      'Finance Authority Approved',
+      'Advance Issued',
+      req.user.id,
+      `Advance of ${row.amount} issued via ${methodLabel}. Voucher: ${voucher.entryNumber || '-'}.`,
+      'Finance'
+    );
+    ca.status = 'Advance Issued';
+    ca.advanceAmount = row.amount;
+    ca.advancePaymentMethod = methodLabel;
+    ca.advanceVoucherNo = voucher.entryNumber || '';
+    ca.advanceRemarks = advanceRemarks || '';
+    ca.advanceIssuedBy = req.user.id;
+    ca.advanceIssuedAt = postingDate;
+    ca.voucherEntryId = voucher._id;
+    ca.signedCheckNumber = payRef || ca.signedCheckNumber || '';
+    ca.signedCheckDate = postingDate;
+    ca.signedCheckBankName = bankAccount.name || '';
+    if (attachmentPayload.length) ca.signedCheckAttachments = attachmentPayload;
+    ca.updatedBy = req.user.id;
+    await ca.save();
+    updatedIds.push(ca._id);
+  }
+
+  return { voucher, updatedIds, grossAmount, employeeName };
+};
+
 // Phase 6: Finance Issue Advance
 router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
@@ -1372,23 +2371,62 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
   if (ca.status !== 'Finance Authority Approved') {
     return res.status(400).json({ success: false, message: 'Cash Approval must be in "Finance Authority Approved" status to issue advance' });
   }
-  const requiredFinanceSlots = getRequiredFinanceAuthoritySlots(ca);
-  if (!requiredFinanceSlots.length) {
-    return res.status(400).json({ success: false, message: 'Configure finance approval authorities before issuing advance' });
+
+  const paymentMethod = req.body?.paymentMethod || req.body?.advancePaymentMethod || 'bank_transfer';
+  const isGeneralPayment =
+    isGeneralCashApproval(ca) ||
+    (Array.isArray(req.body?.allocations) && req.body.allocations.length > 0);
+
+  if (isGeneralPayment && isGeneralCashApproval(ca)) {
+    const reference = String(req.body?.reference || req.body?.signedCheckNumber || '').trim();
+    const normalizedAttachments = Array.isArray(req.body?.signedCheckAttachments)
+      ? req.body.signedCheckAttachments.filter((a) => a && a.url)
+      : [];
+    if (!reference && !normalizedAttachments.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment reference (cheque / TT #) or supporting evidence is required'
+      });
+    }
+
+    const allocations = Array.isArray(req.body?.allocations) && req.body.allocations.length
+      ? req.body.allocations
+      : [{
+        cashApprovalId: String(ca._id),
+        amount: Math.round((Number(req.body?.advanceAmount) || getCaOpenAdvanceAmount(ca)) * 100) / 100
+      }];
+
+    try {
+      const result = await postGeneralCashApprovalAdvancePayment({
+        req,
+        primaryCa: ca,
+        allocations,
+        paymentMethod,
+        bankAccountId: req.body?.bankAccountId || null,
+        reference,
+        paymentDate: req.body?.paymentDate || req.body?.signedCheckDate || null,
+        whtRate: Number(req.body?.whtRate) || 0,
+        advanceRemarks: req.body?.advanceRemarks || req.body?.remarks || '',
+        signedCheckAttachments: normalizedAttachments
+      });
+      const refreshed = await fullPopulate(CashApproval.findById(ca._id));
+      return res.json({
+        success: true,
+        message: `Advance payment posted (${result.voucher?.entryNumber || 'BPV'}). ${result.updatedIds.length} cash approval(s) updated.`,
+        data: refreshed,
+        voucherEntryNumber: result.voucher?.entryNumber || null
+      });
+    } catch (err) {
+      return res.status(err.statusCode || 500).json({ success: false, message: err.message || 'Failed to post advance payment' });
+    }
   }
-  const approvedFinanceKeys = new Set(
-    (Array.isArray(ca.financeAuthorityApprovals) ? ca.financeAuthorityApprovals : [])
-      .filter((a) => String(a?.decision || 'approved').trim() !== 'rejected')
-      .map((a) => String(a?.authorityKey || '').trim())
-      .filter(Boolean)
-  );
-  const remainingFinanceApprovals = requiredFinanceSlots.filter((s) => !approvedFinanceKeys.has(s.key));
-  if (remainingFinanceApprovals.length > 0) {
-    return res.status(400).json({
-      success: false,
-      message: `Advance cannot be issued until all finance authorities approve. Pending: ${remainingFinanceApprovals.map((s) => s.label).join(', ')}`
-    });
+
+  try {
+    assertFinanceAuthoritiesApproved(ca);
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({ success: false, message: err.message });
   }
+
   const {
     advanceTo,
     advanceToName,
@@ -1437,29 +2475,37 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
   ca.updatedBy = req.user.id;
   await ca.save();
 
-  // ── Journal Entry 1: DR Cash Advance to Staff / CR Cash or Bank ──────────────
   try {
-    const staffAdvAcc = await FinanceHelper.ensureStaffAdvanceAccount(req.user.id);
+    let debitAdvanceAcc = null;
+    if (isGeneralCashApproval(ca) && ca.advanceGlAccount) {
+      debitAdvanceAcc = await Account.findById(ca.advanceGlAccount);
+    }
+    if (!debitAdvanceAcc) {
+      debitAdvanceAcc = await FinanceHelper.ensureStaffAdvanceAccount(req.user.id);
+    }
     const cashBankAcc = await FinanceHelper.getAccountByNumber(
       isCash ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
     );
-    if (staffAdvAcc && cashBankAcc) {
-      await FinanceHelper.createAndPostJournalEntry({
+    if (debitAdvanceAcc && cashBankAcc) {
+      const jeDept = isGeneralCashApproval(ca) ? 'general' : 'procurement';
+      const jeModule = isGeneralCashApproval(ca) ? 'general' : 'procurement';
+      const voucher = await FinanceHelper.createAndPostJournalEntry({
         date: new Date(),
         reference: advanceVoucherNo || ca.caNumber,
         description: `Cash Advance issued for ${ca.caNumber}${advanceToName ? ` to ${advanceToName}` : ''}`,
-        department: 'procurement',
-        module: 'procurement',
+        department: jeDept,
+        module: jeModule,
         referenceId: ca._id,
         referenceType: 'payment',
         journalCode: isCash ? 'CASH' : 'BANK',
+        voucherSeries: isCash ? 'CPV' : 'BPV',
         createdBy: req.user.id,
         lines: [
           {
-            account: staffAdvAcc._id,
-            description: `Staff advance for ${ca.caNumber}${advanceToName ? ` — ${advanceToName}` : ''}`,
+            account: debitAdvanceAcc._id,
+            description: `Employee advance for ${ca.caNumber}${advanceToName ? ` — ${advanceToName}` : ''}${ca.advanceGlAccountNumber ? ` (${ca.advanceGlAccountNumber})` : ''}`,
             debit: amount,
-            department: 'procurement'
+            department: jeDept
           },
           {
             account: cashBankAcc._id,
@@ -1469,9 +2515,13 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
           }
         ]
       });
+      if (voucher?.entryNumber) {
+        ca.advanceVoucherNo = voucher.entryNumber;
+        ca.voucherEntryId = voucher._id;
+        await ca.save();
+      }
     }
   } catch (jeErr) {
-    // JE failure is non-fatal — CA status is already saved; log for investigation
     console.error(`⚠️  JE (advance) failed for ${ca.caNumber}:`, jeErr.message);
   }
 

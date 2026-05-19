@@ -2861,11 +2861,18 @@ router.delete('/purchase-orders/:id',
 
 // ==================== VENDORS ROUTES ====================
 
+const generateNextSupplierId = async () => {
+  const lastSupplier = await Supplier.findOne().sort({ supplierId: -1 }).select('supplierId').lean();
+  if (!lastSupplier?.supplierId) return 'SUP-0001';
+  const lastNum = parseInt(String(lastSupplier.supplierId).split('-')[1], 10);
+  return `SUP-${String((Number.isFinite(lastNum) ? lastNum : 0) + 1).padStart(4, '0')}`;
+};
+
 // @route   GET /api/procurement/vendors
 // @desc    Get all vendors (suppliers)
 // @access  Private (Procurement and Admin)
 router.get('/vendors', 
-  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'), 
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -3011,6 +3018,42 @@ router.get('/vendors/:id',
   })
 );
 
+// @route   POST /api/procurement/vendors/quick
+// @desc    Quick-create vendor (e.g. from centralized store bill form)
+// @access  Private
+router.post('/vendors/quick', [
+  body('name').trim().notEmpty().withMessage('Vendor name is required')
+], authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'hr_manager'), asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, message: errors.array()[0]?.msg || 'Validation failed', errors: errors.array() });
+  }
+
+  const slug = String(req.body.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24);
+  const vendor = new Supplier({
+    name: req.body.name.trim(),
+    contactPerson: (req.body.contactPerson || '—').trim(),
+    phone: (req.body.phone || '—').trim(),
+    email: (req.body.email || `${slug || 'vendor'}-${Date.now()}@sgc.local`).trim().toLowerCase(),
+    address: (req.body.address || '—').trim(),
+    paymentTerms: req.body.paymentTerms || 'Cash',
+    status: 'Active',
+    vendorCategory: req.body.vendorCategory || '',
+    notes: req.body.notes || '',
+    supplierId: await generateNextSupplierId(),
+    createdBy: req.user.id || req.user._id
+  });
+
+  await vendor.save();
+  const populatedVendor = await Supplier.findById(vendor._id).populate('createdBy', 'firstName lastName');
+
+  res.status(201).json({
+    success: true,
+    message: 'Vendor created successfully',
+    data: populatedVendor
+  });
+}));
+
 // @route   POST /api/procurement/vendors
 // @desc    Create new vendor
 // @access  Private (Procurement and Admin)
@@ -3020,7 +3063,7 @@ router.post('/vendors', [
   body('phone').trim().notEmpty().withMessage('Phone is required'),
   body('email').isEmail().withMessage('Valid email is required'),
   body('address').trim().notEmpty().withMessage('Address is required')
-], authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
+], authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -3029,14 +3072,7 @@ router.post('/vendors', [
     });
   }
 
-  // Generate supplierId
-  const lastSupplier = await Supplier.findOne().sort({ supplierId: -1 });
-  let newSupplierId = 'SUP-0001';
-  
-  if (lastSupplier && lastSupplier.supplierId) {
-    const lastNum = parseInt(lastSupplier.supplierId.split('-')[1]);
-    newSupplierId = `SUP-${String(lastNum + 1).padStart(4, '0')}`;
-  }
+  const newSupplierId = await generateNextSupplierId();
 
   const vendor = new Supplier({
     ...req.body,

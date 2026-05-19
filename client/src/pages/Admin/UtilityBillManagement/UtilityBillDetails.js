@@ -36,15 +36,11 @@ import {
   ZoomOut as ZoomOutIcon,
   RestartAlt as RestartAltIcon
 } from '@mui/icons-material';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import utilityBillService from '../../../services/utilityBillService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
 import {
-  consolidatedMemoSecondaryHeading,
-  getConsolidatedLineTotals,
-  hasConsolidatedBreakdown,
-  sortedConsolidatedLines,
   UTILITY_MEMO_COL_WIDTHS,
   utilityMemoDateCellSx,
   utilityMemoRefCellSx,
@@ -88,6 +84,30 @@ const formatMemoAmount = (amount) => new Intl.NumberFormat('en-PK', {
   maximumFractionDigits: 0
 }).format(Number(amount || 0));
 
+/** Centralized store commercial invoice (print + on-screen) */
+const formatInvoiceDateDmy = (date) => {
+  if (!date) return '—';
+  return new Date(date).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).replace(/ /g, '-');
+};
+
+const formatInvoiceTime12h = (date) => {
+  if (!date) return '—';
+  return new Date(date).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+};
+
+const formatDecimalPk = (amount) => new Intl.NumberFormat('en-PK', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+}).format(Number(amount || 0));
+
 const displayValue = (value) => value || '';
 const userDisplayName = (user) => {
   if (!user) return '';
@@ -108,7 +128,14 @@ const utilityBillObservationKey = (obs) => {
 /** Bill detail page: payment recording is not offered here (removed from toolbar). */
 const UtilityBillDetails = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
+  const isCentralizedStoreContext = location.pathname.startsWith('/admin/centralized-store');
+  const billsListPath = isCentralizedStoreContext ? '/admin/centralized-store/bills' : '/admin/utility-bills';
+  const billEditPath = (billId) =>
+    isCentralizedStoreContext
+      ? `/admin/centralized-store/bill/${billId}/edit`
+      : `/admin/utility-bills/${billId}/edit`;
   const { user } = useAuth();
   const [bill, setBill] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -271,7 +298,35 @@ const UtilityBillDetails = () => {
   };
   const getPrimaryHeading = () => (bill?.accountHead || bill?.site || bill?.location || bill?.provider || bill?.utilityType || 'Utility Bill').toUpperCase();
   const getSecondaryHeading = () =>
-    consolidatedMemoSecondaryHeading(bill, [bill?.provider, bill?.utilityType].filter(Boolean).join(' - '));
+    [bill?.provider, bill?.utilityType].filter(Boolean).join(' - ') || '';
+  const isCentralizedStoreInvoice = Boolean(
+    bill?.useCentralizedStore && Array.isArray(bill?.billLines) && bill.billLines.length > 0
+  );
+  const getStoreInvoiceOrgTitle = () =>
+    (displayValue(bill?.site) || displayValue(bill?.accountHead) || displayValue(bill?.provider) || 'Bill').trim();
+  const getVendorSupplierLine = () => {
+    const v = bill?.vendorId;
+    if (v && typeof v === 'object') {
+      const sid = v.supplierId != null && String(v.supplierId).trim() !== '' ? `${String(v.supplierId).trim()} ` : '';
+      return `${sid}${v.name || ''}`.trim() || displayValue(bill?.provider);
+    }
+    return displayValue(bill?.provider);
+  };
+  const getStoreLineProductCode = (line) => {
+    const snap = displayValue(line?.itemCode);
+    if (snap) return snap;
+    const si = line?.storeItem;
+    if (si && typeof si === 'object' && si.code) return String(si.code).trim();
+    return '—';
+  };
+  const getStoreLineDescription = (line) => {
+    const parts = [line?.itemName, line?.description].filter(Boolean);
+    return parts.join(' — ') || '—';
+  };
+  const getStoreInvoiceNarration = () => displayValue(bill?.notes) || getForWhat() || '—';
+  const getStoreInvoiceLinesTotal = () =>
+    (bill?.billLines || []).reduce((s, l) => s + (Number(l?.amount) || 0), 0) || Number(bill?.amount) || 0;
+
   const approvalStatus = bill?.approvalStatus || 'Draft';
   const pendingApproval = (bill?.approvalChain || []).find((step) => step.status === 'pending');
   const pendingApproverId = getUserId(pendingApproval?.approver);
@@ -287,8 +342,7 @@ const UtilityBillDetails = () => {
       isWorkflowAuditBlockingEditStatus(b?.auditStatus),
     canResendToPreAudit:
       b?.auditStatus === 'Returned from Audit' &&
-      b?.approvalStatus === 'Approved' &&
-      !b?.consolidatedIntoBillId
+      b?.approvalStatus === 'Approved'
   }), []);
 
   const resendToAuditApi = useCallback(
@@ -327,7 +381,7 @@ const UtilityBillDetails = () => {
   };
 
   const isAuditFinallyApproved = String(bill?.auditStatus || '').startsWith('Approved (from ');
-  const needsFinancePost = isAuditFinallyApproved && !bill?.consolidatedIntoBillId && !bill?.financeApBillId;
+  const needsFinancePost = isAuditFinallyApproved && !bill?.financeApBillId;
 
   const handlePostToFinance = async () => {
     try {
@@ -436,35 +490,7 @@ const UtilityBillDetails = () => {
     if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
   };
 
-  const buildMemoTableBodyHtml = () => {
-    if (hasConsolidatedBreakdown(bill)) {
-      const lines = sortedConsolidatedLines(bill);
-      const totals = getConsolidatedLineTotals(bill);
-      const lineRows = lines
-        .map((line) => {
-          const ref = displayValue(line.accountNumber) || line.billId || '—';
-          const forWhatLine = displayValue(line.forWhat) || line.utilityType || '—';
-          return `
-              <tr class="body-row">
-                <td>${formatMemoDate(line.billDate)}</td>
-                <td>${ref}${line.billId ? `<br /><span style="font-size:11px;color:#666;">Bill ${line.billId}</span>` : ''}</td>
-                <td>${displayValue(line.provider)}</td>
-                <td>${forWhatLine}</td>
-                <td class="amount-col">${formatMemoAmount(line.amount)}</td>
-                <td class="last-col">${formatMemoAmount(Number(line.lastMonthAmount) || 0)}</td>
-              </tr>`;
-        })
-        .join('');
-      const totalRow = `
-              <tr class="totals">
-                <td colspan="4" class="total-label">Total</td>
-                <td class="amount-col">${formatMemoAmount(totals.amountTotal)}</td>
-                <td class="last-col">${formatMemoAmount(totals.lastMonthTotal)}</td>
-              </tr>`;
-      return lineRows + totalRow;
-    }
-
-    return `
+  const buildMemoTableBodyHtml = () => `
               <tr class="body-row">
                 <td>${formatMemoDate(bill?.billDate)}</td>
                 <td>${displayValue(bill?.accountNumber)}</td>
@@ -476,9 +502,160 @@ const UtilityBillDetails = () => {
               <tr class="totals"><td colspan="4" class="total-label">Grand Total</td><td class="amount-col">${formatMemoAmount(getGrandTotal())}</td><td></td></tr>
               <tr class="totals"><td colspan="4" class="total-label">Cash Deposit Last Month</td><td class="amount-col">${formatMemoAmount(bill?.lastMonthAmount)}</td><td></td></tr>
               <tr class="totals"><td colspan="4" class="total-label">Balance Amount to be Paid</td><td class="amount-col">${formatMemoAmount(getBalanceToPay())}</td><td></td></tr>`;
+
+  const getStoreCentralizedPrintHtml = () => {
+    const esc = (s) => String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const lines = bill?.billLines || [];
+    const totalVal = getStoreInvoiceLinesTotal();
+    const bd = bill?.billDate ? new Date(bill.billDate) : null;
+    const created = bill?.createdAt ? new Date(bill.createdAt) : bd;
+    const rowHtml = lines.map((line, i) => {
+      const amt = Number(line.amount) || 0;
+      const qty = 1;
+      const rate = amt;
+      return `<tr class="data-row">
+        <td class="c-num">${i + 1}</td>
+        <td class="c-code">${esc(getStoreLineProductCode(line))}</td>
+        <td class="c-desc">${esc(getStoreLineDescription(line))}</td>
+        <td class="c-center">Nos</td>
+        <td class="c-num">${formatDecimalPk(qty)}</td>
+        <td class="c-num">${formatDecimalPk(rate)}</td>
+        <td class="c-num">${formatDecimalPk(amt)}</td>
+        <td class="c-center">0 %</td>
+        <td class="c-num">${formatDecimalPk(amt)}</td>
+      </tr>`;
+    }).join('');
+    const charges = [
+      ['Service Charges', 0],
+      ['Freight Charges', 0],
+      ['Packing Charges', 0],
+      ['Loading Charges', 0],
+      ['Income Tax', 0],
+      ['Special Excise Duty', 0],
+      ['Custom Duty', 0],
+      ['Sales Tax', 0]
+    ];
+    const chargesHtml = charges
+      .map(([label, val]) => `<div class="sum-row"><span>${esc(label)}</span><span>${formatDecimalPk(val)}</span></div>`)
+      .join('');
+    const orgTitle = esc(getStoreInvoiceOrgTitle());
+    const narration = esc(getStoreInvoiceNarration());
+
+    return `<!DOCTYPE html>
+<html>
+  <head>
+    <title>Bill - ${esc(displayValue(bill?.billId))}</title>
+    <style>
+      body { font-family: Georgia, "Times New Roman", serif; color: #111; margin: 0; padding: 18px 22px; font-size: 12px; background: #fff; }
+      .sheet { max-width: 900px; margin: 0 auto; }
+      .doc-title { text-align: center; margin-bottom: 14px; }
+      .doc-title .org { font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
+      .doc-title .sub { font-size: 15px; font-weight: 700; margin-top: 2px; }
+      .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin-bottom: 12px; border-bottom: 1px solid #bbb; padding-bottom: 10px; }
+      .meta-block { line-height: 1.55; }
+      .meta-block-right { text-align: right; }
+      .meta-row { display: grid; grid-template-columns: 92px 1fr; font-weight: 700; }
+      .meta-row-time { display: flex; justify-content: flex-end; align-items: baseline; gap: 8px; font-weight: 700; }
+      .meta-row .lbl, .meta-row-time .lbl { color: #333; }
+      .narration { background: #ffe7c2; border: 1px solid #e8b86a; padding: 8px 10px; margin: 10px 0 14px; font-weight: 700; line-height: 1.4; }
+      table.inv { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4px; }
+      table.inv th { font-size: 10px; font-weight: 800; text-align: center; border: 1px solid #999; padding: 6px 4px; background: #f2f2f2; vertical-align: middle; line-height: 1.2; }
+      table.inv td { border: 1px solid #aaa; padding: 7px 6px; vertical-align: top; font-size: 11px; }
+      table.inv .c-num { text-align: right; font-variant-numeric: tabular-nums; }
+      table.inv .c-center { text-align: center; }
+      table.inv .c-code { font-size: 10.5px; word-break: break-all; }
+      table.inv .c-desc { text-align: left; line-height: 1.35; }
+      table.inv tr.subtotal td { font-weight: 800; border-top: 2px solid #333; }
+      .footer-sum { display: flex; justify-content: flex-end; margin-top: 10px; }
+      .sum-box { width: 280px; font-size: 11px; }
+      .sum-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #ddd; }
+      .sum-row.net { border-bottom: 0; margin-top: 6px; padding-top: 8px; font-weight: 800; font-size: 12px; }
+      .sum-row.net span:last-child { border-bottom: 3px double #111; padding-bottom: 2px; }
+      .approval-table { margin-top: 36px; border: 1px solid #999; width: 100%; border-collapse: collapse; }
+      .approval-table th { text-align: left; font-size: 11px; background: #f5f5f5; border-bottom: 1px solid #999; padding: 6px 8px; }
+      .approval-table td { border-bottom: 1px solid #ddd; padding: 6px 8px; font-size: 11px; }
+      .approval-table tr:last-child td { border-bottom: 0; }
+      @media print { body { padding: 12px; } }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="doc-title">
+        <div class="org">${orgTitle}</div>
+        <div class="sub">Bill</div>
+      </div>
+      <div class="meta">
+        <div class="meta-block">
+          <div class="meta-row"><span class="lbl">Date</span><span>${esc(formatInvoiceDateDmy(bd))}</span></div>
+          <div class="meta-row"><span class="lbl">Bill ID</span><span>${esc(displayValue(bill?.billId))}</span></div>
+          <div class="meta-row"><span class="lbl">Supplier</span><span>${esc(getVendorSupplierLine())}</span></div>
+          <div class="meta-row"><span class="lbl">Address</span><span>${esc(displayValue(bill?.location))}</span></div>
+        </div>
+        <div class="meta-block meta-block-right">
+          <div class="meta-row-time"><span class="lbl">Time</span><span>${esc(formatInvoiceTime12h(created))}</span></div>
+        </div>
+      </div>
+      <div class="narration">Narration: ${narration}</div>
+      <table class="inv">
+        <thead>
+          <tr>
+            <th style="width:4%">S.<br/>No</th>
+            <th style="width:11%">Product<br/>Code</th>
+            <th style="width:28%">Description</th>
+            <th style="width:7%">Units</th>
+            <th style="width:9%">Quantity</th>
+            <th style="width:10%">Rate</th>
+            <th style="width:12%">Value Excluding<br/>Sales Tax</th>
+            <th style="width:7%">Discount</th>
+            <th style="width:12%">Net<br/>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowHtml}
+          <tr class="subtotal">
+            <td colspan="6" style="text-align:right;border-right:1px solid #aaa;">Sub Total</td>
+            <td class="c-num">${formatDecimalPk(totalVal)}</td>
+            <td></td>
+            <td class="c-num">${formatDecimalPk(totalVal)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="footer-sum">
+        <div class="sum-box">
+          ${chargesHtml}
+          <div class="sum-row net"><span>Net Total</span><span>${formatDecimalPk(totalVal)}</span></div>
+        </div>
+      </div>
+      <table class="approval-table">
+        <thead><tr><th>Authority</th><th>Name</th><th>Digital Signature</th><th>Date &amp; Time</th></tr></thead>
+        <tbody>
+          ${getApprovalRows().map((row) => `
+            <tr>
+              <td style="font-weight:800">${esc(row.authority)}</td>
+              <td>${esc(row.name || '-')}</td>
+              <td>${
+                getSignatureSource(row)
+                  ? `<img src="${esc(getImageUrl(getSignatureSource(row)))}" alt="" style="max-height:38px;max-width:130px;object-fit:contain;" />`
+                  : esc(row.signature || '-')
+              }</td>
+              <td>${esc(row.dateTime || '-')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>`;
   };
 
-  const getPrintContent = () => `
+  const getPrintContent = () => {
+    if (isCentralizedStoreInvoice) {
+      return getStoreCentralizedPrintHtml();
+    }
+    return `
     <!DOCTYPE html>
     <html>
       <head>
@@ -583,6 +760,7 @@ const UtilityBillDetails = () => {
       </body>
     </html>
   `;
+  };
 
   const handlePrint = () => {
     if (!bill) return;
@@ -621,7 +799,7 @@ const UtilityBillDetails = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} gap={2} flexWrap="wrap">
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/admin/utility-bills')}>
+        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(billsListPath)}>
           Back to Bills
         </Button>
         <Stack direction="row" spacing={1}>
@@ -668,8 +846,8 @@ const UtilityBillDetails = () => {
               <Button
                 variant="contained"
                 startIcon={<EditIcon />}
-                disabled={Boolean(bill.consolidatedIntoBillId) || workflowAudit.auditBlocksEdit}
-                onClick={() => navigate(`/admin/utility-bills/${bill._id}/edit`)}
+                disabled={workflowAudit.auditBlocksEdit}
+                onClick={() => navigate(billEditPath(bill._id))}
               >
                 Edit Bill
               </Button>
@@ -681,22 +859,6 @@ const UtilityBillDetails = () => {
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
           {error}
-        </Alert>
-      )}
-
-      {bill.consolidatedIntoBillId && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          This bill is included in a consolidated main bill. Use that document for approval.{' '}
-          <Button
-            variant="text"
-            size="small"
-            onClick={() => {
-              const pid = bill.consolidatedIntoBillId?._id || bill.consolidatedIntoBillId;
-              if (pid) navigate(`/admin/utility-bills/${pid}`);
-            }}
-          >
-            Open consolidated bill {bill.consolidatedIntoBillId?.billId ? `(${bill.consolidatedIntoBillId.billId})` : ''}
-          </Button>
         </Alert>
       )}
 
@@ -739,28 +901,58 @@ const UtilityBillDetails = () => {
             borderColor: 'grey.200'
           }}
         >
-          <Typography
-            variant="h6"
-            sx={{
-              fontFamily: 'Georgia, "Times New Roman", serif',
-              fontWeight: 800,
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-              fontSize: { xs: 17, md: 19 }
-            }}
-          >
-            {getPrimaryHeading()}
-          </Typography>
-          <Typography
-            variant="subtitle1"
-            sx={{
-              fontFamily: 'Georgia, "Times New Roman", serif',
-              fontWeight: 700,
-              fontSize: { xs: 15, md: 17 }
-            }}
-          >
-            {getSecondaryHeading()}
-          </Typography>
+          {isCentralizedStoreInvoice ? (
+            <>
+              <Typography
+                variant="h5"
+                sx={{
+                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontWeight: 700,
+                  fontSize: { xs: 20, md: 22 },
+                  textTransform: 'none',
+                  letterSpacing: 0.2
+                }}
+              >
+                {getStoreInvoiceOrgTitle()}
+              </Typography>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontWeight: 700,
+                  fontSize: { xs: 16, md: 18 },
+                  mt: 0.5
+                }}
+              >
+                Bill
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.6,
+                  fontSize: { xs: 17, md: 19 }
+                }}
+              >
+                {getPrimaryHeading()}
+              </Typography>
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontWeight: 700,
+                  fontSize: { xs: 15, md: 17 }
+                }}
+              >
+                {getSecondaryHeading()}
+              </Typography>
+            </>
+          )}
         </Box>
 
         <AuditReturnFeedbackSection
@@ -787,6 +979,180 @@ const UtilityBillDetails = () => {
           )}
         />
 
+        {isCentralizedStoreInvoice ? (
+          <>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                gap: { xs: 2, md: 3 },
+                mb: 2,
+                pb: 2,
+                borderBottom: '1px solid',
+                borderColor: 'grey.400'
+              }}
+            >
+              <Box sx={{ display: 'grid', gridTemplateColumns: '88px 1fr', rowGap: 0.75, columnGap: 1, fontSize: 13 }}>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Date</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{formatInvoiceDateDmy(bill.billDate)}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Bill ID</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{bill.billId}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Supplier</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{getVendorSupplierLine()}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Address</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{displayValue(bill.location)}</Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: { xs: 'flex-start', md: 'flex-end' },
+                  alignItems: 'baseline',
+                  gap: 1,
+                  fontSize: 13
+                }}
+              >
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Time</Typography>
+                <Typography sx={{ fontWeight: 700 }}>
+                  {formatInvoiceTime12h(bill.createdAt || bill.billDate)}
+                </Typography>
+              </Box>
+            </Box>
+            <Box
+              sx={{
+                bgcolor: '#ffe7c2',
+                border: '1px solid #e8b86a',
+                p: 1.5,
+                mb: 2,
+                fontWeight: 700,
+                fontSize: 13,
+                lineHeight: 1.45
+              }}
+            >
+              Narration: {getStoreInvoiceNarration()}
+            </Box>
+            <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+              <Table
+                size="small"
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'grey.500',
+                  '& th': {
+                    bgcolor: 'grey.100',
+                    border: '1px solid',
+                    borderColor: 'grey.500',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    textAlign: 'center',
+                    lineHeight: 1.2,
+                    py: 1,
+                    px: 0.5
+                  },
+                  '& td': {
+                    border: '1px solid',
+                    borderColor: 'grey.400',
+                    fontSize: 12,
+                    py: 1,
+                    px: 0.75,
+                    verticalAlign: 'top'
+                  }
+                }}
+              >
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ width: '4%' }}>S. No</TableCell>
+                    <TableCell sx={{ width: '11%' }}>Product Code</TableCell>
+                    <TableCell sx={{ width: '28%' }}>Description</TableCell>
+                    <TableCell sx={{ width: '7%' }}>Units</TableCell>
+                    <TableCell sx={{ width: '9%', textAlign: 'right' }}>Quantity</TableCell>
+                    <TableCell sx={{ width: '10%', textAlign: 'right' }}>Rate</TableCell>
+                    <TableCell sx={{ width: '12%', textAlign: 'right' }}>Value Excluding Sales Tax</TableCell>
+                    <TableCell sx={{ width: '7%', textAlign: 'center' }}>Discount</TableCell>
+                    <TableCell sx={{ width: '12%', textAlign: 'right' }}>Net Amount</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {(bill.billLines || []).map((line, i) => {
+                    const amt = Number(line.amount) || 0;
+                    return (
+                      <TableRow key={line._id || line.storeItem || i}>
+                        <TableCell sx={{ textAlign: 'center' }}>{i + 1}</TableCell>
+                        <TableCell sx={{ wordBreak: 'break-all', fontSize: 11 }}>{getStoreLineProductCode(line)}</TableCell>
+                        <TableCell sx={{ lineHeight: 1.35 }}>{getStoreLineDescription(line)}</TableCell>
+                        <TableCell sx={{ textAlign: 'center' }}>Nos</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(1)}</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(amt)}</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(amt)}</TableCell>
+                        <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                          {formatDecimalPk(amt)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  <TableRow
+                    sx={{
+                      '& td': {
+                        fontWeight: 800,
+                        borderTop: '2px solid',
+                        borderColor: 'grey.800',
+                        bgcolor: 'grey.50'
+                      }
+                    }}
+                  >
+                    <TableCell colSpan={6} align="right" sx={{ borderRight: '1px solid', borderColor: 'grey.400' }}>
+                      Sub Total
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatDecimalPk(getStoreInvoiceLinesTotal())}
+                    </TableCell>
+                    <TableCell />
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatDecimalPk(getStoreInvoiceLinesTotal())}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+              <Stack spacing={0.35} sx={{ width: 280, fontSize: 12 }}>
+                {[
+                  'Service Charges',
+                  'Freight Charges',
+                  'Packing Charges',
+                  'Loading Charges',
+                  'Income Tax',
+                  'Special Excise Duty',
+                  'Custom Duty',
+                  'Sales Tax'
+                ].map((label) => (
+                  <Box key={label} sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid', borderColor: 'grey.300', py: 0.35 }}>
+                    <Typography component="span" sx={{ fontSize: 12 }}>{label}</Typography>
+                    <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(0)}</Typography>
+                  </Box>
+                ))}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    pt: 1,
+                    mt: 0.5,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    borderBottom: '3px double',
+                    borderColor: 'grey.900',
+                    pb: 0.5
+                  }}
+                >
+                  <Typography component="span">Net Total</Typography>
+                  <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatDecimalPk(getStoreInvoiceLinesTotal())}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Box>
+          </>
+        ) : (
+          <>
         <Box
           sx={{
             display: 'grid',
@@ -890,114 +1256,45 @@ const UtilityBillDetails = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {hasConsolidatedBreakdown(bill) ? (
-              <>
-                {sortedConsolidatedLines(bill).map((line, idx) => {
-                  const ref = displayValue(line.accountNumber) || line.billId || '—';
-                  const forWhatLine = displayValue(line.forWhat) || line.utilityType || '—';
-                  return (
-                    <TableRow key={line.bill?._id || line.bill || idx}>
-                      <TableCell sx={utilityMemoDateCellSx}>
-                        {formatMemoDate(line.billDate)}
-                      </TableCell>
-                      <TableCell sx={utilityMemoRefCellSx}>
-                        <Typography component="span" sx={{ fontWeight: 700 }}>{ref}</Typography>
-                        {line.billId ? (
-                          <Typography variant="caption" display="block" color="text.secondary">
-                            Bill {line.billId}
-                          </Typography>
-                        ) : null}
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                        {displayValue(line.provider)}
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-                        {forWhatLine}
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
-                        {formatMemoAmount(line.amount)}
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
-                        {formatMemoAmount(Number(line.lastMonthAmount) || 0)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {(() => {
-                  const totals = getConsolidatedLineTotals(bill);
-                  return (
-                    <TableRow>
-                      <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
-                        Total
-                      </TableCell>
-                      <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
-                        {formatMemoAmount(totals.amountTotal)}
-                      </TableCell>
-                      <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: '1px solid', borderColor: 'grey.300' }}>
-                        {formatMemoAmount(totals.lastMonthTotal)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })()}
-              </>
-            ) : (
-              <>
-                <TableRow>
-                  <TableCell sx={utilityMemoDateCellSx}>
-                    {formatMemoDate(bill.billDate)}
-                  </TableCell>
-                  <TableCell sx={utilityMemoRefCellSx}>{displayValue(bill.accountNumber)}</TableCell>
-                  <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
-                  <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-                    {getForWhat()}
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
-                    {formatMemoAmount(bill.amount)}
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
-                    {formatMemoAmount(bill.lastMonthAmount)}
-                  </TableCell>
-                </TableRow>
+            <TableRow>
+              <TableCell sx={utilityMemoDateCellSx}>
+                {formatMemoDate(bill.billDate)}
+              </TableCell>
+              <TableCell sx={utilityMemoRefCellSx}>{displayValue(bill.accountNumber)}</TableCell>
+              <TableCell sx={{ fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{displayValue(bill.provider)}</TableCell>
+              <TableCell sx={{ fontWeight: 700, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                {getForWhat()}
+              </TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                {formatMemoAmount(bill.amount)}
+              </TableCell>
+              <TableCell sx={{ fontWeight: 800, textAlign: 'right' }}>
+                {formatMemoAmount(bill.lastMonthAmount)}
+              </TableCell>
+            </TableRow>
 
-                {[
-                  ['Grand Total', formatMemoAmount(getGrandTotal())],
-                  ['Cash Deposit Last Month', formatMemoAmount(bill.lastMonthAmount)],
-                  ['Balance Amount to be Paid', formatMemoAmount(getBalanceToPay())]
-                ].map(([label, value]) => (
-                  <TableRow key={label}>
-                    <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
-                      {label}
-                    </TableCell>
-                    <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
-                      {value}
-                    </TableCell>
-                    <TableCell sx={{ borderTop: 0 }} />
-                  </TableRow>
-                ))}
-              </>
-            )}
+            {[
+              ['Grand Total', formatMemoAmount(getGrandTotal())],
+              ['Cash Deposit Last Month', formatMemoAmount(bill.lastMonthAmount)],
+              ['Balance Amount to be Paid', formatMemoAmount(getBalanceToPay())]
+            ].map(([label, value]) => (
+              <TableRow key={label}>
+                <TableCell colSpan={4} sx={{ p: 0.6, pr: 2, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                  {label}
+                </TableCell>
+                <TableCell sx={{ p: 0.6, pr: 1.25, fontWeight: 800, fontSize: 13, textAlign: 'right', borderTop: 0 }}>
+                  {value}
+                </TableCell>
+                <TableCell sx={{ borderTop: 0 }} />
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
         </TableContainer>
-
-        {hasConsolidatedBreakdown(bill) && (
-          <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
-              Original bills:
-            </Typography>
-            {bill.consolidatedFrom.map((line, idx) => {
-              const bid = line.bill?._id || line.bill;
-              const label = line.billId || line.bill?.billId || `Bill ${idx + 1}`;
-              return bid ? (
-                <Button key={bid} size="small" variant="outlined" onClick={() => navigate(`/admin/utility-bills/${bid}`)}>
-                  {label}
-                </Button>
-              ) : null;
-            })}
-          </Box>
+          </>
         )}
 
-        {bill.notes && (
+        {bill.notes && !isCentralizedStoreInvoice && (
           <Box sx={{ mt: 2, p: 1.5, borderTop: '1px solid', borderColor: 'grey.200', bgcolor: 'grey.50' }}>
             <Typography sx={{ fontWeight: 800, fontSize: 13 }}>Notes</Typography>
             <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{bill.notes}</Typography>

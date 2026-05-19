@@ -79,6 +79,7 @@ import LabelPrintPage from './pages/AssetTagging/LabelPrintPage';
 import BulkLabelPrintPage from './pages/AssetTagging/BulkLabelPrintPage';
 import BankReconciliation from './pages/Finance/BankReconciliation';
 import VendorStatement from './pages/Finance/VendorStatement';
+import FinanceVendorsList from './pages/Finance/FinanceVendorsList';
 import BudgetVsActual from './pages/Finance/BudgetVsActual';
 import AgedPayables from './pages/Finance/AgedPayables';
 import PaymentTerms from './pages/Finance/PaymentTerms';
@@ -182,6 +183,7 @@ import UtilityBillList from './pages/Admin/UtilityBillManagement/UtilityBillList
 import UtilityBillForm from './pages/Admin/UtilityBillManagement/UtilityBillForm';
 import UtilityBillDetails from './pages/Admin/UtilityBillManagement/UtilityBillDetails';
 import CentralizedStoreManagement from './pages/Admin/UtilityBillManagement/CentralizedStoreManagement';
+import CentralizedStoreBills from './pages/Admin/UtilityBillManagement/CentralizedStoreBills';
 import RentalAgreementList from './pages/Admin/RentalAgreements/RentalAgreementList';
 import RentalAgreementDetail from './pages/Admin/RentalAgreements/RentalAgreementDetail';
 import RentalManagementDashboard from './pages/Admin/RentalManagement/RentalManagementDashboard';
@@ -240,6 +242,10 @@ import UserTracking from './pages/General/UserTracking';
 import IndentsDashboard from './pages/General/Indents/IndentsDashboard';
 import IndentsList from './pages/General/Indents/IndentsList';
 import IndentForm from './pages/General/Indents/IndentForm';
+import GeneralCashApprovalsList from './pages/General/CashApprovals/GeneralCashApprovalsList';
+import GeneralCashApprovalForm from './pages/General/CashApprovals/GeneralCashApprovalForm';
+import GeneralCashApprovalDetail from './pages/General/CashApprovals/GeneralCashApprovalDetail';
+import CashApprovalGeneralViewPage from './pages/CashApprovals/CashApprovalGeneralViewPage';
 import IndentDetail from './pages/General/Indents/IndentDetail';
 import IndentPrintView from './pages/General/Indents/IndentPrintView';
 import Payments from './pages/General/Payments';
@@ -718,7 +724,28 @@ function App() {
               path="/general/indents"
               element={<ProtectedRoute><IndentsList /></ProtectedRoute>}
             />
-            
+
+            <Route
+              path="/general/cash-approvals/create"
+              element={<ProtectedRoute><GeneralCashApprovalForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/cash-approvals/:id/edit"
+              element={<ProtectedRoute><GeneralCashApprovalForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/cash-approvals/:id"
+              element={<ProtectedRoute><GeneralCashApprovalDetail /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/cash-approvals"
+              element={<ProtectedRoute><GeneralCashApprovalsList /></ProtectedRoute>}
+            />
+            <Route
+              path="/cash-approvals/:id/view"
+              element={<ProtectedRoute><CashApprovalGeneralViewPage /></ProtectedRoute>}
+            />
+
             <Route
               path="/general/ceo-secretariat/payments"
               element={<ProtectedRoute><Payments /></ProtectedRoute>}
@@ -1062,6 +1089,7 @@ function App() {
             <Route path="/asset-tagging/label/:assetId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><LabelPrintPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/labels/print" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><BulkLabelPrintPage /></ProtectedRoute>} />
             <Route path="/finance/bank-reconciliation" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankReconciliation /></ProtectedRoute>} />
+            <Route path="/finance/vendors" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "procurement_manager"]}><FinanceVendorsList /></ProtectedRoute>} />
             <Route path="/finance/vendor-statement" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "procurement_manager"]}><VendorStatement /></ProtectedRoute>} />
             <Route path="/finance/budget-vs-actual" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetVsActual /></ProtectedRoute>} />
             <Route path="/finance/aged-payables" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AgedPayables /></ProtectedRoute>} />
@@ -1781,6 +1809,22 @@ function App() {
             <Route
               path="/admin/centralized-store"
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><CentralizedStoreManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/admin/centralized-store/bills"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><CentralizedStoreBills /></ProtectedRoute>}
+            />
+            <Route
+              path="/admin/centralized-store/bills/:id"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillDetails /></ProtectedRoute>}
+            />
+            <Route
+              path="/admin/centralized-store/bill/new"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/admin/centralized-store/bill/:id/edit"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>}
             />
             <Route 
               path="/admin/utility-bills/list" 

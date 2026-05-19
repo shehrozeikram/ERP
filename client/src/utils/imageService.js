@@ -3,6 +3,9 @@
  * Handles image URL construction and validation across the application
  */
 
+/** Strip trailing /api from API base URL (never strip hostname segments like api.example.com). */
+const stripApiBaseSuffix = (baseUrl) => String(baseUrl || '').replace(/\/api\/?$/, '');
+
 /**
  * Get the full image URL from a relative path
  * @param {string} imagePath - Relative image path (e.g., '/uploads/profile-images/filename.jpg')
@@ -13,6 +16,11 @@ export const getImageUrl = (imagePath) => {
   
   // If it's already a full URL, return as is
   if (imagePath.startsWith('http')) return imagePath;
+
+  // Some callers mistakenly prefix static paths with /api
+  if (imagePath.startsWith('/api/uploads/')) {
+    imagePath = imagePath.replace(/^\/api/, '');
+  }
   
   // Extract filename from path (e.g., '/uploads/profile-images/filename.jpg' -> 'filename.jpg')
   const extractFilename = (path) => {
@@ -97,7 +105,7 @@ export const getImageUrl = (imagePath) => {
     // In development, use full backend URL to bypass React Router
     // This ensures the request goes directly to the backend, not through React Router
     const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-    const baseUrl = backendUrl.replace('/api', ''); // Remove /api if present
+    const baseUrl = stripApiBaseSuffix(backendUrl);
     return `${baseUrl}${imagePath}`;
   }
   

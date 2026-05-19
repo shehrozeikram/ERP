@@ -5,8 +5,15 @@ const Account = require('../models/finance/Account');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const AccountsReceivable = require('../models/finance/AccountsReceivable');
 const VendorAdvance = require('../models/finance/VendorAdvance');
+const CashApproval = require('../models/procurement/CashApproval');
+const Employee = require('../models/hr/Employee');
 const FiscalPeriod = require('../models/finance/FiscalPeriod');
 const FinanceJournal = require('../models/finance/FinanceJournal');
+const {
+  resolveEmployeeAdvanceAccount,
+  ensureEmployeeAdvanceAccount,
+  employeeDisplayName
+} = require('./employeeAdvanceAccount');
 
 /**
  * Finance Helper Utility
@@ -547,6 +554,7 @@ const FinanceHelper = {
 
       apEntry = new AccountsPayable({
         vendor: { name: vendorName, email: vendorEmail, vendorId: vendorId },
+        payeeEmployee: options.payeeEmployeeId || options.payeeEmployee || null,
         billNumber,
         vendorInvoiceNumber: vendorInvoiceNumber || '',
         billDate: billDateNorm,
@@ -998,6 +1006,244 @@ const FinanceHelper = {
     FinanceHelper._updateDocumentStatus(bill);
     await bill.save();
     return { bill, applied: adjustments.reduce((s, a) => s + a.amount, 0), adjustments };
+  },
+
+  _getCaOpenAdvanceForAp: (ca) => {
+    const advanced = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
+    const alreadyToAp = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
+    return Math.max(0, Math.round((advanced - alreadyToAp) * 100) / 100);
+  },
+
+  _applyOneCashApprovalToBill: async (ca, bill, applyAmount, employee, createdBy) => {
+    const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+    if (!apAccount) throw new Error('Accounts Payable account not found');
+
+    const alreadyToAp = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
+    const caRemaining = FinanceHelper._getCaOpenAdvanceForAp(ca);
+    const amount = Math.round((Number(applyAmount) || 0) * 100) / 100;
+    if (amount <= 0) throw new Error('Apply amount must be greater than zero');
+    if (amount > caRemaining + 0.009) {
+      throw new Error(`Amount exceeds open balance on ${ca.caNumber} (open: ${caRemaining})`);
+    }
+
+    let advAccount = null;
+    if (ca.advanceGlAccount) {
+      advAccount = await Account.findById(ca.advanceGlAccount);
+    }
+    if (!advAccount) {
+      advAccount = await resolveEmployeeAdvanceAccount(employee, { createdBy });
+    }
+    if (!advAccount) {
+      advAccount = await ensureEmployeeAdvanceAccount(employee, { createdBy });
+    }
+    if (!advAccount) throw new Error(`No advance account for ${ca.caNumber}`);
+
+    await FinanceHelper.createAndPostJournalEntry({
+      date: new Date(),
+      reference: `CA-ADJ-${bill.billNumber}`,
+      description: `Cash approval ${ca.caNumber} applied to bill ${bill.billNumber}`,
+      department: bill.department || 'general',
+      module: bill.module || 'general',
+      referenceId: bill._id,
+      referenceType: 'adjustment',
+      journalCode: 'ADJUSTMENT',
+      voucherSeries: 'JV',
+      createdBy: createdBy || bill.createdBy,
+      lines: [
+        {
+          account: apAccount._id,
+          description: `Advance applied – ${bill.billNumber}`,
+          debit: amount,
+          department: bill.department
+        },
+        {
+          account: advAccount._id,
+          description: `CA ${ca.caNumber} utilized`,
+          credit: amount,
+          department: bill.department || 'general'
+        }
+      ]
+    });
+
+    ca.apAdvanceApplied = Math.round((alreadyToAp + amount) * 100) / 100;
+    await ca.save();
+
+    bill.advanceApplied = Math.round(((Number(bill.advanceApplied) || 0) + amount) * 100) / 100;
+    if (!Array.isArray(bill.employeeAdvanceAllocations)) bill.employeeAdvanceAllocations = [];
+    bill.employeeAdvanceAllocations.push({
+      cashApprovalId: ca._id,
+      caNumber: ca.caNumber,
+      amount,
+      appliedAt: new Date()
+    });
+
+    return { cashApprovalId: ca._id, caNumber: ca.caNumber, amount };
+  },
+
+  applyEmployeeAdvanceToBill: async (billId, requestedAmount = null, employeeId = null, createdBy = null, options = {}) => {
+    const bill = await AccountsPayable.findById(billId);
+    if (!bill) throw new Error('Bill not found');
+
+    const empId = employeeId || bill.payeeEmployee;
+    if (!empId) throw new Error('Employee is required to apply cash approval advance');
+
+    const employee = await Employee.findById(empId);
+    if (!employee) throw new Error('Employee not found');
+
+    let remainingBill = FinanceHelper.getAPOutstanding(bill);
+    if (remainingBill <= 0) return { bill, applied: 0, adjustments: [] };
+
+    const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+    if (!apAccount) throw new Error('Accounts Payable account not found');
+
+    const adjustments = [];
+    const explicitAllocations = Array.isArray(options.allocations)
+      ? options.allocations
+        .map((row) => ({
+          cashApprovalId: String(row?.cashApprovalId || row?.caId || '').trim(),
+          amount: Math.round((Number(row?.amount) || 0) * 100) / 100
+        }))
+        .filter((row) => row.cashApprovalId && row.amount > 0)
+      : [];
+
+    if (explicitAllocations.length > 0) {
+      for (const row of explicitAllocations) {
+        if (remainingBill <= 0) break;
+
+        const ca = await CashApproval.findById(row.cashApprovalId);
+        if (!ca) throw new Error('Cash approval not found');
+        if (!ca.advanceIssuedAt) {
+          throw new Error(`${ca.caNumber || 'Cash approval'}: advance has not been issued yet`);
+        }
+        if (String(ca.advanceToEmployee || '') !== String(empId)) {
+          throw new Error(`${ca.caNumber || 'Cash approval'} is not for this employee`);
+        }
+
+        const applyAmount = Math.min(row.amount, remainingBill);
+        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmount, employee, createdBy);
+        if (!bill.payeeEmployee) bill.payeeEmployee = empId;
+        adjustments.push(adj);
+        remainingBill = Math.round((remainingBill - applyAmount) * 100) / 100;
+      }
+    } else {
+      let remainingRequest = requestedAmount == null
+        ? remainingBill
+        : Math.round((Number(requestedAmount) || 0) * 100) / 100;
+      if (remainingRequest <= 0) throw new Error('Apply amount must be greater than zero');
+
+      const cas = await CashApproval.find({
+        advanceToEmployee: empId,
+        advanceIssuedAt: { $ne: null },
+        status: { $nin: ['Draft', 'Cancelled', 'Rejected'] }
+      }).sort({ advanceIssuedAt: 1, createdAt: 1 });
+
+      for (const ca of cas) {
+        if (remainingBill <= 0 || remainingRequest <= 0) break;
+
+        const caRemaining = FinanceHelper._getCaOpenAdvanceForAp(ca);
+        if (caRemaining <= 0) continue;
+
+        const applyAmount = Math.min(remainingBill, remainingRequest, caRemaining);
+        if (applyAmount <= 0) continue;
+
+        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmount, employee, createdBy);
+        if (!bill.payeeEmployee) bill.payeeEmployee = empId;
+        adjustments.push(adj);
+        remainingBill = Math.round((remainingBill - applyAmount) * 100) / 100;
+        remainingRequest = Math.round((remainingRequest - applyAmount) * 100) / 100;
+      }
+    }
+
+    FinanceHelper._updateDocumentStatus(bill);
+    await bill.save();
+
+    const applied = adjustments.reduce((s, a) => s + a.amount, 0);
+    if (applied <= 0) {
+      throw new Error('No open cash approval advance balance for this employee');
+    }
+    return { bill, applied, adjustments };
+  },
+
+  /**
+   * Apply one or more cash approval advances to one or more AP bills (Taj deposit-style reconciliation).
+   * Total from cashApprovalUsages must equal total from billAllocations.
+   */
+  applyEmployeeAdvanceBatch: async (employeeId, cashApprovalUsages = [], billAllocations = [], createdBy = null) => {
+    const empId = employeeId;
+    if (!empId) throw new Error('Employee is required');
+
+    const caRows = (cashApprovalUsages || [])
+      .map((r) => ({
+        cashApprovalId: String(r?.cashApprovalId || '').trim(),
+        amount: Math.round((Number(r?.amount) || 0) * 100) / 100
+      }))
+      .filter((r) => r.cashApprovalId && r.amount > 0);
+
+    const billRows = (billAllocations || [])
+      .map((r) => ({
+        billId: String(r?.billId || '').trim(),
+        amount: Math.round((Number(r?.amount) || 0) * 100) / 100
+      }))
+      .filter((r) => r.billId && r.amount > 0);
+
+    if (!caRows.length) throw new Error('Enter amount to use on at least one cash approval');
+    if (!billRows.length) throw new Error('Allocate advance to at least one bill');
+
+    const totalCa = Math.round(caRows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+    const totalBills = Math.round(billRows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+    if (Math.abs(totalCa - totalBills) > 0.009) {
+      throw new Error(
+        `Total from cash approvals (${totalCa}) must equal total applied to bills (${totalBills})`
+      );
+    }
+
+    const employee = await Employee.findById(empId);
+    if (!employee) throw new Error('Employee not found');
+
+    const pool = caRows.map((r) => ({ ...r, remaining: r.amount }));
+    const adjustments = [];
+
+    for (const billAlloc of billRows) {
+      const bill = await AccountsPayable.findById(billAlloc.billId);
+      if (!bill) throw new Error('Bill not found');
+
+      let billNeed = billAlloc.amount;
+      const billOutstanding = FinanceHelper.getAPOutstanding(bill);
+      if (billAlloc.amount > billOutstanding + 0.009) {
+        throw new Error(`Amount for ${bill.billNumber} exceeds open balance (${billOutstanding})`);
+      }
+
+      for (const p of pool) {
+        if (billNeed <= 0) break;
+        if (p.remaining <= 0) continue;
+
+        const ca = await CashApproval.findById(p.cashApprovalId);
+        if (!ca) throw new Error('Cash approval not found');
+        if (String(ca.advanceToEmployee || '') !== String(empId)) {
+          throw new Error(`${ca.caNumber || 'CA'} is not for this employee`);
+        }
+
+        const caOpen = FinanceHelper._getCaOpenAdvanceForAp(ca);
+        const applyAmt = Math.min(billNeed, p.remaining, caOpen);
+        if (applyAmt <= 0) continue;
+
+        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmt, employee, createdBy);
+        if (!bill.payeeEmployee) bill.payeeEmployee = empId;
+        adjustments.push({ ...adj, billId: String(bill._id), billNumber: bill.billNumber });
+        p.remaining = Math.round((p.remaining - applyAmt) * 100) / 100;
+        billNeed = Math.round((billNeed - applyAmt) * 100) / 100;
+      }
+
+      if (billNeed > 0.009) {
+        throw new Error(`Could not apply full amount to bill ${bill.billNumber}. Reduce bill allocation or add cash approval balance.`);
+      }
+
+      FinanceHelper._updateDocumentStatus(bill);
+      await bill.save();
+    }
+
+    const applied = Math.round(adjustments.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    return { applied, adjustments };
   },
 
   /**

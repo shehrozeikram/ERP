@@ -16,13 +16,19 @@ const Banking = require('../models/finance/Banking');
 const RecurringJournal = require('../models/finance/RecurringJournal');
 const FinanceHelper = require('../utils/financeHelper');
 const VendorAdvance = require('../models/finance/VendorAdvance');
+const Supplier = require('../models/hr/Supplier');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const {
   getRequiredFinanceAuthoritySlots,
   matchUserToFinanceSlots
 } = require('../utils/financeAuthoritySlots');
+const {
+  resolveEmployeeForFinanceQuery,
+  buildCashApprovalEmployeeFilter
+} = require('../utils/employeeAdvanceAccount');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
+const Employee = require('../models/hr/Employee');
 const {
   isFullAdvancePaymentTerm,
   buildJournalEntrySignedMapForVendorAdvances,
@@ -1434,13 +1440,153 @@ router.put('/vendor-advances/:id/finance-reject',
   })
 );
 
+// @route   GET /api/finance/accounts-payable/payee-cash-approvals
+// @desc    Cash approvals linked to bill payment payee (employee or vendor)
+// IMPORTANT: Must be registered BEFORE /accounts-payable/:id
+router.get('/accounts-payable/payee-cash-approvals',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const employeeId = String(req.query.employeeId || '').trim();
+    const employeeCode = String(req.query.employeeCode || '').trim();
+    const vendorId = String(req.query.vendorId || '').trim();
+    if (!employeeId && !employeeCode && !vendorId) {
+      return res.status(400).json({ success: false, message: 'employeeId, employeeCode, or vendorId is required' });
+    }
+    if ((employeeId || employeeCode) && vendorId) {
+      return res.status(400).json({ success: false, message: 'Provide employee or vendor, not both' });
+    }
+
+    let filter;
+    if (vendorId) {
+      filter = { status: { $nin: ['Draft', 'Cancelled', 'Rejected'] }, vendor: vendorId };
+    } else {
+      const employee = await resolveEmployeeForFinanceQuery(employeeId || employeeCode);
+      if (!employee) {
+        return res.json({ success: true, data: [] });
+      }
+      filter = await buildCashApprovalEmployeeFilter(employee);
+      if (!filter) {
+        return res.json({ success: true, data: [] });
+      }
+    }
+
+    const cas = await CashApproval.find(filter)
+      .select(
+        'caNumber status totalAmount advanceAmount apAdvanceApplied advanceIssuedAt approvalDate expectedPurchaseDate originatingModule advanceToName advanceGlAccountNumber advanceToEmployee'
+      )
+      .populate('vendor', 'name')
+      .sort({ approvalDate: -1, createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    const rows = cas.map((ca) => {
+      const advanceAmount = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
+      const applied = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
+      const issued = Boolean(ca.advanceIssuedAt);
+      const open = issued ? Math.max(0, Math.round((advanceAmount - applied) * 100) / 100) : null;
+
+      return {
+        cashApprovalId: String(ca._id),
+        caNumber: ca.caNumber,
+        status: ca.status,
+        approvalDate: ca.approvalDate,
+        advanceIssuedAt: ca.advanceIssuedAt,
+        totalAmount: Math.round((Number(ca.totalAmount) || 0) * 100) / 100,
+        advanceAmount,
+        applied: issued ? applied : null,
+        open,
+        advanceGlAccountNumber: ca.advanceGlAccountNumber || null,
+        originatingModule: ca.originatingModule || 'procurement',
+        payeeName: vendorId
+          ? (ca.vendor?.name || null)
+          : (ca.advanceToName || null)
+      };
+    });
+
+    res.json({ success: true, data: rows });
+  })
+);
+
+// @route   GET /api/finance/accounts-payable/employee-advance-balance
+router.get('/accounts-payable/employee-advance-balance',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const employeeId = String(req.query.employeeId || '').trim();
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: 'employeeId is required' });
+    }
+    const employee = await resolveEmployeeForFinanceQuery(employeeId);
+    const employeeFilter = employee ? await buildCashApprovalEmployeeFilter(employee) : null;
+    const cas = await CashApproval.find({
+      ...(employeeFilter || { advanceToEmployee: employeeId }),
+      advanceIssuedAt: { $ne: null }
+    })
+      .select('caNumber advanceAmount apAdvanceApplied totalAmount advanceIssuedAt status')
+      .sort({ advanceIssuedAt: 1 })
+      .lean();
+
+    const advances = cas.map((ca) => {
+      const advanced = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
+      const applied = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
+      const open = Math.max(0, Math.round((advanced - applied) * 100) / 100);
+      return {
+        cashApprovalId: String(ca._id),
+        caNumber: ca.caNumber,
+        advanced,
+        applied,
+        open,
+        status: ca.status
+      };
+    }).filter((r) => r.open > 0);
+
+    const totalOpen = Math.round(advances.reduce((s, r) => s + r.open, 0) * 100) / 100;
+    res.json({ success: true, data: { totalOpen, advances } });
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/apply-employee-advance-batch
+// @desc    Apply cash approval advance(s) to bill(s) — totals must match (Taj deposit-style)
+router.post('/accounts-payable/apply-employee-advance-batch',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('employeeId').isMongoId().withMessage('Valid employeeId is required'),
+    body('cashApprovalUsages').isArray({ min: 1 }).withMessage('cashApprovalUsages is required'),
+    body('cashApprovalUsages.*.cashApprovalId').isMongoId(),
+    body('cashApprovalUsages.*.amount').isFloat({ min: 0.01 }),
+    body('billAllocations').isArray({ min: 1 }).withMessage('billAllocations is required'),
+    body('billAllocations.*.billId').isMongoId(),
+    body('billAllocations.*.amount').isFloat({ min: 0.01 })
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+
+    const result = await FinanceHelper.applyEmployeeAdvanceBatch(
+      req.body.employeeId,
+      req.body.cashApprovalUsages,
+      req.body.billAllocations,
+      req.user._id
+    );
+
+    res.json({
+      success: true,
+      message: `Advance applied to bill(s): PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`,
+      data: result
+    });
+  })
+);
+
 // @route   GET /api/finance/accounts-payable/:id
 // @desc    Get bill by ID (includes PO-linked docs: indent, quotations, comparative statement, PO, GRN)
 // @access  Private (Finance and Admin)
 router.get('/accounts-payable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const bill = await AccountsPayable.findById(req.params.id).lean();
+    const bill = await AccountsPayable.findById(req.params.id)
+      .populate('payeeEmployee', 'firstName lastName employeeId')
+      .lean();
     if (!bill) {
       return res.status(404).json({
         success: false,
@@ -1643,18 +1789,47 @@ router.post('/accounts-payable/advance-payment',
 );
 
 // @route   POST /api/finance/accounts-payable/:id/apply-advance
-// @desc    Apply available vendor advance to AP bill
-// @access  Private (Finance and Admin)
+// @desc    Apply vendor or employee (cash approval) advance to AP bill
 router.post('/accounts-payable/:id/apply-advance',
   authorize('super_admin', 'admin', 'finance_manager'),
   [
-    body('amount').optional().isFloat({ min: 0.01 }).withMessage('Apply amount must be greater than zero')
+    body('amount').optional().isFloat({ min: 0.01 }).withMessage('Apply amount must be greater than zero'),
+    body('employeeId').optional().isMongoId().withMessage('Invalid employeeId'),
+    body('source').optional().isIn(['vendor', 'employee', 'auto']).withMessage('Invalid advance source'),
+    body('allocations').optional().isArray().withMessage('allocations must be an array'),
+    body('allocations.*.cashApprovalId').optional().isMongoId().withMessage('Invalid cashApprovalId'),
+    body('allocations.*.amount').optional().isFloat({ min: 0.01 }).withMessage('Allocation amount must be greater than zero')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
 
-    const result = await FinanceHelper.applyVendorAdvanceToBill(req.params.id, req.body.amount ?? null, req.user._id);
+    const bill = await AccountsPayable.findById(req.params.id).select('payeeEmployee vendor');
+    if (!bill) return res.status(404).json({ success: false, message: 'Bill not found' });
+
+    const source = String(req.body.source || 'auto').toLowerCase();
+    const employeeId = req.body.employeeId || bill.payeeEmployee || null;
+    const allocations = Array.isArray(req.body.allocations) ? req.body.allocations : [];
+    let result = { applied: 0 };
+
+    if (source === 'employee' || (source === 'auto' && employeeId) || allocations.length > 0) {
+      try {
+        result = await FinanceHelper.applyEmployeeAdvanceToBill(
+          req.params.id,
+          req.body.amount ?? null,
+          employeeId,
+          req.user._id,
+          { allocations }
+        );
+      } catch (empErr) {
+        if (source === 'employee' || allocations.length > 0) throw empErr;
+      }
+    }
+
+    if (Number(result.applied || 0) <= 0 && source !== 'employee' && allocations.length === 0) {
+      result = await FinanceHelper.applyVendorAdvanceToBill(req.params.id, req.body.amount ?? null, req.user._id);
+    }
+
     res.json({
       success: true,
       message: `Advance applied: PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`,
@@ -1712,6 +1887,7 @@ router.get('/accounts-payable',
     
     const [bills, totalCount] = await Promise.all([
       AccountsPayable.find(filters)
+        .populate('payeeEmployee', 'firstName lastName employeeId')
         .sort({ billDate: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -2571,6 +2747,764 @@ router.get('/reports/trial-balance-v2',
           totalCredits,
           isBalanced: Math.abs(totalDebits - totalCredits) < 0.01
         }
+      }
+    });
+  })
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE VENDOR DIRECTORY (master + AP summary)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const collectVendorJournalEntryIds = async (vendorObjectId) => {
+  const mongoose = require('mongoose');
+  const UtilityBill = require('../models/hr/UtilityBill');
+  const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+  const GoodsReceive = require('../models/procurement/GoodsReceive');
+
+  const [apIds, advanceIds, utilityBills, poIds, grnIds] = await Promise.all([
+    AccountsPayable.find({ 'vendor.vendorId': vendorObjectId }).distinct('_id'),
+    VendorAdvance.find({ 'vendor.vendorId': vendorObjectId }).distinct('_id'),
+    UtilityBill.find({ vendorId: vendorObjectId }).select('_id financeApBillId').lean(),
+    PurchaseOrder.find({ vendor: vendorObjectId }).distinct('_id'),
+    GoodsReceive.find({ supplier: vendorObjectId }).distinct('_id')
+  ]);
+
+  const referenceIdSet = new Set();
+  const addRef = (id) => {
+    if (id) referenceIdSet.add(String(id));
+  };
+  apIds.forEach(addRef);
+  advanceIds.forEach(addRef);
+  poIds.forEach(addRef);
+  grnIds.forEach(addRef);
+  utilityBills.forEach((b) => {
+    addRef(b._id);
+    addRef(b.financeApBillId);
+  });
+
+  const referenceIds = [...referenceIdSet]
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  if (!referenceIds.length) return [];
+
+  return JournalEntry.find({
+    status: 'posted',
+    referenceId: { $in: referenceIds }
+  }).distinct('_id');
+};
+
+const buildVendorTrialBalanceRows = async ({ vendorJeIds, from, asOf }) => {
+  const round2 = (n) => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+  if (!vendorJeIds.length) {
+    return {
+      rows: [],
+      totals: { totalDebits: 0, totalCredits: 0, totalOpening: 0, totalClosing: 0, isBalanced: true }
+    };
+  }
+
+  const openingRows = await JournalEntry.aggregate([
+    { $match: { status: 'posted', date: { $lt: from }, _id: { $in: vendorJeIds } } },
+    { $unwind: '$lines' },
+    {
+      $group: {
+        _id: '$lines.account',
+        openingDebit: { $sum: '$lines.debit' },
+        openingCredit: { $sum: '$lines.credit' }
+      }
+    },
+    { $project: { openingBalance: { $subtract: ['$openingDebit', '$openingCredit'] } } }
+  ]);
+
+  const movementRows = await JournalEntry.aggregate([
+    { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: vendorJeIds } } },
+    { $unwind: '$lines' },
+    {
+      $group: {
+        _id: '$lines.account',
+        totalDebit: { $sum: '$lines.debit' },
+        totalCredit: { $sum: '$lines.credit' }
+      }
+    }
+  ]);
+
+  const openingByAccount = new Map(openingRows.map((r) => [String(r._id), r.openingBalance || 0]));
+  const movementByAccount = new Map(
+    movementRows.map((r) => [String(r._id), { totalDebit: r.totalDebit || 0, totalCredit: r.totalCredit || 0 }])
+  );
+
+  const accountIds = Array.from(new Set([...openingByAccount.keys(), ...movementByAccount.keys()]));
+  const accounts = await Account.find({ _id: { $in: accountIds } }).select('accountNumber name type').lean();
+
+  const rows = accounts
+    .map((acc) => {
+      const accountId = String(acc._id);
+      const openingBalance = round2(openingByAccount.get(accountId) || 0);
+      const movement = movementByAccount.get(accountId) || { totalDebit: 0, totalCredit: 0 };
+      const totalDebit = round2(movement.totalDebit);
+      const totalCredit = round2(movement.totalCredit);
+      const closingBalance = round2(openingBalance + totalDebit - totalCredit);
+      return {
+        _id: acc._id,
+        accountNumber: acc.accountNumber,
+        accountName: acc.name,
+        accountType: acc.type,
+        openingBalance,
+        totalDebit,
+        totalCredit,
+        closingBalance,
+        netBalance: closingBalance
+      };
+    })
+    .filter((r) =>
+      r.openingBalance !== 0 || r.totalDebit !== 0 || r.totalCredit !== 0 || r.closingBalance !== 0
+    )
+    .sort((a, b) => String(a.accountNumber || '').localeCompare(String(b.accountNumber || '')));
+
+  const totalDebits = round2(rows.reduce((s, r) => s + r.totalDebit, 0));
+  const totalCredits = round2(rows.reduce((s, r) => s + r.totalCredit, 0));
+  const totalOpening = round2(rows.reduce((s, r) => s + r.openingBalance, 0));
+  const totalClosing = round2(rows.reduce((s, r) => s + r.closingBalance, 0));
+
+  return {
+    rows,
+    totals: {
+      totalDebits,
+      totalCredits,
+      totalOpening,
+      totalClosing,
+      isBalanced: Math.abs(totalDebits - totalCredits) < 0.01
+    }
+  };
+};
+
+router.get('/vendors',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { search, status, page = 1, limit = 100 } = req.query;
+    const supplierQuery = {};
+    if (status) supplierQuery.status = status;
+    const trimmed = search != null ? String(search).trim() : '';
+    if (trimmed) {
+      const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      supplierQuery.$or = [
+        { name: { $regex: escaped, $options: 'i' } },
+        { supplierId: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { contactPerson: { $regex: escaped, $options: 'i' } }
+      ];
+    }
+
+    const skip = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const [suppliers, total] = await Promise.all([
+      Supplier.find(supplierQuery).sort({ name: 1 }).skip(skip).limit(parseInt(limit, 10)).lean(),
+      Supplier.countDocuments(supplierQuery)
+    ]);
+
+    const supplierIds = suppliers.map((s) => s._id);
+    const financeAgg = supplierIds.length
+      ? await AccountsPayable.aggregate([
+        { $match: { 'vendor.vendorId': { $in: supplierIds } } },
+        {
+          $group: {
+            _id: '$vendor.vendorId',
+            totalBilled: { $sum: '$totalAmount' },
+            totalPaid: { $sum: '$amountPaid' },
+            totalAdvanceApplied: { $sum: '$advanceApplied' },
+            billCount: { $sum: 1 },
+            lastActivity: { $max: '$updatedAt' }
+          }
+        }
+      ])
+      : [];
+
+    const financeMap = new Map(financeAgg.map((row) => [String(row._id), row]));
+    const vendors = suppliers.map((s) => {
+      const fin = financeMap.get(String(s._id));
+      const totalBilled = fin?.totalBilled || 0;
+      const totalPaid = fin?.totalPaid || 0;
+      const totalAdvanceApplied = fin?.totalAdvanceApplied || 0;
+      const outstanding = Math.round((totalBilled - totalPaid - totalAdvanceApplied) * 100) / 100;
+      return {
+        ...s,
+        finance: {
+          totalBilled: Math.round(totalBilled * 100) / 100,
+          totalPaid: Math.round(totalPaid * 100) / 100,
+          totalAdvanceApplied: Math.round(totalAdvanceApplied * 100) / 100,
+          outstanding,
+          billCount: fin?.billCount || 0,
+          lastActivity: fin?.lastActivity || null
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        vendors,
+        pagination: {
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total,
+          pages: Math.ceil(total / parseInt(limit, 10))
+        }
+      }
+    });
+  })
+);
+
+router.get('/vendors/:supplierId/trial-balance',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { supplierId } = req.params;
+    const { asOfDate, fromDate } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(supplierId)) {
+      return res.status(400).json({ success: false, message: 'Invalid vendor ID' });
+    }
+
+    const supplier = await Supplier.findById(supplierId).select('supplierId name').lean();
+    if (!supplier) {
+      return res.status(404).json({ success: false, message: 'Vendor not found' });
+    }
+
+    const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    if (asOfDate) asOf.setHours(23, 59, 59, 999);
+    const from = fromDate ? new Date(fromDate) : new Date(asOf.getFullYear(), 0, 1);
+    from.setHours(0, 0, 0, 0);
+
+    const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
+    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId);
+    const { rows, totals } = await buildVendorTrialBalanceRows({ vendorJeIds, from, asOf });
+
+    res.json({
+      success: true,
+      data: {
+        vendor: supplier,
+        fromDate: from,
+        asOfDate: asOf,
+        journalEntryCount: vendorJeIds.length,
+        rows,
+        totals
+      }
+    });
+  })
+);
+
+router.get('/vendors/:supplierId/trial-balance/ledger/:accountId',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { supplierId, accountId } = req.params;
+    const { asOfDate, fromDate } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(supplierId) || !mongoose.Types.ObjectId.isValid(accountId)) {
+      return res.status(400).json({ success: false, message: 'Invalid vendor or account ID' });
+    }
+
+    const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    if (asOfDate) asOf.setHours(23, 59, 59, 999);
+    const from = fromDate ? new Date(fromDate) : new Date(asOf.getFullYear(), 0, 1);
+    from.setHours(0, 0, 0, 0);
+
+    const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
+    const accountObjectId = new mongoose.Types.ObjectId(accountId);
+    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId);
+
+    if (!vendorJeIds.length) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const rows = await JournalEntry.aggregate([
+      { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: vendorJeIds } } },
+      { $unwind: '$lines' },
+      { $match: { 'lines.account': accountObjectId } },
+      { $sort: { date: 1, entryNumber: 1 } },
+      {
+        $project: {
+          _id: {
+            $concat: [{ $toString: '$_id' }, ':', { $toString: { $ifNull: ['$lines._id', '0'] } }]
+          },
+          date: 1,
+          entryNumber: 1,
+          reference: 1,
+          description: { $ifNull: ['$lines.description', '$description'] },
+          debit: '$lines.debit',
+          credit: '$lines.credit',
+          department: { $ifNull: ['$lines.department', '$department'] },
+          module: 1,
+          journalEntry: {
+            _id: '$_id',
+            entryNumber: '$entryNumber',
+            reference: '$reference',
+            description: '$description'
+          }
+        }
+      }
+    ]);
+
+    res.json({ success: true, data: rows });
+  })
+);
+
+router.get('/vendors/:supplierId/trial-balance/voucher/:journalEntryId',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { supplierId, journalEntryId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(supplierId) || !mongoose.Types.ObjectId.isValid(journalEntryId)) {
+      return res.status(400).json({ success: false, message: 'Invalid ID' });
+    }
+
+    const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
+    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId);
+    const allowed = vendorJeIds.some((id) => String(id) === String(journalEntryId));
+    if (!allowed) {
+      return res.status(404).json({ success: false, message: 'Voucher not found for this vendor' });
+    }
+
+    const entry = await JournalEntry.findById(journalEntryId).populate('lines.account', 'accountNumber name type');
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Journal entry not found' });
+    }
+
+    res.json({ success: true, data: entry });
+  })
+);
+
+router.get('/vendors/:supplierId',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { supplierId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(supplierId)) {
+      return res.status(400).json({ success: false, message: 'Invalid vendor ID' });
+    }
+
+    const supplier = await Supplier.findById(supplierId).lean();
+    if (!supplier) {
+      return res.status(404).json({ success: false, message: 'Vendor not found' });
+    }
+
+    const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
+    const [bills, advances] = await Promise.all([
+      AccountsPayable.find({ 'vendor.vendorId': vendorObjectId })
+        .sort({ billDate: -1 })
+        .limit(200)
+        .lean(),
+      VendorAdvance.find({ 'vendor.vendorId': vendorObjectId })
+        .sort({ paymentDate: -1 })
+        .limit(50)
+        .lean()
+    ]);
+
+    const totalBilled = bills.reduce((s, b) => s + (b.totalAmount || 0), 0);
+    const totalPaid = bills.reduce((s, b) => s + (b.amountPaid || 0), 0);
+    const totalAdvanceApplied = bills.reduce((s, b) => s + (b.advanceApplied || 0), 0);
+    const advanceBalance = advances.reduce(
+      (s, a) => s + Math.max(0, (a.amount || 0) - (a.appliedAmount || 0)),
+      0
+    );
+
+    res.json({
+      success: true,
+      data: {
+        supplier,
+        summary: {
+          totalBilled: Math.round(totalBilled * 100) / 100,
+          totalPaid: Math.round(totalPaid * 100) / 100,
+          totalAdvanceApplied: Math.round(totalAdvanceApplied * 100) / 100,
+          outstanding: Math.round((totalBilled - totalPaid - totalAdvanceApplied) * 100) / 100,
+          advanceBalance: Math.round(advanceBalance * 100) / 100,
+          billCount: bills.length
+        },
+        bills: bills.map((b) => ({
+          _id: b._id,
+          billNumber: b.billNumber,
+          vendorInvoiceNumber: b.vendorInvoiceNumber,
+          billDate: b.billDate,
+          dueDate: b.dueDate,
+          totalAmount: b.totalAmount,
+          amountPaid: b.amountPaid,
+          advanceApplied: b.advanceApplied,
+          balanceDue: b.balanceDue ?? Math.round((b.totalAmount - (b.amountPaid || 0) - (b.advanceApplied || 0)) * 100) / 100,
+          status: b.status,
+          referenceType: b.referenceType
+        })),
+        advances: advances.map((a) => ({
+          _id: a._id,
+          amount: a.amount,
+          appliedAmount: a.appliedAmount,
+          balance: Math.round(((a.amount || 0) - (a.appliedAmount || 0)) * 100) / 100,
+          paymentDate: a.paymentDate,
+          reference: a.reference,
+          status: a.status
+        }))
+      }
+    });
+  })
+);
+
+const collectEmployeeJournalEntryIds = async (employeeObjectId, advanceAccountId) => {
+  const mongoose = require('mongoose');
+  const idSet = new Set();
+
+  const cas = await CashApproval.find({ advanceToEmployee: employeeObjectId })
+    .select('_id voucherEntryId')
+    .lean();
+
+  cas.forEach((ca) => {
+    if (ca._id) idSet.add(String(ca._id));
+    if (ca.voucherEntryId) idSet.add(String(ca.voucherEntryId));
+  });
+
+  const referenceIds = [...idSet]
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  const jeIds = new Set();
+  if (referenceIds.length) {
+    const fromRef = await JournalEntry.find({
+      status: 'posted',
+      referenceId: { $in: referenceIds }
+    })
+      .distinct('_id')
+      .lean();
+    fromRef.forEach((id) => jeIds.add(String(id)));
+  }
+
+  if (advanceAccountId && mongoose.Types.ObjectId.isValid(String(advanceAccountId))) {
+    const accountObjectId = new mongoose.Types.ObjectId(advanceAccountId);
+    const fromAccount = await JournalEntry.find({
+      status: 'posted',
+      'lines.account': accountObjectId
+    })
+      .distinct('_id')
+      .lean();
+    fromAccount.forEach((id) => jeIds.add(String(id)));
+  }
+
+  return [...jeIds].map((id) => new mongoose.Types.ObjectId(id));
+};
+
+const roundFinance2 = (n) => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+
+const SETTLED_CA_STATUSES = ['Payment Settled', 'Completed'];
+
+router.get('/employees',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const { search, status, page = 1, limit = 100 } = req.query;
+    const employeeQuery = {};
+    if (status) employeeQuery.employmentStatus = status;
+    const trimmed = search != null ? String(search).trim() : '';
+    if (trimmed) {
+      const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      employeeQuery.$or = [
+        { firstName: { $regex: escaped, $options: 'i' } },
+        { lastName: { $regex: escaped, $options: 'i' } },
+        { employeeId: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } }
+      ];
+    }
+
+    const skip = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const [employees, total] = await Promise.all([
+      Employee.find(employeeQuery)
+        .select(
+          'firstName lastName employeeId email phone employmentStatus placementDepartment employeeAdvanceAccount employeeAdvanceAccountNumber'
+        )
+        .populate('placementDepartment', 'name')
+        .populate('employeeAdvanceAccount', 'accountNumber name')
+        .sort({ firstName: 1, lastName: 1 })
+        .skip(skip)
+        .limit(parseInt(limit, 10))
+        .lean(),
+      Employee.countDocuments(employeeQuery)
+    ]);
+
+    const employeeIds = employees.map((e) => e._id);
+    const financeAgg = employeeIds.length
+      ? await CashApproval.aggregate([
+        { $match: { advanceToEmployee: { $in: employeeIds } } },
+        {
+          $group: {
+            _id: '$advanceToEmployee',
+            totalAdvanced: {
+              $sum: {
+                $cond: [
+                  { $ifNull: ['$advanceIssuedAt', false] },
+                  { $ifNull: ['$advanceAmount', '$totalAmount'] },
+                  0
+                ]
+              }
+            },
+            totalSettled: {
+              $sum: {
+                $cond: [
+                  { $in: ['$status', SETTLED_CA_STATUSES] },
+                  { $ifNull: ['$actualAmountSpent', { $ifNull: ['$advanceAmount', '$totalAmount'] }] },
+                  0
+                ]
+              }
+            },
+            caCount: { $sum: 1 },
+            lastActivity: { $max: '$updatedAt' }
+          }
+        }
+      ])
+      : [];
+
+    const financeMap = new Map(financeAgg.map((row) => [String(row._id), row]));
+    const rows = employees.map((e) => {
+      const fin = financeMap.get(String(e._id));
+      const totalAdvanced = roundFinance2(fin?.totalAdvanced);
+      const totalSettled = roundFinance2(fin?.totalSettled);
+      const outstanding = roundFinance2(Math.max(0, totalAdvanced - totalSettled));
+      const displayName = [e.firstName, e.lastName].filter(Boolean).join(' ').trim() || e.employeeId || '—';
+      return {
+        ...e,
+        name: displayName,
+        departmentName: e.placementDepartment?.name || '—',
+        finance: {
+          totalAdvanced,
+          totalSettled,
+          outstanding,
+          caCount: fin?.caCount || 0,
+          lastActivity: fin?.lastActivity || null
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        employees: rows,
+        pagination: {
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total,
+          pages: Math.ceil(total / parseInt(limit, 10))
+        }
+      }
+    });
+  })
+);
+
+router.get('/employees/:employeeId/trial-balance',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { employeeId } = req.params;
+    const { asOfDate, fromDate } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(employeeId)) {
+      return res.status(400).json({ success: false, message: 'Invalid employee ID' });
+    }
+
+    const employee = await Employee.findById(employeeId)
+      .select('employeeId firstName lastName employeeAdvanceAccount employeeAdvanceAccountNumber')
+      .lean();
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+
+    const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    if (asOfDate) asOf.setHours(23, 59, 59, 999);
+    const from = fromDate ? new Date(fromDate) : new Date(asOf.getFullYear(), 0, 1);
+    from.setHours(0, 0, 0, 0);
+
+    const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
+    const advanceAccountId = employee.employeeAdvanceAccount;
+    const employeeJeIds = await collectEmployeeJournalEntryIds(employeeObjectId, advanceAccountId);
+    const { rows, totals } = await buildVendorTrialBalanceRows({ vendorJeIds: employeeJeIds, from, asOf });
+
+    res.json({
+      success: true,
+      data: {
+        employee: {
+          ...employee,
+          name: [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim()
+        },
+        fromDate: from,
+        asOfDate: asOf,
+        journalEntryCount: employeeJeIds.length,
+        rows,
+        totals
+      }
+    });
+  })
+);
+
+router.get('/employees/:employeeId/trial-balance/ledger/:accountId',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { employeeId, accountId } = req.params;
+    const { asOfDate, fromDate } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(employeeId) || !mongoose.Types.ObjectId.isValid(accountId)) {
+      return res.status(400).json({ success: false, message: 'Invalid employee or account ID' });
+    }
+
+    const employee = await Employee.findById(employeeId).select('employeeAdvanceAccount').lean();
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+
+    const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    if (asOfDate) asOf.setHours(23, 59, 59, 999);
+    const from = fromDate ? new Date(fromDate) : new Date(asOf.getFullYear(), 0, 1);
+    from.setHours(0, 0, 0, 0);
+
+    const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
+    const accountObjectId = new mongoose.Types.ObjectId(accountId);
+    const employeeJeIds = await collectEmployeeJournalEntryIds(
+      employeeObjectId,
+      employee.employeeAdvanceAccount
+    );
+
+    if (!employeeJeIds.length) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const rows = await JournalEntry.aggregate([
+      { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: employeeJeIds } } },
+      { $unwind: '$lines' },
+      { $match: { 'lines.account': accountObjectId } },
+      { $sort: { date: 1, entryNumber: 1 } },
+      {
+        $project: {
+          _id: {
+            $concat: [{ $toString: '$_id' }, ':', { $toString: { $ifNull: ['$lines._id', '0'] } }]
+          },
+          date: 1,
+          entryNumber: 1,
+          reference: 1,
+          description: { $ifNull: ['$lines.description', '$description'] },
+          debit: '$lines.debit',
+          credit: '$lines.credit',
+          department: { $ifNull: ['$lines.department', '$department'] },
+          module: 1,
+          journalEntry: {
+            _id: '$_id',
+            entryNumber: '$entryNumber',
+            reference: '$reference',
+            description: '$description'
+          }
+        }
+      }
+    ]);
+
+    res.json({ success: true, data: rows });
+  })
+);
+
+router.get('/employees/:employeeId/trial-balance/voucher/:journalEntryId',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { employeeId, journalEntryId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(employeeId) || !mongoose.Types.ObjectId.isValid(journalEntryId)) {
+      return res.status(400).json({ success: false, message: 'Invalid ID' });
+    }
+
+    const employee = await Employee.findById(employeeId).select('employeeAdvanceAccount').lean();
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+
+    const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
+    const employeeJeIds = await collectEmployeeJournalEntryIds(
+      employeeObjectId,
+      employee.employeeAdvanceAccount
+    );
+    const allowed = employeeJeIds.some((id) => String(id) === String(journalEntryId));
+    if (!allowed) {
+      return res.status(404).json({ success: false, message: 'Voucher not found for this employee' });
+    }
+
+    const entry = await JournalEntry.findById(journalEntryId).populate('lines.account', 'accountNumber name type');
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Journal entry not found' });
+    }
+
+    res.json({ success: true, data: entry });
+  })
+);
+
+router.get('/employees/:employeeId',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { employeeId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(employeeId)) {
+      return res.status(400).json({ success: false, message: 'Invalid employee ID' });
+    }
+
+    const employee = await Employee.findById(employeeId)
+      .populate('placementDepartment', 'name')
+      .populate('employeeAdvanceAccount', 'accountNumber name detailType type')
+      .lean();
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+
+    const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
+    const employeeFilter = await buildCashApprovalEmployeeFilter(employee);
+    const cashApprovals = await CashApproval.find(
+      employeeFilter || { advanceToEmployee: employeeObjectId }
+    )
+      .sort({ approvalDate: -1, createdAt: -1 })
+      .limit(200)
+      .select(
+        'caNumber status totalAmount advanceAmount actualAmountSpent apAdvanceApplied advanceIssuedAt settlementDate approvalDate purpose originatingModule voucherEntryId advanceGlAccountNumber'
+      )
+      .lean();
+
+    let totalAdvanced = 0;
+    let totalSettled = 0;
+    cashApprovals.forEach((ca) => {
+      if (ca.advanceIssuedAt) {
+        totalAdvanced += Number(ca.advanceAmount || ca.totalAmount || 0);
+      }
+      if (SETTLED_CA_STATUSES.includes(ca.status)) {
+        totalSettled += Number(ca.actualAmountSpent || ca.advanceAmount || ca.totalAmount || 0);
+      }
+    });
+
+    const displayName = [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim();
+
+    res.json({
+      success: true,
+      data: {
+        employee: { ...employee, name: displayName, departmentName: employee.placementDepartment?.name || '—' },
+        summary: {
+          totalAdvanced: roundFinance2(totalAdvanced),
+          totalSettled: roundFinance2(totalSettled),
+          outstanding: roundFinance2(Math.max(0, totalAdvanced - totalSettled)),
+          caCount: cashApprovals.length
+        },
+        cashApprovals: cashApprovals.map((ca) => ({
+          _id: ca._id,
+          caNumber: ca.caNumber,
+          status: ca.status,
+          purpose: ca.purpose,
+          totalAmount: ca.totalAmount,
+          advanceAmount: ca.advanceAmount,
+          actualAmountSpent: ca.actualAmountSpent,
+          advanceIssuedAt: ca.advanceIssuedAt,
+          settlementDate: ca.settlementDate,
+          approvalDate: ca.approvalDate,
+          originatingModule: ca.originatingModule,
+          voucherEntryId: ca.voucherEntryId
+        }))
       }
     });
   })

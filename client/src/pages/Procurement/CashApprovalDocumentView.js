@@ -9,6 +9,8 @@ import procurementService from '../../services/procurementService';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { formatPKR } from '../../utils/currency';
+import CashApprovalGeneralDetailShell from '../../components/CashApprovals/CashApprovalGeneralDetailShell';
+import { isGeneralModuleCashApproval } from '../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
 
 const CashApprovalDocumentView = () => {
   const { id } = useParams();
@@ -21,18 +23,28 @@ const CashApprovalDocumentView = () => {
     (async () => {
       try {
         const res = await procurementService.getCashApprovalById(id);
-        setCa(res.data);
+        const data = res.data;
+        if (isGeneralModuleCashApproval(data)) {
+          navigate(`/cash-approvals/${id}/view?from=print`, { replace: true });
+          return;
+        }
+        setCa(data);
       } catch {
         setError('Failed to load Cash Approval');
       } finally {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [id, navigate]);
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 6 }}><CircularProgress /></Box>;
   if (error) return <Alert severity="error">{error}</Alert>;
   if (!ca) return null;
+  if (isGeneralModuleCashApproval(ca)) {
+    return (
+      <CashApprovalGeneralDetailShell ca={ca} onBack={() => navigate(-1)} backLabel="Back" />
+    );
+  }
 
   const aa = ca.approvalAuthorities || {};
   const indent = ca.indent && typeof ca.indent === 'object' ? ca.indent : {};

@@ -20,6 +20,7 @@
     "test:procurement-finance-complete-e2e": "node tests/procurement-finance-complete-e2e.test.js",
     "test:grni-resolve-from-po": "node tests/grni-resolve-from-po-before-grn.test.js",
     "test:utility-bill-finance": "node tests/utility-bill-finance.test.js",
+    "test:general-cash-approval-phase1": "node tests/general-cash-approval-phase1.test.js",
     "reset:utility-bill-finance": "node scripts/reset-utility-bill-finance-local.js",
     "test:procurement-vendor-billing-multi-grn": "node tests/procurement-vendor-billing-multi-grn-e2e.test.js",
     "clean:test-data": "node scripts/clean-procurement-finance-general-store-data.js --yes",

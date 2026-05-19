@@ -393,17 +393,13 @@ const RentalManagementDashboard = () => {
 
   return (
     <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+      <Box mb={3}>
         <Typography variant="h4" component="h1">
           Rental Management
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-        >
-          Add New Record
-        </Button>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          View rental records only.
+        </Typography>
       </Box>
 
       {error && (
@@ -481,23 +477,6 @@ const RentalManagementDashboard = () => {
                         title="View Details"
                       >
                         <ViewIcon />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleOpenDialog(record)}
-                        color="primary"
-                        title="Edit"
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDelete(record._id)}
-                        color="error"
-                        title="Delete"
-                        disabled={deleting}
-                      >
-                        {deleting ? <CircularProgress size={16} /> : <DeleteIcon />}
                       </IconButton>
                     </TableCell>
                   </TableRow>
@@ -776,10 +755,6 @@ const RentalManagementDashboard = () => {
           } else {
             fetchRecords();
           }
-        }}
-        onEdit={(record) => {
-          setViewDialog({ open: false, record: null });
-          handleOpenDialog(record);
         }}
       />
     </Box>

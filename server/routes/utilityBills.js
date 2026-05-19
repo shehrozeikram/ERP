@@ -7,6 +7,7 @@ const mongoose = require('mongoose');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const UtilityBill = require('../models/hr/UtilityBill');
+const UtilityStoreItem = require('../models/hr/UtilityStoreItem');
 const User = require('../models/User');
 const Department = require('../models/hr/Department');
 const Employee = require('../models/hr/Employee');
@@ -21,6 +22,30 @@ const {
 } = require('../utils/utilityBillFinance');
 const { applyBillLinesToPayload } = require('../utils/utilityBillLines');
 
+/** Merge multipart line uploads (field lineAttachment_<storeItemId>) into billLines before applyBillLinesToPayload */
+function mergeLineUploadsIntoBillLines(files, billData) {
+  if (!files || !files.length) return;
+  let lines = billData.billLines;
+  if (typeof lines === 'string') {
+    try {
+      lines = JSON.parse(lines);
+    } catch {
+      return;
+    }
+  }
+  if (!Array.isArray(lines)) return;
+  for (const f of files) {
+    const m = /^lineAttachment_(.+)$/.exec(f.fieldname);
+    if (!m) continue;
+    const sid = m[1];
+    const row = lines.find((l) => String(l.storeItem) === sid);
+    if (row) {
+      row.attachmentUrl = `/uploads/utility-bills/${f.filename}`;
+    }
+  }
+  billData.billLines = lines;
+}
+
 const populateUtilityBill = (query) => query
   .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
@@ -34,7 +59,12 @@ const populateUtilityBill = (query) => query
   .populate('consolidatedIntoBillId', 'billId billDate')
   .populate('financeApBillId', 'billNumber totalAmount status amountPaid')
   .populate('vendorId', 'name supplierId')
-  .populate('billLines.storeItem', 'name utilityType meterNumber site location')
+  .populate('payeeEmployee', 'firstName lastName employeeId email')
+  .populate({
+    path: 'billLines.storeItem',
+    select: 'name code utilityType meterNumber site location category',
+    populate: { path: 'category', select: 'name' }
+  })
   .populate('billLines.expenseAccount', 'accountNumber name');
 
 const populateUtilityBillDocument = async (bill) => {
@@ -51,7 +81,12 @@ const populateUtilityBillDocument = async (bill) => {
     { path: 'consolidatedIntoBillId', select: 'billId billDate' },
     { path: 'financeApBillId', select: 'billNumber totalAmount status amountPaid' },
     { path: 'vendorId', select: 'name supplierId' },
-    { path: 'billLines.storeItem', select: 'name utilityType meterNumber' },
+    { path: 'payeeEmployee', select: 'firstName lastName employeeId email' },
+    {
+      path: 'billLines.storeItem',
+      select: 'name code utilityType meterNumber site location category',
+      populate: { path: 'category', select: 'name' }
+    },
     { path: 'billLines.expenseAccount', select: 'accountNumber name' }
   ]);
   return bill;
@@ -121,13 +156,6 @@ const auditStatusesBlockingEdit = [
   'Approved (from Forwarded to Audit Director)'
 ];
 
-const billPeriodKeyFromBill = (bill) => {
-  const raw = bill.billDate || bill.dueDate;
-  const d = raw ? new Date(raw) : null;
-  if (!d || Number.isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
-
 // Configure multer for image uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -149,11 +177,19 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024 // 5MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed!'), false);
+    const isMain = file.fieldname === 'billImage';
+    const isLine = file.fieldname && file.fieldname.startsWith('lineAttachment_');
+    if (isMain) {
+      if (file.mimetype.startsWith('image/')) return cb(null, true);
+      return cb(new Error('Bill image must be an image file'), false);
     }
+    if (isLine) {
+      if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+        return cb(null, true);
+      }
+      return cb(new Error('Line attachments must be an image or PDF'), false);
+    }
+    return cb(new Error(`Unexpected file field: ${file.fieldname}`), false);
   }
 });
 
@@ -161,6 +197,21 @@ const upload = multer({
 router.use(authMiddleware);
 
 // Get all utility bills with optional filters
+const buildUtilityBillStoreScope = (queryParams = {}) => {
+  if (queryParams.excludeCentralizedStore === 'true') {
+    return {
+      $or: [
+        { useCentralizedStore: false },
+        { useCentralizedStore: { $exists: false } }
+      ]
+    };
+  }
+  if (queryParams.centralizedStoreOnly === 'true') {
+    return { useCentralizedStore: true };
+  }
+  return {};
+};
+
 router.get('/', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const { 
@@ -173,12 +224,22 @@ router.get('/', permissions.checkSubRolePermission('admin', 'utility_bills_manag
       location,
       department,
       custodian,
+      excludeCentralizedStore,
+      centralizedStoreOnly,
+      storeCategoryId,
       page = 1, 
       limit = 10 
     } = req.query;
 
     // Build query
-    const query = {};
+    const query = {
+      ...buildUtilityBillStoreScope({ excludeCentralizedStore, centralizedStoreOnly })
+    };
+
+    if (storeCategoryId && mongoose.Types.ObjectId.isValid(storeCategoryId)) {
+      const itemIds = await UtilityStoreItem.find({ category: storeCategoryId }).distinct('_id');
+      query['billLines.storeItem'] = { $in: itemIds };
+    }
     
     if (utilityType) query.utilityType = utilityType;
     if (status) query.status = status;
@@ -268,7 +329,11 @@ router.get('/by-type/:utilityType', permissions.checkSubRolePermission('admin', 
 // Get utility bills summary by type
 router.get('/summary', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
+    const storeScope = buildUtilityBillStoreScope(req.query);
+    const summaryMatch = Object.keys(storeScope).length ? [{ $match: storeScope }] : [];
+
     const summary = await UtilityBill.aggregate([
+      ...summaryMatch,
       {
         $group: {
           _id: '$utilityType',
@@ -303,7 +368,8 @@ router.get('/summary', permissions.checkSubRolePermission('admin', 'utility_bill
     const monthlySummary = await UtilityBill.aggregate([
       {
         $match: {
-          billDate: { $gte: currentMonth, $lt: nextMonth }
+          billDate: { $gte: currentMonth, $lt: nextMonth },
+          ...storeScope
         }
       },
       {
@@ -449,167 +515,6 @@ router.get('/form-master-data', permissions.checkSubRolePermission('admin', 'uti
   }
 });
 
-// Create one consolidated utility bill from multiple bills (same calendar month by bill date)
-router.post('/consolidate', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'), async (req, res) => {
-  const actorId = getActorId(req);
-  if (!actorId || !mongoose.isValidObjectId(actorId)) {
-    return res.status(401).json({ success: false, message: 'Not authenticated' });
-  }
-
-  try {
-    const billIds = Array.isArray(req.body.billIds) ? req.body.billIds.map(String).filter(Boolean) : [];
-    if (billIds.length < 2) {
-      return res.status(400).json({ success: false, message: 'Select at least two utility bills to consolidate.' });
-    }
-
-    const uniqueIds = [...new Set(billIds)];
-    for (const id of uniqueIds) {
-      if (!mongoose.isValidObjectId(id)) {
-        return res.status(400).json({ success: false, message: `Invalid bill id: ${id}` });
-      }
-    }
-
-    const bills = await UtilityBill.find({ _id: { $in: uniqueIds } });
-    if (bills.length !== uniqueIds.length) {
-      return res.status(400).json({ success: false, message: 'One or more utility bills were not found.' });
-    }
-
-    for (const bill of bills) {
-      if (bill.consolidatedIntoBillId) {
-        return res.status(400).json({
-          success: false,
-          message: `Bill ${bill.billId} is already included in another consolidated bill.`
-        });
-      }
-      if (bill.isConsolidated) {
-        return res.status(400).json({
-          success: false,
-          message: `Bill ${bill.billId} is a consolidated parent and cannot be merged again.`
-        });
-      }
-    }
-
-    const periodKeys = [...new Set(bills.map((b) => billPeriodKeyFromBill(b)).filter(Boolean))];
-    if (periodKeys.length !== 1) {
-      return res.status(400).json({
-        success: false,
-        message: 'All selected bills must belong to the same calendar month (by bill date).'
-      });
-    }
-    const periodKey = periodKeys[0];
-
-    const totalAmount = bills.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
-    if (totalAmount <= 0) {
-      return res.status(400).json({ success: false, message: 'Total consolidated amount must be greater than zero.' });
-    }
-
-    const sorted = [...bills].sort((a, b) => String(a.billId || '').localeCompare(String(b.billId || '')));
-    const primary = sorted[0];
-
-    const latestBillDate = bills.reduce((acc, b) => {
-      const t = b.billDate ? new Date(b.billDate) : null;
-      if (!t || Number.isNaN(t.getTime())) return acc;
-      return !acc || t > acc ? t : acc;
-    }, null) || new Date();
-
-    const latestDue = bills.reduce((acc, b) => {
-      const t = b.dueDate ? new Date(b.dueDate) : null;
-      if (!t || Number.isNaN(t.getTime())) return acc;
-      return !acc || t > acc ? t : acc;
-    }, null) || latestBillDate;
-
-    const dueDate = latestDue < latestBillDate ? new Date(latestBillDate.getTime() + 7 * 86400000) : latestDue;
-
-    const [py, pm] = periodKey.split('-').map(Number);
-    const billingStart = new Date(py, pm - 1, 1);
-    const billingEnd = new Date(py, pm, 0);
-
-    const consolidatedFrom = bills.map((b) => ({
-      bill: b._id,
-      billId: b.billId,
-      utilityType: b.utilityType,
-      provider: b.provider,
-      site: b.site,
-      department: b.department,
-      custodian: b.custodian,
-      accountNumber: b.accountNumber || '',
-      forWhat: String(b.forWhat || b.description || '').slice(0, 1000),
-      amount: Number(b.amount) || 0,
-      lastMonthAmount: Number(b.lastMonthAmount) || 0,
-      billDate: b.billDate || latestBillDate,
-      dueDate: b.dueDate || dueDate
-    }));
-
-    const sumLastMonth = bills.reduce((s, b) => s + (Number(b.lastMonthAmount) || 0), 0);
-    const draftIds = (primary.draftApproverIds || [])
-      .map((x) => (x && x._id ? x._id : x))
-      .filter((id) => id && mongoose.isValidObjectId(id))
-      .slice(0, 2);
-
-    const parentPayload = {
-      isConsolidated: true,
-      consolidatedFrom,
-      accountHead: primary.accountHead || '',
-      site: primary.site || 'Head Office',
-      utilityType: 'Other',
-      provider: 'Consolidated utilities (see breakdown)',
-      accountNumber: '',
-      billDate: latestBillDate,
-      dueDate,
-      amount: totalAmount,
-      lastMonthAmount: sumLastMonth,
-      balanceAmount: Math.max(totalAmount - sumLastMonth, 0),
-      grandTotal: totalAmount,
-      paidAmount: 0,
-      department: primary.department || '',
-      custodian: primary.custodian || '',
-      location: primary.location || 'Main Office',
-      forWhat: `Consolidated utility bundle (${periodKey}): ${bills.map((b) => b.billId).join(', ')}.`.slice(0, 1000),
-      description: `This bill combines ${bills.length} utility bill(s) into one document for approval and payment.`.slice(0, 500),
-      billingPeriod: { startDate: billingStart, endDate: billingEnd },
-      draftApproverIds: draftIds,
-      createdBy: actorId,
-      approvalStatus: 'Draft',
-      auditStatus: 'Not Sent'
-    };
-
-    let parent;
-    try {
-      const created = await UtilityBill.create([parentPayload]);
-      parent = created[0];
-      const updateResult = await UtilityBill.updateMany(
-        { _id: { $in: uniqueIds } },
-        { $set: { consolidatedIntoBillId: parent._id } }
-      );
-      if (updateResult.matchedCount !== uniqueIds.length) {
-        await UtilityBill.findByIdAndDelete(parent._id);
-        return res.status(500).json({
-          success: false,
-          message: 'Consolidation could not link all source bills. The draft was rolled back.'
-        });
-      }
-    } catch (innerErr) {
-      if (parent && parent._id) {
-        await UtilityBill.findByIdAndDelete(parent._id).catch(() => {});
-      }
-      throw innerErr;
-    }
-
-    await populateUtilityBillDocument(parent);
-    res.status(201).json({
-      success: true,
-      message: 'Consolidated utility bill created.',
-      data: parent
-    });
-  } catch (error) {
-    console.error('Error consolidating utility bills:', error);
-    if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: 'Bill ID collision; please try again.' });
-    }
-    res.status(500).json({ success: false, message: error.message || 'Failed to consolidate bills' });
-  }
-});
-
 // Get single utility bill
 router.get('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
@@ -627,7 +532,7 @@ router.get('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
 });
 
 // Create new utility bill
-router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'), upload.single('billImage'), async (req, res) => {
+router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'), upload.any(), async (req, res) => {
   try {
     const billData = {
       ...req.body,
@@ -654,13 +559,20 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
       }
     }
 
-    // Add image path if uploaded
-    if (req.file) {
+    // Add image path if uploaded (main bill image)
+    if (req.files && Array.isArray(req.files)) {
+      const mainImg = req.files.find((f) => f.fieldname === 'billImage');
+      if (mainImg) {
+        billData.billImage = `/uploads/utility-bills/${mainImg.filename}`;
+      }
+    } else if (req.file) {
       billData.billImage = `/uploads/utility-bills/${req.file.filename}`;
     } else {
       // Ensure billImage is not an empty object
       delete billData.billImage;
     }
+
+    mergeLineUploadsIntoBillLines(req.files, billData);
 
     // Convert string values to appropriate types
     if (billData.amount) billData.amount = parseFloat(billData.amount);
@@ -678,8 +590,11 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
     if (billData.dueDate) billData.dueDate = new Date(billData.dueDate);
 
     await applyBillLinesToPayload(billData);
+    if (billData.useCentralizedStore && !billData.vendorId && !billData.payeeEmployee) {
+      return res.status(400).json({ success: false, message: 'Select a supplier / vendor or an employee' });
+    }
     if (!billData.provider?.trim()) {
-      return res.status(400).json({ success: false, message: 'Supplier / vendor is required' });
+      return res.status(400).json({ success: false, message: 'Supplier / vendor or employee is required' });
     }
 
     const bill = new UtilityBill(billData);
@@ -701,7 +616,7 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
 });
 
 // Update utility bill
-router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), upload.single('billImage'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), upload.any(), async (req, res) => {
   try {
     const updateData = { ...req.body };
     delete updateData.approvalChain;
@@ -728,11 +643,20 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
     }
 
     // Add image path if uploaded
-    if (req.file) {
+    if (req.files && Array.isArray(req.files)) {
+      const mainImg = req.files.find((f) => f.fieldname === 'billImage');
+      if (mainImg) {
+        updateData.billImage = `/uploads/utility-bills/${mainImg.filename}`;
+      }
+    } else if (req.file) {
       updateData.billImage = `/uploads/utility-bills/${req.file.filename}`;
     } else if (updateData.billImage === '{}' || updateData.billImage === '') {
       // Remove empty billImage field
       delete updateData.billImage;
+    }
+
+    if (updateData.billLines !== undefined) {
+      mergeLineUploadsIntoBillLines(req.files, updateData);
     }
 
     // Convert string values to appropriate types

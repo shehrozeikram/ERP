@@ -73,6 +73,8 @@ import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
 import CashApprovalDetailTabsView from '../../components/Procurement/CashApprovalDetailTabsView';
+import CashApprovalGeneralDetailShell from '../../components/CashApprovals/CashApprovalGeneralDetailShell';
+import { isGeneralModuleCashApproval } from '../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
 import { formatDateTime } from '../../utils/dateUtils';
@@ -173,7 +175,7 @@ const Payments = () => {
         forWhat: ca.notes || 'Cash Approval',
         amount: ca.totalAmount,
         grandTotal: ca.totalAmount,
-        fromDepartment: 'Procurement',
+        fromDepartment: ca.originatingModule === 'general' ? 'General' : 'Procurement',
         ...ca
       }));
       allSettlements = [...allSettlements, ...poFormatted, ...caFormatted];
@@ -208,14 +210,26 @@ const Payments = () => {
           return status === 'Returned from CEO Office';
         });
       } else if (tabValue === 3) {
-        // Approved - Show only documents approved from "Send to CEO Office" or "Forwarded to CEO"
-        // Must be "Approved (from Send to CEO Office)" or "Approved (from Forwarded to CEO)" - not approved from other departments
-        filteredSettlements = allSettlements.filter(s => {
+        // Approved — workflow docs use "Approved (from …)"; cash approvals use Pending Finance+ after CEO sign-off
+        filteredSettlements = allSettlements.filter((s) => {
           const status = s.workflowStatus || '';
-          // Only show if it's approved from Send to CEO Office or Forwarded to CEO
-          return status === 'Approved (from Send to CEO Office)' || 
-                 status === 'Approved (from Forwarded to CEO)' ||
-                 (status.startsWith('Approved (from') && (status.includes('Send to CEO Office') || status.includes('Forwarded to CEO')));
+          if (s.isCashApproval) {
+            return [
+              'Pending Finance',
+              'Finance Authority Approved',
+              'Advance Issued',
+              'Evidence Submitted',
+              'Payment Settled',
+              'Sent to Procurement',
+              'Completed'
+            ].includes(status);
+          }
+          return (
+            status === 'Approved (from Send to CEO Office)' ||
+            status === 'Approved (from Forwarded to CEO)' ||
+            (status.startsWith('Approved (from') &&
+              (status.includes('Send to CEO Office') || status.includes('Forwarded to CEO')))
+          );
         });
       } else if (tabValue === 4) {
         // Rejected - Show only documents rejected from "Send to CEO Office" or "Forwarded to CEO"
@@ -1960,6 +1974,12 @@ const Payments = () => {
                     </Box>
                   )}
                 </>
+              ) : viewDialog.isCashApproval && isGeneralModuleCashApproval(viewDialog.settlement) ? (
+                <CashApprovalGeneralDetailShell
+                  embedded
+                  hideBack
+                  ca={viewDialog.settlement}
+                />
               ) : viewDialog.isCashApproval ? (
                 <CashApprovalDetailTabsView
                   cashApproval={viewDialog.settlement}

@@ -20,7 +20,7 @@ import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 import ComparativeStatementView from './ComparativeStatementView';
 import QuotationDetailView from './QuotationDetailView';
 import { formatPKR } from '../../utils/currency';
-import api from '../../services/api';
+import { resolveUploadPublicUrl } from '../CashApprovals/cashApprovalGeneralDocumentUtils';
 
 const formatDateForPrint = (date) => {
   if (!date) return '';
@@ -47,13 +47,6 @@ const formatDateTime = (date) => {
   });
 };
 
-const resolveFileUrl = (url) => {
-  if (!url) return '';
-  if (/^https?:\/\//i.test(url)) return url;
-  const apiBase = (api?.defaults?.baseURL || '').replace(/\/api\/?$/, '');
-  if (!apiBase) return url;
-  return `${apiBase}${url.startsWith('/') ? '' : '/'}${url}`;
-};
 const resolveIssuedAdvanceAmount = (cashApproval) => {
   const issued = Number(cashApproval?.advanceAmount);
   if (Number.isFinite(issued) && issued > 0) return issued;
@@ -535,7 +528,7 @@ const CashApprovalDetailTabsView = ({
                         <TableCell>{formatDateTime(doc.uploadedAt)}</TableCell>
                         <TableCell align="right">
                           {doc.url ? (
-                            <Button size="small" variant="outlined" onClick={() => window.open(resolveFileUrl(doc.url), '_blank', 'noopener,noreferrer')}>
+                            <Button size="small" variant="outlined" onClick={() => window.open(resolveUploadPublicUrl(doc.url), '_blank', 'noopener,noreferrer')}>
                               Open
                             </Button>
                           ) : '—'}
@@ -575,7 +568,7 @@ const CashApprovalDetailTabsView = ({
                     {isImage && doc.url ? (
                       <Box
                         component="img"
-                        src={resolveFileUrl(doc.url)}
+                        src={resolveUploadPublicUrl(doc.url)}
                         alt={doc.originalName || `Signed check ${idx + 1}`}
                         sx={{
                           width: '100%',
@@ -588,7 +581,7 @@ const CashApprovalDetailTabsView = ({
                         }}
                       />
                     ) : (
-                      <Button size="small" variant="outlined" onClick={() => window.open(resolveFileUrl(doc.url), '_blank', 'noopener,noreferrer')}>
+                      <Button size="small" variant="outlined" onClick={() => window.open(resolveUploadPublicUrl(doc.url), '_blank', 'noopener,noreferrer')}>
                         Open File
                       </Button>
                     )}
@@ -702,7 +695,7 @@ const CashApprovalDetailTabsView = ({
                         <TableCell>{doc.uploadedAt ? formatDateTime(doc.uploadedAt) : '—'}</TableCell>
                         <TableCell align="right">
                           {doc.url ? (
-                            <Button size="small" variant="outlined" onClick={() => window.open(resolveFileUrl(doc.url), '_blank', 'noopener,noreferrer')}>
+                            <Button size="small" variant="outlined" onClick={() => window.open(resolveUploadPublicUrl(doc.url), '_blank', 'noopener,noreferrer')}>
                               Open
                             </Button>
                           ) : '—'}

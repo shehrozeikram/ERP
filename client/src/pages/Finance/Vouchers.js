@@ -52,6 +52,25 @@ function clearedAtToYmd(value) {
   return `${y}-${m}-${d}`;
 }
 
+/** User-facing voucher status (journal status + signed / clearance workflow). */
+function getVoucherStatusDisplay(row) {
+  const journalStatus = String(row?.status || '').toLowerCase();
+  const signed =
+    row?.signedDocumentStatus === 'signed' && Boolean(row?.signedDocumentAt);
+  const cleared = row?.clearanceStatus === 'cleared';
+
+  if (journalStatus === 'reversed') return { label: 'Reversed', color: 'default' };
+  if (journalStatus === 'cancelled') return { label: 'Cancelled', color: 'default' };
+  if (cleared) return { label: 'Cleared', color: 'success' };
+  if (journalStatus === 'posted') return { label: 'Posted', color: 'success' };
+  if (journalStatus === 'draft' && signed) return { label: 'Signed', color: 'info' };
+  if (journalStatus === 'draft') return { label: 'Draft', color: 'warning' };
+  const fallback = journalStatus
+    ? journalStatus.charAt(0).toUpperCase() + journalStatus.slice(1)
+    : '—';
+  return { label: fallback, color: 'default' };
+}
+
 /** Parse YYYY-MM-DD as local noon (stable for API ISO). */
 function parseYmdLocalNoon(ymd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((ymd || '').trim());
@@ -88,7 +107,7 @@ const Vouchers = () => {
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('posted');
+  const [status, setStatus] = useState('');
   /** Default: PAYMENT vouchers (referenceType payment on journal) */
   const [voucherType, setVoucherType] = useState('payment');
   const [clearanceDialog, setClearanceDialog] = useState({
@@ -159,7 +178,7 @@ const Vouchers = () => {
       const params = new URLSearchParams();
       params.append('page', '1');
       params.append('limit', '200');
-      if (status) params.append('status', status);
+      if (status && status !== 'signed') params.append('status', status);
       if (search.trim()) params.append('search', search.trim());
       if (voucherType) params.append('referenceType', voucherType);
       const res = await api.get(`/finance/journal-entries?${params.toString()}`);
@@ -176,11 +195,17 @@ const Vouchers = () => {
   }, [status, voucherType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voucherRows = useMemo(() => {
-    return entries.map((entry) => ({
+    let rows = entries.map((entry) => ({
       ...entry,
       voucherType: String(entry?.referenceType || 'manual').toUpperCase()
     }));
-  }, [entries]);
+    if (status === 'signed') {
+      rows = rows.filter(
+        (row) => row.signedDocumentStatus === 'signed' && Boolean(row.signedDocumentAt)
+      );
+    }
+    return rows;
+  }, [entries, status]);
 
   const closeClearanceDialog = () =>
     setClearanceDialog({ open: false, voucher: null, status: 'pending', clearedAtDate: '' });
@@ -262,7 +287,7 @@ const Vouchers = () => {
           <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          All finance vouchers are listed here. By default, Posted journals with voucher type PAYMENT are shown; change filters as needed.
+          All finance vouchers are listed here. Draft BPV/CPV vouchers appear after Create Voucher; once you mark the signed document, status shows as Signed until the voucher is posted to the ledger (Posted). Use filters to narrow by status or type.
           Open any voucher to view/print. Use Attachment to upload supporting files.
           Signed document and signed date are available only after at least one attachment is added. Clearance is available only after the voucher is marked signed with a signed date; when you mark clearance as cleared, choose the clearance date in the dialog (it is not set automatically).
         </Typography>
@@ -311,6 +336,7 @@ const Vouchers = () => {
               <MenuItem value="">All</MenuItem>
               <MenuItem value="posted">Posted</MenuItem>
               <MenuItem value="draft">Draft</MenuItem>
+              <MenuItem value="signed">Signed (document)</MenuItem>
               <MenuItem value="reversed">Reversed</MenuItem>
             </TextField>
           </Grid>
@@ -428,11 +454,17 @@ const Vouchers = () => {
                     {canUseClearance && row.clearedAt ? formatDate(row.clearedAt) : '—'}
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      size="small"
-                      label={String(row.status || '').toUpperCase()}
-                      color={row.status === 'posted' ? 'success' : row.status === 'draft' ? 'warning' : 'default'}
-                    />
+                    {(() => {
+                      const display = getVoucherStatusDisplay(row);
+                      return (
+                        <Chip
+                          size="small"
+                          label={display.label}
+                          color={display.color}
+                          variant={display.color === 'default' ? 'outlined' : 'filled'}
+                        />
+                      );
+                    })()}
                   </TableCell>
                   <TableCell align="center">
                     <Tooltip title="View Voucher">

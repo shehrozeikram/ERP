@@ -80,8 +80,8 @@ const utilityBillService = {
   },
 
   // Get utility bills summary by type
-  getSummary: async () => {
-    const response = await api.get('/utility-bills/summary');
+  getSummary: async (params = {}) => {
+    const response = await api.get('/utility-bills/summary', { params });
     return response.data;
   },
 
@@ -94,11 +94,6 @@ const utilityBillService = {
   // Get pending bills
   getPendingBills: async () => {
     const response = await api.get('/utility-bills/pending');
-    return response.data;
-  },
-
-  consolidateUtilityBills: async (body) => {
-    const response = await api.post('/utility-bills/consolidate', body);
     return response.data;
   }
 };

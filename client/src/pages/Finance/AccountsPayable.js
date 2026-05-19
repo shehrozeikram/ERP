@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -37,7 +37,9 @@ import {
   ListItemText,
   Tabs,
   Tab,
-  Stack
+  Stack,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -64,6 +66,23 @@ import { formatDate } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
+
+const getBillPayeeEmployeeId = (bill) => {
+  const pe = bill?.payeeEmployee;
+  if (!pe) return '';
+  if (typeof pe === 'object' && pe !== null) return String(pe._id || '');
+  return String(pe);
+};
+
+const getBillPayeeEmployeeDisplayName = (bill) => {
+  const pe = bill?.payeeEmployee;
+  if (pe && typeof pe === 'object') {
+    const name = [pe.firstName, pe.lastName].filter(Boolean).join(' ').trim();
+    if (name) return name;
+    if (pe.employeeId) return String(pe.employeeId);
+  }
+  return bill?.vendorName || bill?.vendor?.name || '';
+};
 
 const AccountsPayable = () => {
   const getPaidAmount = (bill) => {
@@ -169,9 +188,19 @@ const AccountsPayable = () => {
   const [expandedRows, setExpandedRows] = useState({});
   const [payeeVendors, setPayeeVendors] = useState([]);
   const [selectedPayee, setSelectedPayee] = useState({ vendorId: '', vendorName: '' });
+  const [payeeType, setPayeeType] = useState('vendor');
+  const [financeEmployees, setFinanceEmployees] = useState([]);
+  const [selectedEmployeePayee, setSelectedEmployeePayee] = useState({
+    employeeId: '',
+    employeeName: '',
+    employeeCode: ''
+  });
   const [outstandingTransactions, setOutstandingTransactions] = useState([]);
   const [loadingOutstandingTransactions, setLoadingOutstandingTransactions] = useState(false);
-
+  const [payeeCashApprovals, setPayeeCashApprovals] = useState([]);
+  const [loadingPayeeCashApprovals, setLoadingPayeeCashApprovals] = useState(false);
+  const [caApplyAmounts, setCaApplyAmounts] = useState({});
+  const [processingCaApply, setProcessingCaApply] = useState(false);
   const [filters, setFilters] = useState({
     status: '',
     vendor: '',
@@ -196,12 +225,31 @@ const AccountsPayable = () => {
     fetchAccountsPayable();
   }, [filters, pagination.currentPage]);
 
-  // Load bank/cash accounts for payment dialog
+  // Load bank/cash accounts from chart of accounts (transactional Current Asset accounts)
   useEffect(() => {
     api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1 } })
-      .then(res => {
-        const all = res.data.data || res.data.accounts || [];
-        setBankAccounts(all.filter(a => ['1001','1002'].includes(a.accountNumber) || a.name?.toLowerCase().includes('bank') || a.name?.toLowerCase().includes('cash')));
+      .then((res) => {
+        const payload = res.data?.data;
+        const all = Array.isArray(payload?.accounts)
+          ? payload.accounts
+          : Array.isArray(payload)
+            ? payload
+            : Array.isArray(res.data?.accounts)
+              ? res.data.accounts
+              : [];
+        const filtered = all.filter((a) => {
+          if (a?.isActive === false || a?.allowTransactions === false) return false;
+          const name = String(a?.name || '').toLowerCase();
+          const num = String(a?.accountNumber || '');
+          const detail = String(a?.detailType || '').toLowerCase();
+          return (
+            /^100[0-9]/.test(num) ||
+            /bank|cash|petty/i.test(name) ||
+            detail.includes('bank') ||
+            detail.includes('cash')
+          );
+        });
+        setBankAccounts(filtered.length ? filtered : all);
       })
       .catch(() => setBankAccounts([]));
   }, []);
@@ -216,6 +264,24 @@ const AccountsPayable = () => {
         })));
       })
       .catch(() => setPayeeVendors([]));
+  }, []);
+
+  useEffect(() => {
+    api.get('/finance/employees', { params: { limit: 500 } })
+      .then((res) => {
+        const rows = res.data?.data?.employees || [];
+        setFinanceEmployees(
+          rows.map((e) => ({
+            employeeId: String(e._id),
+            employeeCode: e.employeeId || '',
+            employeeName:
+              [e.firstName, e.lastName].filter(Boolean).join(' ').trim() ||
+              e.employeeId ||
+              'Employee'
+          }))
+        );
+      })
+      .catch(() => setFinanceEmployees([]));
   }, []);
 
   const fetchPosForBilling = async () => {
@@ -297,33 +363,106 @@ const AccountsPayable = () => {
     }
   };
 
+  const mapOutstandingBillRows = (allBills, seedBillId) => {
+    const rows = allBills
+      .map((b) => {
+        const outstanding = Math.max(0, getOutstanding(b));
+        return {
+          billId: b._id,
+          billNumber: b.billNumber,
+          billDate: b.billDate,
+          dueDate: b.dueDate,
+          totalAmount: Number(b.totalAmount || 0),
+          outstanding,
+          payAmount: seedBillId && String(b._id) === String(seedBillId) ? outstanding : 0,
+          advanceApplyAmount: 0
+        };
+      })
+      .filter((r) => r.outstanding > 0);
+    const totalPay = Math.round(rows.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
+    setOutstandingTransactions(rows);
+    setPaymentData((prev) => ({ ...prev, amount: totalPay }));
+    return rows;
+  };
+
+  const loadPayeeCashApprovals = async (
+    type = payeeType,
+    employeeId = selectedEmployeePayee.employeeId,
+    vendorId = selectedPayee.vendorId,
+    employeeCode = selectedEmployeePayee.employeeCode
+  ) => {
+    const isEmployee = type === 'employee';
+    if (isEmployee && !employeeId && !employeeCode) {
+      setPayeeCashApprovals([]);
+      return;
+    }
+    if (!isEmployee && !vendorId) {
+      setPayeeCashApprovals([]);
+      return;
+    }
+    try {
+      setLoadingPayeeCashApprovals(true);
+      if (isEmployee && employeeId) {
+        const res = await api.get(`/finance/employees/${employeeId}`);
+        const emp = res.data?.data?.employee;
+        const cas = res.data?.data?.cashApprovals || [];
+        const glNum =
+          emp?.employeeAdvanceAccountNumber ||
+          emp?.employeeAdvanceAccount?.accountNumber ||
+          null;
+        setPayeeCashApprovals(
+          cas.map((ca) => {
+            const advanceAmount = Number(ca.advanceAmount || ca.totalAmount || 0);
+            const applied = Number(ca.apAdvanceApplied || 0);
+            const issued = Boolean(ca.advanceIssuedAt);
+            return {
+              cashApprovalId: String(ca._id),
+              caNumber: ca.caNumber,
+              status: ca.status,
+              approvalDate: ca.approvalDate,
+              advanceIssuedAt: ca.advanceIssuedAt,
+              totalAmount: Number(ca.totalAmount || 0),
+              advanceAmount,
+              applied: issued ? applied : null,
+              open: issued ? Math.max(0, Math.round((advanceAmount - applied) * 100) / 100) : null,
+              advanceGlAccountNumber: ca.advanceGlAccountNumber || glNum,
+              originatingModule: ca.originatingModule || 'general'
+            };
+          })
+        );
+      } else {
+        const params = isEmployee
+          ? { employeeId: employeeId || undefined, employeeCode: employeeCode || undefined }
+          : { vendorId };
+        const res = await api.get('/finance/accounts-payable/payee-cash-approvals', { params });
+        setPayeeCashApprovals(Array.isArray(res.data?.data) ? res.data.data : []);
+      }
+    } catch {
+      setPayeeCashApprovals([]);
+    } finally {
+      setLoadingPayeeCashApprovals(false);
+    }
+  };
+
+  const getCashApprovalViewPath = (row) => {
+    if (row?.originatingModule === 'general') {
+      return `/general/cash-approvals/${row.cashApprovalId}`;
+    }
+    return `/cash-approvals/${row.cashApprovalId}/view`;
+  };
+
   const loadOutstandingByVendor = async (vendorId, vendorName, seedBillId = null) => {
     try {
       setLoadingOutstandingTransactions(true);
       const response = await api.get('/finance/accounts-payable', { params: { limit: 500, search: vendorName || '' } });
       const allBills = response.data?.data?.bills || [];
-      const rows = allBills
-        .filter((b) => {
-          const idMatch = vendorId && String(b?.vendor?.vendorId || '') === String(vendorId);
-          const nameMatch = !vendorId && (b?.vendorName || '').toLowerCase() === (vendorName || '').toLowerCase();
-          return idMatch || nameMatch;
-        })
-        .map((b) => {
-          const outstanding = Math.max(0, getOutstanding(b));
-          return {
-            billId: b._id,
-            billNumber: b.billNumber,
-            billDate: b.billDate,
-            dueDate: b.dueDate,
-            totalAmount: Number(b.totalAmount || 0),
-            outstanding,
-            payAmount: seedBillId && String(b._id) === String(seedBillId) ? outstanding : 0
-          };
-        })
-        .filter((r) => r.outstanding > 0);
-      setOutstandingTransactions(rows);
-      const totalPay = Math.round(rows.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
-      setPaymentData((prev) => ({ ...prev, amount: totalPay }));
+      const filtered = allBills.filter((b) => {
+        if (getBillPayeeEmployeeId(b)) return false;
+        const idMatch = vendorId && String(b?.vendor?.vendorId || '') === String(vendorId);
+        const nameMatch = !vendorId && (b?.vendorName || '').toLowerCase() === (vendorName || '').toLowerCase();
+        return idMatch || nameMatch;
+      });
+      mapOutstandingBillRows(filtered, seedBillId);
     } catch (e) {
       setOutstandingTransactions([]);
       toast.error('Failed to load vendor outstanding transactions');
@@ -332,22 +471,209 @@ const AccountsPayable = () => {
     }
   };
 
+  const loadOutstandingByEmployee = async (employeeId, employeeName, seedBillId = null) => {
+    try {
+      setLoadingOutstandingTransactions(true);
+      const response = await api.get('/finance/accounts-payable', { params: { limit: 500, search: employeeName || '' } });
+      const allBills = response.data?.data?.bills || [];
+      const filtered = allBills.filter((b) => {
+        const empId = getBillPayeeEmployeeId(b);
+        if (employeeId) return String(empId) === String(employeeId);
+        const displayName = getBillPayeeEmployeeDisplayName(b) || b?.vendorName || '';
+        return displayName.toLowerCase() === (employeeName || '').toLowerCase();
+      });
+      mapOutstandingBillRows(filtered, seedBillId);
+    } catch (e) {
+      setOutstandingTransactions([]);
+      toast.error('Failed to load employee outstanding transactions');
+    } finally {
+      setLoadingOutstandingTransactions(false);
+    }
+  };
+
   const handleOpenPayment = async (bill) => {
-    setSelectedBill(bill);
-    const outstanding = getOutstanding(bill);
-    const vendorId = String(bill?.vendor?.vendorId || '');
-    const vendorName = bill?.vendor?.name || bill?.vendorName || '';
-    setSelectedPayee({ vendorId, vendorName });
+    let b = bill;
+    try {
+      const response = await api.get(`/finance/accounts-payable/${bill._id}`);
+      if (response.data?.success) b = response.data.data;
+    } catch {
+      // use list row if detail fetch fails
+    }
+
+    setSelectedBill(b);
+    const outstanding = getOutstanding(b);
+    const employeeId = getBillPayeeEmployeeId(b);
+    const employeeName = getBillPayeeEmployeeDisplayName(b);
+    const employeeCode =
+      typeof b.payeeEmployee === 'object' && b.payeeEmployee?.employeeId
+        ? b.payeeEmployee.employeeId
+        : '';
+
     setPaymentData({
-      amount:        outstanding,
+      amount: outstanding,
       paymentMethod: 'bank_transfer',
-      reference:     '',
-      paymentDate:   new Date().toISOString().split('T')[0],
-      whtRate:       0
+      reference: '',
+      paymentDate: new Date().toISOString().split('T')[0],
+      whtRate: 0
     });
     setApplyAdvanceAmount(outstanding > 0 ? String(outstanding) : '');
+
+    if (employeeId) {
+      setPayeeType('employee');
+      setSelectedEmployeePayee({ employeeId, employeeName, employeeCode });
+      setSelectedPayee({ vendorId: '', vendorName: '' });
+      setFinanceEmployees((prev) => {
+        if (prev.some((e) => String(e.employeeId) === String(employeeId))) return prev;
+        return [{ employeeId, employeeName, employeeCode }, ...prev];
+      });
+    } else {
+      setPayeeType('vendor');
+      const vendorId = String(b?.vendor?.vendorId || '');
+      const vendorName = b?.vendor?.name || b?.vendorName || '';
+      setSelectedPayee({ vendorId, vendorName });
+      setSelectedEmployeePayee({ employeeId: '', employeeName: '', employeeCode: '' });
+    }
+
+    setCaApplyAmounts({});
     setPaymentDialogOpen(true);
-    await loadOutstandingByVendor(vendorId, vendorName, bill?._id);
+
+    if (employeeId) {
+      await Promise.all([
+        loadOutstandingByEmployee(employeeId, employeeName, b?._id),
+        loadPayeeCashApprovals('employee', employeeId, '', employeeCode)
+      ]);
+    } else {
+      const vendorId = String(b?.vendor?.vendorId || '');
+      const vendorName = b?.vendor?.name || b?.vendorName || '';
+      await Promise.all([
+        loadOutstandingByVendor(vendorId, vendorName, b?._id),
+        loadPayeeCashApprovals('vendor', '', vendorId, '')
+      ]);
+    }
+  };
+
+  const refreshPaymentDialogData = async () => {
+    if (!selectedBill?._id) return;
+    try {
+      const refreshed = await api.get(`/finance/accounts-payable/${selectedBill._id}`);
+      if (refreshed.data?.success) {
+        const b = refreshed.data.data;
+        setSelectedBill(b);
+        const out = getOutstanding(b);
+        setPaymentData((prev) => ({ ...prev, amount: out }));
+        setApplyAdvanceAmount(out > 0 ? String(out) : '');
+      }
+    } catch {
+      // ignore refresh errors
+    }
+    if (payeeType === 'employee' && selectedEmployeePayee.employeeId) {
+      await Promise.all([
+        loadOutstandingByEmployee(
+          selectedEmployeePayee.employeeId,
+          selectedEmployeePayee.employeeName,
+          selectedBill._id
+        ),
+        loadPayeeCashApprovals(
+          'employee',
+          selectedEmployeePayee.employeeId,
+          '',
+          selectedEmployeePayee.employeeCode
+        )
+      ]);
+    } else if (selectedPayee.vendorId) {
+      await Promise.all([
+        loadOutstandingByVendor(selectedPayee.vendorId, selectedPayee.vendorName, selectedBill._id),
+        loadPayeeCashApprovals('vendor', '', selectedPayee.vendorId, '')
+      ]);
+    }
+  };
+
+  const employeeAdvanceApplyTotals = useMemo(() => {
+    const totalCaUsage = Math.round(
+      payeeCashApprovals.reduce((s, ca) => s + (Number(caApplyAmounts[ca.cashApprovalId]) || 0), 0) * 100
+    ) / 100;
+    const totalAllocatedToBills = Math.round(
+      outstandingTransactions.reduce((s, r) => s + (Number(r.advanceApplyAmount) || 0), 0) * 100
+    ) / 100;
+    return {
+      totalCaUsage,
+      totalAllocatedToBills,
+      remainingToAllocate: Math.round((totalCaUsage - totalAllocatedToBills) * 100) / 100
+    };
+  }, [payeeCashApprovals, caApplyAmounts, outstandingTransactions]);
+
+  const handleApplyCaAdvanceToBill = async () => {
+    if (payeeType !== 'employee' || !selectedEmployeePayee.employeeId) {
+      toast.error('Cash approval apply is available for employee payees only');
+      return;
+    }
+
+    const cashApprovalUsages = payeeCashApprovals
+      .map((ca) => ({
+        cashApprovalId: ca.cashApprovalId,
+        amount: Math.round((Number(caApplyAmounts[ca.cashApprovalId]) || 0) * 100) / 100
+      }))
+      .filter((row) => row.amount > 0);
+
+    const billAllocations = outstandingTransactions
+      .map((row) => ({
+        billId: row.billId,
+        amount: Math.round((Number(row.advanceApplyAmount) || 0) * 100) / 100
+      }))
+      .filter((row) => row.amount > 0);
+
+    if (!cashApprovalUsages.length) {
+      toast.error('Enter amount to use on at least one cash approval');
+      return;
+    }
+    if (!billAllocations.length) {
+      toast.error('Enter apply from advance on at least one bill');
+      return;
+    }
+
+    const { totalCaUsage, totalAllocatedToBills } = employeeAdvanceApplyTotals;
+    if (Math.abs(totalCaUsage - totalAllocatedToBills) > 0.009) {
+      if (totalAllocatedToBills < totalCaUsage) {
+        toast.error(
+          `Total applied to bills (${formatPKR(totalAllocatedToBills)}) is less than cash approval usage (${formatPKR(totalCaUsage)}). Allocate the full amount.`
+        );
+      } else {
+        toast.error(
+          `Total applied to bills (${formatPKR(totalAllocatedToBills)}) exceeds cash approval usage (${formatPKR(totalCaUsage)}).`
+        );
+      }
+      return;
+    }
+
+    for (const row of billAllocations) {
+      const billRow = outstandingTransactions.find((b) => String(b.billId) === String(row.billId));
+      if (billRow && row.amount > (billRow.outstanding || 0) + 0.009) {
+        toast.error(`${billRow.billNumber}: apply amount exceeds open balance`);
+        return;
+      }
+    }
+
+    try {
+      setProcessingCaApply(true);
+      const response = await api.post('/finance/accounts-payable/apply-employee-advance-batch', {
+        employeeId: selectedEmployeePayee.employeeId,
+        cashApprovalUsages,
+        billAllocations
+      });
+      if (response.data?.success) {
+        toast.success(response.data.message || 'Cash approval applied to bill(s)');
+        setCaApplyAmounts({});
+        setOutstandingTransactions((prev) =>
+          prev.map((r) => ({ ...r, advanceApplyAmount: 0 }))
+        );
+        await refreshPaymentDialogData();
+        fetchAccountsPayable();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to apply cash approval to bill(s)');
+    } finally {
+      setProcessingCaApply(false);
+    }
   };
 
   const handleApplyAdvance = async () => {
@@ -359,7 +685,10 @@ const AccountsPayable = () => {
     }
     try {
       setProcessingAdvance(true);
-      const response = await api.post(`/finance/accounts-payable/${selectedBill._id}/apply-advance`, { amount });
+      const response = await api.post(`/finance/accounts-payable/${selectedBill._id}/apply-advance`, {
+        amount,
+        source: 'vendor'
+      });
       if (response.data?.success) {
         toast.success(response.data.message || 'Advance applied');
         const refreshed = await api.get(`/finance/accounts-payable/${selectedBill._id}`);
@@ -1507,33 +1836,433 @@ const AccountsPayable = () => {
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
-                <Grid container spacing={1}>
-                  <Grid item xs={12} md={6}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Payee (Vendor)</InputLabel>
-                      <Select
-                        value={selectedPayee.vendorId || ''}
-                        label="Payee (Vendor)"
-                        onChange={async (e) => {
-                          const vendorId = e.target.value;
-                          const row = payeeVendors.find((v) => String(v.vendorId) === String(vendorId));
-                          const vendorName = row?.vendorName || '';
-                          setSelectedPayee({ vendorId, vendorName });
-                          await loadOutstandingByVendor(vendorId, vendorName, null);
+                <Stack spacing={1.5}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                      Payee type
+                    </Typography>
+                    <ToggleButtonGroup
+                      exclusive
+                      size="small"
+                      value={payeeType}
+                      onChange={async (_, v) => {
+                        if (!v) return;
+                        setPayeeType(v);
+                        if (v === 'vendor') {
+                          setSelectedEmployeePayee({ employeeId: '', employeeName: '', employeeCode: '' });
+                          setOutstandingTransactions([]);
+                          setPayeeCashApprovals([]);
+                          if (selectedPayee.vendorId) {
+                            await Promise.all([
+                              loadOutstandingByVendor(
+                                selectedPayee.vendorId,
+                                selectedPayee.vendorName,
+                                selectedBill?._id
+                              ),
+                              loadPayeeCashApprovals(
+                                'vendor',
+                                '',
+                                selectedPayee.vendorId,
+                                ''
+                              )
+                            ]);
+                          }
+                        } else {
+                          setSelectedPayee({ vendorId: '', vendorName: '' });
+                          setOutstandingTransactions([]);
+                          setPayeeCashApprovals([]);
+                          if (selectedEmployeePayee.employeeId) {
+                            await Promise.all([
+                              loadOutstandingByEmployee(
+                                selectedEmployeePayee.employeeId,
+                                selectedEmployeePayee.employeeName,
+                                selectedBill?._id
+                              ),
+                              loadPayeeCashApprovals(
+                                'employee',
+                                selectedEmployeePayee.employeeId,
+                                '',
+                                selectedEmployeePayee.employeeCode
+                              )
+                            ]);
+                          }
+                        }
+                      }}
+                    >
+                      <ToggleButton value="vendor">Vendor</ToggleButton>
+                      <ToggleButton value="employee">Employee</ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
+                  <Grid container spacing={1} alignItems="flex-end">
+                    <Grid item xs={12} md={6}>
+                      {payeeType === 'employee' ? (
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Payee (Employee)</InputLabel>
+                          <Select
+                            value={selectedEmployeePayee.employeeId || ''}
+                            label="Payee (Employee)"
+                            onChange={async (e) => {
+                              const employeeId = e.target.value;
+                              const row = financeEmployees.find(
+                                (emp) => String(emp.employeeId) === String(employeeId)
+                              );
+                              const employeeName = row?.employeeName || '';
+                              const employeeCode = row?.employeeCode || '';
+                              setSelectedEmployeePayee({ employeeId, employeeName, employeeCode });
+                              await Promise.all([
+                                loadOutstandingByEmployee(employeeId, employeeName, selectedBill?._id),
+                                loadPayeeCashApprovals('employee', employeeId, '', employeeCode)
+                              ]);
+                            }}
+                          >
+                            <MenuItem value="">
+                              <em>Select employee</em>
+                            </MenuItem>
+                            {financeEmployees.map((e) => (
+                              <MenuItem key={e.employeeId} value={e.employeeId}>
+                                {e.employeeCode ? `${e.employeeCode} — ` : ''}
+                                {e.employeeName}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      ) : (
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Payee (Vendor)</InputLabel>
+                          <Select
+                            value={selectedPayee.vendorId || ''}
+                            label="Payee (Vendor)"
+                            onChange={async (e) => {
+                              const vendorId = e.target.value;
+                              const row = payeeVendors.find((v) => String(v.vendorId) === String(vendorId));
+                              const vendorName = row?.vendorName || '';
+                              setSelectedPayee({ vendorId, vendorName });
+                              await Promise.all([
+                                loadOutstandingByVendor(vendorId, vendorName, selectedBill?._id),
+                                loadPayeeCashApprovals('vendor', '', vendorId, '')
+                              ]);
+                            }}
+                          >
+                            <MenuItem value="">
+                              <em>Select vendor</em>
+                            </MenuItem>
+                            {payeeVendors.map((v) => (
+                              <MenuItem key={v.vendorId} value={v.vendorId}>
+                                {v.vendorName}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      )}
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="caption" color="text.secondary">
+                        {payeeType === 'employee' ? 'Selected employee' : 'Selected vendor'}
+                      </Typography>
+                      <Typography fontWeight={700}>
+                        {payeeType === 'employee'
+                          ? selectedEmployeePayee.employeeName
+                            ? `${selectedEmployeePayee.employeeCode ? `${selectedEmployeePayee.employeeCode} — ` : ''}${selectedEmployeePayee.employeeName}`
+                            : '—'
+                          : selectedPayee.vendorName || '—'}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                </Stack>
+              </Paper>
+            </Grid>
+            {payeeType === 'employee' && (
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ mb: 0 }}>
+                  <strong>Step 1:</strong> Cash approvals (like Taj deposits) — <em>Amount to use</em> per CA.{' '}
+                  <strong>Step 2a:</strong> Outstanding bills — <em>Apply from advance</em> (totals must match Step 1).{' '}
+                  <strong>Step 2b:</strong> Bank payment for any remainder — select Pay From Account from chart of accounts.
+                </Alert>
+              </Grid>
+            )}
+            <Grid item xs={12}>
+              <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  {payeeType === 'employee' ? 'Outstanding bills — apply advance (Step 2a)' : 'Outstanding Transactions'}
+                </Typography>
+                {loadingOutstandingTransactions ? (
+                  <LinearProgress />
+                ) : outstandingTransactions.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    {payeeType === 'employee'
+                      ? 'No outstanding bills for selected employee.'
+                      : 'No outstanding bills for selected vendor.'}
+                  </Typography>
+                ) : (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Bill #</TableCell>
+                        <TableCell>Due Date</TableCell>
+                        <TableCell align="right">Original Amount</TableCell>
+                        <TableCell align="right">Open Balance</TableCell>
+                        {payeeType === 'employee' && (
+                          <TableCell align="right" sx={{ minWidth: 140 }}>Apply from advance</TableCell>
+                        )}
+                        <TableCell align="right" sx={{ minWidth: 140 }}>
+                          {payeeType === 'employee' ? 'Bank payment' : 'Payment'}
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {outstandingTransactions.map((row, idx) => (
+                        <TableRow key={row.billId}>
+                          <TableCell>{row.billNumber}</TableCell>
+                          <TableCell>{formatDate(row.dueDate)}</TableCell>
+                          <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
+                          <TableCell align="right">{formatPKR(row.outstanding)}</TableCell>
+                          {payeeType === 'employee' && (
+                            <TableCell align="right">
+                              <TextField
+                                size="small"
+                                type="number"
+                                placeholder="0"
+                                value={row.advanceApplyAmount ?? ''}
+                                inputProps={{ min: 0, max: row.outstanding, step: 0.01 }}
+                                onChange={(e) => {
+                                  const next = [...outstandingTransactions];
+                                  const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
+                                  next[idx] = { ...next[idx], advanceApplyAmount: v };
+                                  setOutstandingTransactions(next);
+                                }}
+                                sx={{ width: 120 }}
+                              />
+                            </TableCell>
+                          )}
+                          <TableCell align="right">
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={row.payAmount}
+                              inputProps={{ min: 0, max: row.outstanding, step: 0.01 }}
+                              onChange={(e) => {
+                                const next = [...outstandingTransactions];
+                                const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
+                                next[idx] = { ...next[idx], payAmount: v };
+                                setOutstandingTransactions(next);
+                                const total = Math.round(next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
+                                setPaymentData((prev) => ({ ...prev, amount: total }));
+                              }}
+                              sx={{ width: 120 }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </Paper>
+            </Grid>
+            <Grid item xs={12}>
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'info.50' }}>
+                <Stack
+                  direction="row"
+                  justifyContent="space-between"
+                  alignItems="center"
+                  flexWrap="wrap"
+                  gap={1}
+                  sx={{ mb: 1 }}
+                >
+                  <Typography variant="subtitle2">
+                    {payeeType === 'employee'
+                      ? 'Apply bill from cash approval (Step 1 — like Taj deposit)'
+                      : `Cash approvals — ${payeeType === 'employee' ? 'employee' : 'vendor'}`}
+                  </Typography>
+                </Stack>
+                {payeeType === 'employee' && payeeCashApprovals.length > 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Enter <strong>Amount to use</strong> on each cash approval (deposit). Then allocate the same
+                    total under <strong>Apply from advance</strong> on outstanding bills. Totals must match before you apply.
+                  </Typography>
+                )}
+                {loadingPayeeCashApprovals ? (
+                  <LinearProgress />
+                ) : !(payeeType === 'employee' ? selectedEmployeePayee.employeeId : selectedPayee.vendorId) ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Select a {payeeType === 'employee' ? 'employee' : 'vendor'} to view related cash approvals.
+                  </Typography>
+                ) : payeeCashApprovals.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    No cash approvals found for this {payeeType === 'employee' ? 'employee' : 'vendor'}.
+                  </Typography>
+                ) : (
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>CA #</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Approval date</TableCell>
+                          <TableCell>Advance issued</TableCell>
+                          <TableCell>GL account</TableCell>
+                          <TableCell align="right">Amount</TableCell>
+                          <TableCell align="right">Applied to bills</TableCell>
+                          <TableCell align="right">Open</TableCell>
+                          {payeeType === 'employee' && (
+                            <TableCell align="right" sx={{ minWidth: 140 }}>
+                              Amount to use
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {payeeCashApprovals.map((row) => (
+                          <TableRow key={row.cashApprovalId} hover>
+                            <TableCell>
+                              <Typography
+                                component="span"
+                                variant="body2"
+                                sx={{
+                                  color: 'primary.main',
+                                  cursor: 'pointer',
+                                  fontWeight: 600,
+                                  '&:hover': { textDecoration: 'underline' }
+                                }}
+                                onClick={() => {
+                                  setPaymentDialogOpen(false);
+                                  navigate(getCashApprovalViewPath(row));
+                                }}
+                              >
+                                {row.caNumber || '—'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip label={row.status} size="small" variant="outlined" />
+                            </TableCell>
+                            <TableCell>{row.approvalDate ? formatDate(row.approvalDate) : '—'}</TableCell>
+                            <TableCell>{row.advanceIssuedAt ? formatDate(row.advanceIssuedAt) : '—'}</TableCell>
+                            <TableCell>{row.advanceGlAccountNumber || '—'}</TableCell>
+                            <TableCell align="right">{formatPKR(row.advanceAmount || row.totalAmount || 0)}</TableCell>
+                            <TableCell align="right">
+                              {row.applied != null ? formatPKR(row.applied) : '—'}
+                            </TableCell>
+                            <TableCell align="right">
+                              {row.open != null ? formatPKR(row.open) : '—'}
+                            </TableCell>
+                            {payeeType === 'employee' && (
+                              <TableCell align="right">
+                                {row.advanceIssuedAt && (row.open == null || row.open > 0) ? (
+                                  <TextField
+                                    size="small"
+                                    type="number"
+                                    placeholder="0"
+                                    value={caApplyAmounts[row.cashApprovalId] ?? ''}
+                                    inputProps={{
+                                      min: 0,
+                                      max: row.open ?? undefined,
+                                      step: 0.01
+                                    }}
+                                    onChange={(e) => {
+                                      const max = Number(row.open) || 0;
+                                      const v = Math.max(0, Math.min(Number(e.target.value) || 0, max));
+                                      setCaApplyAmounts((prev) => ({
+                                        ...prev,
+                                        [row.cashApprovalId]: v > 0 ? String(v) : ''
+                                      }));
+                                    }}
+                                    sx={{ width: 120 }}
+                                  />
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">
+                                    —
+                                  </Typography>
+                                )}
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+                {payeeType === 'employee' && payeeCashApprovals.length > 0 && (
+                  <>
+                    <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, mt: 1.5 }}>
+                      <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">Total from cash approvals:</Typography>
+                        <Typography fontWeight={700} color="primary.main">
+                          {formatPKR(employeeAdvanceApplyTotals.totalCaUsage)}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">Total applied to bills:</Typography>
+                        <Typography fontWeight={700}>
+                          {formatPKR(employeeAdvanceApplyTotals.totalAllocatedToBills)}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Remaining to allocate:</Typography>
+                        <Typography
+                          fontWeight={700}
+                          color={
+                            employeeAdvanceApplyTotals.remainingToAllocate === 0
+                              ? 'success.main'
+                              : 'warning.main'
+                          }
+                        >
+                          {formatPKR(employeeAdvanceApplyTotals.remainingToAllocate)}
+                        </Typography>
+                      </Stack>
+                    </Box>
+                    {employeeAdvanceApplyTotals.totalCaUsage > 0 &&
+                      employeeAdvanceApplyTotals.remainingToAllocate !== 0 && (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        Total from cash approvals must equal total applied to bills (like Taj Pay Invoices from Deposit).
+                      </Alert>
+                    )}
+                    <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1.5 }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={processingCaApply}
+                        onClick={() => {
+                          const nextCa = {};
+                          payeeCashApprovals.forEach((row) => {
+                            if (!row.advanceIssuedAt) return;
+                            const open = Number(row.open) || 0;
+                            if (open > 0) nextCa[row.cashApprovalId] = String(open);
+                          });
+                          const totalCa = Object.values(nextCa).reduce((s, v) => s + Number(v), 0);
+                          let remaining = totalCa;
+                          const nextBills = outstandingTransactions.map((r) => {
+                            if (remaining <= 0) return { ...r, advanceApplyAmount: 0 };
+                            const amt = Math.min(Number(r.outstanding) || 0, remaining);
+                            remaining = Math.round((remaining - amt) * 100) / 100;
+                            return { ...r, advanceApplyAmount: amt };
+                          });
+                          setCaApplyAmounts(nextCa);
+                          setOutstandingTransactions(nextBills);
                         }}
                       >
-                        {payeeVendors.map((v) => (
-                          <MenuItem key={v.vendorId} value={v.vendorId}>{v.vendorName}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="caption" color="text.secondary">Selected Vendor</Typography>
-                    <Typography fontWeight={700}>{selectedPayee.vendorName || '—'}</Typography>
-                  </Grid>
-                </Grid>
+                        Auto-fill (CA → bills)
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="info"
+                        disabled={
+                          processingCaApply ||
+                          employeeAdvanceApplyTotals.totalCaUsage <= 0 ||
+                          employeeAdvanceApplyTotals.remainingToAllocate !== 0
+                        }
+                        onClick={handleApplyCaAdvanceToBill}
+                      >
+                        {processingCaApply ? 'Applying…' : 'Apply advance to bills'}
+                      </Button>
+                    </Stack>
+                  </>
+                )}
               </Paper>
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                {payeeType === 'employee' ? 'Bank payment (Step 2b)' : 'Payment details'}
+              </Typography>
             </Grid>
             <Grid item xs={6}>
               <TextField fullWidth label="Payment Amount (PKR)" type="number"
@@ -1574,6 +2303,11 @@ const AccountsPayable = () => {
                     <MenuItem key={a._id} value={a._id}>{a.accountNumber} — {a.name}</MenuItem>
                   ))}
                 </Select>
+                {bankAccounts.length === 0 && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                    No bank/cash accounts found in chart of accounts. Add active Current Asset accounts (e.g. 1001, 1002) with Allow Transactions enabled.
+                  </Typography>
+                )}
               </FormControl>
             </Grid>
             <Grid item xs={6}>
@@ -1587,54 +2321,6 @@ const AccountsPayable = () => {
                 value={paymentData.reference}
                 onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
                 size="small" />
-            </Grid>
-            <Grid item xs={12}>
-              <Paper variant="outlined" sx={{ p: 1.5 }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>Outstanding Transactions</Typography>
-                {loadingOutstandingTransactions ? (
-                  <LinearProgress />
-                ) : outstandingTransactions.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">No outstanding bills for selected vendor.</Typography>
-                ) : (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Bill #</TableCell>
-                        <TableCell>Due Date</TableCell>
-                        <TableCell align="right">Original Amount</TableCell>
-                        <TableCell align="right">Open Balance</TableCell>
-                        <TableCell align="right">Payment</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {outstandingTransactions.map((row, idx) => (
-                        <TableRow key={row.billId}>
-                          <TableCell>{row.billNumber}</TableCell>
-                          <TableCell>{formatDate(row.dueDate)}</TableCell>
-                          <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
-                          <TableCell align="right">{formatPKR(row.outstanding)}</TableCell>
-                          <TableCell align="right" sx={{ minWidth: 160 }}>
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={row.payAmount}
-                              inputProps={{ min: 0, max: row.outstanding, step: 0.01 }}
-                              onChange={(e) => {
-                                const next = [...outstandingTransactions];
-                                const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
-                                next[idx] = { ...next[idx], payAmount: v };
-                                setOutstandingTransactions(next);
-                                const total = Math.round(next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
-                                setPaymentData((prev) => ({ ...prev, amount: total }));
-                              }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </Paper>
             </Grid>
           </Grid>
         </DialogContent>

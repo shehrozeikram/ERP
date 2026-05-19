@@ -2,6 +2,7 @@
  * DESTRUCTIVE (local only): Deletes Admin workflow records and Audit module data from MONGODB_URI_LOCAL.
  *
  * Admin: utility bills, payment settlements, rental management, rental agreements, petty cash.
+ * General: cash approval requests (originatingModule general).
  * Audit: pre-audit queue, audits, findings, schedules, checklists, trail, corrective actions.
  * Also removes related in-app notifications and activity logs for those modules.
  *
@@ -30,6 +31,7 @@ function loadModels() {
     PaymentSettlement: require(path.join(root, 'server/models/hr/PaymentSettlement')),
     RentalManagement: require(path.join(root, 'server/models/hr/RentalManagement')),
     RentalAgreement: require(path.join(root, 'server/models/hr/RentalAgreement')),
+    CashApproval: require(path.join(root, 'server/models/procurement/CashApproval')),
     // Audit (delete dependents first)
     CorrectiveAction: require(path.join(root, 'server/models/audit/CorrectiveAction')),
     AuditFinding: require(path.join(root, 'server/models/audit/AuditFinding')),
@@ -60,30 +62,39 @@ const DELETE_ORDER = [
   'PreAudit'
 ];
 
+/** General module cash approval requests (Manager/HOD → audit workflow). */
+const GENERAL_CASH_APPROVAL_FILTER = { originatingModule: 'general' };
+
 const ADMIN_ACTIVITY_MODULES = [
   'Admin',
   'Utility Bills',
   'Rental Agreements',
   'Rental Management',
   'Payment Settlements',
-  'Petty Cash'
+  'Petty Cash',
+  'General'
 ];
 
 const activityLogFilter = {
   $or: [
     { module: { $regex: /^Admin/i } },
     { module: { $regex: /^Audit/i } },
+    { module: { $regex: /^General/i } },
     { module: { $in: ADMIN_ACTIVITY_MODULES } },
-    { endpoint: /utility-bills|payment-settlements|rental-management|rental-agreements|petty-cash|pre-audit|\/audit\//i }
+    {
+      endpoint: /utility-bills|payment-settlements|rental-management|rental-agreements|petty-cash|cash-approvals|pre-audit|\/audit\//i
+    }
   ]
 };
 
 const notificationFilter = {
   $or: [
     { 'metadata.module': 'audit' },
+    { 'metadata.module': 'general' },
+    { entityType: 'CashApproval' },
     { actionUrl: /\/audit\//i },
     { actionUrl: /pre-audit/i },
-    { actionUrl: /utility-bills|payment-settlement|rental-management|rental-agreement|petty-cash/i }
+    { actionUrl: /utility-bills|payment-settlement|rental-management|rental-agreement|petty-cash|general\/cash-approvals/i }
   ]
 };
 
@@ -143,7 +154,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(dryRun ? 'DRY RUN — no data will be deleted' : 'LIVE DELETE — admin + audit data');
+  console.log(dryRun ? 'DRY RUN — no data will be deleted' : 'LIVE DELETE — admin + general cash approvals + audit data');
   console.log('Connecting:', uri.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'));
 
   await mongoose.connect(uri, {
@@ -168,6 +179,20 @@ async function main() {
     }
   }
 
+  try {
+    const result = await deleteFiltered(
+      models.CashApproval,
+      'CashApproval (general)',
+      GENERAL_CASH_APPROVAL_FILTER,
+      dryRun
+    );
+    summary.push(result);
+    console.log(`  CashApproval (general): ${dryRun ? 'would delete' : 'deleted'} ${result.deleted}`);
+  } catch (error) {
+    summary.push({ key: 'CashApproval (general)', deleted: 0, error: error.message });
+    console.error('  CashApproval (general): FAILED', error.message);
+  }
+
   for (const [key, filter] of [
     ['Notification (admin/audit)', notificationFilter],
     ['UserActivityLog (admin/audit)', activityLogFilter]
@@ -189,7 +214,8 @@ async function main() {
   console.log(JSON.stringify(summary, null, 2));
   console.log(
     '\nPreserved: users, roles, procurement, finance, HR, and all other modules.\n' +
-      'Upload files under server/uploads/pre-audit (and bill attachments) are NOT removed by this script.'
+      'Upload files under server/uploads/pre-audit, bill attachments, and server/uploads/general/cash-approvals are NOT removed by this script.\n' +
+      'Procurement cash approvals (originatingModule procurement) are NOT deleted — use clean:finance-procurement:keep-masters if needed.'
   );
 }
 

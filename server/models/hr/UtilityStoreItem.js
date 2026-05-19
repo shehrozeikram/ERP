@@ -94,4 +94,16 @@ const utilityStoreItemSchema = new mongoose.Schema({
 
 utilityStoreItemSchema.index({ category: 1, name: 1 }, { unique: true });
 
+/** Auto-assign unique catalog item code when missing (used as bill “product code”). */
+utilityStoreItemSchema.pre('save', async function assignStoreItemCodeIfMissing(next) {
+  try {
+    if (this.code && String(this.code).trim()) return next();
+    const UtilityCentralStore = require('./UtilityCentralStore');
+    this.code = await UtilityCentralStore.assignNextItemCode();
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
+
 module.exports = mongoose.model('UtilityStoreItem', utilityStoreItemSchema);

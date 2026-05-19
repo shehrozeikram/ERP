@@ -45,6 +45,13 @@ const utilityBillSchema = new mongoose.Schema({
     default: null,
     index: true
   },
+  /** When bill is for an employee (links to Finance AP / cash advance payee) */
+  payeeEmployee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    default: null,
+    index: true
+  },
   /** Bill created from Centralized Store catalog (vendor + line items) */
   useCentralizedStore: {
     type: Boolean,
@@ -52,6 +59,8 @@ const utilityBillSchema = new mongoose.Schema({
   },
   billLines: [{
     storeItem: { type: mongoose.Schema.Types.ObjectId, ref: 'UtilityStoreItem' },
+    /** Snapshot of UtilityStoreItem.code at billing time (unique catalog product code). */
+    itemCode: { type: String, trim: true, default: '' },
     itemName: { type: String, trim: true },
     description: { type: String, trim: true, default: '' },
     utilityType: { type: String, trim: true },
@@ -60,7 +69,9 @@ const utilityBillSchema = new mongoose.Schema({
     site: { type: String, trim: true, default: '' },
     amount: { type: Number, min: 0, default: 0 },
     expenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
-    expenseAccountNumber: { type: String, trim: true, default: '' }
+    expenseAccountNumber: { type: String, trim: true, default: '' },
+    dueDate: { type: Date },
+    attachmentUrl: { type: String, trim: true, default: '' }
   }],
   accountNumber: {
     type: String,
