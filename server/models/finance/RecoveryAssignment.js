@@ -21,6 +21,14 @@ const recoveryAssignmentSchema = new mongoose.Schema(
     callFeedback: { type: String, trim: true, default: '' },
     lastCampaignSentAt: { type: Date },
     lastCampaignName: { type: String, trim: true, default: '' },
+    /** Last outbound WhatsApp (any type) — starts / tracks the messaging cycle. */
+    lastOutboundAt: { type: Date },
+    /** Last customer reply via webhook (any incoming message). */
+    lastCustomerReplyAt: { type: Date },
+    /** Anchor for auto follow-up: last manual/campaign send that opened the session window. */
+    sessionAnchorAt: { type: Date },
+    /** When the automatic session-refresh campaign was sent for the current anchor. */
+    autoFollowUpSentAt: { type: Date },
     taskStatus: { type: String, trim: true, default: 'pending' },
     taskCompletedAt: { type: Date },
     taskCompletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
@@ -36,5 +44,6 @@ recoveryAssignmentSchema.index({ currentlyDue: -1, sortOrder: 1, orderCode: 1 })
 recoveryAssignmentSchema.index({ currentlyDue: 1, sortOrder: 1, orderCode: 1 });
 // Unread filter loads all rows sorted by sortOrder then orderCode before slicing in memory.
 recoveryAssignmentSchema.index({ sortOrder: 1, orderCode: 1 });
+recoveryAssignmentSchema.index({ sessionAnchorAt: 1, autoFollowUpSentAt: 1, taskStatus: 1 });
 
 module.exports = mongoose.model('RecoveryAssignment', recoveryAssignmentSchema);

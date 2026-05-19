@@ -52,6 +52,36 @@ function partitionRules(rules) {
   };
 }
 
+/** Build $or conditions for assignments covered by active rules (My Tasks scope). */
+function buildOrConditionsFromRules(rules) {
+  const { sectorRules, slabRules } = partitionRules(rules);
+  const orConditions = [];
+
+  const allSectors = [...new Set(sectorRules.map((r) => String(r.sector || '').trim()).filter(Boolean))];
+  if (allSectors.length) {
+    orConditions.push({ $or: allSectors.map((s) => ({ sector: sectorExactRegex(s) })) });
+  }
+
+  slabRules.forEach((s) => {
+    const min = Number(s.minAmount) || 0;
+    const max = s.maxAmount != null && s.maxAmount !== '' ? Number(s.maxAmount) : null;
+    const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
+    const sectorVal = (s.sector || '').trim();
+    if (sectorVal) {
+      orConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
+    } else {
+      orConditions.push({ currentlyDue: dueCondition });
+    }
+  });
+
+  return orConditions;
+}
+
+async function getActiveMyTasksOrConditions() {
+  const rules = await RecoveryTaskAssignmentRule.find({ isActive: true }).lean();
+  return buildOrConditionsFromRules(rules);
+}
+
 /** True when any active rule still assigns this record (same logic as My Tasks). */
 function assignmentMatchesRules(record, sectorRules, slabRules) {
   const sector = normalizeSectorValue(record.sector);
@@ -109,5 +139,7 @@ module.exports = {
   MY_TASKS_ACTIVE_STATUS_FILTER: { $nin: ['completed', UNASSIGNED_TASK_STATUS] },
   REOPEN_FROM_STATUSES: ['completed', UNASSIGNED_TASK_STATUS],
   buildScopeQuery,
+  buildOrConditionsFromRules,
+  getActiveMyTasksOrConditions,
   unassignOrphanedAssignmentsByScope
 };

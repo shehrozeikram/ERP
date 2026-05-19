@@ -14,6 +14,7 @@ const router = express.Router();
 const WhatsAppIncomingMessage = require('../models/finance/WhatsAppIncomingMessage');
 const WhatsAppOutgoingMessage = require('../models/finance/WhatsAppOutgoingMessage');
 const { normalizeWhatsAppIncomingFrom } = require('../utils/recoveryWhatsAppPhone');
+const { recordRecoveryCustomerReply } = require('../utils/recoveryWhatsAppActivity');
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'sgc_whatsapp_verify_2025';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
@@ -188,6 +189,7 @@ router.post('/', async (req, res) => {
 
     try {
       const fromNormalized = normalizeWhatsAppIncomingFrom(from);
+      const receivedAt = new Date(Number(msg.timestamp) * 1000 || Date.now());
       await WhatsAppIncomingMessage.create({
         from: fromNormalized || String(from || '').replace(/\D/g, '') || from,
         messageId: id,
@@ -197,8 +199,9 @@ router.post('/', async (req, res) => {
         mediaType,
         mediaFilename,
         rawPayload: msg,
-        receivedAt: new Date(Number(msg.timestamp) * 1000 || Date.now())
+        receivedAt
       });
+      await recordRecoveryCustomerReply(fromNormalized || from, receivedAt);
     } catch (err) {
       console.error('[WhatsApp Webhook] Failed to save message:', err.message);
     }

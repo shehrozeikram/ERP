@@ -2,8 +2,57 @@ const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const RecoveryCampaign = require('../models/finance/RecoveryCampaign');
+const {
+  getFollowUpSettings,
+  saveFollowUpSettings,
+  runRecoveryWhatsAppFollowUp
+} = require('../utils/recoveryWhatsAppFollowUp');
 
 const router = express.Router();
+
+// GET /api/finance/recovery-campaigns/follow-up-settings
+router.get(
+  '/follow-up-settings',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const settings = await getFollowUpSettings();
+    res.json({ success: true, data: settings });
+  })
+);
+
+// PUT /api/finance/recovery-campaigns/follow-up-settings
+router.put(
+  '/follow-up-settings',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { enabled, campaignId, delayHours } = req.body;
+    if (enabled && !campaignId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select an approved campaign to enable automatic follow-up'
+      });
+    }
+    try {
+      const data = await saveFollowUpSettings(
+        { enabled, campaignId: campaignId || null, delayHours },
+        req.user._id
+      );
+      res.json({ success: true, data });
+    } catch (err) {
+      return res.status(400).json({ success: false, message: err.message || 'Invalid settings' });
+    }
+  })
+);
+
+// POST /api/finance/recovery-campaigns/follow-up-settings/run-now
+router.post(
+  '/follow-up-settings/run-now',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const result = await runRecoveryWhatsAppFollowUp();
+    res.json({ success: true, data: result });
+  })
+);
 
 // GET /api/finance/recovery-campaigns
 router.get(

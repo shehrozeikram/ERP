@@ -25,14 +25,20 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
-  Chip
+  Chip,
+  FormControlLabel,
+  Switch,
+  Divider
 } from '@mui/material';
-import { Campaign as CampaignIcon, Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { Campaign as CampaignIcon, Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Schedule as ScheduleIcon } from '@mui/icons-material';
 import {
   fetchRecoveryCampaigns,
   createRecoveryCampaign,
   updateRecoveryCampaign,
-  deleteRecoveryCampaign
+  deleteRecoveryCampaign,
+  fetchRecoveryFollowUpSettings,
+  saveRecoveryFollowUpSettings,
+  runRecoveryFollowUpNow
 } from '../../../services/recoveryCampaignService';
 
 const getCreatedByName = (doc) => {
@@ -75,6 +81,34 @@ const RecoveryCampaigns = () => {
   const [editingId, setEditingId] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [form, setForm] = useState({ whatsappTemplateName: '', whatsappLanguageCode: '', messagePreview: '' });
+  const [followUp, setFollowUp] = useState({
+    enabled: false,
+    campaignId: '',
+    delayHours: 14
+  });
+  const [followUpMeta, setFollowUpMeta] = useState(null);
+  const [followUpSaving, setFollowUpSaving] = useState(false);
+  const [followUpRunning, setFollowUpRunning] = useState(false);
+
+  const loadFollowUpSettings = useCallback(async () => {
+    try {
+      const res = await fetchRecoveryFollowUpSettings();
+      const data = res.data?.data || {};
+      setFollowUp({
+        enabled: !!data.enabled,
+        campaignId: data.campaignId?._id || data.campaignId || '',
+        delayHours: data.delayHours ?? 14
+      });
+      setFollowUpMeta({
+        lastRunAt: data.lastRunAt,
+        lastRunSentCount: data.lastRunSentCount,
+        lastRunSkippedCount: data.lastRunSkippedCount,
+        lastRunError: data.lastRunError
+      });
+    } catch {
+      setFollowUpMeta(null);
+    }
+  }, []);
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -89,7 +123,63 @@ const RecoveryCampaigns = () => {
 
   useEffect(() => {
     loadCampaigns();
-  }, [loadCampaigns]);
+    loadFollowUpSettings();
+  }, [loadCampaigns, loadFollowUpSettings]);
+
+  const handleSaveFollowUp = async () => {
+    if (followUp.enabled && !followUp.campaignId) {
+      setSnackbar({ open: true, message: 'Select an approved campaign for automatic follow-up', severity: 'warning' });
+      return;
+    }
+    try {
+      setFollowUpSaving(true);
+      const res = await saveRecoveryFollowUpSettings({
+        enabled: followUp.enabled,
+        campaignId: followUp.campaignId || null,
+        delayHours: Number(followUp.delayHours) || 14
+      });
+      setSnackbar({ open: true, message: 'Automatic follow-up settings saved', severity: 'success' });
+      const data = res.data?.data || {};
+      setFollowUpMeta({
+        lastRunAt: data.lastRunAt,
+        lastRunSentCount: data.lastRunSentCount,
+        lastRunSkippedCount: data.lastRunSkippedCount,
+        lastRunError: data.lastRunError
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to save follow-up settings',
+        severity: 'error'
+      });
+    } finally {
+      setFollowUpSaving(false);
+    }
+  };
+
+  const handleRunFollowUpNow = async () => {
+    try {
+      setFollowUpRunning(true);
+      const res = await runRecoveryFollowUpNow();
+      const d = res.data?.data || {};
+      if (d.skipped && d.reason === 'disabled') {
+        setSnackbar({ open: true, message: 'Enable automatic follow-up and save first', severity: 'warning' });
+      } else if (d.skipped && d.reason === 'no_campaign') {
+        setSnackbar({ open: true, message: 'Assign a campaign before running', severity: 'warning' });
+      } else {
+        setSnackbar({
+          open: true,
+          message: `Run complete: ${d.sent ?? 0} sent, ${d.skippedCount ?? 0} skipped`,
+          severity: 'success'
+        });
+      }
+      loadFollowUpSettings();
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.message || 'Run failed', severity: 'error' });
+    } finally {
+      setFollowUpRunning(false);
+    }
+  };
 
   const handleOpenAdd = () => {
     setEditingId(null);
@@ -171,6 +261,75 @@ const RecoveryCampaigns = () => {
       <Alert severity="info" sx={{ mb: 3 }}>
         Create Meta WhatsApp templates here. Use the exact template name and language code from your Meta Business account. Recovery members can select a campaign to send via WhatsApp API from My Tasks.
       </Alert>
+
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <ScheduleIcon color="primary" />
+            <Typography variant="h6" fontWeight={600}>
+              Automatic session follow-up (My Tasks)
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            If a customer has no reply after your message, WhatsApp&apos;s 24-hour window closes and free replies stop working.
+            Enable this to automatically send an <strong>approved campaign template</strong> after the delay (default 14 hours)
+            to people already messaged from My Tasks — only when they have not replied.
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={followUp.enabled}
+                onChange={(e) => setFollowUp((f) => ({ ...f, enabled: e.target.checked }))}
+              />
+            }
+            label="Enable automatic follow-up"
+          />
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 2, alignItems: 'flex-start' }}>
+            <FormControl size="small" sx={{ minWidth: 280 }} disabled={!followUp.enabled}>
+              <InputLabel>Follow-up campaign (Meta template)</InputLabel>
+              <Select
+                label="Follow-up campaign (Meta template)"
+                value={followUp.campaignId}
+                onChange={(e) => setFollowUp((f) => ({ ...f, campaignId: e.target.value }))}
+              >
+                <MenuItem value="">— Select campaign —</MenuItem>
+                {campaigns
+                  .filter((c) => c.isActive !== false && c.whatsappTemplateName)
+                  .map((c) => (
+                    <MenuItem key={c._id} value={c._id}>
+                      {c.whatsappTemplateName}
+                      {c.messagePreview ? ` — ${String(c.messagePreview).slice(0, 40)}` : ''}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+            <TextField
+              size="small"
+              type="number"
+              label="Hours after send"
+              value={followUp.delayHours}
+              onChange={(e) => setFollowUp((f) => ({ ...f, delayHours: e.target.value }))}
+              disabled={!followUp.enabled}
+              inputProps={{ min: 1, max: 23 }}
+              sx={{ width: 140 }}
+              helperText="1–23 (default 14)"
+            />
+            <Button variant="contained" onClick={handleSaveFollowUp} disabled={followUpSaving}>
+              {followUpSaving ? <CircularProgress size={22} /> : 'Save settings'}
+            </Button>
+            <Button variant="outlined" onClick={handleRunFollowUpNow} disabled={followUpRunning}>
+              {followUpRunning ? <CircularProgress size={22} /> : 'Run now'}
+            </Button>
+          </Box>
+          {followUpMeta?.lastRunAt && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+              Last run: {formatDate(followUpMeta.lastRunAt)} — sent {followUpMeta.lastRunSentCount ?? 0}, skipped{' '}
+              {followUpMeta.lastRunSkippedCount ?? 0}
+              {followUpMeta.lastRunError ? ` · Error: ${followUpMeta.lastRunError}` : ''}
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent>

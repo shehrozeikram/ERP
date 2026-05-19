@@ -830,6 +830,14 @@ server.listen(PORT, '0.0.0.0', async () => {
   } catch (error) {
     console.error('❌ Failed to start Deferred Entry Cron:', error);
   }
+
+  // Recovery WhatsApp session-refresh follow-up (default: every hour)
+  try {
+    const { startRecoveryWhatsAppFollowUpCron } = require('./utils/recoveryWhatsAppFollowUpCron');
+    startRecoveryWhatsAppFollowUpCron();
+  } catch (error) {
+    console.error('❌ Failed to start Recovery WhatsApp Follow-Up Cron:', error);
+  }
   
   // Automatically sync any missed attendance records on startup
   // Note: This is disabled since we're using real-time WebSocket connection
