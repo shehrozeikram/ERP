@@ -484,6 +484,14 @@ const employeeSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee'
   },
+  hod: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee'
+  },
+  reportingLine: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee'
+  },
   department: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department',

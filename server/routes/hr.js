@@ -141,7 +141,7 @@ router.get('/employees/next-id',
 // @desc    Get all employees
 // @access  Private (HR and Admin)
 router.get('/employees', 
-  authorize('super_admin', 'admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'developer', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -235,6 +235,7 @@ router.get('/employees',
         .populate('oldDesignation', 'title level')
         .populate('placementLocation', 'name type')
         .populate('manager', 'firstName lastName employeeId')
+        .populate('hod', 'firstName lastName employeeId')
         .limit(limit * 1)
         .skip((page - 1) * limit)
         .sort({ 
@@ -698,6 +699,7 @@ router.get('/employees/report',
         .populate('address.state', 'name code')
         .populate('address.country', 'name code')
         .populate('manager', 'firstName lastName employeeId')
+        .populate('hod', 'firstName lastName employeeId')
         .sort({ hireDate: 1, firstName: 1, lastName: 1 });
 
       // Get summary statistics
@@ -876,7 +878,8 @@ router.get('/employees/:id',
       .populate('address.city', 'name code')
       .populate('address.state', 'name code')
       .populate('address.country', 'name code')
-      .populate('manager', 'firstName lastName employeeId');
+      .populate('manager', 'firstName lastName employeeId')
+      .populate('hod', 'firstName lastName employeeId');
 
     if (!employee) {
       return res.status(404).json({

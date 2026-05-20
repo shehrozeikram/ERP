@@ -47,6 +47,7 @@ import { getModuleMenuItems, MODULES } from '../../utils/permissions';
 import NotificationService from '../../services/notificationService';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
+import { fetchTeamKpiWorksheets } from '../../services/kpiWorksheetService';
 
 const drawerWidth = 280;
 
@@ -118,6 +119,7 @@ const Sidebar = () => {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [lastClearedCount, setLastClearedCount] = useState(0);
   const [chatUnread, setChatUnread] = useState(0);
+  const [pendingKpiReviews, setPendingKpiReviews] = useState(0);
 
   // Helper function to get allowed submodules from sub-role
   const getAllowedSubmodules = (subRole) => {
@@ -168,6 +170,7 @@ const Sidebar = () => {
       '/hr/evaluation-appraisal/dashboard': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
+      '/hr/kpi/sheet': 'kpi_management',
       '/hr/kpi/dashboard': 'kpi_management',
       '/hr/kpi/templates': 'kpi_management',
       '/hr/kpi/cycles': 'kpi_management',
@@ -760,6 +763,27 @@ const Sidebar = () => {
     return () => clearInterval(interval);
   }, [fetchCandidateHiredCount]);
 
+  useEffect(() => {
+    let mounted = true;
+    const loadPendingKpiReviews = async () => {
+      try {
+        const now = new Date();
+        const res = await fetchTeamKpiWorksheets({ year: now.getFullYear(), month: now.getMonth() + 1 });
+        const teamRows = res.data?.data || [];
+        const pending = teamRows.filter((t) => !t.worksheet || !t.worksheet.managerScored).length;
+        if (mounted) setPendingKpiReviews(pending);
+      } catch {
+        if (mounted) setPendingKpiReviews(0);
+      }
+    };
+    loadPendingKpiReviews();
+    const interval = setInterval(loadPendingKpiReviews, 120000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Auto-clear module notifications when user visits that module page.
   useEffect(() => {
     const path = location.pathname || '';
@@ -1055,7 +1079,18 @@ const Sidebar = () => {
                         <ListItemText 
                           primary={
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              {subItem.text}
+                              {subItem.path === '/hr/kpi/sheet' ? (
+                                <Badge
+                                  color="error"
+                                  badgeContent={pendingKpiReviews}
+                                  invisible={!pendingKpiReviews}
+                                  max={99}
+                                >
+                                  {subItem.text}
+                                </Badge>
+                              ) : (
+                                subItem.text
+                              )}
                               {/* Show notification badge for Employees submenu item */}
                               {subItem.text === 'Employees' && candidateHiredCount > 0 && (
                                 <Box sx={{ display: 'flex', alignItems: 'center' }}>

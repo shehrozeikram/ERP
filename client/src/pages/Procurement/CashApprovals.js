@@ -1705,7 +1705,7 @@ const CashApprovalsPage = () => {
             {isGeneralCreateVoucherOpen && (
             <Grid item xs={12}>
               <Alert severity="info">
-                Assign finance approval authorities below. After all authorities approve, use <strong>Post Payment</strong> to issue the bank payment voucher (BPV).
+                Assign finance approval authorities below. Use <strong>Create Voucher</strong> in Finance to generate and post the BPV to the ledger (Trial Balance). After all authorities approve, use <strong>Post Payment</strong> to confirm advance issued.
               </Alert>
             </Grid>
             )}

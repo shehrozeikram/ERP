@@ -18,6 +18,8 @@ import {
   Tooltip,
   TextField,
   Button,
+  Badge,
+  MenuItem,
   FormControlLabel,
   Switch
 } from '@mui/material';
@@ -26,6 +28,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { authService } from '../../services/authService';
 import api from '../../services/api';
 import { getImageUrl } from '../../utils/imageService';
+import { fetchMyKpiWorksheet, fetchTeamKpiWorksheets } from '../../services/kpiWorksheetService';
 
 const CHAT_SOUND_PREF_PREFIX = 'sgc:chat-sound-enabled:';
 
@@ -49,6 +52,12 @@ const Profile = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [chatSoundEnabled, setChatSoundEnabled] = useState(true);
+  const [reportingOptions, setReportingOptions] = useState([]);
+  const [reportingLineId, setReportingLineId] = useState('');
+  const [savingReportingLine, setSavingReportingLine] = useState(false);
+  const [kpiSummary, setKpiSummary] = useState(null);
+  const [loadingKpiSummary, setLoadingKpiSummary] = useState(false);
+  const [pendingReviewCount, setPendingReviewCount] = useState(0);
 
   useEffect(() => {
     if (user?.profileImage) {
@@ -75,6 +84,53 @@ const Profile = () => {
     const saved = localStorage.getItem(key);
     setChatSoundEnabled(saved == null ? true : (saved !== '0' && saved !== 'false'));
   }, [user?.id, user?._id]);
+
+  useEffect(() => {
+    setReportingLineId(user?.reportingLine?._id || '');
+  }, [user?.reportingLine?._id]);
+
+  useEffect(() => {
+    const fetchReportingOptions = async () => {
+      try {
+        const res = await api.get('/auth/reporting-options');
+        setReportingOptions(res.data?.data || []);
+      } catch (error) {
+        setReportingOptions([]);
+      }
+    };
+    fetchReportingOptions();
+  }, []);
+
+  useEffect(() => {
+    const loadKpiSummary = async () => {
+      try {
+        setLoadingKpiSummary(true);
+        const now = new Date();
+        const res = await fetchMyKpiWorksheet({ year: now.getFullYear(), month: now.getMonth() + 1 });
+        setKpiSummary(res.data?.data || null);
+      } catch (error) {
+        setKpiSummary(null);
+      } finally {
+        setLoadingKpiSummary(false);
+      }
+    };
+    loadKpiSummary();
+  }, []);
+
+  useEffect(() => {
+    const loadPendingReviews = async () => {
+      try {
+        const now = new Date();
+        const res = await fetchTeamKpiWorksheets({ year: now.getFullYear(), month: now.getMonth() + 1 });
+        const teamRows = res.data?.data || [];
+        const pending = teamRows.filter((t) => !t.worksheet || !t.worksheet.managerScored).length;
+        setPendingReviewCount(pending);
+      } catch {
+        setPendingReviewCount(0);
+      }
+    };
+    loadPendingReviews();
+  }, []);
 
   const handleImageClick = () => {
     fileInputRef.current?.click();
@@ -271,6 +327,23 @@ const Profile = () => {
     });
   };
 
+  const handleSaveReportingLine = async () => {
+    try {
+      setSavingReportingLine(true);
+      await updateProfile({ reportingLineId: reportingLineId || null });
+      await refreshUser();
+      setSnackbar({ open: true, message: 'Reporting line updated successfully', severity: 'success' });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Failed to update reporting line',
+        severity: 'error'
+      });
+    } finally {
+      setSavingReportingLine(false);
+    }
+  };
+
   const formatEmployeeId = (employeeId) => {
     if (!employeeId) return 'N/A';
     return employeeId.toString().padStart(4, '0');
@@ -337,13 +410,29 @@ const Profile = () => {
         <Typography variant="h4" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
           User Profile
         </Typography>
-        <Button 
-          variant="contained" 
-          color="primary" 
-          onClick={() => navigate('/profile/kpis')}
-        >
-          My Performance KPIs
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={() => navigate('/profile/team-kpi-reviews')}
+          >
+            <Badge
+              color="error"
+              badgeContent={pendingReviewCount}
+              invisible={!pendingReviewCount}
+              max={99}
+            >
+              Team KPI reviews
+            </Badge>
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => navigate('/profile/kpi-sheet')}
+          >
+            Monthly KPI sheet
+          </Button>
+        </Box>
       </Box>
       
       <Grid container spacing={3}>
@@ -542,6 +631,86 @@ const Profile = () => {
             </Card>
           </Grid>
         )}
+
+        <Grid item xs={12}>
+          <Card>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>
+                Reporting line
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <TextField
+                    select
+                    fullWidth
+                    label="Reporting line"
+                    value={reportingLineId}
+                    onChange={(e) => setReportingLineId(e.target.value)}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    {reportingOptions.map((emp) => (
+                      <MenuItem key={emp._id} value={emp._id}>
+                        {[emp.firstName, emp.lastName].filter(Boolean).join(' ') || emp.employeeId} ({emp.employeeId})
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12}>
+                  <Button
+                    variant="contained"
+                    onClick={handleSaveReportingLine}
+                    disabled={savingReportingLine}
+                  >
+                    {savingReportingLine ? <CircularProgress size={22} color="inherit" /> : 'Save reporting line'}
+                  </Button>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Card sx={{
+            background: `linear-gradient(135deg, ${alpha(theme.palette.warning.main, 0.06)} 0%, ${alpha(theme.palette.warning.main, 0.02)} 100%)`,
+            border: `1px solid ${alpha(theme.palette.warning.main, 0.12)}`
+          }}>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                KPI section
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Current month KPI snapshot. Open full sheet for details and history.
+              </Typography>
+              {loadingKpiSummary ? (
+                <CircularProgress size={24} />
+              ) : (
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="body2" color="text.secondary">Month</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                      {kpiSummary?.month ? `${kpiSummary.month}/${kpiSummary.year}` : 'Not available'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="body2" color="text.secondary">Total KPI score</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                      {kpiSummary?.totalKPIScore ?? '—'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="body2" color="text.secondary">Total weight</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                      {kpiSummary?.totalWeight ?? 0}%
+                    </Typography>
+                  </Grid>
+                </Grid>
+              )}
+              <Button sx={{ mt: 2 }} variant="outlined" onClick={() => navigate('/profile/kpi-sheet')}>
+                Open monthly KPI sheet
+              </Button>
+            </CardContent>
+          </Card>
+        </Grid>
 
         {/* Leave Balance Card */}
         {showLeaveBalanceSection && user?.leaveBalance && (

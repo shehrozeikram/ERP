@@ -574,12 +574,9 @@ export const MODULES = {
       },
       {
         name: 'KPI Management',
-        path: '/hr/kpi/dashboard',
+        path: '/hr/kpi/sheet',
         subItems: [
-          { name: 'KPI Dashboard', path: '/hr/kpi/dashboard' },
-          { name: 'KPI Templates', path: '/hr/kpi/templates' },
-          { name: 'Evaluation Cycles', path: '/hr/kpi/cycles' },
-          { name: 'Manager Review', path: '/hr/kpi/review' }
+          { name: 'Monthly KPI sheet', path: '/hr/kpi/sheet' }
         ]
       },
       { name: 'Reports', path: '/hr/reports' }
@@ -1215,6 +1212,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   
   // Profile is always accessible
   if (path === '/profile') return true;
+  if (path === '/profile/kpi-sheet') return true;
+  if (path === '/profile/team-kpi-reviews') return true;
 
   // Chat (1:1, groups, moderation UI) — any authenticated user; moderation page enforces admin API
   if (path === '/chat' || path.startsWith('/chat/')) return true;
@@ -1313,6 +1312,11 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/edit': 'evaluation_appraisal',
+      '/hr/kpi/sheet': 'kpi_management',
+      '/hr/kpi/dashboard': 'kpi_management',
+      '/hr/kpi/templates': 'kpi_management',
+      '/hr/kpi/cycles': 'kpi_management',
+      '/hr/kpi/review': 'kpi_management',
       '/hr/reports': 'reports',
       
       // General Module

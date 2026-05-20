@@ -673,6 +673,7 @@ app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationD
 app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);
 app.use('/api/stores', authMiddleware, activityLogger, storesRoutes);
 app.use('/api/project-management', authMiddleware, activityLogger, projectManagementRoutes);
+app.use('/api/kpi/worksheets', authMiddleware, activityLogger, require('./routes/kpiWorksheet'));
 app.use('/api/kpi', authMiddleware, activityLogger, require('./routes/kpi'));
 app.use('/api/items', authMiddleware, activityLogger, require('./routes/items'));
 app.use('/api/evaluation-level0-authorities', authMiddleware, activityLogger, evaluationLevel0AuthoritiesRoutes);
@@ -839,6 +840,24 @@ server.listen(PORT, '0.0.0.0', async () => {
     console.error('❌ Failed to start Recovery WhatsApp Follow-Up Cron:', error);
   }
   
+  try {
+    const { startKpiWorksheetMonthlyCron } = require('./utils/kpiWorksheetMonthlyCron');
+    startKpiWorksheetMonthlyCron();
+  } catch (error) {
+    console.error('❌ Failed to start KPI Worksheet Monthly Cron:', error);
+  }
+
+  // Backfill current month KPI worksheets once on startup (non-blocking)
+  try {
+    const { ensureWorksheetsForMonth } = require('./utils/kpiWorksheetService');
+    const n = new Date();
+    ensureWorksheetsForMonth(n.getFullYear(), n.getMonth() + 1).then((r) => {
+      if (r.created) console.log(`[KPIWorksheet] Startup backfill created ${r.created} worksheet(s)`);
+    }).catch(() => {});
+  } catch (_) {
+    /* ignore */
+  }
+
   // Automatically sync any missed attendance records on startup
   // Note: This is disabled since we're using real-time WebSocket connection
   // The ZKTeco device sends data in real-time, so no scheduled sync is needed

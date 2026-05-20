@@ -379,16 +379,22 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
   const userProfile = req.user.getProfile();
   
   // Fetch employee specific data (Job Description, Leave Balance)
-  const employeeData = await Employee.findOne({ 
+  const employeeData = await Employee.findOne({
     $or: [
       { user: req.user._id },
       { employeeId: req.user.employeeId }
     ]
-  }).select('jobDescription leaveBalance');
+  })
+    .select('jobDescription leaveBalance reportingLine manager hod employeeId')
+    .populate('reportingLine', 'firstName lastName employeeId')
+    .populate('manager', 'firstName lastName employeeId')
+    .populate('hod', 'firstName lastName employeeId');
 
   if (employeeData) {
     userProfile.jobDescription = employeeData.jobDescription;
     userProfile.leaveBalance = employeeData.leaveBalance;
+    userProfile.employeeDocId = employeeData._id;
+    userProfile.reportingLine = employeeData.reportingLine || employeeData.manager || employeeData.hod || null;
   }
   
   res.json({
@@ -396,6 +402,35 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
     data: {
       user: userProfile
     }
+  });
+}));
+
+// @route   GET /api/auth/reporting-options
+// @desc    Get active employees for manager/HOD selection
+// @access  Private
+router.get('/reporting-options', authMiddleware, asyncHandler(async (req, res) => {
+  const me = await Employee.findOne({
+    $or: [{ user: req.user._id }, { employeeId: req.user.employeeId }]
+  }).select('_id');
+
+  const query = {
+    isDeleted: { $ne: true },
+    isActive: true
+  };
+  if (me?._id) {
+    query._id = { $ne: me._id };
+  }
+
+  const employees = await Employee.find(query)
+    .select('_id firstName lastName employeeId placementDesignation placementDepartment')
+    .populate('placementDesignation', 'title')
+    .populate('placementDepartment', 'name')
+    .sort({ firstName: 1, lastName: 1 })
+    .lean();
+
+  res.json({
+    success: true,
+    data: employees
   });
 }));
 
@@ -430,7 +465,7 @@ router.put('/profile', [
     });
   }
 
-  const { firstName, lastName, phone, address, profileImage, digitalSignature, approvalStamp } = req.body;
+  const { firstName, lastName, phone, address, profileImage, digitalSignature, approvalStamp, reportingLineId } = req.body;
 
   // Update user profile
   const updateData = {};
@@ -447,6 +482,47 @@ router.put('/profile', [
     updateData,
     { new: true, runValidators: true }
   );
+
+  if (reportingLineId !== undefined) {
+    const employeeDoc = await Employee.findOne({
+      $or: [{ user: req.user.id }, { employeeId: req.user.employeeId }]
+    }).select('_id reportingLine');
+
+    if (!employeeDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee profile not found for reporting line update'
+      });
+    }
+
+    const validateReportingTarget = async (idValue) => {
+      if (idValue === '' || idValue === null) return null;
+      if (!mongoose.Types.ObjectId.isValid(idValue)) {
+        throw new Error('Invalid reporting line id');
+      }
+      if (String(idValue) === String(employeeDoc._id)) {
+        throw new Error('Reporting line cannot be yourself');
+      }
+      const target = await Employee.findOne({
+        _id: idValue,
+        isDeleted: { $ne: true },
+        isActive: true
+      }).select('_id');
+      if (!target) throw new Error('Reporting line employee not found or inactive');
+      return target._id;
+    };
+
+    try {
+      employeeDoc.reportingLine = await validateReportingTarget(reportingLineId);
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        message: e.message || 'Invalid reporting line values'
+      });
+    }
+
+    await employeeDoc.save();
+  }
 
   res.json({
     success: true,

@@ -47,6 +47,7 @@ import ArrearsDialog from '../../components/ArrearsDialog';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
 import leaveService from '../../services/leaveService';
 import TextField from '@mui/material/TextField';
+import { fetchEmployeeKpiWorksheet } from '../../services/kpiWorksheetService';
 
 const EmployeeView = () => {
   const { id } = useParams();
@@ -76,6 +77,8 @@ const EmployeeView = () => {
     casualLimit: 10,
     useGlobalDefaults: true
   });
+  const [kpiSummary, setKpiSummary] = useState(null);
+  const [kpiLoading, setKpiLoading] = useState(false);
 
   const fetchEmployee = async () => {
     if (!id) return;
@@ -162,7 +165,25 @@ const EmployeeView = () => {
     fetchEmployee();
     fetchLoans();
     fetchLeaveData();
+    fetchKpiSummary();
   }, [id]);
+
+  const fetchKpiSummary = async () => {
+    if (!id) return;
+    try {
+      setKpiLoading(true);
+      const now = new Date();
+      const response = await fetchEmployeeKpiWorksheet(id, {
+        year: now.getFullYear(),
+        month: now.getMonth() + 1
+      });
+      setKpiSummary(response.data?.data || null);
+    } catch (error) {
+      setKpiSummary(null);
+    } finally {
+      setKpiLoading(false);
+    }
+  };
 
   const fetchLoans = async () => {
     if (!id) return;
@@ -1110,6 +1131,43 @@ const EmployeeView = () => {
             </Card>
           </Grid>
         )}
+
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <AssignmentIcon />
+                KPI section
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              {kpiLoading ? (
+                <CircularProgress size={24} />
+              ) : (
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="body2" color="textSecondary">Current month</Typography>
+                    <Typography variant="body1">{kpiSummary?.month ? `${kpiSummary.month}/${kpiSummary.year}` : 'Not available'}</Typography>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="body2" color="textSecondary">Total KPI score</Typography>
+                    <Typography variant="body1">{kpiSummary?.totalKPIScore ?? '—'}</Typography>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="body2" color="textSecondary">Total weight</Typography>
+                    <Typography variant="body1">{kpiSummary?.totalWeight ?? 0}%</Typography>
+                  </Grid>
+                </Grid>
+              )}
+              <Button
+                variant="outlined"
+                sx={{ mt: 2 }}
+                onClick={() => navigate(`/hr/kpi/sheet?employeeId=${id}`)}
+              >
+                Open monthly KPI sheet
+              </Button>
+            </CardContent>
+          </Card>
+        </Grid>
 
         {/* Academic Background Section */}
         {employee.academicBackground && employee.academicBackground.length > 0 && (

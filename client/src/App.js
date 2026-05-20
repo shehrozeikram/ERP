@@ -306,6 +306,7 @@ import KPIDashboard from './pages/HR/KPI/KPIDashboard';
 import KPITemplates from './pages/HR/KPI/KPITemplates';
 import KPICycles from './pages/HR/KPI/KPICycles';
 import ReviewKPIs from './pages/HR/KPI/ReviewKPIs';
+import KPIMonthlySheet from './pages/HR/KPI/KPIMonthlySheet';
 
 // Leave Management Pages
 import LeaveManagement from './pages/HR/Leaves/LeaveManagement';
@@ -697,6 +698,10 @@ function App() {
             <Route
               path="/hr/kpi/review"
               element={<ProtectedRoute><ReviewKPIs /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/kpi/sheet"
+              element={<ProtectedRoute><KPIMonthlySheet /></ProtectedRoute>}
             />
 
             {/* Indents Routes */}
@@ -1606,8 +1611,16 @@ function App() {
               element={<ProtectedRoute><Profile /></ProtectedRoute>} 
             />
             <Route 
-              path="/profile/kpis" 
-              element={<ProtectedRoute><MyKPIs /></ProtectedRoute>} 
+              path="/profile/kpis"
+              element={<ProtectedRoute><MyKPIs /></ProtectedRoute>}
+            />
+            <Route
+              path="/profile/kpi-sheet"
+              element={<ProtectedRoute><KPIMonthlySheet /></ProtectedRoute>}
+            />
+            <Route
+              path="/profile/team-kpi-reviews"
+              element={<ProtectedRoute><KPIMonthlySheet /></ProtectedRoute>}
             />
             <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
             <Route path="/chat/moderation" element={<ProtectedRoute><ChatModerationPage /></ProtectedRoute>} />

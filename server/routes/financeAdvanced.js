@@ -417,6 +417,22 @@ router.get('/journal-entries/:id',
   })
 );
 
+/** Post draft BPV/CPV linked to a cash approval so Trial Balance includes it (legacy drafts + safety net). */
+const postLinkedCashApprovalJournalIfDraft = async (entry, userId) => {
+  if (!entry || entry.status !== 'draft') return entry;
+  const linkedCashApproval = await CashApproval.findOne({
+    $or: [{ voucherEntryId: entry._id }, { _id: entry.referenceId }]
+  }).lean();
+  if (!linkedCashApproval) return entry;
+  await entry.post(userId);
+  try {
+    await FinanceHelper.postToGeneralLedger(entry._id);
+  } catch (glErr) {
+    console.warn('[CA voucher] General ledger post skipped:', glErr.message);
+  }
+  return JournalEntry.findById(entry._id);
+};
+
 // @route   PUT /api/finance/journal-entries/:id/clearance
 // @desc    Mark/unmark voucher clearance status
 // @access  Private (Finance and Admin)
@@ -450,6 +466,7 @@ router.put('/journal-entries/:id/clearance',
           message: 'Clearance date is required when marking as cleared. Send clearedAt (ISO or parseable date).'
         });
       }
+      await postLinkedCashApprovalJournalIfDraft(entry, req.user._id);
     }
 
     entry.clearanceStatus = clearanceStatus;
@@ -510,16 +527,21 @@ router.put('/journal-entries/:id/signed-document',
     }
     await entry.save();
 
-    // Voucher-driven finance control:
-    // Once voucher is marked as signed, linked cash approval is auto-moved to Advance Issued.
+    // Cash-approval BPV/CPV: ensure posted to GL (Trial Balance) when signed; then sync Advance Issued.
     if (signedDocumentStatus === 'signed') {
+      await postLinkedCashApprovalJournalIfDraft(entry, req.user._id);
       const linkedCashApproval = await CashApproval.findOne({
         $or: [
           { voucherEntryId: entry._id },
           { _id: entry.referenceId }
         ]
       });
-      if (linkedCashApproval && linkedCashApproval.status !== 'Advance Issued') {
+      const freshEntry = await JournalEntry.findById(entry._id).select('status').lean();
+      if (
+        linkedCashApproval &&
+        freshEntry?.status === 'posted' &&
+        linkedCashApproval.status !== 'Advance Issued'
+      ) {
         linkedCashApproval.status = 'Advance Issued';
         if (!linkedCashApproval.advanceIssuedAt) linkedCashApproval.advanceIssuedAt = new Date();
         if (!linkedCashApproval.advanceIssuedBy) linkedCashApproval.advanceIssuedBy = req.user._id;
@@ -604,6 +626,11 @@ router.put('/journal-entries/:id/post',
     }
 
     await entry.post(req.user._id);
+    try {
+      await FinanceHelper.postToGeneralLedger(entry._id);
+    } catch (glErr) {
+      console.warn('[Journal post] General ledger post skipped:', glErr.message);
+    }
 
     res.json({
       success: true,

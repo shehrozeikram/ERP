@@ -287,7 +287,7 @@ const Vouchers = () => {
           <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          All finance vouchers are listed here. Draft BPV/CPV vouchers appear after Create Voucher; once you mark the signed document, status shows as Signed until the voucher is posted to the ledger (Posted). Use filters to narrow by status or type.
+          Cash-approval BPV/CPV vouchers are posted to the ledger when created (and appear in Trial Balance like bills). Mark signed document and clearance here for workflow; status may show Cleared while the ledger entry is Posted.
           Open any voucher to view/print. Use Attachment to upload supporting files.
           Signed document and signed date are available only after at least one attachment is added. Clearance is available only after the voucher is marked signed with a signed date; when you mark clearance as cleared, choose the clearance date in the dialog (it is not set automatically).
         </Typography>
