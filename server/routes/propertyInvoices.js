@@ -25,6 +25,7 @@ const {
   clearCached,
   CACHE_KEYS
 } = require('../utils/tajUtilitiesOptimizer');
+const { repairCamInvoiceChain } = require('../utils/camInvoiceArrears');
 
 /** Avoid SyntaxError from RegExp when sector names contain metacharacters (e.g. `[`, `(`). */
 const escapeRegExp = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -90,10 +91,16 @@ const getOpenInvoiceCategoryPrefix = (chargeType = '') => {
  * @param {string[]} [chargeTypesFilter] - Optional. e.g. ['ELECTRICITY'], ['CAM'], ['RENT']
  * @returns {Number} Total overdue arrears for this property (filtered by charge type if given)
  */
-const calculateOverdueArrears = async (propertyId, currentDate = new Date(), chargeTypesFilter = null) => {
+const calculateOverdueArrears = async (
+  propertyId,
+  currentDate = new Date(),
+  chargeTypesFilter = null,
+  options = {}
+) => {
   if (!propertyId) return 0;
   try {
     const filterTypes = Array.isArray(chargeTypesFilter) && chargeTypesFilter.length > 0 ? chargeTypesFilter : null;
+    const { beforePeriodFrom } = options;
 
     // Build query: unpaid/partial invoices for this property that match the charge type filter.
     // No grace-period gate — we want the last invoice regardless of how recent it is.
@@ -103,6 +110,11 @@ const calculateOverdueArrears = async (propertyId, currentDate = new Date(), cha
       paymentStatus: { $in: ['unpaid', 'partial_paid'] },
       status: { $ne: 'Cancelled' }
     };
+
+    // When billing a new month, only carry forward from invoices for earlier billing periods.
+    if (beforePeriodFrom) {
+      query.periodTo = { $lt: new Date(beforePeriodFrom) };
+    }
 
     // If filtering by charge type, restrict to invoices that contain those types.
     if (filterTypes) {
@@ -469,7 +481,8 @@ router.get('/property/:propertyId/cam-calculation', authMiddleware, asyncHandler
     const zoneType = property.zoneType || 'Residential';
     const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
     const amount = camChargeInfo?.amount ?? 0;
-    const arrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
+    const periodFrom = req.query.periodFrom ? new Date(req.query.periodFrom) : dayjs().startOf('month').toDate();
+    const arrears = await calculateOverdueArrears(property._id, new Date(), ['CAM'], { beforePeriodFrom: periodFrom });
     let description = 'CAM Charges';
     if (zoneType && String(zoneType).toLowerCase() === 'commercial') {
       description = 'Commercial CAM Charges';
@@ -707,7 +720,11 @@ async function createPropertyInvoiceForProperty(req, res) {
         // (no cumulative sum of all historical unpaid invoices).
         let carryForwardArrears = 0;
         try {
-          carryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
+          const billingStart = periodFrom ? new Date(periodFrom) : new Date();
+          const asOf = invoiceDate ? new Date(invoiceDate) : new Date();
+          carryForwardArrears = await calculateOverdueArrears(property._id, asOf, ['CAM'], {
+            beforePeriodFrom: billingStart
+          });
         } catch (err) {
           console.error(`[CAM-INVOICE] calculateOverdueArrears failed for ${property._id}:`, err.message);
           carryForwardArrears = 0;
@@ -1842,13 +1859,17 @@ function invoiceOverlapsBulkMonth(invoice, chargeType, monthStartMs, monthEndMs)
   return startMs <= monthEndMs && endMs >= monthStartMs;
 }
 
-async function buildCamChargesArray(property) {
+async function buildCamChargesArray(property, options = {}) {
   const propertySize = property.areaValue ?? 0;
   const areaUnit = property.areaUnit || 'Marla';
   const zoneType = property.zoneType || 'Residential';
   const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
   const amount = camChargeInfo?.amount ?? 0;
-  const arrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
+  const asOf = options.invoiceDate ? new Date(options.invoiceDate) : new Date();
+  const beforePeriodFrom = options.periodFrom ? new Date(options.periodFrom) : null;
+  const arrears = await calculateOverdueArrears(property._id, asOf, ['CAM'], {
+    beforePeriodFrom: beforePeriodFrom || dayjs().startOf('month').toDate()
+  });
   let description = 'CAM Charges';
   if (zoneType && String(zoneType).toLowerCase() === 'commercial') {
     description = 'Commercial CAM Charges';
@@ -1927,6 +1948,53 @@ async function buildRentChargesArray(property) {
 
 const BULK_MAX_PROPERTIES = 600;
 
+// @route   POST /api/taj-utilities/invoices/repair-cam-chain
+// @desc    Rebuild CAM invoice arrears chain for one or more properties (CAM-only).
+// @access  Private
+router.post('/repair-cam-chain', authMiddleware, asyncHandler(async (req, res) => {
+  const { propertyId, propertyIds, srNo, fromInvoiceNumber, dryRun } = req.body || {};
+  const ids = new Set();
+
+  if (propertyId) ids.add(String(propertyId));
+  if (Array.isArray(propertyIds)) propertyIds.forEach((id) => ids.add(String(id)));
+
+  if (srNo != null && srNo !== '') {
+    const property = await TajProperty.findOne({ srNo: Number(srNo) }).select('_id srNo ownerName').lean();
+    if (!property) {
+      return res.status(404).json({ success: false, message: `Property with srNo ${srNo} not found` });
+    }
+    ids.add(String(property._id));
+  }
+
+  if (ids.size === 0) {
+    return res.status(400).json({ success: false, message: 'Provide propertyId, propertyIds, or srNo' });
+  }
+
+  const results = [];
+  for (const id of ids) {
+    const property = await TajProperty.findById(id).select('srNo ownerName').lean();
+    const repair = await repairCamInvoiceChain(id, {
+      fromInvoiceNumber: fromInvoiceNumber || undefined,
+      dryRun: !!dryRun
+    });
+    results.push({
+      propertyId: id,
+      srNo: property?.srNo,
+      ownerName: property?.ownerName,
+      ...repair
+    });
+  }
+
+  res.json({
+    success: true,
+    dryRun: !!dryRun,
+    message: dryRun
+      ? 'Dry run only — no invoices were saved'
+      : 'CAM invoice chain repaired',
+    results
+  });
+}));
+
 // @route   POST /api/taj-utilities/invoices/bulk-create-cam-invoices
 // @desc    Create CAM invoices for many properties in one request (server-side; not Recovery).
 // @access  Private
@@ -1975,7 +2043,10 @@ router.post('/bulk-create-cam-invoices', authMiddleware, asyncHandler(async (req
         continue;
       }
 
-      const charges = await buildCamChargesArray(property);
+      const charges = await buildCamChargesArray(property, {
+        periodFrom: periodFromD,
+        invoiceDate: invoiceDateD
+      });
       const mockReq = {
         params: { propertyId },
         body: {

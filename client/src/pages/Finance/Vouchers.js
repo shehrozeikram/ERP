@@ -71,6 +71,12 @@ function getVoucherStatusDisplay(row) {
   return { label: fallback, color: 'default' };
 }
 
+const CA_VOUCHER_WORKFLOW_LOCK_MSG =
+  'Available after all finance authorities approve the linked cash approval.';
+
+/** Cash-approval BPV/CPV: lock attachment / signed / clearance until every authority has approved. */
+const isCaVoucherWorkflowLocked = (row) => row?.cashApprovalAuthoritiesComplete === false;
+
 /** Parse YYYY-MM-DD as local noon (stable for API ISO). */
 function parseYmdLocalNoon(ymd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((ymd || '').trim());
@@ -120,6 +126,7 @@ const Vouchers = () => {
   const [attachError, setAttachError] = useState('');
 
   const openAttachDlg = (entry) => {
+    if (isCaVoucherWorkflowLocked(entry)) return;
     setAttachDlg({ open: true, entry, uploading: false });
     setAttachError('');
   };
@@ -127,7 +134,7 @@ const Vouchers = () => {
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isCaVoucherWorkflowLocked(attachDlg.entry)) return;
     setAttachDlg((d) => ({ ...d, uploading: true }));
     setAttachError('');
     try {
@@ -150,6 +157,7 @@ const Vouchers = () => {
   };
 
   const handleDeleteAttachment = async (filename) => {
+    if (isCaVoucherWorkflowLocked(attachDlg.entry)) return;
     if (!window.confirm('Delete this attachment?')) return;
     try {
       const res = await api.delete(
@@ -211,6 +219,7 @@ const Vouchers = () => {
     setClearanceDialog({ open: false, voucher: null, status: 'pending', clearedAtDate: '' });
 
   const openClearanceDialog = (voucher) => {
+    if (isCaVoucherWorkflowLocked(voucher)) return;
     const can =
       (voucher?.attachments || []).length > 0 &&
       voucher?.signedDocumentStatus === 'signed' &&
@@ -261,6 +270,7 @@ const Vouchers = () => {
   const saveSignedDocumentStatus = async (voucherId, nextStatus) => {
     if (!voucherId) return;
     const row = entries.find((e) => e._id === voucherId);
+    if (isCaVoucherWorkflowLocked(row)) return;
     if (!(row?.attachments || []).length) return;
     try {
       const res = await api.put(`/finance/journal-entries/${voucherId}/signed-document`, {
@@ -286,11 +296,6 @@ const Vouchers = () => {
           <VoucherIcon color="primary" />
           <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
         </Box>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          Cash-approval BPV/CPV vouchers are posted to the ledger when created (and appear in Trial Balance like bills). Mark signed document and clearance here for workflow; status may show Cleared while the ledger entry is Posted.
-          Open any voucher to view/print. Use Attachment to upload supporting files.
-          Signed document and signed date are available only after at least one attachment is added. Clearance is available only after the voucher is marked signed with a signed date; when you mark clearance as cleared, choose the clearance date in the dialog (it is not set automatically).
-        </Typography>
       </Paper>
 
       <Paper sx={{ p: 2, mb: 2 }}>
@@ -372,8 +377,10 @@ const Vouchers = () => {
               ) : voucherRows.length === 0 ? (
                 <TableRow><TableCell colSpan={13} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => {
+                const workflowLocked = isCaVoucherWorkflowLocked(row);
                 const hasAttachment = (row.attachments || []).length > 0;
                 const canUseClearance =
+                  !workflowLocked &&
                   hasAttachment &&
                   row.signedDocumentStatus === 'signed' &&
                   Boolean(row.signedDocumentAt);
@@ -386,11 +393,19 @@ const Vouchers = () => {
                   <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
                   <TableCell>{row.reference || '—'}</TableCell>
                   <TableCell align="center">
-                    <Tooltip title={`Attachments (${(row.attachments || []).length}) — click to add or view`}>
+                    <Tooltip
+                      title={
+                        workflowLocked
+                          ? CA_VOUCHER_WORKFLOW_LOCK_MSG
+                          : `Attachments (${(row.attachments || []).length}) — click to add or view`
+                      }
+                    >
+                      <span>
                       <IconButton
                         size="small"
                         color={(row.attachments || []).length > 0 ? 'primary' : 'default'}
                         onClick={() => openAttachDlg(row)}
+                        disabled={workflowLocked}
                       >
                         <AttachIcon fontSize="small" />
                         {(row.attachments || []).length > 0 && (
@@ -399,12 +414,15 @@ const Vouchers = () => {
                           </Typography>
                         )}
                       </IconButton>
+                      </span>
                     </Tooltip>
                   </TableCell>
                   <TableCell>
                     <Tooltip
                       title={
-                        hasAttachment
+                        workflowLocked
+                          ? CA_VOUCHER_WORKFLOW_LOCK_MSG
+                          : hasAttachment
                           ? 'Signed document status'
                           : 'Add an attachment first to set signed document status'
                       }
@@ -413,7 +431,7 @@ const Vouchers = () => {
                         <TextField
                           select
                           size="small"
-                          disabled={!hasAttachment}
+                          disabled={workflowLocked || !hasAttachment}
                           value={row.signedDocumentStatus === 'signed' ? 'signed' : 'not_signed'}
                           onChange={(e) => saveSignedDocumentStatus(row._id, e.target.value)}
                           sx={{ minWidth: 130 }}
@@ -425,12 +443,16 @@ const Vouchers = () => {
                     </Tooltip>
                   </TableCell>
                   <TableCell>
-                    {hasAttachment && row.signedDocumentAt ? formatDate(row.signedDocumentAt) : '—'}
+                    {!workflowLocked && hasAttachment && row.signedDocumentAt
+                      ? formatDate(row.signedDocumentAt)
+                      : '—'}
                   </TableCell>
                   <TableCell>
                     <Tooltip
                       title={
-                        canUseClearance
+                        workflowLocked
+                          ? CA_VOUCHER_WORKFLOW_LOCK_MSG
+                          : canUseClearance
                           ? 'Update clearance status'
                           : 'Complete attachment and signed document (with signed date) before clearance'
                       }
@@ -546,7 +568,7 @@ const Vouchers = () => {
             variant="outlined"
             startIcon={attachDlg.uploading ? <CircularProgress size={16} /> : <UploadIcon />}
             onClick={() => fileInputRef.current?.click()}
-            disabled={attachDlg.uploading}
+            disabled={attachDlg.uploading || isCaVoucherWorkflowLocked(attachDlg.entry)}
           >
             {attachDlg.uploading ? 'Uploading…' : 'Upload image / file'}
           </Button>

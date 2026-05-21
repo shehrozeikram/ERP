@@ -22,6 +22,7 @@ const {
   calculatePayments,
   CACHE_KEYS
 } = require('../utils/tajUtilitiesOptimizer');
+const { getLatestUnpaidCamBalance } = require('../utils/camInvoiceArrears');
 
 const attachmentsDir = path.join(__dirname, '../uploads/payment-attachments');
 if (!fs.existsSync(attachmentsDir)) {
@@ -330,36 +331,13 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
           // Calculate arrears from CAMCharge model
           const camChargeArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
           
-          // Calculate carry forward arrears from unpaid PropertyInvoice records (using pre-fetched data)
+          // Outstanding CAM = latest unpaid CAM invoice balance only (not sum of all invoices)
           let carryForwardArrears = 0;
           try {
             const previousCamInvoices = invoicesByProperty.get(property._id.toString()) || [];
-            
-            // Calculate outstanding CAM charges from previous invoices
-            previousCamInvoices.forEach(inv => {
-              const camChargeInPrevInvoice = inv.charges?.find(c => c.type === 'CAM');
-              if (camChargeInPrevInvoice) {
-                // Fix: Check if chargeTypes exists and has length
-                const chargeTypes = inv.chargeTypes || [];
-                if (chargeTypes.length === 1 && chargeTypes[0] === 'CAM') {
-                  carryForwardArrears += inv.balance || 0;
-                } else {
-                  // If mixed charges, calculate the proportion of CAM in the original grandTotal
-                  // and apply that proportion to the remaining balance
-                  const grandTotal = inv.grandTotal || 0;
-                  if (grandTotal > 0) {
-                    const camProportion = (camChargeInPrevInvoice.amount + camChargeInPrevInvoice.arrears) / grandTotal;
-                  carryForwardArrears += (inv.balance || 0) * camProportion;
-                  }
-                }
-              }
-            });
-            
-            // Round to nearest whole number
-            carryForwardArrears = Math.round(carryForwardArrears);
+            carryForwardArrears = Math.round(getLatestUnpaidCamBalance(previousCamInvoices));
           } catch (err) {
             console.error('Error calculating carry forward arrears for property:', property._id, err);
-            // Continue with camChargeArrears only
           }
           
           // Total arrears = CAM charge arrears + carry forward from invoices
@@ -453,7 +431,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       const allCamInvoices = await PropertyInvoice.find({
         chargeTypes: { $in: ['CAM'] }
       })
-      .select('grandTotal balance charges chargeTypes')
+      .select('property grandTotal balance charges chargeTypes periodTo createdAt paymentStatus status')
       .lean()
       .catch(() => []);
       
@@ -462,27 +440,19 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         return sum + (invoice.grandTotal || 0);
       }, 0);
       
-      // Calculate total arrears (unpaid balance) from all invoices
-      totalArrearsAllPages = allCamInvoices.reduce((sum, invoice) => {
-        // For mixed invoices, calculate CAM portion of balance
-        const camCharges = invoice.charges?.filter(c => c.type === 'CAM') || [];
-        if (camCharges.length > 0) {
-          const hasOnlyCAM = invoice.chargeTypes?.length === 1 && invoice.chargeTypes[0] === 'CAM';
-          if (hasOnlyCAM) {
-            // If only CAM, use full balance
-            return sum + (invoice.balance || 0);
-          } else {
-            // If mixed charges, calculate CAM portion proportionally
-            const camTotal = camCharges.reduce((s, c) => s + (c.amount || 0) + (c.arrears || 0), 0);
-            const invoiceTotal = invoice.grandTotal || 0;
-            if (invoiceTotal > 0) {
-              const camProportion = camTotal / invoiceTotal;
-              return sum + ((invoice.balance || 0) * camProportion);
-            }
-          }
-        }
-        return sum;
-      }, 0);
+      // Total arrears = sum of each property's latest unpaid CAM balance (not all invoices stacked)
+      const balancesByProperty = new Map();
+      allCamInvoices.forEach((invoice) => {
+        const pid = String(invoice.property || '');
+        if (!pid) return;
+        const list = balancesByProperty.get(pid) || [];
+        list.push(invoice);
+        balancesByProperty.set(pid, list);
+      });
+      totalArrearsAllPages = [...balancesByProperty.values()].reduce(
+        (sum, list) => sum + getLatestUnpaidCamBalance(list),
+        0
+      );
       
       // Round to 2 decimal places
       totalAmountAllPages = Math.round(totalAmountAllPages * 100) / 100;

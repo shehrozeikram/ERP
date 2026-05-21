@@ -29,6 +29,48 @@ const {
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
+
+const cashApprovalFinanceAuthoritiesComplete = (ca) => {
+  if (!ca) return false;
+  const slots = getRequiredFinanceAuthoritySlots(ca);
+  if (!slots.length) return false;
+  const approvedKeys = new Set(
+    (Array.isArray(ca.financeAuthorityApprovals) ? ca.financeAuthorityApprovals : [])
+      .filter((a) => String(a?.decision || 'approved').trim() !== 'rejected')
+      .map((a) => String(a?.authorityKey || '').trim())
+      .filter(Boolean)
+  );
+  return slots.every((s) => approvedKeys.has(s.key));
+};
+
+const attachCashApprovalWorkflowFlags = async (entries) => {
+  const docs = entries.map((e) => (e.toObject ? e.toObject() : { ...e }));
+  const paymentRows = docs.filter((e) => e.referenceType === 'payment');
+  if (!paymentRows.length) return docs;
+
+  const entryIds = paymentRows.map((e) => e._id);
+  const refIds = paymentRows.map((e) => e.referenceId).filter(Boolean);
+  const linkedCas = await CashApproval.find({
+    $or: [{ _id: { $in: refIds } }, { voucherEntryId: { $in: entryIds } }]
+  })
+    .select('financeApprovalAuthorities financeAuthorityApprovals voucherEntryId')
+    .lean();
+
+  const caByRef = new Map(linkedCas.map((ca) => [String(ca._id), ca]));
+  const caByVoucher = new Map(
+    linkedCas.filter((ca) => ca.voucherEntryId).map((ca) => [String(ca.voucherEntryId), ca])
+  );
+
+  return docs.map((e) => {
+    if (e.referenceType !== 'payment') return e;
+    const ca = caByRef.get(String(e.referenceId)) || caByVoucher.get(String(e._id));
+    if (!ca) return e;
+    return {
+      ...e,
+      cashApprovalAuthoritiesComplete: cashApprovalFinanceAuthoritiesComplete(ca)
+    };
+  });
+};
 const {
   isFullAdvancePaymentTerm,
   buildJournalEntrySignedMapForVendorAdvances,
@@ -379,11 +421,12 @@ router.get('/journal-entries',
     ]);
 
     const totalPages = Math.ceil(totalCount / parseInt(limit));
+    const entriesWithCaFlags = await attachCashApprovalWorkflowFlags(entries);
 
     res.json({
       success: true,
       data: {
-        entries,
+        entries: entriesWithCaFlags,
         pagination: {
           currentPage: parseInt(page),
           totalPages,
@@ -3518,20 +3561,28 @@ router.get('/employees/:employeeId',
           outstanding: roundFinance2(Math.max(0, totalAdvanced - totalSettled)),
           caCount: cashApprovals.length
         },
-        cashApprovals: cashApprovals.map((ca) => ({
-          _id: ca._id,
-          caNumber: ca.caNumber,
-          status: ca.status,
-          purpose: ca.purpose,
-          totalAmount: ca.totalAmount,
-          advanceAmount: ca.advanceAmount,
-          actualAmountSpent: ca.actualAmountSpent,
-          advanceIssuedAt: ca.advanceIssuedAt,
-          settlementDate: ca.settlementDate,
-          approvalDate: ca.approvalDate,
-          originatingModule: ca.originatingModule,
-          voucherEntryId: ca.voucherEntryId
-        }))
+        cashApprovals: cashApprovals.map((ca) => {
+          const advanceAmount = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
+          const apApplied = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
+          const issued = Boolean(ca.advanceIssuedAt);
+          return {
+            _id: ca._id,
+            caNumber: ca.caNumber,
+            status: ca.status,
+            purpose: ca.purpose,
+            totalAmount: ca.totalAmount,
+            advanceAmount: ca.advanceAmount,
+            apAdvanceApplied: apApplied,
+            actualAmountSpent: ca.actualAmountSpent,
+            advanceIssuedAt: ca.advanceIssuedAt,
+            settlementDate: ca.settlementDate,
+            approvalDate: ca.approvalDate,
+            originatingModule: ca.originatingModule,
+            voucherEntryId: ca.voucherEntryId,
+            applied: issued ? apApplied : null,
+            open: issued ? Math.max(0, Math.round((advanceAmount - apApplied) * 100) / 100) : null
+          };
+        })
       }
     });
   })

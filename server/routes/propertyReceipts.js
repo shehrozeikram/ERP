@@ -6,32 +6,13 @@ const TajProperty = require('../models/tajResidencia/TajProperty');
 const { authMiddleware } = require('../middleware/auth');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 const dayjs = require('dayjs');
+const { getCamCarryForwardFromPrevious } = require('../utils/camInvoiceArrears');
 
 const GRACE_PERIOD_DAYS = 6;
 
 // CAM-only helper: derive payable carry-forward from previous invoice.
-// If overdue after due+grace and still unpaid, use payable-after-due-date.
-const getInvoicePayableForCarryForward = (invoice) => {
-  if (!invoice) return 0;
-  const totalPaid = Number(invoice.totalPaid || 0);
-  const basePayable = Math.max(0, Number(invoice.grandTotal || 0) - totalPaid);
-  if (basePayable <= 0) return 0;
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const dueStart = invoice.dueDate ? new Date(invoice.dueDate) : null;
-  if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const dueWithGrace = dueStart ? new Date(dueStart) : null;
-  if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-
-  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || basePayable > 0;
-  if (!isOverdue || !isUnpaid) return Math.round(basePayable * 100) / 100;
-
-  const chargesForMonth = (invoice.charges || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || Number(invoice.subtotal || 0);
-  const lateSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-  return Math.round((basePayable + lateSurcharge) * 100) / 100;
-};
+const getInvoicePayableForCarryForward = (invoice, asOfDate = new Date()) =>
+  getCamCarryForwardFromPrevious(invoice, asOfDate);
 
 // Recalculate future CAM invoices only (do not touch other modules).
 const recalculateFutureCamInvoices = async (propertyId, anchorDate) => {
@@ -42,8 +23,8 @@ const recalculateFutureCamInvoices = async (propertyId, anchorDate) => {
     chargeTypes: { $in: ['CAM'] },
     status: { $ne: 'Cancelled' }
   })
-    .sort({ invoiceDate: 1, createdAt: 1 })
-    .select('invoiceDate createdAt chargeTypes charges subtotal totalArrears grandTotal totalPaid balance dueDate paymentStatus status')
+    .sort({ periodTo: 1, createdAt: 1 })
+    .select('invoiceDate createdAt periodTo chargeTypes charges subtotal totalArrears grandTotal totalPaid balance dueDate paymentStatus status')
     .lean();
 
   if (!allCamInvoices.length) return;
@@ -52,11 +33,12 @@ const recalculateFutureCamInvoices = async (propertyId, anchorDate) => {
   for (let i = 1; i < allCamInvoices.length; i++) {
     const previous = allCamInvoices[i - 1];
     const current = allCamInvoices[i];
-    const currentMs = new Date(current.invoiceDate || current.createdAt || 0).getTime();
+    const currentMs = new Date(current.periodTo || current.invoiceDate || current.createdAt || 0).getTime();
     if (!(currentMs > anchorMs)) continue;
     if (!['unpaid', 'partial_paid'].includes(current.paymentStatus)) continue;
 
-    const carryForward = getInvoicePayableForCarryForward(previous);
+    const asOf = current.invoiceDate || current.createdAt || new Date();
+    const carryForward = getInvoicePayableForCarryForward(previous, asOf);
     const updatedCharges = (current.charges || []).map((ch) => {
       if (String(ch.type || '').toUpperCase() !== 'CAM') return ch;
       const amount = Number(ch.amount) || 0;

@@ -112,6 +112,41 @@ const AccountsPayable = () => {
     return Math.round((Number(cashPaid) || 0) * 100) / 100;
   };
 
+  const roundPay2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+  /** Distribute cash-approval usage to bills (selected bill first), then set bank payment per row. */
+  const distributeCaUsageToBillRows = (totalCaUsage, billRows, seedBillId) => {
+    let remaining = roundPay2(totalCaUsage);
+    const ordered = [...billRows];
+    if (seedBillId) {
+      ordered.sort((a, b) => {
+        if (String(a.billId) === String(seedBillId)) return -1;
+        if (String(b.billId) === String(seedBillId)) return 1;
+        return 0;
+      });
+    }
+    const byId = new Map(
+      ordered.map((row) => {
+        const advanceApplyAmount = remaining <= 0 ? 0 : Math.min(Number(row.outstanding) || 0, remaining);
+        remaining = roundPay2(remaining - advanceApplyAmount);
+        const payAmount = roundPay2(Math.max(0, (Number(row.outstanding) || 0) - advanceApplyAmount));
+        return [String(row.billId), { ...row, advanceApplyAmount, payAmount }];
+      })
+    );
+    return billRows.map((row) => byId.get(String(row.billId)) || row);
+  };
+
+  const syncBillPaymentFromCaApply = (nextCaApplyAmounts, billRows, seedBillId) => {
+    const totalCaUsage = roundPay2(
+      payeeCashApprovals.reduce((s, ca) => s + (Number(nextCaApplyAmounts[ca.cashApprovalId]) || 0), 0)
+    );
+    const nextBills = distributeCaUsageToBillRows(totalCaUsage, billRows, seedBillId);
+    const totalBank = roundPay2(nextBills.reduce((s, r) => s + (Number(r.payAmount) || 0), 0));
+    setOutstandingTransactions(nextBills);
+    setPaymentData((prev) => ({ ...prev, amount: totalBank }));
+    return nextBills;
+  };
+
   /**
    * Per-GRN paid in Linked Documents: sum cash payments allocated to each GRN when present;
    * spread any remaining settlement (e.g. vendor advance applied to the bill) across GRN
@@ -178,8 +213,6 @@ const AccountsPayable = () => {
     paymentDate: new Date().toISOString().split('T')[0]
   });
   const [processingPayment, setProcessingPayment] = useState(false);
-  const [processingAdvance, setProcessingAdvance] = useState(false);
-  const [applyAdvanceAmount, setApplyAdvanceAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState([]);
   const [posForBilling, setPosForBilling] = useState([]);
   const [loadingPosForBilling, setLoadingPosForBilling] = useState(false);
@@ -351,8 +384,6 @@ const AccountsPayable = () => {
       if (response.data.success) {
         const b = response.data.data;
         setSelectedBill(b);
-        const o = getOutstanding(b);
-        setApplyAdvanceAmount(o > 0 ? String(o) : '');
         setViewDialogOpen(true);
       }
     } catch (error) {
@@ -402,41 +433,11 @@ const AccountsPayable = () => {
     }
     try {
       setLoadingPayeeCashApprovals(true);
-      if (isEmployee && employeeId) {
-        const res = await api.get(`/finance/employees/${employeeId}`);
-        const emp = res.data?.data?.employee;
-        const cas = res.data?.data?.cashApprovals || [];
-        const glNum =
-          emp?.employeeAdvanceAccountNumber ||
-          emp?.employeeAdvanceAccount?.accountNumber ||
-          null;
-        setPayeeCashApprovals(
-          cas.map((ca) => {
-            const advanceAmount = Number(ca.advanceAmount || ca.totalAmount || 0);
-            const applied = Number(ca.apAdvanceApplied || 0);
-            const issued = Boolean(ca.advanceIssuedAt);
-            return {
-              cashApprovalId: String(ca._id),
-              caNumber: ca.caNumber,
-              status: ca.status,
-              approvalDate: ca.approvalDate,
-              advanceIssuedAt: ca.advanceIssuedAt,
-              totalAmount: Number(ca.totalAmount || 0),
-              advanceAmount,
-              applied: issued ? applied : null,
-              open: issued ? Math.max(0, Math.round((advanceAmount - applied) * 100) / 100) : null,
-              advanceGlAccountNumber: ca.advanceGlAccountNumber || glNum,
-              originatingModule: ca.originatingModule || 'general'
-            };
-          })
-        );
-      } else {
-        const params = isEmployee
-          ? { employeeId: employeeId || undefined, employeeCode: employeeCode || undefined }
-          : { vendorId };
-        const res = await api.get('/finance/accounts-payable/payee-cash-approvals', { params });
-        setPayeeCashApprovals(Array.isArray(res.data?.data) ? res.data.data : []);
-      }
+      const params = isEmployee
+        ? { employeeId: employeeId || undefined, employeeCode: employeeCode || undefined }
+        : { vendorId };
+      const res = await api.get('/finance/accounts-payable/payee-cash-approvals', { params });
+      setPayeeCashApprovals(Array.isArray(res.data?.data) ? res.data.data : []);
     } catch {
       setPayeeCashApprovals([]);
     } finally {
@@ -516,7 +517,6 @@ const AccountsPayable = () => {
       paymentDate: new Date().toISOString().split('T')[0],
       whtRate: 0
     });
-    setApplyAdvanceAmount(outstanding > 0 ? String(outstanding) : '');
 
     if (employeeId) {
       setPayeeType('employee');
@@ -561,7 +561,6 @@ const AccountsPayable = () => {
         setSelectedBill(b);
         const out = getOutstanding(b);
         setPaymentData((prev) => ({ ...prev, amount: out }));
-        setApplyAdvanceAmount(out > 0 ? String(out) : '');
       }
     } catch {
       // ignore refresh errors
@@ -663,9 +662,6 @@ const AccountsPayable = () => {
       if (response.data?.success) {
         toast.success(response.data.message || 'Cash approval applied to bill(s)');
         setCaApplyAmounts({});
-        setOutstandingTransactions((prev) =>
-          prev.map((r) => ({ ...r, advanceApplyAmount: 0 }))
-        );
         await refreshPaymentDialogData();
         fetchAccountsPayable();
       }
@@ -673,37 +669,6 @@ const AccountsPayable = () => {
       toast.error(error.response?.data?.message || 'Failed to apply cash approval to bill(s)');
     } finally {
       setProcessingCaApply(false);
-    }
-  };
-
-  const handleApplyAdvance = async () => {
-    const amount = Number(applyAdvanceAmount);
-    if (!selectedBill?._id) return;
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error('Enter a valid advance amount');
-      return;
-    }
-    try {
-      setProcessingAdvance(true);
-      const response = await api.post(`/finance/accounts-payable/${selectedBill._id}/apply-advance`, {
-        amount,
-        source: 'vendor'
-      });
-      if (response.data?.success) {
-        toast.success(response.data.message || 'Advance applied');
-        const refreshed = await api.get(`/finance/accounts-payable/${selectedBill._id}`);
-        if (refreshed.data?.success) {
-          const b = refreshed.data.data;
-          setSelectedBill(b);
-          setPaymentData((p) => ({ ...p, amount: getOutstanding(b) }));
-          setApplyAdvanceAmount(getOutstanding(b) > 0 ? String(getOutstanding(b)) : '');
-        }
-        fetchAccountsPayable();
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to apply advance');
-    } finally {
-      setProcessingAdvance(false);
     }
   };
 
@@ -1332,7 +1297,7 @@ const AccountsPayable = () => {
                 </Grid>
               </Grid>
 
-              {/* GRN / non-PO bills: show settlement & apply advance (PO bills use Payment History tab) */}
+              {/* GRN / non-PO bills: payment summary (PO bills use Payment History tab) */}
               {!(selectedBill.referenceType === 'purchase_order' && selectedBill.poDetail) && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1358,37 +1323,6 @@ const AccountsPayable = () => {
                       </Grid>
                     </Grid>
                   </Paper>
-                  {getOutstanding(selectedBill) > 0.01 && (
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
-                      <TextField
-                        size="small"
-                        label="Apply advance (PKR)"
-                        type="number"
-                        value={applyAdvanceAmount}
-                        onChange={(e) => setApplyAdvanceAmount(e.target.value)}
-                        inputProps={{ min: 0, step: 0.01 }}
-                        sx={{ minWidth: 200 }}
-                      />
-                      <Button
-                        variant="outlined"
-                        color="info"
-                        onClick={handleApplyAdvance}
-                        disabled={processingAdvance}
-                      >
-                        {processingAdvance ? 'Applying…' : 'Apply advance to bill'}
-                      </Button>
-                      <Button
-                        variant="contained"
-                        color="success"
-                        onClick={() => {
-                          setViewDialogOpen(false);
-                          handleOpenPayment(selectedBill);
-                        }}
-                      >
-                        Record bank/cash payment
-                      </Button>
-                    </Stack>
-                  )}
                   {selectedBill.payments && selectedBill.payments.length > 0 ? (
                     <TableContainer>
                       <Table size="small">
@@ -1779,17 +1713,6 @@ const AccountsPayable = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
-          <Button 
-            variant="contained" 
-            color="success" 
-            onClick={() => {
-              setViewDialogOpen(false);
-              handleOpenPayment(selectedBill);
-            }}
-            disabled={selectedBill?.status === 'paid'}
-          >
-            Record Payment
-          </Button>
         </DialogActions>
       </Dialog>
 
@@ -1971,15 +1894,6 @@ const AccountsPayable = () => {
                 </Stack>
               </Paper>
             </Grid>
-            {payeeType === 'employee' && (
-              <Grid item xs={12}>
-                <Alert severity="info" sx={{ mb: 0 }}>
-                  <strong>Step 1:</strong> Cash approvals (like Taj deposits) — <em>Amount to use</em> per CA.{' '}
-                  <strong>Step 2a:</strong> Outstanding bills — <em>Apply from advance</em> (totals must match Step 1).{' '}
-                  <strong>Step 2b:</strong> Bank payment for any remainder — select Pay From Account from chart of accounts.
-                </Alert>
-              </Grid>
-            )}
             <Grid item xs={12}>
               <Paper variant="outlined" sx={{ p: 1.5 }}>
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>
@@ -2015,7 +1929,16 @@ const AccountsPayable = () => {
                           <TableCell>{row.billNumber}</TableCell>
                           <TableCell>{formatDate(row.dueDate)}</TableCell>
                           <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
-                          <TableCell align="right">{formatPKR(row.outstanding)}</TableCell>
+                          <TableCell align="right">
+                            {formatPKR(
+                              roundPay2(
+                                Math.max(
+                                  0,
+                                  (Number(row.outstanding) || 0) - (Number(row.advanceApplyAmount) || 0)
+                                )
+                              )
+                            )}
+                          </TableCell>
                           {payeeType === 'employee' && (
                             <TableCell align="right">
                               <TextField
@@ -2027,8 +1950,16 @@ const AccountsPayable = () => {
                                 onChange={(e) => {
                                   const next = [...outstandingTransactions];
                                   const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
-                                  next[idx] = { ...next[idx], advanceApplyAmount: v };
+                                  next[idx] = {
+                                    ...next[idx],
+                                    advanceApplyAmount: v,
+                                    payAmount: roundPay2(Math.max(0, (row.outstanding || 0) - v))
+                                  };
                                   setOutstandingTransactions(next);
+                                  const total = roundPay2(
+                                    next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
+                                  );
+                                  setPaymentData((prev) => ({ ...prev, amount: total }));
                                 }}
                                 sx={{ width: 120 }}
                               />
@@ -2039,13 +1970,24 @@ const AccountsPayable = () => {
                               size="small"
                               type="number"
                               value={row.payAmount}
-                              inputProps={{ min: 0, max: row.outstanding, step: 0.01 }}
+                              inputProps={{
+                                min: 0,
+                                max: roundPay2(
+                                  Math.max(0, (row.outstanding || 0) - (Number(row.advanceApplyAmount) || 0))
+                                ),
+                                step: 0.01
+                              }}
                               onChange={(e) => {
                                 const next = [...outstandingTransactions];
-                                const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
+                                const maxBank = roundPay2(
+                                  Math.max(0, (row.outstanding || 0) - (Number(row.advanceApplyAmount) || 0))
+                                );
+                                const v = Math.max(0, Math.min(Number(e.target.value) || 0, maxBank));
                                 next[idx] = { ...next[idx], payAmount: v };
                                 setOutstandingTransactions(next);
-                                const total = Math.round(next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
+                                const total = roundPay2(
+                                  next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
+                                );
                                 setPaymentData((prev) => ({ ...prev, amount: total }));
                               }}
                               sx={{ width: 120 }}
@@ -2160,10 +2102,16 @@ const AccountsPayable = () => {
                                     onChange={(e) => {
                                       const max = Number(row.open) || 0;
                                       const v = Math.max(0, Math.min(Number(e.target.value) || 0, max));
-                                      setCaApplyAmounts((prev) => ({
-                                        ...prev,
+                                      const nextCa = {
+                                        ...caApplyAmounts,
                                         [row.cashApprovalId]: v > 0 ? String(v) : ''
-                                      }));
+                                      };
+                                      setCaApplyAmounts(nextCa);
+                                      syncBillPaymentFromCaApply(
+                                        nextCa,
+                                        outstandingTransactions,
+                                        selectedBill?._id
+                                      );
                                     }}
                                     sx={{ width: 120 }}
                                   />
@@ -2216,31 +2164,6 @@ const AccountsPayable = () => {
                       </Alert>
                     )}
                     <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1.5 }}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        disabled={processingCaApply}
-                        onClick={() => {
-                          const nextCa = {};
-                          payeeCashApprovals.forEach((row) => {
-                            if (!row.advanceIssuedAt) return;
-                            const open = Number(row.open) || 0;
-                            if (open > 0) nextCa[row.cashApprovalId] = String(open);
-                          });
-                          const totalCa = Object.values(nextCa).reduce((s, v) => s + Number(v), 0);
-                          let remaining = totalCa;
-                          const nextBills = outstandingTransactions.map((r) => {
-                            if (remaining <= 0) return { ...r, advanceApplyAmount: 0 };
-                            const amt = Math.min(Number(r.outstanding) || 0, remaining);
-                            remaining = Math.round((remaining - amt) * 100) / 100;
-                            return { ...r, advanceApplyAmount: amt };
-                          });
-                          setCaApplyAmounts(nextCa);
-                          setOutstandingTransactions(nextBills);
-                        }}
-                      >
-                        Auto-fill (CA → bills)
-                      </Button>
                       <Button
                         size="small"
                         variant="contained"
