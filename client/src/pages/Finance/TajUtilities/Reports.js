@@ -24,7 +24,8 @@ import {
   Alert,
   Stack,
   CircularProgress,
-  InputAdornment
+  InputAdornment,
+  Autocomplete
 } from '@mui/material';
 import {
   Assessment as ReportsIcon,
@@ -38,6 +39,10 @@ import dayjs from 'dayjs';
 import { fetchReports, fetchAllInvoices } from '../../../services/propertyInvoiceService';
 import { fetchResidentLedger } from '../../../services/tajResidentsService';
 import { generateResidentLedgerPDF } from '../../../utils/residentLedgerPDF';
+import {
+  buildLedgerSectionDisplayRows,
+  getLedgerTotalOutstandingBalance
+} from '../../../utils/residentLedgerDisplay';
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {
@@ -52,6 +57,8 @@ const getPaymentStatusConfig = (status) => {
   if (s === 'partial_paid') return { color: 'warning', label: 'Partial' };
   return { color: 'error', label: 'Unpaid' };
 };
+
+const ALL_PROPERTIES_OPTION = { _id: '', label: 'All properties' };
 
 const getTransactionTypeLabel = (type) => {
   const t = (type || '').toLowerCase();
@@ -81,9 +88,21 @@ const TajUtilitiesReports = () => {
   ];
 
   const [ledgerResidentId, setLedgerResidentId] = useState('');
+  const [ledgerPropertyId, setLedgerPropertyId] = useState('');
+  const [ledgerPropertyOptions, setLedgerPropertyOptions] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState('');
   const [ledger, setLedger] = useState(null);
+
+  const getPropertyOptionLabel = (property) => {
+    if (!property) return '';
+    const parts = [
+      property.srNo != null ? `Sr ${property.srNo}` : null,
+      property.plotNumber || property.propertyName,
+      property.ownerName
+    ].filter(Boolean);
+    return parts.join(' — ') || 'Property';
+  };
   const [exportingMonthKey, setExportingMonthKey] = useState(null);
 
   const loadReport = useCallback(async () => {
@@ -112,26 +131,33 @@ const TajUtilitiesReports = () => {
     loadReport();
   }, [loadReport]);
 
-  const loadLedger = useCallback(async () => {
+  const loadLedger = useCallback(async (propertyIdOverride) => {
     const id = (ledgerResidentId || '').trim();
     if (!id) {
       setLedgerError('Please enter Resident ID');
       return;
     }
+    const propertyId = propertyIdOverride !== undefined ? propertyIdOverride : ledgerPropertyId;
     try {
       setLedgerLoading(true);
       setLedgerError('');
       setLedger(null);
-      const response = await fetchResidentLedger(id);
+      const params = propertyId ? { propertyId } : {};
+      const response = await fetchResidentLedger(id, params);
       const data = response.data?.data || {};
       setLedger(data);
+      const properties = data.resident?.properties || [];
+      setLedgerPropertyOptions(properties);
+      if (propertyIdOverride !== undefined) {
+        setLedgerPropertyId(propertyIdOverride);
+      }
     } catch (err) {
       setLedgerError(err.response?.data?.message || 'Failed to load ledger');
       setLedger(null);
     } finally {
       setLedgerLoading(false);
     }
-  }, [ledgerResidentId]);
+  }, [ledgerResidentId, ledgerPropertyId]);
 
   const exportMonthInvoicesToExcel = useCallback(async (monthKey) => {
     if (!monthKey) return;
@@ -481,7 +507,7 @@ const TajUtilitiesReports = () => {
             </Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Enter Resident ID (e.g. 00001) or MongoDB ID to view all invoices, deposits, and transactions.
+            Enter Resident ID, optionally select a property, then view invoices, deposits, and transactions.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mb: 2 }}>
             <TextField
@@ -489,7 +515,12 @@ const TajUtilitiesReports = () => {
               label="Resident ID"
               placeholder="e.g. 00001"
               value={ledgerResidentId}
-              onChange={(e) => setLedgerResidentId(e.target.value)}
+              onChange={(e) => {
+                setLedgerResidentId(e.target.value);
+                setLedgerPropertyId('');
+                setLedgerPropertyOptions([]);
+                setLedger(null);
+              }}
               onKeyDown={(e) => e.key === 'Enter' && loadLedger()}
               sx={{ minWidth: 200 }}
               InputProps={{
@@ -500,9 +531,36 @@ const TajUtilitiesReports = () => {
                 )
               }}
             />
+            <Autocomplete
+              size="small"
+              sx={{ minWidth: 280, flex: 1 }}
+              options={[ALL_PROPERTIES_OPTION, ...ledgerPropertyOptions]}
+              value={
+                ledgerPropertyId
+                  ? ledgerPropertyOptions.find((p) => String(p._id) === String(ledgerPropertyId)) || null
+                  : ALL_PROPERTIES_OPTION
+              }
+              onChange={(_, newValue) => {
+                const nextId = newValue && newValue._id ? String(newValue._id) : '';
+                setLedgerPropertyId(nextId);
+                if (ledgerResidentId.trim() && (ledger || ledgerPropertyOptions.length > 0)) {
+                  loadLedger(nextId);
+                }
+              }}
+              getOptionLabel={(option) => (option?.label ? option.label : getPropertyOptionLabel(option))}
+              isOptionEqualToValue={(option, value) => String(option?._id || '') === String(value?._id || '')}
+              disabled={ledgerLoading || ledgerPropertyOptions.length === 0}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Property"
+                  placeholder={ledgerPropertyOptions.length ? 'All properties' : 'Load resident first'}
+                />
+              )}
+            />
             <Button
               variant="contained"
-              onClick={loadLedger}
+              onClick={() => loadLedger()}
               disabled={ledgerLoading || !ledgerResidentId.trim()}
               startIcon={ledgerLoading ? <CircularProgress size={18} color="inherit" /> : <SearchIcon />}
             >
@@ -532,9 +590,20 @@ const TajUtilitiesReports = () => {
 
               {/* Resident Information (as per sketch) */}
               {(() => {
-                // Calculate total outstanding balance from all invoices
-                const totalOutstandingBalance = (ledger.invoices || []).reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
-                
+                const allLedgerLists = [
+                  (ledger.invoices || []).filter((inv) => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'CAM'),
+                  (ledger.invoices || []).filter((inv) => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'WATER'),
+                  (ledger.invoices || []).filter((inv) => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY'),
+                  (ledger.invoices || []).filter((inv) => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'RENT'),
+                  (ledger.invoices || []).filter((inv) => {
+                    const types = inv.chargeTypes || [];
+                    if (types.length === 0) return true;
+                    if (types.length > 1) return true;
+                    return !['CAM', 'WATER', 'ELECTRICITY', 'RENT'].includes(types[0]);
+                  })
+                ];
+                const totalOutstandingBalance = getLedgerTotalOutstandingBalance(allLedgerLists);
+
                 return (
                   <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
                     <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
@@ -566,7 +635,19 @@ const TajUtilitiesReports = () => {
                       <Grid item xs={12} sm={6} md={4}>
                         <Typography variant="caption" color="text.secondary" display="block">Sector</Typography>
                         <Typography variant="body2" fontWeight={500}>
-                          {ledger.resident?.properties?.[0]?.sector?.name ?? ledger.resident?.properties?.[0]?.sector ?? '—'}
+                          {ledger.selectedProperty?.sector?.name
+                            ?? ledger.selectedProperty?.sector
+                            ?? ledger.resident?.properties?.[0]?.sector?.name
+                            ?? ledger.resident?.properties?.[0]?.sector
+                            ?? '—'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">Property</Typography>
+                        <Typography variant="body2" fontWeight={500}>
+                          {ledger.selectedProperty
+                            ? getPropertyOptionLabel(ledger.selectedProperty)
+                            : 'All properties'}
                         </Typography>
                       </Grid>
                       <Grid item xs={12} sm={6} md={4}>
@@ -603,10 +684,11 @@ const TajUtilitiesReports = () => {
                 });
 
                 const ledgerTable = (title, list) => {
-                  const totalInvoiceAmount = list.reduce((sum, inv) => sum + (Number(inv.subtotal) || 0), 0);
-                  const totalArrears = list.reduce((sum, inv) => sum + (Number(inv.totalArrears) || 0), 0);
-                  const totalAmountDue = list.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
-                  const totalBalance = list.reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
+                  const displayRows = buildLedgerSectionDisplayRows(list);
+                  const totalInvoiceAmount = displayRows.reduce((sum, r) => sum + r.invoiceAmount, 0);
+                  const totalArrears = displayRows.reduce((sum, r) => sum + (r.arrears || 0), 0);
+                  const totalAmountDue = displayRows.reduce((sum, r) => sum + r.amountDue, 0);
+                  const totalBalance = displayRows.reduce((sum, r) => sum + r.balance, 0);
 
                   return (
                     <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
@@ -633,18 +715,20 @@ const TajUtilitiesReports = () => {
                             </TableRow>
                           ) : (
                             <>
-                              {list.map((inv) => (
-                                <TableRow key={inv._id}>
-                                  <TableCell>{inv.invoiceDate ? dayjs(inv.invoiceDate).format('DD MMM YYYY') : '—'}</TableCell>
-                                  <TableCell>{inv.invoiceNumber}</TableCell>
-                                  <TableCell>{inv.dueDate ? dayjs(inv.dueDate).format('DD MMM YYYY') : '—'}</TableCell>
-                                  <TableCell>{inv.periodFrom ? dayjs(inv.periodFrom).format('DD MMM YY') : '—'}</TableCell>
-                                  <TableCell>{inv.periodTo ? dayjs(inv.periodTo).format('DD MMM YY') : '—'}</TableCell>
-                                  <TableCell align="right">{formatCurrency(inv.subtotal)}</TableCell>
-                                  <TableCell align="right" sx={{ color: 'warning.main' }}>{formatCurrency(inv.totalArrears)}</TableCell>
-                                  <TableCell align="right">{formatCurrency(inv.grandTotal)}</TableCell>
-                                  <TableCell align="right" sx={{ color: (inv.balance || 0) > 0 ? 'warning.main' : 'text.primary' }}>
-                                    {formatCurrency(inv.balance)}
+                              {displayRows.map((row) => (
+                                <TableRow key={row.inv._id}>
+                                  <TableCell>{row.inv.invoiceDate ? dayjs(row.inv.invoiceDate).format('DD MMM YYYY') : '—'}</TableCell>
+                                  <TableCell>{row.inv.invoiceNumber}</TableCell>
+                                  <TableCell>{row.inv.dueDate ? dayjs(row.inv.dueDate).format('DD MMM YYYY') : '—'}</TableCell>
+                                  <TableCell>{row.inv.periodFrom ? dayjs(row.inv.periodFrom).format('DD MMM YY') : '—'}</TableCell>
+                                  <TableCell>{row.inv.periodTo ? dayjs(row.inv.periodTo).format('DD MMM YY') : '—'}</TableCell>
+                                  <TableCell align="right">{formatCurrency(row.invoiceAmount)}</TableCell>
+                                  <TableCell align="right" sx={{ color: row.arrears ? 'warning.main' : 'text.secondary' }}>
+                                    {row.arrears != null ? formatCurrency(row.arrears) : '—'}
+                                  </TableCell>
+                                  <TableCell align="right">{formatCurrency(row.amountDue)}</TableCell>
+                                  <TableCell align="right" sx={{ color: row.balance > 0 ? 'warning.main' : 'text.primary' }}>
+                                    {formatCurrency(row.balance)}
                                   </TableCell>
                                 </TableRow>
                               ))}

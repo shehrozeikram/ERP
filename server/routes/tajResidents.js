@@ -417,7 +417,7 @@ router.get('/unassigned-properties', authMiddleware, asyncHandler(async (req, re
 
 // Get resident ledger (invoices, deposits, payments, transactions) - supports residentId or MongoDB _id
 router.get('/ledger', authMiddleware, asyncHandler(async (req, res) => {
-  const { residentId: residentIdParam } = req.query;
+  const { residentId: residentIdParam, propertyId: propertyIdParam } = req.query;
   if (!residentIdParam || String(residentIdParam).trim() === '') {
     return res.status(400).json({ success: false, message: 'Resident ID is required' });
   }
@@ -428,12 +428,12 @@ router.get('/ledger', authMiddleware, asyncHandler(async (req, res) => {
   let resident = null;
   if (isObjectId) {
     resident = await TajResident.findById(id)
-      .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+      .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName srNo')
       .lean();
   }
   if (!resident) {
     resident = await TajResident.findOne({ residentId: id })
-      .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+      .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName srNo')
       .lean();
   }
   if (!resident) {
@@ -444,14 +444,35 @@ router.get('/ledger', authMiddleware, asyncHandler(async (req, res) => {
 
   // Get all properties for this resident (both from resident.properties and TajProperty.resident)
   const propertyIdsFromResident = (resident.properties || []).map(p => (typeof p === 'object' ? p._id : p));
-  const propertiesByResident = await TajProperty.find({ resident: residentMongoId }).select('_id').lean();
+  const propertiesByResident = await TajProperty.find({ resident: residentMongoId })
+    .select('propertyName plotNumber sector block fullAddress ownerName srNo')
+    .lean();
   const propertyIdsFromProps = propertiesByResident.map(p => p._id);
   const allPropertyIds = [...new Set([...propertyIdsFromResident.map(String), ...propertyIdsFromProps.map(String)])];
 
+  const allProperties = allPropertyIds.length > 0
+    ? await TajProperty.find({ _id: { $in: allPropertyIds } })
+      .select('propertyName plotNumber sector block fullAddress ownerName srNo')
+      .sort({ srNo: 1, plotNumber: 1 })
+      .lean()
+    : [];
+
+  let invoicePropertyIds = allPropertyIds;
+  const filterPropertyId = propertyIdParam ? String(propertyIdParam).trim() : '';
+  if (filterPropertyId) {
+    if (!allPropertyIds.includes(filterPropertyId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected property does not belong to this resident'
+      });
+    }
+    invoicePropertyIds = [filterPropertyId];
+  }
+
   // Fetch invoices for these properties
-  const invoices = allPropertyIds.length > 0
+  const invoices = invoicePropertyIds.length > 0
     ? await PropertyInvoice.find({
-        property: { $in: allPropertyIds },
+        property: { $in: invoicePropertyIds },
         status: { $ne: 'Cancelled' }
       })
         .select('invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance paymentStatus status')
@@ -507,6 +528,10 @@ router.get('/ledger', authMiddleware, asyncHandler(async (req, res) => {
     return txn;
   });
 
+  const selectedProperty = filterPropertyId
+    ? allProperties.find((p) => String(p._id) === filterPropertyId) || null
+    : null;
+
   res.json({
     success: true,
     data: {
@@ -520,8 +545,10 @@ router.get('/ledger', authMiddleware, asyncHandler(async (req, res) => {
         email: resident.email,
         address: resident.address,
         balance: resident.balance ?? 0,
-        properties: resident.properties
+        properties: allProperties
       },
+      selectedPropertyId: filterPropertyId || null,
+      selectedProperty,
       invoices,
       transactions: transactionsWithRemaining
     }

@@ -1,6 +1,10 @@
 import jsPDF from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import dayjs from 'dayjs';
+import {
+  buildLedgerSectionDisplayRows,
+  getLedgerTotalOutstandingBalance
+} from './residentLedgerDisplay';
 
 // Configurable layout (adjustable)
 const PDF_CONFIG = {
@@ -57,8 +61,13 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
   const contactStr = [resident.contactNumber, resident.email].filter(Boolean).join(' • ') || '—';
   const sectorVal = resident.properties?.[0]?.sector?.name ?? resident.properties?.[0]?.sector ?? '—';
   
-  // Calculate total outstanding balance from all invoices
-  const totalOutstandingBalance = invoices.reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
+  const totalOutstandingBalance = getLedgerTotalOutstandingBalance([
+    camInvoices,
+    waterInvoices,
+    electricityInvoices,
+    rentInvoices,
+    otherInvoices
+  ]);
 
   const checkNewPage = (requiredSpace = 20) => {
     if (y + requiredSpace > pageHeight - margin) {
@@ -137,27 +146,28 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
     pdf.text(sectionTitle, margin, y);
     y += 4;
 
-    const body = list.length === 0
+    const displayRows = buildLedgerSectionDisplayRows(list);
+    const body = displayRows.length === 0
       ? [['No records', '', '', '', '', '', '', '', '']]
-      : list.map(inv => [
-          formatDate(inv.invoiceDate),
-          String(inv.invoiceNumber || '—'),
-          formatDate(inv.dueDate),
-          inv.periodFrom ? formatDate(inv.periodFrom, 'DD MMM YY') : '—',
-          inv.periodTo ? formatDate(inv.periodTo, 'DD MMM YY') : '—',
-          formatAmount(inv.subtotal),
-          formatAmount(inv.totalArrears),
-          formatAmount(inv.grandTotal),
-          formatAmount(inv.balance)
+      : displayRows.map((row) => [
+          formatDate(row.inv.invoiceDate),
+          String(row.inv.invoiceNumber || '—'),
+          formatDate(row.inv.dueDate),
+          row.inv.periodFrom ? formatDate(row.inv.periodFrom, 'DD MMM YY') : '—',
+          row.inv.periodTo ? formatDate(row.inv.periodTo, 'DD MMM YY') : '—',
+          formatAmount(row.invoiceAmount),
+          row.arrears != null ? formatAmount(row.arrears) : '—',
+          formatAmount(row.amountDue),
+          formatAmount(row.balance)
         ]);
 
     // Calculate totals
     let foot = [];
-    if (list.length > 0) {
-      const totalInvoiceAmount = list.reduce((sum, inv) => sum + (Number(inv.subtotal) || 0), 0);
-      const totalArrears = list.reduce((sum, inv) => sum + (Number(inv.totalArrears) || 0), 0);
-      const totalAmountDue = list.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
-      const totalBalance = list.reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
+    if (displayRows.length > 0) {
+      const totalInvoiceAmount = displayRows.reduce((sum, r) => sum + r.invoiceAmount, 0);
+      const totalArrears = displayRows.reduce((sum, r) => sum + (r.arrears || 0), 0);
+      const totalAmountDue = displayRows.reduce((sum, r) => sum + r.amountDue, 0);
+      const totalBalance = displayRows.reduce((sum, r) => sum + r.balance, 0);
       
       foot = [[
         '', '', '', '', 'Total:',
