@@ -9,11 +9,7 @@ const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
 const FiscalPeriod = require('../models/finance/FiscalPeriod');
 const FinanceJournal = require('../models/finance/FinanceJournal');
-const {
-  resolveEmployeeAdvanceAccount,
-  ensureEmployeeAdvanceAccount,
-  employeeDisplayName
-} = require('./employeeAdvanceAccount');
+const { ensureStaffAdvanceAccount } = require('./staffAdvanceAccount');
 
 /**
  * Finance Helper Utility
@@ -232,27 +228,8 @@ const FinanceHelper = {
     return await Account.findOne({ accountNumber });
   },
 
-  /**
-   * Ensure account 1120 — Cash Advance to Staff exists.
-   * Auto-creates it if missing (same pattern as Vendor Advance 1110).
-   */
-  ensureStaffAdvanceAccount: async (createdBy) => {
-    let acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.STAFF_ADVANCE });
-    if (!acc) {
-      acc = await Account.create({
-        accountNumber: FinanceHelper.ACCOUNTS.STAFF_ADVANCE,
-        name: 'Cash Advance to Staff',
-        type: 'Asset',
-        category: 'Current Asset',
-        detailType: 'Other Current Assets',
-        description: 'Temporary cash advances issued to procurement / staff for cash purchases. Cleared on settlement.',
-        isSystem: true,
-        isActive: true,
-        createdBy
-      });
-    }
-    return acc;
-  },
+  /** @see staffAdvanceAccount.js */
+  ensureStaffAdvanceAccount,
 
   /**
    * Post a Journal Entry to the General Ledger
@@ -1031,10 +1008,11 @@ const FinanceHelper = {
       advAccount = await Account.findById(ca.advanceGlAccount);
     }
     if (!advAccount) {
+      const { resolveEmployeeAdvanceAccount, ensureEmployeeAdvanceAccount } = require('./employeeAdvanceAccount');
       advAccount = await resolveEmployeeAdvanceAccount(employee, { createdBy });
-    }
-    if (!advAccount) {
-      advAccount = await ensureEmployeeAdvanceAccount(employee, { createdBy });
+      if (!advAccount) {
+        advAccount = await ensureEmployeeAdvanceAccount(employee, { createdBy });
+      }
     }
     if (!advAccount) throw new Error(`No advance account for ${ca.caNumber}`);
 

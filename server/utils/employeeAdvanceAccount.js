@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const Account = require('../models/finance/Account');
 const Employee = require('../models/hr/Employee');
 const User = require('../models/User');
-const FinanceHelper = require('./financeHelper');
+const { ensureStaffAdvanceAccount } = require('./staffAdvanceAccount');
 
 const EMPLOYEE_ADVANCE_DETAIL_TYPE = 'Advances to Employees';
 
@@ -30,7 +30,7 @@ const resolveEmployeeAdvanceAccount = async (employee, { createdBy } = {}) => {
     if (linked?.isActive) return linked;
   }
 
-  const parent = await FinanceHelper.ensureStaffAdvanceAccount(createdBy);
+  const parent = await ensureStaffAdvanceAccount(createdBy);
   const parentId = parent._id;
   const empCode = String(employee.employeeId || '').trim();
 
@@ -77,7 +77,7 @@ const ensureEmployeeAdvanceAccount = async (employee, createdBy) => {
     return existing;
   }
 
-  const parent = await FinanceHelper.ensureStaffAdvanceAccount(createdBy);
+  const parent = await ensureStaffAdvanceAccount(createdBy);
   const empCode = String(employee.employeeId || employee._id).trim().replace(/\s+/g, '');
   const accountNumber = `1120-${empCode}`.slice(0, 24);
   const name = `Advance to ${employeeDisplayName(employee)}`;
