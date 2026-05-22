@@ -34,11 +34,7 @@ const router = express.Router();
 const PROCUREMENT_MODULE_KEY = 'procurement';
 const PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES = ['gm procurement', 'general manager procurement'];
 const AUDIT_MODULE_KEY = 'audit';
-const AUDIT_DIRECTOR_ROLE_NAMES = ['audit_director', 'audit director'];
-const looksLikeAuditDirectorLabel = (value) => {
-  const normalized = normalizeRoleLabel(value).replace(/[-\s]+/g, '_');
-  return normalized.includes('audit') && normalized.includes('director');
-};
+const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDirectorRole');
 
 const normalizeRoleLabel = (value) => String(value || '').trim().toLowerCase();
 
@@ -83,17 +79,6 @@ const hasAuditAccess = (user) => {
   if (hasModuleAccess(user.roleRef, AUDIT_MODULE_KEY)) return true;
   if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, AUDIT_MODULE_KEY))) return true;
   return false;
-};
-
-const isAuditDirectorUser = (user) => {
-  if (!user) return false;
-  if (user.role === 'audit_director' || user.role === 'Audit Director') return true;
-  if (looksLikeAuditDirectorLabel(user.role)) return true;
-  if (looksLikeAuditDirectorLabel(user?.roleRef?.name) || looksLikeAuditDirectorLabel(user?.roleRef?.displayName)) return true;
-  if (Array.isArray(user?.roles) && user.roles.some((r) => looksLikeAuditDirectorLabel(r?.name) || looksLikeAuditDirectorLabel(r?.displayName))) {
-    return true;
-  }
-  return userHasRoleName(user, AUDIT_DIRECTOR_ROLE_NAMES);
 };
 
 const hasProcurementAccess = (user) => {
@@ -1800,7 +1785,7 @@ router.put('/purchase-orders/:id/audit-approve',
         message: 'Purchase order must be forwarded to Audit Director for final approval.'
       });
     }
-    if (!isAuditDirectorUser(req.user) && req.user.role !== 'super_admin') {
+    if (!canActAsAuditDirector(req.user)) {
       return res.status(403).json({
         success: false,
         message: 'Only Audit Director can provide final approval after forwarding.'

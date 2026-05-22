@@ -22,6 +22,7 @@ const {
   assertUtilityBillApproversEligible
 } = require('../utils/utilityBillApproverEligibility');
 const { isWorkflowAuditBlockingEditStatus } = require('../utils/workflowAuditQueue');
+const { canActAsAuditDirector } = require('../utils/auditDirectorRole');
 
 const normalizeApproverIds = (value) => {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -947,12 +948,7 @@ const approveDocument = asyncHandler(async (req, res) => {
     
     // If document is forwarded to Audit Director, allow Audit Director to approve
     if (settlement.workflowStatus === 'Forwarded to Audit Director') {
-      if (
-        userRole !== 'super_admin' &&
-        userRole !== 'developer' &&
-        normalizedRole !== 'audit_director' &&
-        userRole !== 'Audit Director'
-      ) {
+      if (!canActAsAuditDirector(req.user) && userRole !== 'developer') {
         return res.status(403).json({
           success: false,
           message: 'Only Audit Director can approve documents forwarded to them'

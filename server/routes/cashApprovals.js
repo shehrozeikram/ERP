@@ -41,6 +41,7 @@ const {
   ensureEmployeeAdvanceAccount,
   employeeDisplayName
 } = require('../utils/employeeAdvanceAccount');
+const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDirectorRole');
 
 const router = express.Router();
 
@@ -143,10 +144,6 @@ const purchaseEvidenceUpload = multer({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const normalizeRoleLabel = (v) => String(v || '').trim().toLowerCase();
-const looksLikeAuditDirectorLabel = (value) => {
-  const normalized = normalizeRoleLabel(value).replace(/[-\s]+/g, '_');
-  return normalized.includes('audit') && normalized.includes('director');
-};
 
 const userHasRoleName = (user, names = []) => {
   const accepted = names.map(normalizeRoleLabel);
@@ -156,6 +153,11 @@ const userHasRoleName = (user, names = []) => {
   if (collect(user.roleRef || {}).some((n) => accepted.includes(n))) return true;
   if (Array.isArray(user.roles)) {
     for (const r of user.roles) {
+      if (collect(r).some((n) => accepted.includes(n))) return true;
+    }
+  }
+  if (Array.isArray(user.subRoles)) {
+    for (const r of user.subRoles) {
       if (collect(r).some((n) => accepted.includes(n))) return true;
     }
   }
@@ -173,17 +175,6 @@ const hasAuditAccess = (user) => {
   if (hasModuleAccess(user.roleRef, 'audit')) return true;
   if (Array.isArray(user.roles) && user.roles.some((r) => hasModuleAccess(r, 'audit'))) return true;
   return false;
-};
-
-const isAuditDirectorUser = (user) => {
-  if (!user) return false;
-  if (['audit_director', 'Audit Director'].includes(user.role)) return true;
-  if (looksLikeAuditDirectorLabel(user.role)) return true;
-  if (looksLikeAuditDirectorLabel(user?.roleRef?.name) || looksLikeAuditDirectorLabel(user?.roleRef?.displayName)) return true;
-  if (Array.isArray(user?.roles) && user.roles.some((r) => looksLikeAuditDirectorLabel(r?.name) || looksLikeAuditDirectorLabel(r?.displayName))) {
-    return true;
-  }
-  return userHasRoleName(user, ['audit_director', 'audit director']);
 };
 
 const hasFinanceAccess = (user) => {
@@ -1402,7 +1393,7 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
   if (ca.status !== 'Forwarded to Audit Director') {
     return res.status(400).json({ success: false, message: 'Must be in "Forwarded to Audit Director" status for final approval.' });
   }
-  if (!isAuditDirectorUser(req.user) && req.user.role !== 'super_admin') {
+  if (!canActAsAuditDirector(req.user)) {
     return res.status(403).json({ success: false, message: 'Only Audit Director can provide final approval.' });
   }
   const isSettlementFlow = Boolean(ca.advanceIssuedAt && ca.evidenceSubmittedAt);

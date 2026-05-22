@@ -5,6 +5,7 @@ const permissions = require('../middleware/permissions');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { checkSubRoleAccess } = require('../config/permissions');
 const PaymentSettlement = require('../models/hr/PaymentSettlement');
+const { canActAsAuditDirector } = require('../utils/auditDirectorRole');
 const {
   getPaymentSettlements,
   getPaymentSettlement,
@@ -113,9 +114,7 @@ router.patch('/:id/approve',
       const settlement = await PaymentSettlement.findById(req.params.id);
       if (settlement && settlement.workflowStatus === 'Forwarded to Audit Director') {
         const userRole = req.user.role;
-        const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
-        // Allow Audit Director or super_admin to approve forwarded documents
-        if (userRole === 'super_admin' || userRole === 'developer' || normalizedRole === 'audit_director' || userRole === 'Audit Director') {
+        if (userRole === 'developer' || canActAsAuditDirector(req.user)) {
           return next(); // Skip sub-role check
         }
       }

@@ -21,51 +21,7 @@ const {
   isUtilityBillAuditFinalApproved,
   normalizeActorId
 } = require('../utils/utilityBillFinance');
-
-const normalizeRoleLabel = (value) =>
-  String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-const collapseRepeatedChars = (value) => String(value || '').replace(/(.)\1+/g, '$1');
-const isAuditDirectorLabel = (value) => {
-  const normalized = normalizeRoleLabel(value);
-  const collapsed = collapseRepeatedChars(normalized);
-  return collapsed.includes('audit') && collapsed.includes('director');
-};
-
-const userHasRoleName = (user, predicate) => {
-  if (!user || typeof predicate !== 'function') return false;
-  const collectRoleNames = (roleDoc) => ([
-    normalizeRoleLabel(roleDoc?.name),
-    normalizeRoleLabel(roleDoc?.displayName)
-  ].filter(Boolean));
-
-  if (predicate(normalizeRoleLabel(user.role))) return true;
-
-  const roleRefNames = collectRoleNames(user.roleRef || {});
-  if (roleRefNames.some((name) => predicate(name))) return true;
-
-  if (Array.isArray(user.roles)) {
-    for (const roleDoc of user.roles) {
-      const names = collectRoleNames(roleDoc);
-      if (names.some((name) => predicate(name))) return true;
-    }
-  }
-  if (Array.isArray(user.subRoles)) {
-    for (const roleDoc of user.subRoles) {
-      const names = collectRoleNames(roleDoc);
-      if (names.some((name) => predicate(name))) return true;
-    }
-  }
-  return false;
-};
-
-const isAuditDirectorUser = (user) => {
-  if (!user) return false;
-  return userHasRoleName(user, isAuditDirectorLabel);
-};
+const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDirectorRole');
 
 /** Cash approvals in Pre-Audit (includes post–Audit Director statuses for Approved tab). */
 const CA_PRE_AUDIT_VISIBLE_STATUSES = [
@@ -1187,7 +1143,7 @@ router.put('/:id/approve',
 
       // For workflow documents, check if forwarded and only Audit Director can approve
       if (wfStatus === 'Forwarded to Audit Director') {
-        if (req.user.role !== 'super_admin' && !isAuditDirectorUser(req.user)) {
+        if (!canActAsAuditDirector(req.user)) {
           return res.status(403).json({
             success: false,
             message: 'Only Audit Director can approve documents forwarded to them'
@@ -1333,7 +1289,7 @@ router.put('/:id/approve',
 
     // If document is forwarded to director, only Audit Director can approve
     if (document.status === 'forwarded_to_director') {
-      if (req.user.role !== 'super_admin' && !isAuditDirectorUser(req.user)) {
+      if (!canActAsAuditDirector(req.user)) {
         return res.status(403).json({
           success: false,
           message: 'Only Audit Director can approve documents forwarded to them'
