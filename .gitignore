@@ -4,6 +4,7 @@ node_modules/
 
 # Atlas / production BSON dumps (large, sensitive)
 backups/mongodump-atlas-*/
+server/backups/
 
 # Environment variables
 .env
