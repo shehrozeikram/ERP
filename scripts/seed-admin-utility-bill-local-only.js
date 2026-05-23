@@ -264,7 +264,7 @@ async function main() {
   // but this keeps it more realistic for UI filters.
   let adminDept = null;
   try {
-    adminDept = await Department.findOne({ code: 'ADMIN' }).select('name code').lean();
+    adminDept = await Department.findOne({ name: /^administration$/i }).select('name').lean();
   } catch {
     // ignore
   }

@@ -41,7 +41,6 @@ const DepartmentManagement = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [formData, setFormData] = useState({
     name: '',
-    code: '',
     description: '',
     manager: '',
     parentDepartment: ''
@@ -85,7 +84,6 @@ const DepartmentManagement = () => {
     setEditingDepartment(null);
     setFormData({
       name: '',
-      code: '',
       description: '',
       manager: '',
       parentDepartment: ''
@@ -97,7 +95,6 @@ const DepartmentManagement = () => {
     setEditingDepartment(department);
     setFormData({
       name: department.name,
-      code: department.code,
       description: department.description || '',
       manager: department.manager?._id || '',
       parentDepartment: department.parentDepartment?._id || ''
@@ -107,15 +104,21 @@ const DepartmentManagement = () => {
 
   const handleSaveDepartment = async () => {
     try {
+      const payload = {
+        name: formData.name,
+        description: formData.description,
+        manager: formData.manager || null,
+        parentDepartment: formData.parentDepartment || null
+      };
       if (editingDepartment) {
-        await api.put(`/hr/departments/${editingDepartment._id}`, formData);
+        await api.put(`/hr/departments/${editingDepartment._id}`, payload);
         setSnackbar({
           open: true,
           message: 'Department updated successfully',
           severity: 'success'
         });
       } else {
-        await api.post('/hr/departments', formData);
+        await api.post('/hr/departments', payload);
         setSnackbar({
           open: true,
           message: 'Department created successfully',
@@ -188,7 +191,6 @@ const DepartmentManagement = () => {
           <TableHead>
             <TableRow>
               <TableCell>Department</TableCell>
-              <TableCell>Code</TableCell>
               <TableCell>Manager</TableCell>
               <TableCell>Parent Department</TableCell>
               <TableCell>Status</TableCell>
@@ -210,7 +212,6 @@ const DepartmentManagement = () => {
                     )}
                   </Box>
                 </TableCell>
-                <TableCell>{department.code}</TableCell>
                 <TableCell>
                   {department.manager ? (
                     `${department.manager.firstName} ${department.manager.lastName}`
@@ -265,13 +266,6 @@ const DepartmentManagement = () => {
               label="Department Name"
               value={formData.name}
               onChange={(e) => handleFormChange('name', e.target.value)}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Department Code"
-              value={formData.code}
-              onChange={(e) => handleFormChange('code', e.target.value)}
               sx={{ mb: 2 }}
             />
             <TextField

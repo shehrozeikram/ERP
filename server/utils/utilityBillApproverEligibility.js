@@ -1,5 +1,5 @@
 /**
- * Shared approver rules: User Management `User.department` must match Administration (master dept code ADMIN).
+ * Shared approver rules: User Management `User.department` must match Administration department.
  * Used by Utility Bills, Rental Management, and Payment Settlement approval pickers and API validation.
  */
 const mongoose = require('mongoose');
@@ -10,38 +10,40 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const ADMINISTRATION_NAME_PATTERN = /^administration$/i;
+
 /**
- * True when User.department (User Management) refers to the Administration department with code ADMIN.
+ * True when User.department (User Management) refers to the Administration department.
  * Does not use Employee / HR placement.
  */
 function userDepartmentMatchesAdministration(userDepartment, admin) {
   if (!userDepartment || !admin) return false;
-  if (String(admin.code || '').trim().toUpperCase() !== 'ADMIN') return false;
   const s = String(userDepartment).trim();
   if (!s) return false;
+  // Legacy: users may still have "ADMIN" stored from when departments used codes
   if (s.toUpperCase() === 'ADMIN') return true;
   if (mongoose.Types.ObjectId.isValid(s) && s === String(admin._id)) return true;
   const name = String(admin.name || '').trim();
   if (name && s.toLowerCase() === name.toLowerCase()) return true;
-  if (admin.code && s.toUpperCase() === String(admin.code).toUpperCase().trim()) return true;
   return false;
 }
 
 let adminDeptCache = { doc: null, until: 0 };
 const ADMIN_DEPT_CACHE_MS = 10 * 60 * 1000;
 
-/** Department master row with code ADMIN (canonical Administration for User.department matching). */
+/** Department master row for Administration (User.department matching). */
 async function getAdministrationDepartment() {
   const now = Date.now();
   if (adminDeptCache.doc && now < adminDeptCache.until) {
     return adminDeptCache.doc;
   }
-  let doc = await Department.findOne({ code: 'ADMIN' }).select('_id name code').lean();
+  let doc = await Department.findOne({ name: ADMINISTRATION_NAME_PATTERN })
+    .select('_id name')
+    .lean();
   if (!doc) {
-    doc = await Department.findOne({ code: { $regex: /^ADMIN$/i } }).select('_id name code').lean();
-  }
-  if (doc && String(doc.code || '').trim().toUpperCase() !== 'ADMIN') {
-    doc = null;
+    doc = await Department.findOne({ name: { $regex: /administration/i } })
+      .select('_id name')
+      .lean();
   }
   adminDeptCache = { doc, until: now + ADMIN_DEPT_CACHE_MS };
   return doc;
@@ -57,13 +59,12 @@ async function computeEligibleUtilityBillApproverUserIds() {
   }
 
   const deptOr = [];
-  if (admin.code) {
-    deptOr.push({ department: new RegExp(`^${escapeRegex(String(admin.code))}$`, 'i') });
-  }
   if (admin.name) {
     deptOr.push({ department: new RegExp(`^${escapeRegex(String(admin.name))}$`, 'i') });
   }
   deptOr.push({ department: String(admin._id) });
+  // Legacy user records that still reference ADMIN
+  deptOr.push({ department: /^ADMIN$/i });
 
   const users = await User.find({ isActive: true, $or: deptOr })
     .select('_id department')
@@ -109,7 +110,7 @@ async function assertUtilityBillApproversEligible(approverIds = []) {
       return {
         ok: false,
         message:
-          'Approvers must be active users whose department in User Management is Administration (department code ADMIN).'
+          'Approvers must be active users whose department in User Management is Administration.'
       };
     }
   }

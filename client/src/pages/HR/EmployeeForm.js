@@ -112,7 +112,6 @@ const EmployeeForm = () => {
 
   const [newDepartmentData, setNewDepartmentData] = useState({
     name: '',
-    code: '',
     description: ''
   });
 
@@ -1449,7 +1448,10 @@ const EmployeeForm = () => {
         return;
       }
 
-      const response = await api.post('/hr/departments', newDepartmentData);
+      const response = await api.post('/hr/departments', {
+        name: newDepartmentData.name.trim(),
+        description: newDepartmentData.description?.trim() || undefined
+      });
       
       setSnackbar({
         open: true,
@@ -1458,7 +1460,7 @@ const EmployeeForm = () => {
       });
 
       setShowAddDepartmentDialog(false);
-      setNewDepartmentData({ name: '', code: '', description: '' });
+      setNewDepartmentData({ name: '', description: '' });
       
       // Refresh departments
       await fetchDepartments();
@@ -4420,21 +4422,13 @@ const EmployeeForm = () => {
         <DialogContent>
           <Box sx={{ pt: 2 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Department Name"
                   value={newDepartmentData.name}
                   onChange={(e) => handleNewDepartmentChange('name', e.target.value)}
                   required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Department Code"
-                  value={newDepartmentData.code}
-                  onChange={(e) => handleNewDepartmentChange('code', e.target.value)}
                 />
               </Grid>
               <Grid item xs={12}>

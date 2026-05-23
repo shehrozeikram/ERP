@@ -53,7 +53,6 @@ const Departments = () => {
   // Validation schema
   const validationSchema = Yup.object({
     name: Yup.string().required('Department name is required'),
-    code: Yup.string(),
     description: Yup.string(),
     location: Yup.string(),
     budget: Yup.number().positive('Budget must be positive')
@@ -98,7 +97,6 @@ const Departments = () => {
   const formik = useFormik({
     initialValues: {
       name: '',
-      code: '',
       description: '',
       location: '',
       budget: '',
@@ -117,10 +115,8 @@ const Departments = () => {
           parentDepartment: values.parentDepartment || null,
           budget: values.budget ? parseFloat(values.budget) : null
         };
-        if (!cleanedValues.code || !String(cleanedValues.code).trim()) {
-          delete cleanedValues.code;
-        }
-        
+        delete cleanedValues.code;
+
         console.log('Submitting department data:', cleanedValues);
         
         if (isEditing) {
@@ -160,7 +156,6 @@ const Departments = () => {
       setIsEditing(true);
       formik.setValues({
         name: department.name || '',
-        code: department.code || '',
         description: department.description || '',
         location: department.location || '',
         budget: department.budget || '',
@@ -311,7 +306,6 @@ const Departments = () => {
           <TableHead>
             <TableRow>
               <TableCell>Department</TableCell>
-              <TableCell>Code</TableCell>
               <TableCell>Location</TableCell>
               <TableCell>Manager</TableCell>
               <TableCell>Employees</TableCell>
@@ -336,7 +330,6 @@ const Departments = () => {
                     </Box>
                   </Box>
                 </TableCell>
-                <TableCell>{department.code}</TableCell>
                 <TableCell>{department.location}</TableCell>
                 <TableCell>
                   {department.manager ? 
@@ -414,17 +407,6 @@ const Departments = () => {
                   onChange={formik.handleChange}
                   error={formik.touched.name && Boolean(formik.errors.name)}
                   helperText={formik.touched.name && formik.errors.name}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="code"
-                  label="Department Code (Optional)"
-                  value={formik.values.code}
-                  onChange={formik.handleChange}
-                  error={formik.touched.code && Boolean(formik.errors.code)}
-                  helperText={formik.touched.code && formik.errors.code}
                 />
               </Grid>
               <Grid item xs={12}>

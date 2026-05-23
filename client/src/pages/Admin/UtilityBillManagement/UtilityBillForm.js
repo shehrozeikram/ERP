@@ -1294,7 +1294,7 @@ const UtilityBillForm = () => {
                     )}
                     {departments.map((department) => (
                       <MenuItem key={department._id} value={department.name}>
-                        {department.code ? `${department.name} (${department.code})` : department.name}
+                        {department.name}
                       </MenuItem>
                     ))}
                   </Select>

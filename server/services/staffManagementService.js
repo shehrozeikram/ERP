@@ -370,7 +370,7 @@ class StaffManagementService {
             options[target.type] = await Location.find({ status: 'Active' }).select('_id name locationId type address');
             break;
           case 'department':
-            options[target.type] = await Department.find({ status: 'Active' }).select('_id name code');
+            options[target.type] = await Department.find({ status: 'Active' }).select('_id name');
             break;
           case 'vehicle':
             options[target.type] = await Vehicle.find({ status: 'Active' }).select('_id make model licensePlate');

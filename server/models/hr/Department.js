@@ -8,15 +8,6 @@ const departmentSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Department name cannot exceed 100 characters']
   },
-  code: {
-    type: String,
-    required: false,
-    unique: true,
-    sparse: true, // Allow multiple null/undefined values
-    trim: true,
-    uppercase: true,
-    maxlength: [10, 'Department code cannot exceed 10 characters']
-  },
   description: {
     type: String,
     trim: true,
@@ -76,7 +67,6 @@ const departmentSchema = new mongoose.Schema({
 
 // Indexes
 departmentSchema.index({ name: 1 });
-departmentSchema.index({ code: 1 });
 departmentSchema.index({ isActive: 1 });
 
 // Virtual for employee count
@@ -96,7 +86,7 @@ departmentSchema.statics.findActive = function() {
 departmentSchema.statics.getHierarchy = async function() {
   const departments = await this.find({ isActive: true })
     .populate('manager', 'firstName lastName employeeId')
-    .populate('parentDepartment', 'name code')
+    .populate('parentDepartment', 'name')
     .lean();
 
   const buildHierarchy = (parentId = null) => {

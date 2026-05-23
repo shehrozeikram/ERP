@@ -1404,19 +1404,27 @@ router.post('/departments', [
     });
   }
 
-  // Clean up the request body
   const departmentData = {
     ...req.body,
     manager: req.body.manager || null,
     parentDepartment: req.body.parentDepartment || null,
     budget: req.body.budget ? parseFloat(req.body.budget) : null
   };
-  if (!departmentData.code || !String(departmentData.code).trim()) {
-    delete departmentData.code;
-  }
+  delete departmentData.code;
 
-  const department = new Department(departmentData);
-  await department.save();
+  let department;
+  try {
+    department = new Department(departmentData);
+    await department.save();
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'A department with this name already exists.'
+      });
+    }
+    throw error;
+  }
 
   // Populate the manager field if it exists
   const populatedDepartment = await Department.findById(department._id)
@@ -1442,15 +1450,24 @@ router.put('/departments/:id',
       parentDepartment: req.body.parentDepartment || null,
       budget: req.body.budget ? parseFloat(req.body.budget) : null
     };
-    if (!departmentData.code || !String(departmentData.code).trim()) {
-      delete departmentData.code;
-    }
+    delete departmentData.code;
 
-    const department = await Department.findByIdAndUpdate(
-      req.params.id,
-      departmentData,
-      { new: true, runValidators: true }
-    ).populate('manager', 'firstName lastName employeeId');
+    let department;
+    try {
+      department = await Department.findByIdAndUpdate(
+        req.params.id,
+        departmentData,
+        { new: true, runValidators: true }
+      ).populate('manager', 'firstName lastName employeeId');
+    } catch (error) {
+      if (error.code === 11000) {
+        return res.status(400).json({
+          success: false,
+          message: 'A department with this name already exists.'
+        });
+      }
+      throw error;
+    }
 
     if (!department) {
       return res.status(404).json({

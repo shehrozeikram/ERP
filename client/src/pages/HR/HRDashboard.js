@@ -67,26 +67,18 @@ import { hasModuleAccess, MODULE_KEYS } from '../../utils/permissions';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/authService';
 import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
+import {
+  PROBATION_ALERT_DAYS_BEFORE,
+  getEmployeesProbationEndingSoon,
+  formatProbationEndLabel,
+  formatProbationDaysLeftLabel
+} from '../../utils/probationAlerts';
 
 /** Hire date used for HR reporting (new hires, tenure charts). */
 function getEmployeeHireDate(employee) {
   if (!employee?.hireDate) return null;
   const d = new Date(employee.hireDate);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function getProbationEndDate(employee) {
-  const baseDate = employee?.appointmentDate || employee?.hireDate || employee?.joiningDate;
-  if (!baseDate) return null;
-  const startDate = new Date(baseDate);
-  if (Number.isNaN(startDate.getTime())) return null;
-
-  const months = Number(employee?.probationPeriodMonths ?? employee?.probationPeriod ?? 0);
-  if (!Number.isFinite(months) || months <= 0) return null;
-
-  const endDate = new Date(startDate);
-  endDate.setMonth(endDate.getMonth() + months);
-  return Number.isNaN(endDate.getTime()) ? null : endDate;
 }
 
 const HRDashboard = () => {
@@ -453,19 +445,10 @@ const HRDashboard = () => {
       setAllEmployees(employees);
       const canAccessHRModule = hasModuleAccess(user?.role, MODULE_KEYS.HR);
       if (canAccessHRModule) {
-        const today = new Date();
-        const completedProbation = employees
-          .filter((emp) => {
-            const probationEnd = getProbationEndDate(emp);
-            if (!probationEnd) return false;
-            if (emp.confirmationDate) return false;
-            if (['Draft', 'Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)) return false;
-            return probationEnd <= today;
-          })
-          .sort((a, b) => getProbationEndDate(b) - getProbationEndDate(a));
+        const endingSoon = getEmployeesProbationEndingSoon(employees, PROBATION_ALERT_DAYS_BEFORE);
 
-        setProbationCompletedEmployees(completedProbation);
-        setProbationDialogOpen(completedProbation.length > 0);
+        setProbationCompletedEmployees(endingSoon);
+        setProbationDialogOpen(endingSoon.length > 0);
       } else {
         setProbationCompletedEmployees([]);
         setProbationDialogOpen(false);
@@ -1017,7 +1000,7 @@ const HRDashboard = () => {
         maxWidth="md"
       >
         <DialogTitle sx={{ pr: 6 }}>
-          Probation Completed - Great Progress!
+          Probation Ending Soon
           <IconButton
             onClick={() => setProbationDialogOpen(false)}
             sx={{ position: 'absolute', right: 8, top: 8 }}
@@ -1026,20 +1009,19 @@ const HRDashboard = () => {
           </IconButton>
         </DialogTitle>
         <DialogContent dividers>
-          <Alert severity="success" sx={{ mb: 2 }}>
-            Congratulations to the team! The following employees have successfully completed their probation period.
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            The following employees will complete probation within the next {PROBATION_ALERT_DAYS_BEFORE} days.
+            Please review and update confirmation details if needed.
           </Alert>
           {probationCompletedEmployees.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No completed probation records found right now.
+              No employees with probation ending in the next {PROBATION_ALERT_DAYS_BEFORE} days.
             </Typography>
           ) : (
             <List disablePadding>
               {probationCompletedEmployees.map((emp) => {
-                const probationEndDate = getProbationEndDate(emp);
-                const probationEndLabel = probationEndDate
-                  ? probationEndDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-                  : '—';
+                const probationEndLabel = formatProbationEndLabel(emp);
+                const daysLeftLabel = formatProbationDaysLeftLabel(emp);
                 return (
                   <ListItem key={emp._id} disablePadding sx={{ mb: 0.5 }}>
                     <ListItemButton onClick={() => navigate(`/hr/employees/${emp._id}`)} sx={{ borderRadius: 1 }}>
@@ -1054,7 +1036,7 @@ const HRDashboard = () => {
                           <>
                             {emp.placementDepartment?.name || emp.department?.name || '—'}
                             {' · '}
-                            <Chip component="span" size="small" label={`Probation ended: ${probationEndLabel}`} sx={{ height: 20, ml: 0.5 }} />
+                            <Chip component="span" size="small" color="warning" label={`${daysLeftLabel} · ${probationEndLabel}`} sx={{ height: 20, ml: 0.5 }} />
                           </>
                         }
                         secondaryTypographyProps={{ component: 'div' }}
