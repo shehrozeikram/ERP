@@ -71,7 +71,10 @@ const utilityBillSchema = new mongoose.Schema({
     expenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     expenseAccountNumber: { type: String, trim: true, default: '' },
     dueDate: { type: Date },
-    attachmentUrl: { type: String, trim: true, default: '' }
+    /** Legacy single attachment (kept for backward compat with older bills). */
+    attachmentUrl: { type: String, trim: true, default: '' },
+    /** Multiple document images per line item (compressed on the client). */
+    attachmentUrls: { type: [String], default: [] }
   }],
   accountNumber: {
     type: String,

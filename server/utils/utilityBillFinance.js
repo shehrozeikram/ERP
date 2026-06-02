@@ -96,7 +96,9 @@ const buildExpenseJournalLines = (apLineItems) => {
 };
 
 const buildUtilityBillApNotes = (bill) => {
+  const narration = String(bill.notes || '').trim();
   const parts = [
+    narration || null,
     `Admin utility bill ${bill.billId}`,
     bill.accountHead ? `Account head: ${bill.accountHead}` : null,
     bill.forWhat ? `For: ${bill.forWhat}` : null,

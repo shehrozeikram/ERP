@@ -25,9 +25,7 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
-  Chip,
-  FormControlLabel,
-  Switch
+  Chip
 } from '@mui/material';
 import { Campaign as CampaignIcon, Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Schedule as ScheduleIcon } from '@mui/icons-material';
 import {
@@ -86,8 +84,6 @@ const RecoveryCampaigns = () => {
     followUpCampaignId: ''
   });
   const [followUp, setFollowUp] = useState({
-    enabled: false,
-    defaultCampaignId: '',
     delayHours: 14
   });
   const [rowFollowUpSaving, setRowFollowUpSaving] = useState(null);
@@ -100,8 +96,6 @@ const RecoveryCampaigns = () => {
       const res = await fetchRecoveryFollowUpSettings();
       const data = res.data?.data || {};
       setFollowUp({
-        enabled: !!data.enabled,
-        defaultCampaignId: data.campaignId?._id || data.campaignId || '',
         delayHours: data.delayHours ?? 14
       });
       setFollowUpMeta({
@@ -135,11 +129,9 @@ const RecoveryCampaigns = () => {
     try {
       setFollowUpSaving(true);
       const res = await saveRecoveryFollowUpSettings({
-        enabled: followUp.enabled,
-        campaignId: followUp.defaultCampaignId || null,
         delayHours: Number(followUp.delayHours) || 14
       });
-      setSnackbar({ open: true, message: 'Automatic follow-up settings saved', severity: 'success' });
+      setSnackbar({ open: true, message: 'Follow-up delay settings saved', severity: 'success' });
       const data = res.data?.data || {};
       setFollowUpMeta({
         lastRunAt: data.lastRunAt,
@@ -163,12 +155,10 @@ const RecoveryCampaigns = () => {
       setFollowUpRunning(true);
       const res = await runRecoveryFollowUpNow();
       const d = res.data?.data || {};
-      if (d.skipped && d.reason === 'disabled') {
-        setSnackbar({ open: true, message: 'Enable automatic follow-up and save first', severity: 'warning' });
-      } else if (d.skipped && d.reason === 'no_mappings') {
+      if (d.skipped && d.reason === 'no_mappings') {
         setSnackbar({
           open: true,
-          message: 'Set a follow-up on each campaign (table below) or choose a default fallback',
+          message: 'Set a follow-up on each campaign (table below)',
           severity: 'warning'
         });
       } else {
@@ -307,43 +297,16 @@ const RecoveryCampaigns = () => {
             </Typography>
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            If a customer has no reply after your message, WhatsApp&apos;s 24-hour window closes. Enable this to send a
-            <strong> follow-up template per campaign</strong> (set in the table below) after the delay — only when they have not replied.
-            Use the default fallback only when the original campaign has no follow-up assigned.
+            Automatic cron follow-up is disabled. Follow-up sends are controlled per campaign mapping only.
+            Use <strong>Run now</strong> to execute follow-up for stale My Tasks conversations.
           </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={followUp.enabled}
-                onChange={(e) => setFollowUp((f) => ({ ...f, enabled: e.target.checked }))}
-              />
-            }
-            label="Enable automatic follow-up"
-          />
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 2, alignItems: 'flex-start' }}>
-            <FormControl size="small" sx={{ minWidth: 280 }} disabled={!followUp.enabled}>
-              <InputLabel>Default fallback follow-up</InputLabel>
-              <Select
-                label="Default fallback follow-up"
-                value={followUp.defaultCampaignId}
-                onChange={(e) => setFollowUp((f) => ({ ...f, defaultCampaignId: e.target.value }))}
-              >
-                <MenuItem value="">— None —</MenuItem>
-                {activeCampaignOptions.map((c) => (
-                  <MenuItem key={c._id} value={c._id}>
-                    {c.whatsappTemplateName}
-                    {c.messagePreview ? ` — ${String(c.messagePreview).slice(0, 40)}` : ''}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
             <TextField
               size="small"
               type="number"
               label="Hours after send"
               value={followUp.delayHours}
               onChange={(e) => setFollowUp((f) => ({ ...f, delayHours: e.target.value }))}
-              disabled={!followUp.enabled}
               inputProps={{ min: 1, max: 23 }}
               sx={{ width: 140 }}
               helperText="1–23 (default 14)"
@@ -494,7 +457,7 @@ const RecoveryCampaigns = () => {
             </Select>
           </FormControl>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-            Sent automatically if no reply after the delay (when auto follow-up is enabled).
+            Sent on manual Run now if no reply after the configured delay.
           </Typography>
         </DialogContent>
         <DialogActions>

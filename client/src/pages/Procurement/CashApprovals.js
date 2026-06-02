@@ -30,6 +30,16 @@ import { isGeneralModuleCashApproval } from '../../components/CashApprovals/cash
 import CashApprovalAdvancePaymentDialog from '../../components/CashApprovals/CashApprovalAdvancePaymentDialog';
 import CashApprovalPaymentFieldsView from '../../components/CashApprovals/CashApprovalPaymentFieldsView';
 import { useCashApprovalPaymentFields } from '../../components/CashApprovals/useCashApprovalPaymentFields';
+import NarrationTableCell from '../../components/common/NarrationTableCell';
+import { getCashApprovalNarrationDisplay } from '../../utils/documentNarrationDisplay';
+import LineAttachmentCell from '../../components/common/LineAttachmentCell';
+import {
+  appendCashApprovalLineAttachmentsToFormData,
+  emptyCashApprovalLine,
+  serializeCashApprovalItemsForSubmit
+} from '../../utils/cashApprovalFormAttachments';
+import { resolveUploadPublicUrl } from '../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
+import LineAttachmentsView from '../../components/UtilityBill/LineAttachmentsView';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const STATUS_COLORS = {
@@ -88,7 +98,7 @@ const getStepIndex = (status) => {
 const EMPTY_FORM = {
   vendor: '', approvalDate: new Date().toISOString().split('T')[0],
   expectedPurchaseDate: '', deliveryAddress: '', priority: 'Urgent',
-  items: [{ description: '', specification: '', brand: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0, amount: 0 }],
+  items: [emptyCashApprovalLine()],
   shippingCost: 0, notes: ''
 };
 
@@ -250,6 +260,7 @@ const CashApprovalsPage = () => {
           const q = res.data?.data || res.data;
           if (!q) return;
           const items = (q.items || []).map((item) => ({
+            ...emptyCashApprovalLine(),
             description: item.description || item.name || '',
             specification: item.specification || '',
             brand: item.brand || '',
@@ -293,7 +304,12 @@ const CashApprovalsPage = () => {
         expectedPurchaseDate: ca.expectedPurchaseDate ? new Date(ca.expectedPurchaseDate).toISOString().split('T')[0] : '',
         deliveryAddress: ca.deliveryAddress || '',
         priority: ca.priority || 'Urgent',
-        items: ca.items || EMPTY_FORM.items,
+        items: (ca.items || []).map((item) => ({
+          ...emptyCashApprovalLine(),
+          ...item,
+          attachments: item.attachments || [],
+          _pendingFiles: []
+        })),
         shippingCost: ca.shippingCost || 0,
         notes: ca.notes || ''
       });
@@ -380,7 +396,34 @@ const CashApprovalsPage = () => {
     items[idx].amount = computeItemAmount(items[idx]);
     setFormData({ ...formData, items });
   };
-  const addItem = () => setFormData({ ...formData, items: [...formData.items, { description: '', specification: '', brand: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0, amount: 0 }] });
+  const addItem = () => setFormData({ ...formData, items: [...formData.items, emptyCashApprovalLine()] });
+
+  const updateFormItem = (idx, patch) => {
+    const items = [...formData.items];
+    items[idx] = { ...items[idx], ...patch };
+    if (patch.quantity != null || patch.unitPrice != null || patch.discount != null) {
+      items[idx].amount = computeItemAmount(items[idx]);
+    }
+    setFormData({ ...formData, items });
+  };
+
+  const buildCashApprovalFormData = () => {
+    const fd = new FormData();
+    fd.append('vendor', formData.vendor);
+    fd.append('approvalDate', formData.approvalDate);
+    fd.append('expectedPurchaseDate', formData.expectedPurchaseDate);
+    fd.append('deliveryAddress', formData.deliveryAddress || '');
+    fd.append('priority', formData.priority);
+    fd.append('shippingCost', String(formData.shippingCost || 0));
+    fd.append('notes', formData.notes || '');
+    fd.append('approvalAuthorities', JSON.stringify({ ...approvalAuthority }));
+    fd.append('items', JSON.stringify(serializeCashApprovalItemsForSubmit(formData.items)));
+    appendCashApprovalLineAttachmentsToFormData(fd, formData.items);
+    if (prefillQuotationId && formDialog.mode === 'create') {
+      fd.append('quotationId', prefillQuotationId);
+    }
+    return fd;
+  };
   const removeItem = (idx) => setFormData({ ...formData, items: formData.items.filter((_, i) => i !== idx) });
 
   const handleFormSubmit = async () => {
@@ -390,11 +433,7 @@ const CashApprovalsPage = () => {
     if (!formData.items.length || !formData.items[0].description) return setError('At least one item is required');
     setFormLoading(true);
     try {
-      const payload = {
-        ...formData,
-        approvalAuthorities: { ...approvalAuthority },
-        ...(prefillQuotationId && formDialog.mode === 'create' ? { quotationId: prefillQuotationId } : {})
-      };
+      const payload = buildCashApprovalFormData();
       if (formDialog.mode === 'create') {
         await procurementService.createCashApproval(payload);
         setSuccess('Cash Approval created successfully');
@@ -1060,6 +1099,7 @@ const CashApprovalsPage = () => {
               <TableRow>
                 <TableCell><strong>CA Number</strong></TableCell>
                 <TableCell><strong>Vendor</strong></TableCell>
+                <TableCell sx={{ minWidth: 180, maxWidth: 280 }}><strong>Narration / Description</strong></TableCell>
                 <TableCell><strong>Approval Date</strong></TableCell>
                 <TableCell><strong>Expected Purchase</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
@@ -1071,11 +1111,11 @@ const CashApprovalsPage = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center"><CircularProgress /></TableCell>
+                  <TableCell colSpan={9} align="center"><CircularProgress /></TableCell>
                 </TableRow>
               ) : cashApprovals.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={9} align="center">
                     <Typography variant="body2" color="textSecondary">No cash approvals found</Typography>
                   </TableCell>
                 </TableRow>
@@ -1083,6 +1123,7 @@ const CashApprovalsPage = () => {
                 <TableRow key={ca._id} hover>
                   <TableCell>{ca.caNumber}</TableCell>
                   <TableCell>{ca.vendor?.name || 'N/A'}</TableCell>
+                  <NarrationTableCell text={getCashApprovalNarrationDisplay(ca)} />
                   <TableCell>{formatDate(ca.approvalDate)}</TableCell>
                   <TableCell>{formatDate(ca.expectedPurchaseDate)}</TableCell>
                   <TableCell>
@@ -1210,7 +1251,17 @@ const CashApprovalsPage = () => {
                     <Grid item xs={6} md={2}>
                       <TextField fullWidth size="small" type="number" label="Discount" value={item.discount || 0} onChange={(e) => handleItemChange(index, 'discount', parseFloat(e.target.value) || 0)} />
                     </Grid>
-                    <Grid item xs={6} md={2}>
+                    <Grid item xs={12}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                        Attachments (images/PDF, compressed — up to 50 per line)
+                      </Typography>
+                      <LineAttachmentCell
+                        line={item}
+                        onLineChange={(patch) => updateFormItem(index, patch)}
+                        resolveUrl={resolveUploadPublicUrl}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
                       <IconButton color="error" onClick={() => removeItem(index)} disabled={formData.items.length === 1}>
                         <DeleteIcon />
                       </IconButton>

@@ -51,6 +51,16 @@ import { scheduleIdleWork } from '../../../utils/scheduleIdleWork';
 import RecoveryWhatsAppMessageBubble from '../../../components/Recovery/RecoveryWhatsAppMessageBubble';
 import { fetchRecoveryCampaigns } from '../../../services/recoveryCampaignService';
 import { fetchRecoveryTasks } from '../../../services/recoveryTaskService';
+import { fetchRecoveryTaskRules } from '../../../services/recoveryTaskAssignmentRuleService';
+import {
+  sortRecoveryTasksNewestFirst,
+  formatRecoveryTaskScope
+} from '../../../utils/recoveryTaskDisplay';
+import {
+  buildRecoveryAssignmentRows,
+  assignmentMatchesRecoveryRule
+} from '../../../utils/recoveryAssignmentRows';
+import MyRecoveryAssignmentsTable from '../../../components/Recovery/MyRecoveryAssignmentsTable';
 import { useAuth } from '../../../contexts/AuthContext';
 
 function WhatsAppIcon(props) {
@@ -80,8 +90,6 @@ const getOrderCodeLabel = (row) =>
   row?.booking?.orderCode ||
   row?.plot?.orderCode ||
   '';
-
-const normalizeSector = (value) => String(value || '').trim().toLowerCase();
 
 function normalizeWhatsAppNumber(mobile) {
   if (!mobile) return '';
@@ -136,8 +144,15 @@ const MyTasks = () => {
   const unreadFilter = (searchParams.get('unread') === 'true' || searchParams.get('unread') === '1') ? 'unread' : 'all';
   const [completingId, setCompletingId] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [rules, setRules] = useState([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
   const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [selectedRuleId, setSelectedRuleId] = useState('');
   const [selectedAssignmentIds, setSelectedAssignmentIds] = useState([]);
+  const taskCountRef = React.useRef(0);
+  const userChoseAllTasksRef = React.useRef(false);
+  const selectedRuleIdRef = React.useRef(selectedRuleId);
+  selectedRuleIdRef.current = selectedRuleId;
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 400);
@@ -146,63 +161,45 @@ const MyTasks = () => {
 
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, dueSort]
+    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, selectedRuleId, dueSort]
   });
+
+  const selectedRule = useMemo(
+    () => rules.find((r) => r._id === selectedRuleId) || null,
+    [rules, selectedRuleId]
+  );
+
+  const assignmentRows = useMemo(
+    () => buildRecoveryAssignmentRows(rules, tasks),
+    [rules, tasks]
+  );
 
   const loadMyTasks = useCallback(async () => {
     try {
       setLoading(true);
       setNotRecoveryMember(false);
-      const taskFilter = tasks.find((t) => t._id === selectedTaskId) || null;
-      // Time-bound task filter runs client-side; fetch one wide page when a task is selected.
-      const apiParams = taskFilter
-        ? { page: 1, limit: 200 }
-        : pagination.getApiParams();
+      const ruleFilter = selectedRuleId ? rules.find((r) => r._id === selectedRuleId) : null;
+      const useWideFetch = Boolean(selectedTaskId || ruleFilter);
       const params = {
-        ...apiParams,
+        ...(useWideFetch ? { page: 1, limit: 500 } : pagination.getApiParams()),
         ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter }),
         ...(unreadFilter === 'unread' && { unread: 'true' }),
-        ...(dueSort && { dueSort })
+        ...(dueSort && { dueSort }),
+        ...(selectedTaskId && !ruleFilter && { recoveryTaskId: selectedTaskId })
       };
       const res = await fetchMyRecoveryTasks(params);
       const data = res.data?.data || [];
       const pag = res.data?.pagination || {};
       let rows = Array.isArray(data) ? data : [];
 
-      // Apply time-bound task filter client-side
-      if (taskFilter) {
-        const t = taskFilter;
-        const start = t.startDate ? new Date(t.startDate) : null;
-        const end = t.endDate ? new Date(t.endDate) : null;
-
-        rows = rows.filter((row) => {
-          // Scope filter
-          if (t.scopeType === 'sector') {
-            if (t.sector && normalizeSector(row.sector) !== normalizeSector(t.sector)) return false;
-          } else if (t.scopeType === 'slab') {
-            const due = Number(row.currentlyDue) || 0;
-            const min = Number(t.minAmount) || 0;
-            const max = t.maxAmount != null ? Number(t.maxAmount) : null;
-            if (!(due >= min && (max == null || due < max))) return false;
-            if (t.sector && normalizeSector(row.sector) !== normalizeSector(t.sector)) return false;
-          }
-
-          // Date filter (by assignment createdAt)
-          if (start || end) {
-            const created = row.createdAt ? new Date(row.createdAt) : null;
-            if (!created || isNaN(created.getTime())) return false;
-            if (start && created < start) return false;
-            if (end && created > end) return false;
-          }
-
-          return true;
-        });
+      if (ruleFilter) {
+        rows = rows.filter((row) => assignmentMatchesRecoveryRule(row, ruleFilter));
       }
 
       setRecords(rows);
-      pagination.setTotal(taskFilter ? rows.length : pag.total || 0);
+      pagination.setTotal(useWideFetch ? rows.length : (pag.total || 0));
       if (res.data?.notRecoveryMember) setNotRecoveryMember(true);
     } catch (err) {
       setSnackbar({
@@ -215,7 +212,7 @@ const MyTasks = () => {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- pagination object is new each render; use page/rowsPerPage only to avoid infinite loop
-  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, dueSort, tasks, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, selectedRuleId, rules, dueSort, pagination.page, pagination.rowsPerPage]);
 
   const loadNumbersWithMessages = useCallback(async () => {
     try {
@@ -263,28 +260,70 @@ const MyTasks = () => {
     return cancel;
   }, [loadNumbersWithMessages]);
 
-  // Load time-bound tasks for the current recovery member (used as a filter)
-  const loadTasks = useCallback(async () => {
+  // Rules + time-bound tasks for this member (API scopes to self for recovery members)
+  const loadMemberAssignments = useCallback(async () => {
     try {
-      // Fetch all tasks; filter client-side to current user's member
-      const res = await fetchRecoveryTasks();
-      const all = res.data?.data || [];
-      if (!user?.employeeId) {
-        setTasks(all);
+      setAssignmentsLoading(true);
+      const [tasksRes, rulesRes] = await Promise.all([
+        fetchRecoveryTasks(),
+        fetchRecoveryTaskRules()
+      ]);
+      const sorted = sortRecoveryTasksNewestFirst(tasksRes.data?.data || []);
+      const rulesList = rulesRes.data?.data || [];
+      setTasks(sorted);
+      setRules(rulesList);
+
+      if (sorted.length === 0) {
+        taskCountRef.current = 0;
         return;
       }
-      const filtered = all.filter(
-        (t) => t.assignedTo?.employee?.employeeId === user.employeeId
-      );
-      setTasks(filtered);
+
+      const newestId = sorted[0]._id;
+      const addedTask = sorted.length > taskCountRef.current;
+      taskCountRef.current = sorted.length;
+
+      setSelectedTaskId((prev) => {
+        if (userChoseAllTasksRef.current && prev === '' && !selectedRuleIdRef.current) return '';
+        if (!prev || addedTask) return newestId;
+        if (!sorted.some((t) => t._id === prev)) return newestId;
+        return prev;
+      });
     } catch {
       setTasks([]);
+      setRules([]);
+      taskCountRef.current = 0;
+    } finally {
+      setAssignmentsLoading(false);
     }
-  }, [user?.employeeId]);
+  }, []);
 
   useEffect(() => {
-    loadTasks();
-  }, [loadTasks]);
+    loadMemberAssignments();
+  }, [loadMemberAssignments]);
+
+  useEffect(() => {
+    const onFocus = () => loadMemberAssignments();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [loadMemberAssignments]);
+
+  const handleSelectAssignmentTask = (task) => {
+    userChoseAllTasksRef.current = false;
+    setSelectedRuleId('');
+    setSelectedTaskId(task?._id || '');
+  };
+
+  const handleSelectAssignmentRule = (rule) => {
+    userChoseAllTasksRef.current = false;
+    setSelectedTaskId('');
+    setSelectedRuleId(rule?._id || '');
+  };
+
+  const handleSelectAllAssignments = () => {
+    userChoseAllTasksRef.current = true;
+    setSelectedTaskId('');
+    setSelectedRuleId('');
+  };
 
   // Periodically refresh unread counters so new incoming messages update the badges
   useEffect(() => {
@@ -737,6 +776,37 @@ const MyTasks = () => {
             </Alert>
           ) : (
             <>
+              <Card variant="outlined" sx={{ mb: 3 }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Rules &amp; tasks by month
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Your assignment rules and time-bound tasks (newest first). Click a row to load matching customers below.
+                  </Typography>
+                  {assignmentsLoading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                      <CircularProgress size={28} />
+                    </Box>
+                  ) : (
+                    <MyRecoveryAssignmentsTable
+                      rows={assignmentRows}
+                      selectedTaskId={selectedTaskId}
+                      selectedRuleId={selectedRuleId}
+                      onSelectTask={handleSelectAssignmentTask}
+                      onSelectRule={handleSelectAssignmentRule}
+                      onSelectAll={handleSelectAllAssignments}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                Customers to contact
+                {selectedTask ? ` · ${selectedTask.title?.trim() || 'Task'}` : ''}
+                {selectedRule ? ` · ${selectedRule.type === 'sector' ? selectedRule.sector : 'Slab rule'}` : ''}
+              </Typography>
+
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                 <TextField
                   size="small"
@@ -770,20 +840,22 @@ const MyTasks = () => {
                     ))}
                   </Select>
                 </FormControl>
-                <FormControl size="small" sx={{ minWidth: 200 }}>
-                  <InputLabel>Task</InputLabel>
+                <FormControl size="small" sx={{ minWidth: 220 }}>
+                  <InputLabel>Filter by task</InputLabel>
                   <Select
                     value={selectedTaskId}
-                    onChange={(e) => setSelectedTaskId(e.target.value || '')}
-                    label="Task"
+                    onChange={(e) => {
+                      const v = e.target.value || '';
+                      userChoseAllTasksRef.current = v === '';
+                      setSelectedTaskId(v);
+                    }}
+                    label="Filter by task"
                   >
                     <MenuItem value="">All tasks</MenuItem>
-                    {tasks.map((t) => (
+                    {tasks.map((t, index) => (
                       <MenuItem key={t._id} value={t._id}>
-                        {t.title || 'Task'} — {t.scopeType === 'sector'
-                          ? (t.sector || 'All sectors')
-                          : `${t.minAmount ?? 0}–${t.maxAmount ?? 'above'}`
-                        }
+                        {index === 0 ? 'Latest · ' : ''}
+                        {t.title?.trim() || 'Task'} — {formatRecoveryTaskScope(t)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -807,7 +879,7 @@ const MyTasks = () => {
                   </Select>
                 </FormControl>
                 <Typography variant="body2" color="text.secondary">
-                  {pagination.total} task{pagination.total !== 1 ? 's' : ''} assigned
+                  {pagination.total} customer{pagination.total !== 1 ? 's' : ''}
                 </Typography>
                 <Button
                   variant="contained"

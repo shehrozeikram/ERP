@@ -1936,7 +1936,9 @@ router.get('/accounts-payable',
       filters.$or = [
         { billNumber: { $regex: search, $options: 'i' } },
         { vendorInvoiceNumber: { $regex: search, $options: 'i' } },
-        { 'vendor.name': { $regex: search, $options: 'i' } }
+        { 'vendor.name': { $regex: search, $options: 'i' } },
+        { notes: { $regex: search, $options: 'i' } },
+        { 'lineItems.description': { $regex: search, $options: 'i' } }
       ];
     }
     if (startDate || endDate) {

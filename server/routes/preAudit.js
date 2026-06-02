@@ -274,7 +274,8 @@ router.get('/',
           docsQuery = docsQuery
             .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
             .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
-            .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp');
+            .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+            .populate('billLines.storeItem', 'itemName itemCode code description');
         }
         if (submodule === 'payment_settlement') {
           docsQuery = docsQuery
@@ -623,7 +624,8 @@ router.get('/:id',
             workflowQuery = workflowQuery
               .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
               .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
-              .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp');
+              .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+              .populate('billLines.storeItem', 'itemName itemCode code description');
           }
           if (submodule === 'payment_settlement') {
             workflowQuery = workflowQuery

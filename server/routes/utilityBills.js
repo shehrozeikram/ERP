@@ -22,9 +22,64 @@ const {
 } = require('../utils/utilityBillFinance');
 const { applyBillLinesToPayload } = require('../utils/utilityBillLines');
 
-/** Merge multipart line uploads (field lineAttachment_<storeItemId>) into billLines before applyBillLinesToPayload */
+const MAX_BILL_ATTACHMENTS = 50;
+const LINE_ATTACHMENT_PREFIX = 'lineAttachment_';
+
+/** Resolve store item id on a bill line (string or populated object). */
+function getBillLineStoreItemId(line) {
+  if (!line?.storeItem) return '';
+  const s = line.storeItem;
+  if (typeof s === 'object' && s !== null && s._id != null) return String(s._id);
+  return String(s);
+}
+
+/** Parse multipart field lineAttachment_<storeItemId> or lineAttachment_<storeItemId>_<index>. */
+function parseLineAttachmentField(fieldname) {
+  if (!fieldname || !fieldname.startsWith(LINE_ATTACHMENT_PREFIX)) return null;
+  const rest = fieldname.slice(LINE_ATTACHMENT_PREFIX.length);
+  if (!rest) return null;
+  const idxMatch = rest.match(/^(.+)_(\d+)$/);
+  if (idxMatch) {
+    return { sid: idxMatch[1], idx: parseInt(idxMatch[2], 10) };
+  }
+  return { sid: rest, idx: 0 };
+}
+
+function findBillLineByStoreItemId(lines, sid) {
+  const target = String(sid);
+  return lines.find((l) => getBillLineStoreItemId(l) === target);
+}
+
+function readExistingLineAttachmentUrls(billData, sid, row) {
+  const existingKey = `existingLineAttachments_${sid}`;
+  if (billData[existingKey] != null && billData[existingKey] !== '') {
+    try {
+      const parsed = JSON.parse(billData[existingKey]);
+      delete billData[existingKey];
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch { /* ignore */ }
+    delete billData[existingKey];
+  }
+  if (Array.isArray(row?.attachmentUrls) && row.attachmentUrls.length) {
+    return row.attachmentUrls.filter(Boolean);
+  }
+  if (row?.attachmentUrl) return [row.attachmentUrl];
+  return [];
+}
+
+function applyAttachmentUrlsToLine(row, urls) {
+  const merged = urls.slice(0, MAX_BILL_ATTACHMENTS);
+  row.attachmentUrls = merged;
+  row.attachmentUrl = merged[0] || '';
+}
+
+/**
+ * Merge multipart line uploads into billLines (call after applyBillLinesToPayload).
+ *
+ * Fields: lineAttachment_<storeItemId>_<index> (or legacy lineAttachment_<storeItemId>)
+ * Body:   existingLineAttachments_<storeItemId> = JSON array of URLs to keep
+ */
 function mergeLineUploadsIntoBillLines(files, billData) {
-  if (!files || !files.length) return;
   let lines = billData.billLines;
   if (typeof lines === 'string') {
     try {
@@ -33,16 +88,48 @@ function mergeLineUploadsIntoBillLines(files, billData) {
       return;
     }
   }
-  if (!Array.isArray(lines)) return;
-  for (const f of files) {
-    const m = /^lineAttachment_(.+)$/.exec(f.fieldname);
-    if (!m) continue;
-    const sid = m[1];
-    const row = lines.find((l) => String(l.storeItem) === sid);
-    if (row) {
-      row.attachmentUrl = `/uploads/utility-bills/${f.filename}`;
-    }
+  if (!Array.isArray(lines) || !lines.length) return;
+
+  const newByItem = new Map();
+  for (const f of files || []) {
+    const parsed = parseLineAttachmentField(f.fieldname);
+    if (!parsed) continue;
+    const url = `/uploads/utility-bills/${f.filename}`;
+    if (!newByItem.has(parsed.sid)) newByItem.set(parsed.sid, []);
+    newByItem.get(parsed.sid).push({ idx: parsed.idx, url });
   }
+
+  const mergedSids = new Set();
+
+  for (const [sid, entries] of newByItem) {
+    const row = findBillLineByStoreItemId(lines, sid);
+    if (!row) continue;
+    mergedSids.add(sid);
+    entries.sort((a, b) => a.idx - b.idx);
+    const newUrls = entries.map((e) => e.url);
+    const existingUrls = readExistingLineAttachmentUrls(billData, sid, row);
+    applyAttachmentUrlsToLine(row, [...existingUrls, ...newUrls]);
+  }
+
+  // Lines with no new uploads — restore saved URLs from existingLineAttachments_* only
+  Object.keys(billData).forEach((key) => {
+    const m = /^existingLineAttachments_(.+)$/.exec(key);
+    if (!m) return;
+    const sid = m[1];
+    if (mergedSids.has(sid)) {
+      delete billData[key];
+      return;
+    }
+    const rawVal = billData[key];
+    delete billData[key];
+    const row = findBillLineByStoreItemId(lines, sid);
+    if (!row) return;
+    try {
+      const urls = JSON.parse(rawVal);
+      if (Array.isArray(urls)) applyAttachmentUrlsToLine(row, urls.filter(Boolean));
+    } catch { /* ignore */ }
+  });
+
   billData.billLines = lines;
 }
 
@@ -174,7 +261,8 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 5 * 1024 * 1024, // 5 MB per file (images are compressed client-side before upload)
+    files: 510 // up to 50 attachments × many line items + billImage + lineAttachment_ fields
   },
   fileFilter: (req, file, cb) => {
     const isMain = file.fieldname === 'billImage';
@@ -502,11 +590,26 @@ router.get('/form-master-data', permissions.checkSubRolePermission('admin', 'uti
       fullName: `${employee.firstName || ''} ${employee.lastName || ''}`.trim()
     }));
 
+    // Same employee pool as Finance → Vendors & Employees (Active), for centralized store payee dropdown
+    const financePayeeEmployees = await Employee.find({ employmentStatus: 'Active' })
+      .select('firstName lastName employeeId')
+      .sort({ firstName: 1, lastName: 1 })
+      .limit(500)
+      .lean()
+      .then((rows) =>
+        rows.map((e) => ({
+          _id: e._id,
+          employeeId: e.employeeId || '',
+          name: [e.firstName, e.lastName].filter(Boolean).join(' ').trim() || e.employeeId || 'Employee'
+        }))
+      );
+
     res.json({
       success: true,
       data: {
         departments,
-        employees: employeesWithVirtuals
+        employees: employeesWithVirtuals,
+        financePayeeEmployees
       }
     });
   } catch (error) {
@@ -572,8 +675,6 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
       delete billData.billImage;
     }
 
-    mergeLineUploadsIntoBillLines(req.files, billData);
-
     // Convert string values to appropriate types
     if (billData.amount) billData.amount = parseFloat(billData.amount);
     if (billData.paidAmount) billData.paidAmount = parseFloat(billData.paidAmount);
@@ -590,6 +691,7 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
     if (billData.dueDate) billData.dueDate = new Date(billData.dueDate);
 
     await applyBillLinesToPayload(billData);
+    mergeLineUploadsIntoBillLines(req.files, billData);
     if (billData.useCentralizedStore && !billData.vendorId && !billData.payeeEmployee) {
       return res.status(400).json({ success: false, message: 'Select a supplier / vendor or an employee' });
     }
@@ -598,6 +700,9 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
     }
 
     const bill = new UtilityBill(billData);
+    if (Array.isArray(bill.billLines) && bill.billLines.length) {
+      bill.markModified('billLines');
+    }
     await bill.save();
 
     await populateUtilityBillDocument(bill);
@@ -655,10 +760,6 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
       delete updateData.billImage;
     }
 
-    if (updateData.billLines !== undefined) {
-      mergeLineUploadsIntoBillLines(req.files, updateData);
-    }
-
     // Convert string values to appropriate types
     if (updateData.amount) updateData.amount = parseFloat(updateData.amount);
     if (updateData.paidAmount) updateData.paidAmount = parseFloat(updateData.paidAmount);
@@ -676,6 +777,7 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
 
     if (updateData.billLines !== undefined) {
       await applyBillLinesToPayload(updateData);
+      mergeLineUploadsIntoBillLines(req.files, updateData);
     }
 
     const existingBill = await UtilityBill.findById(req.params.id)
@@ -699,15 +801,21 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
       });
     }
 
-    const bill = await UtilityBill.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
+    const bill = await UtilityBill.findById(req.params.id);
     if (!bill) {
       return res.status(404).json({ success: false, message: 'Utility bill not found' });
     }
+
+    const { billLines, ...scalarUpdate } = updateData;
+    Object.keys(scalarUpdate).forEach((key) => {
+      if (key.startsWith('existingLineAttachments_')) return;
+      bill.set(key, scalarUpdate[key]);
+    });
+    if (billLines !== undefined) {
+      bill.billLines = billLines;
+      bill.markModified('billLines');
+    }
+    await bill.save({ runValidators: true });
 
     await populateUtilityBillDocument(bill);
 

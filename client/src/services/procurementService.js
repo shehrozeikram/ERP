@@ -139,11 +139,17 @@ const procurementService = {
     return response.data;
   },
   createCashApproval: async (data) => {
-    const response = await api.post('/cash-approvals', data);
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
+    const response = await api.post('/cash-approvals', data, isFormData
+      ? { headers: { 'Content-Type': 'multipart/form-data' } }
+      : undefined);
     return response.data;
   },
   updateCashApproval: async (id, data) => {
-    const response = await api.put(`/cash-approvals/${id}`, data);
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
+    const response = await api.put(`/cash-approvals/${id}`, data, isFormData
+      ? { headers: { 'Content-Type': 'multipart/form-data' } }
+      : undefined);
     return response.data;
   },
   deleteCashApproval: async (id) => {

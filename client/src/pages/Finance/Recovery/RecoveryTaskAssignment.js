@@ -40,6 +40,7 @@ import {
   deleteRecoveryTaskRule,
   fetchSlabTargetCount
 } from '../../../services/recoveryTaskAssignmentRuleService';
+import { sortRecoveryTasksNewestFirst } from '../../../utils/recoveryTaskDisplay';
 import {
   fetchRecoveryTasks,
   createRecoveryTask,
@@ -197,7 +198,7 @@ const RecoveryTaskAssignment = () => {
   const loadTasks = useCallback(async () => {
     try {
       const res = await fetchRecoveryTasks();
-      setTasks(res.data?.data || []);
+      setTasks(sortRecoveryTasksNewestFirst(res.data?.data || []));
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to load tasks', severity: 'error' });
     }

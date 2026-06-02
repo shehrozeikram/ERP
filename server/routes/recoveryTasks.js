@@ -73,7 +73,7 @@ router.get(
     const tasks = await RecoveryTask.find(query)
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .populate({ path: 'createdBy', select: 'firstName lastName employeeId' })
-      .sort({ startDate: -1 })
+      .sort({ createdAt: -1, startDate: -1 })
       .lean();
 
     const data = tasks.map((t) => ({ ...t, progress: getProgress(t) }));

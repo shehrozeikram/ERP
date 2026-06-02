@@ -564,6 +564,7 @@ app.use('/api/asset-tagging', authMiddleware, activityLogger, assetTaggingRoutes
 app.use('/api/finance/payment-terms', authMiddleware, activityLogger, paymentTermsRoutes);
 app.use('/api/inventory-categories', authMiddleware, activityLogger, inventoryCategoriesRoutes);
 app.use('/api/procurement/purchase-returns', authMiddleware, activityLogger, purchaseReturnsRoutes);
+app.use('/api/cash-approvals', cashApprovalsRoutes.lineFileRouter);
 app.use('/api/cash-approvals', authMiddleware, activityLogger, cashApprovalsRoutes);
 app.use('/api/procurement', authMiddleware, activityLogger, procurementRoutes);
 app.use('/api/sales', authMiddleware, activityLogger, salesRoutes);
@@ -832,13 +833,8 @@ server.listen(PORT, '0.0.0.0', async () => {
     console.error('❌ Failed to start Deferred Entry Cron:', error);
   }
 
-  // Recovery WhatsApp session-refresh follow-up (default: every hour)
-  try {
-    const { startRecoveryWhatsAppFollowUpCron } = require('./utils/recoveryWhatsAppFollowUpCron');
-    startRecoveryWhatsAppFollowUpCron();
-  } catch (error) {
-    console.error('❌ Failed to start Recovery WhatsApp Follow-Up Cron:', error);
-  }
+  // Recovery WhatsApp follow-up cron intentionally disabled.
+  // Follow-ups are now controlled per campaign and executed manually via Run now.
   
   try {
     const { startKpiWorksheetMonthlyCron } = require('./utils/kpiWorksheetMonthlyCron');

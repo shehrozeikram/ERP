@@ -321,7 +321,9 @@ const cashApprovalSchema = new mongoose.Schema({
     changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     changedAt: { type: Date, default: Date.now },
     comments: { type: String, trim: true },
-    module: { type: String, trim: true }
+    module: { type: String, trim: true },
+    stampUsed: { type: Boolean, default: false },
+    stampImage: { type: String, trim: true }
   }]
 }, {
   timestamps: true

@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 import { getImageUrl } from '../../utils/imageService';
+import LineAttachmentsView from '../UtilityBill/LineAttachmentsView';
 import {
   advanceEmployeeLabel,
   approvalTableSx,
@@ -162,22 +163,10 @@ const CashApprovalGeneralDocument = ({ ca, elevation = 2, sx = {} }) => {
                     {formatDecimalPk(amt)}
                   </TableCell>
                   <TableCell>
-                    {(line.attachments || []).length ? (
-                      (line.attachments || []).map((a, ai) => (
-                        <Button
-                          key={ai}
-                          size="small"
-                          component="a"
-                          href={resolveUploadPublicUrl(a.url)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          File {ai + 1}
-                        </Button>
-                      ))
-                    ) : (
-                      '—'
-                    )}
+                    <LineAttachmentsView
+                      line={line}
+                      previewTitle={line.itemName || line.description || `Line ${i + 1}`}
+                    />
                   </TableCell>
                 </TableRow>
               );

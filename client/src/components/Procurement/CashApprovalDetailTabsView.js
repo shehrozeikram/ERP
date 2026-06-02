@@ -21,6 +21,7 @@ import ComparativeStatementView from './ComparativeStatementView';
 import QuotationDetailView from './QuotationDetailView';
 import { formatPKR } from '../../utils/currency';
 import { resolveUploadPublicUrl } from '../CashApprovals/cashApprovalGeneralDocumentUtils';
+import LineAttachmentsView from '../UtilityBill/LineAttachmentsView';
 
 const formatDateForPrint = (date) => {
   if (!date) return '';
@@ -253,6 +254,7 @@ const CashApprovalDetailTabsView = ({
                   <TableCell>Unit</TableCell>
                   <TableCell align="right">Unit Price</TableCell>
                   <TableCell align="right">Amount</TableCell>
+                  <TableCell>Attachments</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -264,6 +266,12 @@ const CashApprovalDetailTabsView = ({
                     <TableCell>{row.unit}</TableCell>
                     <TableCell align="right">{formatPKR(row.unitPrice)}</TableCell>
                     <TableCell align="right">{formatPKR(row.amount)}</TableCell>
+                    <TableCell>
+                      <LineAttachmentsView
+                        line={row}
+                        previewTitle={row.description || `Line ${idx + 1}`}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

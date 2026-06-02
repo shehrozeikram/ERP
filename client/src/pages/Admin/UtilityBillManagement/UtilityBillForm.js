@@ -58,6 +58,8 @@ import {
   WorkflowAuditFeedbackPanel
 } from '../../../components/Admin/workflowAuditReturn';
 import { formatDateTime } from '../../../utils/dateUtils';
+import { compressImages } from '../../../utils/compressImage';
+import { getStoreItemId } from '../../../utils/utilityBillAttachments';
 
 const userDisplayName = (user) => {
   if (!user) return '';
@@ -103,6 +105,138 @@ const applyCentralizedStoreBillDefaults = (payload, lines, total) => {
   payload.department = '';
   payload.custodian = '';
   return payload;
+};
+
+const MAX_LINE_ATTACHMENTS = 50; // max images per line item
+
+/**
+ * Mini gallery inside the Attachment column of each bill line.
+ * Shows saved thumbnails + pending file previews; an "Add" button picks more images/PDFs.
+ */
+const LineAttachmentCell = ({ line, idx, updateBillLine, resolveUrl, readOnly }) => {
+  const inputRef = React.useRef(null);
+  const [cellCompressing, setCellCompressing] = React.useState(false);
+  const savedUrls = line.attachmentUrls && line.attachmentUrls.length
+    ? line.attachmentUrls
+    : (line.attachmentUrl ? [line.attachmentUrl] : []);
+  const pending = line._pendingFiles || [];
+  const total = savedUrls.length + pending.length;
+  const remaining = MAX_LINE_ATTACHMENTS - total;
+
+  const addFiles = async (files) => {
+    if (!files || !files.length || readOnly) return;
+    const allowed = Array.from(files).slice(0, Math.max(0, remaining));
+    setCellCompressing(true);
+    try {
+      const compressed = await compressImages(allowed);
+      updateBillLine(idx, '_pendingFiles', [...pending, ...compressed]);
+    } finally {
+      setCellCompressing(false);
+    }
+  };
+
+  const removeSaved = (urlIdx) => {
+    const next = savedUrls.filter((_, i) => i !== urlIdx);
+    updateBillLine(idx, 'attachmentUrls', next);
+    updateBillLine(idx, 'attachmentUrl', next[0] || '');
+  };
+
+  const removePending = (fileIdx) => {
+    updateBillLine(idx, '_pendingFiles', pending.filter((_, i) => i !== fileIdx));
+  };
+
+  const thumbSx = {
+    width: 40, height: 40, objectFit: 'cover',
+    borderRadius: '4px', border: '1px solid', borderColor: 'divider', display: 'block'
+  };
+
+  return (
+    <Stack spacing={0.5}>
+      {/* Saved thumbnails */}
+      {savedUrls.length > 0 && (
+        <Stack direction="row" flexWrap="wrap" gap={0.5}>
+          {savedUrls.map((url, i) => (
+            <Box key={i} sx={{ position: 'relative', display: 'inline-flex' }}>
+              <Box
+                component="img"
+                src={resolveUrl(url)}
+                alt={`attachment-${i + 1}`}
+                sx={thumbSx}
+                onClick={() => window.open(resolveUrl(url), '_blank')}
+                style={{ cursor: 'pointer' }}
+              />
+              {!readOnly && (
+                <Box
+                  onClick={() => removeSaved(i)}
+                  sx={{
+                    position: 'absolute', top: -4, right: -4,
+                    width: 14, height: 14, borderRadius: '50%',
+                    bgcolor: 'error.main', color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, cursor: 'pointer', lineHeight: 1
+                  }}
+                >×</Box>
+              )}
+            </Box>
+          ))}
+        </Stack>
+      )}
+      {/* Pending new files */}
+      {pending.length > 0 && (
+        <Stack direction="row" flexWrap="wrap" gap={0.5}>
+          {pending.map((file, i) => {
+            const isImg = file.type?.startsWith('image/');
+            const src = isImg ? URL.createObjectURL(file) : null;
+            return (
+              <Box key={i} sx={{ position: 'relative', display: 'inline-flex' }}>
+                {isImg
+                  ? <Box component="img" src={src} alt={file.name} sx={{ ...thumbSx, borderColor: 'primary.light' }} onLoad={() => src && URL.revokeObjectURL(src)} />
+                  : <Box sx={{ ...thumbSx, bgcolor: 'grey.100', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: 'text.secondary' }}>PDF</Box>
+                }
+                <Box
+                  onClick={() => removePending(i)}
+                  sx={{
+                    position: 'absolute', top: -4, right: -4,
+                    width: 14, height: 14, borderRadius: '50%',
+                    bgcolor: 'warning.main', color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, cursor: 'pointer', lineHeight: 1
+                  }}
+                >×</Box>
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
+      {/* Add button */}
+      {!readOnly && remaining > 0 && (
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            hidden
+            multiple
+            accept="image/*,application/pdf"
+            onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
+          />
+          <Button
+            variant="text"
+            size="small"
+            disabled={cellCompressing}
+            sx={{ alignSelf: 'flex-start', p: 0, minWidth: 0, fontSize: '0.75rem' }}
+            onClick={() => inputRef.current?.click()}
+          >
+            {cellCompressing ? 'Compressing…' : (total === 0 ? '+ Attach' : `+ Add (${remaining} left)`)}
+          </Button>
+        </>
+      )}
+      {!readOnly && remaining === 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+          Max {MAX_LINE_ATTACHMENTS} reached
+        </Typography>
+      )}
+    </Stack>
+  );
 };
 
 /** Default due date for new store bill line (YYYY-MM-DD) */
@@ -251,19 +385,7 @@ const UtilityBillForm = () => {
       setStoreItems(catalogRes?.data?.items || []);
       setVendors(vendorsRes?.data?.data?.vendors || vendorsRes?.data?.vendors || []);
       if (isCentralizedStoreBill) {
-        try {
-          const empRes = await api.get('/finance/employees', { params: { limit: 500 } });
-          const rows = empRes?.data?.data?.employees || [];
-          setFinanceEmployees(
-            rows.map((e) => ({
-              _id: e._id,
-              employeeId: e.employeeId || '',
-              name: e.name || [e.firstName, e.lastName].filter(Boolean).join(' ').trim() || e.employeeId || 'Employee'
-            }))
-          );
-        } catch {
-          setFinanceEmployees([]);
-        }
+        setFinanceEmployees(payload.financePayeeEmployees || []);
       }
     } catch (err) {
       console.error('Error fetching utility bill master data:', err);
@@ -365,7 +487,8 @@ const UtilityBillForm = () => {
         expenseAccountNumber: storeItem.expenseAccount?.accountNumber || '',
         dueDate: defaultLineDueYmd(),
         attachmentUrl: '',
-        _pendingFile: null
+        attachmentUrls: [],
+        _pendingFiles: []
       }
     ]);
     setPendingStoreItem(null);
@@ -419,7 +542,10 @@ const UtilityBillForm = () => {
           expenseAccountNumber: line.expenseAccount?.accountNumber || line.expenseAccountNumber || '',
           dueDate: line.dueDate ? new Date(line.dueDate).toISOString().split('T')[0] : defaultLineDueYmd(),
           attachmentUrl: line.attachmentUrl || '',
-          _pendingFile: null
+          attachmentUrls: Array.isArray(line.attachmentUrls) && line.attachmentUrls.length
+            ? line.attachmentUrls
+            : (line.attachmentUrl ? [line.attachmentUrl] : []),
+          _pendingFiles: []
         };
       });
       setBillLines(mappedLines);
@@ -468,6 +594,7 @@ const UtilityBillForm = () => {
         setImagePreview(getImageUrl(bill.billImage));
       }
 
+
       const draftApprovers = bill.draftApproverIds || [];
       const chainApprovers = (bill.approvalChain || []).map((step) => step.approver).filter(Boolean);
       const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
@@ -494,6 +621,7 @@ const UtilityBillForm = () => {
       [field]: value
     }));
   };
+
 
   const handleImageChange = (event) => {
     const file = event.target.files[0];
@@ -621,7 +749,7 @@ const UtilityBillForm = () => {
 
       if (useStoreBill) {
         const linesPayload = billLines.map((l) => ({
-          storeItem: l.storeItem,
+          storeItem: getStoreItemId(l.storeItem) || l.storeItem,
           itemCode: l.itemCode || '',
           categoryName: l.categoryName,
           itemLabel: l.itemLabel,
@@ -635,7 +763,8 @@ const UtilityBillForm = () => {
           expenseAccount: l.expenseAccount,
           expenseAccountNumber: l.expenseAccountNumber,
           dueDate: l.dueDate || '',
-          attachmentUrl: l.attachmentUrl || ''
+          attachmentUrl: l.attachmentUrl || '',
+          attachmentUrls: l.attachmentUrls || []
         }));
         if (isCentralizedStoreBill && payeeType === 'employee' && selectedEmployee?._id) {
           submitData.append('payeeEmployee', selectedEmployee._id);
@@ -644,11 +773,22 @@ const UtilityBillForm = () => {
         }
         submitData.append('useCentralizedStore', 'true');
         submitData.append('billLines', JSON.stringify(linesPayload));
-        billLines.forEach((l) => {
-          if (l._pendingFile instanceof File) {
-            submitData.append(`lineAttachment_${l.storeItem}`, l._pendingFile);
+
+        // Per-line attachments: files are already compressed on pick, just append them
+        if (isCentralizedStoreBill) {
+          for (const l of billLines) {
+            const sid = getStoreItemId(l.storeItem);
+            if (!sid) continue;
+            // Tell the server which saved URLs to keep
+            const savedUrls = l.attachmentUrls || (l.attachmentUrl ? [l.attachmentUrl] : []);
+            submitData.append(`existingLineAttachments_${sid}`, JSON.stringify(savedUrls));
+            if (l._pendingFiles && l._pendingFiles.length > 0) {
+              l._pendingFiles.forEach((file, i) => {
+                submitData.append(`lineAttachment_${sid}_${i}`, file);
+              });
+            }
           }
-        });
+        }
       }
 
       const approverIds = [managerApproverId, hodApproverId].filter(Boolean);
@@ -919,6 +1059,7 @@ const UtilityBillForm = () => {
                       payeeType === 'employee' ? (
                         <Autocomplete
                           fullWidth
+                          loading={masterDataLoading}
                           options={financeEmployees}
                           getOptionLabel={(o) =>
                             o?.employeeId ? `${o.employeeId} — ${o.name}` : (o?.name || '')
@@ -926,8 +1067,19 @@ const UtilityBillForm = () => {
                           value={selectedEmployee}
                           onChange={(_, emp) => setSelectedEmployee(emp)}
                           isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
+                          noOptionsText={
+                            masterDataLoading
+                              ? 'Loading employees…'
+                              : 'No active employees found (same list as Finance → Vendors & Employees)'
+                          }
                           renderInput={(params) => (
-                            <TextField {...params} label="Employee (Finance)" required fullWidth />
+                            <TextField
+                              {...params}
+                              label="Employee"
+                              required
+                              fullWidth
+                              helperText="Active employees from Finance → Vendors & Employees"
+                            />
                           )}
                         />
                       ) : (
@@ -1137,32 +1289,14 @@ const UtilityBillForm = () => {
                                 sx={{ width: 150 }}
                               />
                             </TableCell>
-                            <TableCell>
-                              <Stack spacing={0.5}>
-                                {(line.attachmentUrl || line._pendingFile) && (
-                                  <Typography variant="caption" noWrap sx={{ maxWidth: 140 }}>
-                                    {line._pendingFile ? line._pendingFile.name : 'File attached'}
-                                  </Typography>
-                                )}
-                                {line.attachmentUrl && !line._pendingFile && (
-                                  <Link href={resolveUploadPublicUrl(line.attachmentUrl)} target="_blank" rel="noopener noreferrer" variant="body2">
-                                    View
-                                  </Link>
-                                )}
-                                <Button variant="text" size="small" component="label" sx={{ alignSelf: 'flex-start', p: 0, minWidth: 0 }}>
-                                  {line.attachmentUrl || line._pendingFile ? 'Replace' : 'Attach'}
-                                  <input
-                                    type="file"
-                                    hidden
-                                    accept="image/*,application/pdf"
-                                    onChange={(e) => {
-                                      const f = e.target.files?.[0];
-                                      if (f) updateBillLine(idx, '_pendingFile', f);
-                                      e.target.value = '';
-                                    }}
-                                  />
-                                </Button>
-                              </Stack>
+                            <TableCell sx={{ minWidth: 160, maxWidth: 240 }}>
+                              <LineAttachmentCell
+                                line={line}
+                                idx={idx}
+                                updateBillLine={updateBillLine}
+                                resolveUrl={resolveUploadPublicUrl}
+                                readOnly={workflowLocksEdit}
+                              />
                             </TableCell>
                             <TableCell align="right">
                               <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} />

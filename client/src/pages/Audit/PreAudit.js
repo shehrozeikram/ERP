@@ -88,6 +88,12 @@ import {
   utilityMemoTableSx
 } from '../../utils/utilityBillMemoUtils';
 import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
+import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
+import { collectUtilityBillWorkflowImages } from '../../utils/utilityBillAttachments';
+import {
+  getStoreInvoiceOrgTitle,
+  isCentralizedStoreBill
+} from '../../utils/centralizedStoreBillDisplay';
 
 /** Comment from the most recent workflow step that moved the document to Pre-Audit (Send to Audit), e.g. resubmit notes. */
 function getLatestSendToAuditWorkflowComment(workflowHistory) {
@@ -328,7 +334,8 @@ const PreAudit = () => {
       let approveResponse;
       if (doc.isCashApproval) {
         approveResponse = await api.put(`/cash-approvals/${doc._id}/audit-approve`, {
-          approvalComments
+          approvalComments,
+          useStamp: useStampForAction
         });
       } else if (doc.isPurchaseOrder && !doc.isPostGrnAudit) {
         approveResponse = await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
@@ -769,8 +776,7 @@ const PreAudit = () => {
     };
 
     if (submodule === 'utility_bills_management') {
-      pushImage(doc.billImage, 'Bill Image');
-      pushImage(doc.attachment, 'Bill Attachment');
+      return collectUtilityBillWorkflowImages(doc, getImageUrl);
     }
 
     const list = Array.isArray(doc.attachments) ? doc.attachments : [];
@@ -811,12 +817,17 @@ const PreAudit = () => {
 
   const renderUtilityBillMemoView = (bill) => {
     if (!bill) return null;
+    const isStoreInvoice = isCentralizedStoreBill(bill);
     const billImages = getWorkflowDocImageAttachments(bill, 'utility_bills_management');
-    const primaryHeading = (bill.accountHead || bill.site || bill.location || bill.provider || bill.utilityType || 'Utility Bill').toUpperCase();
-    const secondaryHeading = consolidatedMemoSecondaryHeading(
-      bill,
-      [bill.provider, bill.utilityType].filter(Boolean).join(' - ')
-    );
+    const primaryHeading = isStoreInvoice
+      ? getStoreInvoiceOrgTitle(bill)
+      : (bill.accountHead || bill.site || bill.location || bill.provider || bill.utilityType || 'Utility Bill').toUpperCase();
+    const secondaryHeading = isStoreInvoice
+      ? 'Bill'
+      : consolidatedMemoSecondaryHeading(
+        bill,
+        [bill.provider, bill.utilityType].filter(Boolean).join(' - ')
+      );
     return (
       <Paper
         elevation={0}
@@ -838,25 +849,34 @@ const PreAudit = () => {
           sx={{ lineHeight: 1.12, mb: 1.75, pb: 1.25, borderBottom: '1px solid', borderColor: 'grey.200' }}
         >
           <Typography
-            variant="h6"
+            variant={isStoreInvoice ? 'h5' : 'h6'}
             sx={{
               fontFamily: 'Georgia, "Times New Roman", serif',
-              fontWeight: 800,
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-              fontSize: { xs: 17, md: 19 }
+              fontWeight: isStoreInvoice ? 700 : 800,
+              textTransform: isStoreInvoice ? 'none' : 'uppercase',
+              letterSpacing: isStoreInvoice ? 0.2 : 0.6,
+              fontSize: isStoreInvoice ? { xs: 20, md: 22 } : { xs: 17, md: 19 }
             }}
           >
             {primaryHeading}
           </Typography>
           <Typography
             variant="subtitle1"
-            sx={{ fontFamily: 'Georgia, "Times New Roman", serif', fontWeight: 700, fontSize: { xs: 15, md: 17 } }}
+            sx={{
+              fontFamily: 'Georgia, "Times New Roman", serif',
+              fontWeight: 700,
+              fontSize: isStoreInvoice ? { xs: 16, md: 18 } : { xs: 15, md: 17 },
+              mt: isStoreInvoice ? 0.5 : 0
+            }}
           >
             {secondaryHeading}
           </Typography>
         </Box>
 
+        {isStoreInvoice ? (
+          <CentralizedStoreBillInvoiceBody bill={bill} />
+        ) : (
+        <>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 170px' }, alignItems: 'start', mb: 3 }}>
           <Box
             sx={{
@@ -1012,7 +1032,10 @@ const PreAudit = () => {
           </TableBody>
         </Table>
         </TableContainer>
-        {billImages.length > 0 && (
+        </>
+        )}
+
+        {!isStoreInvoice && billImages.length > 0 && (
           <Box sx={{ mt: 3 }}>
             <Typography sx={{ fontWeight: 800, mb: 1.25 }}>Attached Bill Image{billImages.length > 1 ? 's' : ''}</Typography>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -1031,6 +1054,28 @@ const PreAudit = () => {
                 </Box>
               ))}
             </Stack>
+          </Box>
+        )}
+
+        {isStoreInvoice && bill.billImage && (
+          <Box sx={{ mt: 3 }}>
+            <Typography sx={{ fontWeight: 800, mb: 1.25 }}>Bill header image</Typography>
+            <Box
+              component="img"
+              src={getImageUrl(bill.billImage)}
+              alt="Bill header"
+              onClick={() => openImageViewer(getImageUrl(bill.billImage), 'Bill header image')}
+              sx={{
+                maxWidth: '100%',
+                maxHeight: 320,
+                objectFit: 'contain',
+                border: '1px solid',
+                borderColor: 'grey.300',
+                borderRadius: 1,
+                cursor: 'zoom-in',
+                bgcolor: '#fff'
+              }}
+            />
           </Box>
         )}
 

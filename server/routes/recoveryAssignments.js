@@ -22,7 +22,10 @@ const {
   normalizePhoneForLookup,
   variantsForRecoveryPhone
 } = require('../utils/recoveryWhatsAppPhone');
-const { MY_TASKS_ACTIVE_STATUS_FILTER } = require('../utils/recoveryAssignmentUnassign');
+const {
+  MY_TASKS_ACTIVE_STATUS_FILTER,
+  buildScopeQueryFromRecoveryTask
+} = require('../utils/recoveryAssignmentUnassign');
 const { executeRecoveryWhatsAppSend } = require('../utils/recoveryWhatsAppSend');
 
 const router = express.Router();
@@ -224,8 +227,29 @@ router.get(
   '/my-tasks',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, search, sector, status, unread, dueSort } = req.query;
+    const { page = 1, limit = 50, search, sector, status, unread, dueSort, recoveryTaskId } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
+
+    let recoveryTaskFilter = null;
+    if (recoveryTaskId && String(recoveryTaskId).trim()) {
+      const taskDoc = await RecoveryTask.findById(String(recoveryTaskId).trim()).lean();
+      if (!taskDoc) {
+        return res.status(404).json({ success: false, message: 'Recovery task not found' });
+      }
+      recoveryTaskFilter = {
+        task: taskDoc,
+        scopeQuery: buildScopeQueryFromRecoveryTask(taskDoc)
+      };
+    }
+
+    const applyRecoveryTaskScope = (query) => {
+      if (!recoveryTaskFilter?.scopeQuery) return query;
+      const scopeKeys = Object.keys(recoveryTaskFilter.scopeQuery);
+      if (!scopeKeys.length) return query;
+      const next = { ...query };
+      next.$and = (next.$and || []).concat([recoveryTaskFilter.scopeQuery]);
+      return next;
+    };
     const requestedLimit = Math.max(1, parseInt(limit, 10) || 50);
     const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimit);
     const skip = (Math.max(1, parseInt(page, 10) || 1) - 1) * limitNum;
@@ -267,7 +291,7 @@ router.get(
         });
       }
 
-      const query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
+      let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER });
       if (search && search.trim()) {
         const searchRegex = { $regex: search.trim(), $options: 'i' };
         query.$and = (query.$and || []).concat([
@@ -313,7 +337,16 @@ router.get(
       return res.json({
         success: true,
         data,
-        pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total }
+        pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total },
+        ...(recoveryTaskFilter?.task && {
+          activeRecoveryTask: {
+            _id: recoveryTaskFilter.task._id,
+            title: recoveryTaskFilter.task.title,
+            scopeType: recoveryTaskFilter.task.scopeType,
+            startDate: recoveryTaskFilter.task.startDate,
+            endDate: recoveryTaskFilter.task.endDate
+          }
+        })
       });
     }
 
@@ -334,6 +367,21 @@ router.get(
         data: [],
         pagination: { page: 1, limit: Math.min(RECOVERY_LIST_MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 50)), total: 0 },
         notRecoveryMember: true
+      });
+    }
+
+    if (
+      recoveryTaskFilter?.task &&
+      String(recoveryTaskFilter.task.assignedTo) !== String(recoveryMember._id)
+    ) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total: 0 },
+        activeRecoveryTask: {
+          _id: recoveryTaskFilter.task._id,
+          title: recoveryTaskFilter.task.title
+        }
       });
     }
 
@@ -374,7 +422,7 @@ router.get(
       });
     }
 
-    const query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
+    let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER });
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       query.$and = (query.$and || []).concat([
@@ -422,7 +470,16 @@ router.get(
     res.json({
       success: true,
       data,
-      pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total }
+      pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total },
+      ...(recoveryTaskFilter?.task && {
+        activeRecoveryTask: {
+          _id: recoveryTaskFilter.task._id,
+          title: recoveryTaskFilter.task.title,
+          scopeType: recoveryTaskFilter.task.scopeType,
+          startDate: recoveryTaskFilter.task.startDate,
+          endDate: recoveryTaskFilter.task.endDate
+        }
+      })
     });
   })
 );

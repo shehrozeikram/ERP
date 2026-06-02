@@ -1,4 +1,7 @@
 import { getImageUrl } from '../../utils/imageService';
+import { normalizeUploadPath, resolveUploadFileHref } from '../../utils/uploadPaths';
+
+export { normalizeUploadPath };
 
 export const isGeneralModuleCashApproval = (ca) =>
   String(ca?.originatingModule || '').toLowerCase() === 'general';
@@ -47,19 +50,9 @@ export const userDisplayName = (user) => {
 export const getSignatureSource = (row) =>
   row?.signaturePath || row?.signatureUser?.digitalSignature || row?.signatureUser?.approvalStamp || '';
 
-/** Normalize stored upload paths (static files live under /uploads, not /api/uploads). */
-export const normalizeUploadPath = (relativePath) => {
-  if (!relativePath) return '';
-  let p = String(relativePath).trim();
-  if (p.startsWith('http://') || p.startsWith('https://')) return p;
-  p = p.replace(/^\/?api\/uploads\//i, '/uploads/');
-  if (!p.startsWith('/')) p = `/${p}`;
-  return p;
-};
-
 /** Public URL for files under /uploads (cash approval line attachments, etc.) */
 export const resolveUploadPublicUrl = (relativePath) =>
-  getImageUrl(normalizeUploadPath(relativePath)) || '';
+  resolveUploadFileHref(relativePath) || '';
 
 export const getStatusColor = (status) => {
   if (status === 'Draft') return 'default';
@@ -116,7 +109,8 @@ export const buildGeneralCashApprovalApprovalRows = (ca) => {
 
   const preAuditFromHistory = findPreferredAuditEntry([
     'forwarded to audit director',
-    'initial audit approval'
+    'initial audit approval',
+    'pending audit'
   ]);
   const preAuditActor = preAuditFromHistory?.changedBy || ca.preAuditInitialApprovedBy || null;
   const preAuditAt = preAuditFromHistory?.changedAt || ca.preAuditInitialApprovedAt;
@@ -124,7 +118,8 @@ export const buildGeneralCashApprovalApprovalRows = (ca) => {
   const directorFromHistory = findPreferredAuditEntry([
     'approved (from forwarded to audit director)',
     'approved (from send to audit)',
-    'send to ceo office'
+    'send to ceo office',
+    'pending finance'
   ]);
   const directorActor = directorFromHistory?.changedBy || ca.auditApprovedBy || null;
   const directorAt = directorFromHistory?.changedAt || ca.auditApprovedAt;
@@ -220,10 +215,16 @@ export const buildGeneralCashApprovalStampRows = (ca) => {
           return to === k || to.startsWith(k);
         })
     );
-  const preAuditStamp = findStamp(['forwarded to audit director', 'initial audit approval']);
+  const preAuditStamp = findStamp([
+    'forwarded to audit director',
+    'initial audit approval',
+    'pending audit'
+  ]);
   const directorStamp = findStamp([
     'approved (from forwarded to audit director)',
-    'approved (from send to audit)'
+    'approved (from send to audit)',
+    'send to ceo office',
+    'pending finance'
   ]);
   return [
     {

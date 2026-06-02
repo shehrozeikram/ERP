@@ -26,10 +26,10 @@ router.put(
   '/follow-up-settings',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { enabled, campaignId, delayHours } = req.body;
+    const { delayHours } = req.body;
     try {
       const data = await saveFollowUpSettings(
-        { enabled, campaignId: campaignId || null, delayHours },
+        { delayHours },
         req.user._id
       );
       res.json({ success: true, data });

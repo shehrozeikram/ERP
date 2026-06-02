@@ -134,11 +134,23 @@ async function unassignOrphanedAssignmentsByScope({
   return result.modifiedCount || 0;
 }
 
+/** Mongo filter for assignments covered by a time-bound RecoveryTask scope. */
+function buildScopeQueryFromRecoveryTask(task) {
+  if (!task) return {};
+  return buildScopeQuery({
+    scopeType: task.scopeType,
+    sector: task.sector,
+    minAmount: task.minAmount,
+    maxAmount: task.maxAmount
+  });
+}
+
 module.exports = {
   UNASSIGNED_TASK_STATUS,
   MY_TASKS_ACTIVE_STATUS_FILTER: { $nin: ['completed', UNASSIGNED_TASK_STATUS] },
   REOPEN_FROM_STATUSES: ['completed', UNASSIGNED_TASK_STATUS],
   buildScopeQuery,
+  buildScopeQueryFromRecoveryTask,
   buildOrConditionsFromRules,
   getActiveMyTasksOrConditions,
   unassignOrphanedAssignmentsByScope

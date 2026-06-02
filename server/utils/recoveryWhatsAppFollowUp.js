@@ -38,7 +38,6 @@ async function getFollowUpSettings() {
     doc = (
       await RecoveryWhatsAppFollowUpSettings.create({
         configKey: SETTINGS_KEY,
-        enabled: false,
         delayHours: 14
       })
     ).toObject();
@@ -46,27 +45,19 @@ async function getFollowUpSettings() {
   return doc;
 }
 
-async function saveFollowUpSettings({ enabled, campaignId, delayHours }, userId) {
+async function saveFollowUpSettings({ delayHours }, userId) {
   const delay = Math.min(23, Math.max(1, Number(delayHours) || 14));
-
-  if (campaignId) {
-    await validateFollowUpCampaignId(null, campaignId);
-  }
 
   const doc = await RecoveryWhatsAppFollowUpSettings.findOneAndUpdate(
     { configKey: SETTINGS_KEY },
     {
       $set: {
-        enabled: !!enabled,
-        campaignId: campaignId || null,
         delayHours: delay,
         updatedBy: userId || null
       }
     },
     { upsert: true, new: true }
-  )
-    .populate('campaignId')
-    .lean();
+  ).lean();
 
   return doc;
 }
@@ -98,42 +89,26 @@ async function buildFollowUpCampaignMap() {
   return map;
 }
 
-function resolveFollowUpForAssignment(row, followUpBySourceId, globalFallbackCampaign) {
+function resolveFollowUpForAssignment(row, followUpBySourceId) {
   const sourceId = row.lastCampaignId ? String(row.lastCampaignId) : '';
   if (sourceId && followUpBySourceId.has(sourceId)) {
     return { campaign: followUpBySourceId.get(sourceId), reason: 'per_campaign' };
-  }
-  if (globalFallbackCampaign) {
-    return { campaign: globalFallbackCampaign, reason: 'global_fallback' };
   }
   return null;
 }
 
 /**
- * Run one pass: per-campaign follow-up (or global fallback) for stale My Tasks conversations.
+ * Run one pass: per-campaign follow-up for stale My Tasks conversations.
  */
 async function runRecoveryWhatsAppFollowUp() {
   const settings = await getFollowUpSettings();
-  if (!settings.enabled) {
-    return { skipped: true, reason: 'disabled', sent: 0, skippedCount: 0 };
-  }
-
   const followUpBySourceId = await buildFollowUpCampaignMap();
-  let globalFallbackCampaign = null;
-  if (settings.campaignId) {
-    globalFallbackCampaign = await RecoveryCampaign.findOne({
-      _id: settings.campaignId,
-      isActive: { $ne: false },
-      whatsappTemplateName: { $exists: true, $ne: '' }
-    }).lean();
-  }
-
-  if (followUpBySourceId.size === 0 && !globalFallbackCampaign) {
+  if (followUpBySourceId.size === 0) {
     await RecoveryWhatsAppFollowUpSettings.updateOne(
       { configKey: SETTINGS_KEY },
       {
         $set: {
-          lastRunError: 'No follow-up mappings: assign a follow-up on each campaign or set a default fallback',
+          lastRunError: 'No follow-up mappings: assign a follow-up on each campaign',
           lastRunAt: new Date()
         }
       }
@@ -202,7 +177,7 @@ async function runRecoveryWhatsAppFollowUp() {
       continue;
     }
 
-    const resolved = resolveFollowUpForAssignment(row, followUpBySourceId, globalFallbackCampaign);
+    const resolved = resolveFollowUpForAssignment(row, followUpBySourceId);
     if (!resolved) {
       skippedCount += 1;
       continue;

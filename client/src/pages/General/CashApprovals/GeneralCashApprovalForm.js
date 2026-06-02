@@ -27,7 +27,6 @@ import {
   Save as SaveIcon,
   Send as SendIcon,
   Cancel as CancelIcon,
-  CloudUpload as UploadIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -41,6 +40,12 @@ import {
   optionsForHodApprover
 } from '../../../utils/dualApproverAutocomplete';
 import { resolveUploadPublicUrl } from '../../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
+import LineAttachmentCell from '../../../components/common/LineAttachmentCell';
+import {
+  appendCashApprovalLineAttachmentsToFormData,
+  emptyGeneralCashApprovalLine,
+  serializeCashApprovalItemsForSubmit
+} from '../../../utils/cashApprovalFormAttachments';
 
 const userDisplayName = (u) => {
   if (!u) return '';
@@ -66,17 +71,7 @@ const getUserId = (u) => {
   return String(u._id || u.id || '');
 };
 
-const emptyLine = () => ({
-  itemName: '',
-  description: '',
-  location: '',
-  unit: 'pcs',
-  quantity: 1,
-  unitPrice: '',
-  amount: 0,
-  _pendingFile: null,
-  attachments: []
-});
+const emptyLine = emptyGeneralCashApprovalLine;
 
 const recalcLine = (line) => {
   const qty = Number(line.quantity) || 0;
@@ -227,7 +222,8 @@ const GeneralCashApprovalForm = () => {
           quantity: li.quantity ?? 1,
           unitPrice: li.unitPrice ?? 0,
           amount: li.amount ?? 0,
-          attachments: li.attachments || []
+          attachments: li.attachments || [],
+          _pendingFiles: []
         }));
         setLines(mapped.length ? mapped : [emptyLine()]);
         const chain = ca.departmentApprovalChain || [];
@@ -254,10 +250,14 @@ const GeneralCashApprovalForm = () => {
     })();
   }, [id, isEdit]);
 
-  const updateLine = (idx, field, value) => {
+  const updateLine = (idx, fieldOrPatch, value) => {
     setLines((prev) => {
       const next = [...prev];
-      next[idx] = recalcLine({ ...next[idx], [field]: value });
+      const patch =
+        typeof fieldOrPatch === 'object' && fieldOrPatch !== null && value === undefined
+          ? fieldOrPatch
+          : { [fieldOrPatch]: value };
+      next[idx] = recalcLine({ ...next[idx], ...patch });
       return next;
     });
   };
@@ -284,23 +284,8 @@ const GeneralCashApprovalForm = () => {
     }
     if (mode === 'submit') fd.append('submit', 'true');
 
-    const payloadLines = lines.map((l) => ({
-      itemName: l.itemName,
-      description: l.description,
-      location: l.location,
-      unit: l.unit,
-      quantity: Number(l.quantity) || 0,
-      unitPrice: Number(l.unitPrice) || 0,
-      amount: Number(l.amount) || 0,
-      attachments: (l.attachments || []).filter((a) => a.url)
-    }));
-    fd.append('items', JSON.stringify(payloadLines));
-
-    lines.forEach((l, idx) => {
-      if (l._pendingFile instanceof File) {
-        fd.append(`lineAttachment_${idx}`, l._pendingFile);
-      }
-    });
+    fd.append('items', JSON.stringify(serializeCashApprovalItemsForSubmit(lines)));
+    appendCashApprovalLineAttachmentsToFormData(fd, lines);
 
     const approverIds = [getUserId(managerApprover), getUserId(hodApprover)].filter(Boolean);
     fd.append('draftApproverIds', JSON.stringify(approverIds));
@@ -505,7 +490,7 @@ const GeneralCashApprovalForm = () => {
 
         <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>Line items</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Add items with name, description, location, unit, quantity, rate, and attachment. Total is calculated from qty × rate.
+          Add items with name, description, location, unit, quantity, rate, and attachments (compressed images/PDF, up to 50 per line).
         </Typography>
 
         <Table size="small" sx={{ mb: 1 }}>
@@ -518,7 +503,7 @@ const GeneralCashApprovalForm = () => {
               <TableCell width={80}>Qty</TableCell>
               <TableCell width={100}>Rate</TableCell>
               <TableCell width={110} align="right">Total</TableCell>
-              <TableCell width={120}>Attachment</TableCell>
+              <TableCell width={160}>Attachments</TableCell>
               <TableCell width={48} />
             </TableRow>
           </TableHead>
@@ -545,23 +530,11 @@ const GeneralCashApprovalForm = () => {
                 </TableCell>
                 <TableCell align="right">{Number(line.amount || 0).toFixed(2)}</TableCell>
                 <TableCell>
-                  <Button size="small" component="label" startIcon={<UploadIcon />}>
-                    {line._pendingFile || (line.attachments?.length > 0) ? 'Attached' : 'Upload'}
-                    <input
-                      hidden
-                      type="file"
-                      accept="image/*,application/pdf"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) updateLine(idx, '_pendingFile', file);
-                      }}
-                    />
-                  </Button>
-                  {(line.attachments || []).map((a, ai) => (
-                    <Button key={ai} size="small" href={resolveUploadPublicUrl(a.url)} target="_blank" rel="noreferrer">
-                      View
-                    </Button>
-                  ))}
+                  <LineAttachmentCell
+                    line={line}
+                    onLineChange={(patch) => updateLine(idx, patch)}
+                    resolveUrl={resolveUploadPublicUrl}
+                  />
                 </TableCell>
                 <TableCell>
                   <IconButton size="small" color="error" onClick={() => removeLine(idx)}><DeleteIcon fontSize="small" /></IconButton>

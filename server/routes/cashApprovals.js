@@ -42,21 +42,34 @@ const {
   employeeDisplayName
 } = require('../utils/employeeAdvanceAccount');
 const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDirectorRole');
+const {
+  authenticateUser,
+  validateFilename,
+  validateFilePath,
+  getFileHeaders
+} = require('../utils/fileServer');
 
 const router = express.Router();
 
+/** Legacy dirs + unified line-files (avoids multipart body not ready when multer picks destination). */
 const generalCaUploadDir = path.join(__dirname, '..', 'uploads', 'general', 'cash-approvals');
-if (!fs.existsSync(generalCaUploadDir)) fs.mkdirSync(generalCaUploadDir, { recursive: true });
-const generalCaStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, generalCaUploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '');
-    const base = path.basename(file.originalname || 'attachment', ext).replace(/[^a-zA-Z0-9-_]/g, '_');
-    cb(null, `${base}-${Date.now()}${ext}`);
-  }
+const procurementCaUploadDir = path.join(__dirname, '..', 'uploads', 'procurement', 'cash-approvals');
+const cashApprovalLineFilesDir = path.join(__dirname, '..', 'uploads', 'cash-approvals', 'line-files');
+[generalCaUploadDir, procurementCaUploadDir, cashApprovalLineFilesDir].forEach((dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
-const generalCaUpload = multer({
-  storage: generalCaStorage,
+
+const lineAttachmentFilename = (_req, file, cb) => {
+  const ext = path.extname(file.originalname || '');
+  const base = path.basename(file.originalname || 'attachment', ext).replace(/[^a-zA-Z0-9-_]/g, '_');
+  cb(null, `${base}-${Date.now()}${ext}`);
+};
+
+const cashApprovalLineUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, cashApprovalLineFilesDir),
+    filename: lineAttachmentFilename
+  }),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
@@ -66,8 +79,8 @@ const generalCaUpload = multer({
 });
 
 const maybeGeneralMultipart = (req, res, next) => {
-  if (req.is('multipart/form-data')) return generalCaUpload.any()(req, res, next);
-  return next();
+  if (!req.is('multipart/form-data')) return next();
+  return cashApprovalLineUpload.any()(req, res, next);
 };
 
 const parseJsonBodyField = (val, fallback) => {
@@ -80,25 +93,12 @@ const parseJsonBodyField = (val, fallback) => {
   }
 };
 
-const mergeGeneralLineUploads = (files, items) => {
-  if (!Array.isArray(items) || !files?.length) return items;
-  for (const f of files) {
-    const m = /^lineAttachment_(\d+)$/.exec(f.fieldname);
-    if (!m) continue;
-    const idx = parseInt(m[1], 10);
-    if (!Number.isFinite(idx) || !items[idx]) continue;
-    const url = `/uploads/general/cash-approvals/${f.filename}`;
-    if (!Array.isArray(items[idx].attachments)) items[idx].attachments = [];
-    items[idx].attachments.push({
-      filename: f.filename,
-      originalName: f.originalname,
-      url,
-      mimeType: f.mimetype,
-      uploadedAt: new Date()
-    });
-  }
-  return items;
-};
+const { mergeCashApprovalLineUploads } = require('../utils/cashApprovalLineAttachments');
+
+const CASH_APPROVAL_LINE_UPLOAD_PREFIX = '/uploads/cash-approvals/line-files/';
+
+const mergeGeneralLineUploads = (files, items, body = {}) =>
+  mergeCashApprovalLineUploads(files, items, body, { publicPath: CASH_APPROVAL_LINE_UPLOAD_PREFIX });
 
 const getActorId = (req) => String(req.user?.id || req.user?._id || '');
 
@@ -363,8 +363,18 @@ const notifyNextGeneralDepartmentApprover = async (ca, actorId) => {
   });
 };
 
-const pushHistory = (ca, from, to, userId, comments, module) => {
-  ca.workflowHistory.push({ fromStatus: from, toStatus: to, changedBy: userId, changedAt: new Date(), comments: comments || '', module: module || 'Procurement' });
+const { resolveAuditStampMeta } = require('../utils/auditStampMeta');
+
+const pushHistory = (ca, from, to, userId, comments, module, extra = {}) => {
+  ca.workflowHistory.push({
+    fromStatus: from,
+    toStatus: to,
+    changedBy: userId,
+    changedAt: new Date(),
+    comments: comments || '',
+    module: module || 'Procurement',
+    ...extra
+  });
 };
 
 const upsertCaAuthorityApproval = (ca, { key, label, approverId, approvedAt, comments }) => {
@@ -529,7 +539,7 @@ const fullPopulate = (q) => q
   .populate('ceoForwardedBy', 'firstName lastName email employeeId digitalSignature')
   .populate('ceoReturnedBy', 'firstName lastName email')
   .populate('ceoRejectedBy', 'firstName lastName email')
-  .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature')
+  .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature approvalStamp')
   .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('departmentApprovalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('departmentApprovedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
@@ -884,7 +894,7 @@ router.post('/', authMiddleware, maybeGeneralMultipart, asyncHandler(async (req,
     if (!hasGeneralModuleAccess(req.user)) {
       return res.status(403).json({ success: false, message: 'General module access required' });
     }
-    body.items = mergeGeneralLineUploads(req.files, body.items || []);
+    body.items = mergeGeneralLineUploads(req.files, body.items || [], body);
     if (!body.requestingDepartment?.trim()) {
       body.requestingDepartment = String(req.user?.department || '').trim();
     }
@@ -973,6 +983,13 @@ router.post('/', authMiddleware, maybeGeneralMultipart, asyncHandler(async (req,
     }
   }
 
+  if (body.items) {
+    const parsedItems = parseJsonBodyField(body.items, []);
+    body.items = mergeCashApprovalLineUploads(req.files, parsedItems, body, {
+      publicPath: CASH_APPROVAL_LINE_UPLOAD_PREFIX
+    });
+  }
+
   const ca = new CashApproval({ ...body, status: 'Pending Approval', createdBy: req.user.id });
   await ca.save();
   pushHistory(ca, '—', 'Pending Approval', req.user.id, 'Created in Procurement and submitted for authority approval', 'Procurement');
@@ -997,7 +1014,13 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
       return res.status(400).json({ success: false, message: `Cannot edit cash approval in "${ca.status}" status` });
     }
     const body = { ...req.body };
-    if (body.items) body.items = mergeGeneralLineUploads(req.files, parseJsonBodyField(body.items, ca.items || []));
+    if (body.items) {
+      body.items = mergeGeneralLineUploads(
+        req.files,
+        parseJsonBodyField(body.items, ca.items || []),
+        body
+      );
+    }
     const merged = {
       purpose: body.purpose ?? ca.purpose,
       notes: body.notes ?? ca.notes,
@@ -1057,6 +1080,15 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
     return res.status(400).json({ success: false, message: `Cannot edit a Cash Approval in "${ca.status}" status` });
   }
   const { status: _s, caNumber: _n, createdBy: _c, workflowHistory: _w, originatingModule: _om, ...updates } = req.body;
+
+  if (updates.items) {
+    updates.items = mergeCashApprovalLineUploads(
+      req.files,
+      parseJsonBodyField(updates.items, ca.items || []),
+      req.body,
+      { publicPath: CASH_APPROVAL_LINE_UPLOAD_PREFIX }
+    );
+  }
 
   Object.assign(ca, updates);
 
@@ -1366,6 +1398,7 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
 
   const approvalText = req.body.approvalComments || req.body.comments || '';
+  const stampMeta = resolveAuditStampMeta(req);
 
   // Step 1: Initial pre-audit approval (assistant/auditor)
   if (ca.status === 'Pending Audit') {
@@ -1384,7 +1417,15 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
       comments: approvalText || 'Initial pre-audit approval recorded'
     });
     ca.updatedBy = req.user.id;
-    pushHistory(ca, 'Pending Audit', 'Pending Audit', req.user.id, approvalText || 'Initial pre-audit approval recorded', 'Pre-Audit');
+    pushHistory(
+      ca,
+      'Pending Audit',
+      'Pending Audit',
+      req.user.id,
+      approvalText || 'Initial pre-audit approval recorded',
+      'Pre-Audit',
+      stampMeta
+    );
     await ca.save();
     return res.json({ success: true, message: 'Initial pre-audit approval recorded. Forward to Audit Director for final approval.', data: await fullPopulate(CashApproval.findById(ca._id)) });
   }
@@ -1398,10 +1439,26 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
   }
   const isSettlementFlow = Boolean(ca.advanceIssuedAt && ca.evidenceSubmittedAt);
   if (isSettlementFlow) {
-    pushHistory(ca, 'Forwarded to Audit Director', 'Pending Finance', req.user.id, approvalText || 'Settlement bill audit-approved and sent to Finance', 'Pre-Audit');
+    pushHistory(
+      ca,
+      'Forwarded to Audit Director',
+      'Pending Finance',
+      req.user.id,
+      approvalText || 'Settlement bill audit-approved and sent to Finance',
+      'Pre-Audit',
+      stampMeta
+    );
     ca.status = 'Pending Finance';
   } else {
-    pushHistory(ca, 'Forwarded to Audit Director', 'Send to CEO Office', req.user.id, approvalText, 'Pre-Audit');
+    pushHistory(
+      ca,
+      'Forwarded to Audit Director',
+      'Send to CEO Office',
+      req.user.id,
+      approvalText,
+      'Pre-Audit',
+      stampMeta
+    );
     ca.status = 'Send to CEO Office';
   }
   const directorAt = new Date();
@@ -2691,4 +2748,62 @@ router.put('/:id/cancel', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Cash Approval cancelled', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
+const LINE_ATTACHMENT_SEARCH_DIRS = [
+  cashApprovalLineFilesDir,
+  generalCaUploadDir,
+  procurementCaUploadDir
+];
+
+const findLineAttachmentFile = (filename) => {
+  for (const dir of LINE_ATTACHMENT_SEARCH_DIRS) {
+    const filePath = path.join(dir, filename);
+    const pathValidation = validateFilePath(filePath, dir);
+    if (pathValidation.error) continue;
+    if (fs.existsSync(filePath)) return { filePath, dir };
+  }
+  return null;
+};
+
+const serveLineAttachmentFile = async (req, res) => {
+  try {
+    const authResult = await authenticateUser(req);
+    if (authResult.error) {
+      return res.status(authResult.error.status).json({
+        success: false,
+        message: authResult.error.message
+      });
+    }
+
+    const filename = req.params.filename;
+    const filenameValidation = validateFilename(filename);
+    if (filenameValidation.error) {
+      return res.status(filenameValidation.error.status).json({
+        success: false,
+        message: filenameValidation.error.message
+      });
+    }
+
+    const found = findLineAttachmentFile(filename);
+    if (!found) {
+      return res.status(404).json({ success: false, message: 'File not found on server' });
+    }
+
+    const headers = getFileHeaders(found.filePath, filename);
+    Object.keys(headers).forEach((key) => {
+      res.setHeader(key, headers[key]);
+    });
+    return res.sendFile(found.filePath);
+  } catch (err) {
+    console.error('Cash approval line file serve error:', err);
+    return res.status(500).json({ success: false, message: 'Error serving file' });
+  }
+};
+
+/** Serve line-item attachments (token in query or Authorization header — for img tags). */
+const lineFileRouter = express.Router();
+lineFileRouter.get('/line-files/general/:filename', serveLineAttachmentFile);
+lineFileRouter.get('/line-files/procurement/:filename', serveLineAttachmentFile);
+lineFileRouter.get('/line-files/:filename', serveLineAttachmentFile);
+
 module.exports = router;
+module.exports.lineFileRouter = lineFileRouter;

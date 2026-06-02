@@ -32,8 +32,6 @@ import {
   Edit as EditIcon,
   Print as PrintIcon,
   Send as SendIcon,
-  ZoomIn as ZoomInIcon,
-  ZoomOut as ZoomOutIcon,
   RestartAlt as RestartAltIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -47,6 +45,9 @@ import {
   utilityMemoTableSx
 } from '../../../utils/utilityBillMemoUtils';
 import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
+import LineAttachmentsView from '../../../components/UtilityBill/LineAttachmentsView';
+import ZoomPanImageToolbar from '../../../components/common/ZoomPanImageToolbar';
+import { useZoomPanImage } from '../../../hooks/useZoomPanImage';
 import {
   approverSearchOnInputChange,
   mergeApproverOptionList,
@@ -159,9 +160,7 @@ const UtilityBillDetails = () => {
     [mergedSubmitApprovers, submitRequesterId, managerApprover]
   );
   const [imageModalOpen, setImageModalOpen] = useState(false);
-  const [imageZoom, setImageZoom] = useState(1);
-  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
-  const [dragState, setDragState] = useState({ active: false, startX: 0, startY: 0 });
+  const billImageZoomPan = useZoomPanImage(imageModalOpen ? bill?.billImage : null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [postingFinance, setPostingFinance] = useState(false);
   useEffect(() => {
@@ -465,29 +464,6 @@ const UtilityBillDetails = () => {
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to reject utility bill', severity: 'error' });
     }
-  };
-
-  const changeImageZoom = (delta) => {
-    setImageZoom((prev) => Math.min(3, Math.max(0.5, +(prev + delta).toFixed(2))));
-  };
-  const startImageDrag = (event) => {
-    if (imageZoom <= 1) return;
-    event.preventDefault();
-    setDragState({
-      active: true,
-      startX: event.clientX - imageOffset.x,
-      startY: event.clientY - imageOffset.y
-    });
-  };
-  const onImageDrag = (event) => {
-    if (!dragState.active) return;
-    setImageOffset({
-      x: event.clientX - dragState.startX,
-      y: event.clientY - dragState.startY
-    });
-  };
-  const stopImageDrag = () => {
-    if (dragState.active) setDragState((prev) => ({ ...prev, active: false }));
   };
 
   const buildMemoTableBodyHtml = () => `
@@ -1061,7 +1037,8 @@ const UtilityBillDetails = () => {
                   <TableRow>
                     <TableCell sx={{ width: '4%' }}>S. No</TableCell>
                     <TableCell sx={{ width: '11%' }}>Product Code</TableCell>
-                    <TableCell sx={{ width: '28%' }}>Description</TableCell>
+                    <TableCell sx={{ width: '22%' }}>Description</TableCell>
+                    <TableCell sx={{ width: '14%', minWidth: 120 }}>Attachments</TableCell>
                     <TableCell sx={{ width: '7%' }}>Units</TableCell>
                     <TableCell sx={{ width: '9%', textAlign: 'right' }}>Quantity</TableCell>
                     <TableCell sx={{ width: '10%', textAlign: 'right' }}>Rate</TableCell>
@@ -1078,6 +1055,9 @@ const UtilityBillDetails = () => {
                         <TableCell sx={{ textAlign: 'center' }}>{i + 1}</TableCell>
                         <TableCell sx={{ wordBreak: 'break-all', fontSize: 11 }}>{getStoreLineProductCode(line)}</TableCell>
                         <TableCell sx={{ lineHeight: 1.35 }}>{getStoreLineDescription(line)}</TableCell>
+                        <TableCell>
+                          <LineAttachmentsView line={line} />
+                        </TableCell>
                         <TableCell sx={{ textAlign: 'center' }}>Nos</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(1)}</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(amt)}</TableCell>
@@ -1099,7 +1079,7 @@ const UtilityBillDetails = () => {
                       }
                     }}
                   >
-                    <TableCell colSpan={6} align="right" sx={{ borderRight: '1px solid', borderColor: 'grey.400' }}>
+                    <TableCell colSpan={7} align="right" sx={{ borderRight: '1px solid', borderColor: 'grey.400' }}>
                       Sub Total
                     </TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1376,8 +1356,7 @@ const UtilityBillDetails = () => {
               src={getImageUrl(bill.billImage)}
               alt="Utility Bill"
               onClick={() => {
-                setImageZoom(1);
-                setImageOffset({ x: 0, y: 0 });
+                billImageZoomPan.resetView();
                 setImageModalOpen(true);
               }}
               onError={(e) => handleImageError(e)}
@@ -1461,42 +1440,28 @@ const UtilityBillDetails = () => {
       <Dialog open={imageModalOpen} onClose={() => setImageModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
           Bill Image
-          <Box sx={{ position: 'absolute', right: 48, top: 8, display: 'flex', gap: 0.5 }}>
-            <IconButton size="small" onClick={() => changeImageZoom(-0.2)} title="Zoom out">
-              <ZoomOutIcon fontSize="small" />
-            </IconButton>
-            <IconButton size="small" onClick={() => { setImageZoom(1); setImageOffset({ x: 0, y: 0 }); }} title="Reset zoom">
-              <RestartAltIcon fontSize="small" />
-            </IconButton>
-            <IconButton size="small" onClick={() => changeImageZoom(0.2)} title="Zoom in">
-              <ZoomInIcon fontSize="small" />
-            </IconButton>
+          <Box sx={{ position: 'absolute', right: 48, top: 8 }}>
+            <ZoomPanImageToolbar
+              onZoomIn={billImageZoomPan.zoomIn}
+              onZoomOut={billImageZoomPan.zoomOut}
+              onReset={billImageZoomPan.resetView}
+            />
           </Box>
           <IconButton onClick={() => setImageModalOpen(false)} sx={{ position: 'absolute', right: 8, top: 8 }}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent
-          sx={{ overflow: 'auto', cursor: imageZoom > 1 ? (dragState.active ? 'grabbing' : 'grab') : 'default' }}
-          onMouseMove={onImageDrag}
-          onMouseUp={stopImageDrag}
-          onMouseLeave={stopImageDrag}
-        >
+        <DialogContent sx={billImageZoomPan.containerSx} {...billImageZoomPan.containerHandlers}>
           {bill.billImage && (
             <Box
               component="img"
               src={getImageUrl(bill.billImage)}
               alt="Utility Bill"
               onError={(e) => handleImageError(e)}
-              onMouseDown={startImageDrag}
+              onMouseDown={billImageZoomPan.startDrag}
               sx={{
-                width: '100%',
-                maxHeight: '70vh',
-                objectFit: 'contain',
-                transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageZoom})`,
-                transformOrigin: 'center center',
-                transition: dragState.active ? 'none' : 'transform 0.15s ease',
-                userSelect: 'none'
+                ...billImageZoomPan.imageSx,
+                width: '100%'
               }}
             />
           )}

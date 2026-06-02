@@ -31,6 +31,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
+import NarrationTableCell from '../../../components/common/NarrationTableCell';
+import { getBillNarrationDisplay } from '../../../utils/documentNarrationDisplay';
 
 const UtilityBillList = () => {
   const navigate = useNavigate();
@@ -267,6 +269,7 @@ const UtilityBillList = () => {
                   <TableCell>Site</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Provider</TableCell>
+                  <TableCell sx={{ minWidth: 180, maxWidth: 280 }}>Narration / Description</TableCell>
                   <TableCell>Department</TableCell>
                   <TableCell>Custodian</TableCell>
                   <TableCell>Image</TableCell>
@@ -281,7 +284,7 @@ const UtilityBillList = () => {
               <TableBody>
                 {bills.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={14} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">
                         No utility bills found.
                       </Typography>
@@ -303,6 +306,7 @@ const UtilityBillList = () => {
                           </Typography>
                         )}
                       </TableCell>
+                      <NarrationTableCell text={getBillNarrationDisplay(bill)} />
                       <TableCell>{bill.department || 'N/A'}</TableCell>
                       <TableCell>{bill.custodian || 'N/A'}</TableCell>
                       <TableCell>

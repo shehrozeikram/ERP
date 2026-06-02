@@ -47,6 +47,11 @@ const applyBillLinesToPayload = async (billData) => {
     }
 
     const attachmentUrl = typeof raw.attachmentUrl === 'string' ? raw.attachmentUrl.trim() : '';
+    let attachmentUrls = Array.isArray(raw.attachmentUrls)
+      ? raw.attachmentUrls.map((u) => (typeof u === 'string' ? u.trim() : '')).filter(Boolean)
+      : [];
+    if (!attachmentUrls.length && attachmentUrl) attachmentUrls = [attachmentUrl];
+    const primaryAttachmentUrl = attachmentUrls[0] || attachmentUrl;
     const itemCode = String(storeItem?.code || raw.itemCode || '').trim();
 
     normalized.push({
@@ -62,7 +67,12 @@ const applyBillLinesToPayload = async (billData) => {
       expenseAccount: expenseAccount || null,
       expenseAccountNumber,
       ...(lineDue ? { dueDate: lineDue } : {}),
-      ...(attachmentUrl ? { attachmentUrl } : {})
+      ...(primaryAttachmentUrl || attachmentUrls.length
+        ? {
+          attachmentUrl: primaryAttachmentUrl,
+          attachmentUrls
+        }
+        : {})
     });
   }
 

@@ -103,9 +103,19 @@ export const getImageUrl = (imagePath) => {
     }
     
     // In development, use full backend URL to bypass React Router
-    // This ensures the request goes directly to the backend, not through React Router
     const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-    const baseUrl = stripApiBaseSuffix(backendUrl);
+    let baseUrl = stripApiBaseSuffix(backendUrl);
+    if (!baseUrl) {
+      baseUrl =
+        process.env.NODE_ENV === 'development'
+          ? 'http://localhost:5001'
+          : window.location.origin;
+    } else if (!baseUrl.startsWith('http')) {
+      baseUrl = `${window.location.origin}${baseUrl.startsWith('/') ? '' : '/'}${baseUrl}`.replace(
+        /\/$/,
+        ''
+      );
+    }
     return `${baseUrl}${imagePath}`;
   }
   

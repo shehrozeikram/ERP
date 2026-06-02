@@ -38,6 +38,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
 import centralizedStoreService from '../../../services/centralizedStoreService';
+import NarrationTableCell from '../../../components/common/NarrationTableCell';
+import { getBillNarrationDisplay } from '../../../utils/documentNarrationDisplay';
 
 const sortBillsByDate = (a, b) => {
   const ta = a.billDate ? new Date(a.billDate).getTime() : 0;
@@ -286,6 +288,7 @@ const CentralizedStoreBills = () => {
                         <TableCell>Bill date</TableCell>
                         <TableCell>Category</TableCell>
                         <TableCell>Vendor</TableCell>
+                        <TableCell sx={{ minWidth: 180, maxWidth: 280 }}>Narration / Description</TableCell>
                         <TableCell>Items</TableCell>
                         <TableCell>Amount</TableCell>
                         <TableCell>Workflow</TableCell>
@@ -314,6 +317,7 @@ const CentralizedStoreBills = () => {
                               )}
                             </TableCell>
                             <TableCell>{vendorName(bill)}</TableCell>
+                            <NarrationTableCell text={getBillNarrationDisplay(bill)} />
                             <TableCell>{bill.billLines?.length || 0}</TableCell>
                             <TableCell>{formatCurrency(bill.amount)}</TableCell>
                             <TableCell>

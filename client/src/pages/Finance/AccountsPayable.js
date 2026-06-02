@@ -66,6 +66,8 @@ import { formatDate } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
+import NarrationTableCell from '../../components/common/NarrationTableCell';
+import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
 
 const getBillPayeeEmployeeId = (bill) => {
   const pe = bill?.payeeEmployee;
@@ -1108,6 +1110,7 @@ const AccountsPayable = () => {
                   <TableCell />
                   <TableCell>Bill #</TableCell>
                   <TableCell>Vendor</TableCell>
+                  <TableCell sx={{ minWidth: 180, maxWidth: 280 }}>Narration / Description</TableCell>
                   <TableCell>Date</TableCell>
                   <TableCell>Due Date</TableCell>
                   <TableCell align="right">Amount</TableCell>
@@ -1146,6 +1149,7 @@ const AccountsPayable = () => {
                             </Typography>
                           </Box>
                         </TableCell>
+                        <NarrationTableCell text={getBillNarrationDisplay(bill)} />
                         <TableCell><Typography variant="body2">{formatDate(bill.billDate)}</Typography></TableCell>
                         <TableCell><Typography variant="body2">{formatDate(bill.dueDate)}</Typography></TableCell>
                         <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(bill.totalAmount)}</Typography></TableCell>
@@ -1173,7 +1177,7 @@ const AccountsPayable = () => {
                       {expandedRows[bill._id] && (
                         <TableRow>
                           <TableCell />
-                          <TableCell colSpan={10} sx={{ bgcolor: 'grey.50' }}>
+                          <TableCell colSpan={11} sx={{ bgcolor: 'grey.50' }}>
                             <Box sx={{ py: 1 }}>
                               <Typography variant="subtitle2" sx={{ mb: 1 }}>Linked Documents</Typography>
                               {bill?.linkedGRNs?.length ? (
