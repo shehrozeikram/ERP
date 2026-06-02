@@ -1542,7 +1542,7 @@ router.get('/statistics',
     
     // Get department-wise employee count
     const departmentStats = await Employee.aggregate([
-      { $match: { isActive: true, employmentStatus: 'Active' } },
+      { $match: { isDeleted: false, isActive: true, employmentStatus: 'Active' } },
       {
         $lookup: {
           from: 'departments',

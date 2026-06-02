@@ -1564,6 +1564,7 @@ employeeSchema.statics.findByPosition = function(positionId) {
 // Static method to get employee statistics
 employeeSchema.statics.getStatistics = async function() {
   const stats = await this.aggregate([
+    { $match: { isDeleted: false } },
     {
       $group: {
         _id: null,

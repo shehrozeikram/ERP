@@ -81,6 +81,57 @@ function getEmployeeHireDate(employee) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Same definition as Employee List — active flag AND employment status. */
+function isActiveEmployee(employee) {
+  return employee?.isActive === true && employee?.employmentStatus === 'Active';
+}
+
+function computeEmployeeStats(employees, departments) {
+  const now = new Date();
+  const activeEmployees = employees.filter(isActiveEmployee);
+  const employeesLeftCount = employees.filter((emp) =>
+    ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)
+  ).length;
+  const averageTotalEmployees = (employees.length + activeEmployees.length) / 2;
+  const turnoverRate = averageTotalEmployees > 0
+    ? Number(((employeesLeftCount / averageTotalEmployees) * 100).toFixed(2))
+    : 0;
+
+  const totalBasicSalary = employees.reduce((sum, emp) => sum + (emp.salary?.basic || 0), 0);
+  const totalGrossSalary = employees.reduce((sum, emp) => {
+    const gross = (emp.salary?.basic || 0) +
+      (emp.salary?.houseRent || 0) +
+      (emp.salary?.medical || 0) +
+      (emp.salary?.conveyance || 0) +
+      (emp.salary?.special || 0) +
+      (emp.salary?.other || 0);
+    return sum + gross;
+  }, 0);
+
+  return {
+    totalEmployees: employees.length,
+    activeEmployees: activeEmployees.length,
+    totalDepartments: departments.length,
+    newThisMonth: employees.filter((emp) => {
+      const hireDate = getEmployeeHireDate(emp);
+      return hireDate &&
+        hireDate.getMonth() === now.getMonth() &&
+        hireDate.getFullYear() === now.getFullYear();
+    }).length,
+    newThisYear: employees.filter((emp) => {
+      const hireDate = getEmployeeHireDate(emp);
+      return hireDate && hireDate.getFullYear() === now.getFullYear();
+    }).length,
+    resignations: employees.filter((emp) => emp.employmentStatus === 'Resigned').length,
+    disciplinaryCases: 0,
+    turnoverRate,
+    avgBasicSalary: employees.length > 0 ? totalBasicSalary / employees.length : 0,
+    avgGrossSalary: employees.length > 0 ? totalGrossSalary / employees.length : 0,
+    totalBasicSalary,
+    totalGrossSalary
+  };
+}
+
 const HRDashboard = () => {
   const [stats, setStats] = useState({
     totalEmployees: 0,
@@ -418,29 +469,9 @@ const HRDashboard = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Try to fetch statistics first (more efficient)
-      try {
-        const statsResponse = await api.get('/hr/statistics');
-        const statsData = statsResponse.data.data;
-        
-        if (statsData && statsData.overall) {
-          setStats({
-            totalEmployees: statsData.overall.totalEmployees || 0,
-            activeEmployees: statsData.overall.activeEmployees || 0,
-            totalDepartments: statsData.overall.totalDepartments || 0,
-            newThisMonth: statsData.overall.newThisMonth || 0,
-            newThisYear: statsData.overall.newThisYear || 0,
-            avgSalary: statsData.overall.avgSalary || 0,
-            totalSalary: statsData.overall.totalSalary || 0
-          });
-        }
-      } catch (statsError) {
-        console.log('Statistics endpoint not available, falling back to individual calls');
-      }
-      
-      // Fetch employees
-      const employeesResponse = await api.get('/hr/employees?limit=1000');
+
+      // Full employee records (charts need salary, DOB, etc.); limit high enough for full workforce
+      const employeesResponse = await api.get('/hr/employees?limit=5000');
       const employees = employeesResponse.data.data || [];
       setAllEmployees(employees);
       const canAccessHRModule = hasModuleAccess(user?.role, MODULE_KEYS.HR);
@@ -453,97 +484,14 @@ const HRDashboard = () => {
         setProbationCompletedEmployees([]);
         setProbationDialogOpen(false);
       }
-      
-      // Fetch departments
+
       const departmentsResponse = await api.get('/hr/departments');
       const departments = departmentsResponse.data.data || [];
-      
-      // If we don't have stats from the statistics endpoint, calculate them
-      if (!stats.totalEmployees) {
-        const activeEmployees = employees.filter(emp => emp.isActive);
-        const now = new Date();
-        const resignationsCount = employees.filter(emp => emp.employmentStatus === 'Resigned').length;
-        const disciplinaryCasesCount = employees.filter(emp => isDisciplinaryTermination(emp)).length;
-        const employeesLeftCount = employees.filter(emp =>
-          ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)
-        ).length;
-        const averageTotalEmployees = (employees.length + activeEmployees.length) / 2;
-        const turnoverRate = averageTotalEmployees > 0
-          ? Number(((employeesLeftCount / averageTotalEmployees) * 100).toFixed(2))
-          : 0;
-        const newThisMonthList = employees.filter(emp => {
-          const hireDate = getEmployeeHireDate(emp);
-          return hireDate &&
-            hireDate.getMonth() === now.getMonth() &&
-            hireDate.getFullYear() === now.getFullYear();
-        });
 
-        const totalBasicSalary = employees.reduce((sum, emp) => sum + (emp.salary?.basic || 0), 0);
-        const totalGrossSalary = employees.reduce((sum, emp) => {
-          const gross = (emp.salary?.basic || 0) + 
-                       (emp.salary?.houseRent || 0) + 
-                       (emp.salary?.medical || 0) + 
-                       (emp.salary?.conveyance || 0) + 
-                       (emp.salary?.special || 0) + 
-                       (emp.salary?.other || 0);
-          return sum + gross;
-        }, 0);
-        const avgBasicSalary = employees.length > 0 ? totalBasicSalary / employees.length : 0;
-        const avgGrossSalary = employees.length > 0 ? totalGrossSalary / employees.length : 0;
-        
-        const newThisYearCount = employees.filter(emp => {
-          const hireDate = getEmployeeHireDate(emp);
-          return hireDate && hireDate.getFullYear() === now.getFullYear();
-        }).length;
+      const employeeStats = computeEmployeeStats(employees, departments);
+      employeeStats.disciplinaryCases = employees.filter((emp) => isDisciplinaryTermination(emp)).length;
 
-        setStats({
-          totalEmployees: employees.length,
-          activeEmployees: activeEmployees.length,
-          totalDepartments: departments.length,
-          newThisMonth: newThisMonthList.length,
-          newThisYear: newThisYearCount,
-          resignations: resignationsCount,
-          disciplinaryCases: disciplinaryCasesCount,
-          turnoverRate,
-          avgBasicSalary: avgBasicSalary,
-          avgGrossSalary: avgGrossSalary,
-          totalBasicSalary: totalBasicSalary,
-          totalGrossSalary: totalGrossSalary
-        });
-      }
-
-      // Hire-date metrics from loaded employees (authoritative; /hr/statistics does not return these)
-      const nowHire = new Date();
-      const newThisMonthListData = employees.filter(emp => {
-        const hireDate = getEmployeeHireDate(emp);
-        return hireDate &&
-          hireDate.getMonth() === nowHire.getMonth() &&
-          hireDate.getFullYear() === nowHire.getFullYear();
-      });
-      const newThisYearListData = employees.filter(emp => {
-        const hireDate = getEmployeeHireDate(emp);
-        return hireDate && hireDate.getFullYear() === nowHire.getFullYear();
-      });
-      const newThisMonthHires = newThisMonthListData.length;
-      const newThisYearHires = newThisYearListData.length;
-      const resignationsCount = employees.filter(emp => emp.employmentStatus === 'Resigned').length;
-      const disciplinaryCasesCount = employees.filter(emp => isDisciplinaryTermination(emp)).length;
-      const activeEmployeesCount = employees.filter(emp => emp.isActive).length;
-      const employeesLeftCount = employees.filter(emp =>
-        ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)
-      ).length;
-      const averageTotalEmployees = (employees.length + activeEmployeesCount) / 2;
-      const turnoverRate = averageTotalEmployees > 0
-        ? Number(((employeesLeftCount / averageTotalEmployees) * 100).toFixed(2))
-        : 0;
-      setStats(prev => ({
-        ...prev,
-        newThisMonth: newThisMonthHires,
-        newThisYear: newThisYearHires,
-        resignations: resignationsCount,
-        disciplinaryCases: disciplinaryCasesCount,
-        turnoverRate
-      }));
+      setStats(employeeStats);
       setEmployeesWithHireDate(
         [...employees]
           .filter(emp => getEmployeeHireDate(emp))

@@ -571,16 +571,17 @@ const Payroll = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
-  const isEmployeeActive = (employee = {}) => {
-    const status = String(employee.employmentStatus || '').trim().toLowerCase();
-    // Some overview payloads may omit status/isActive for already-filtered active rows.
-    if (!status && employee.isActive == null) return true;
-    return employee.isActive === true && status === 'active';
+  // Same criteria as GET /payroll/current-overview and POST /payroll bulk create
+  const isPayrollEligibleEmployee = (employee = {}) => {
+    const status = String(employee.employmentStatus || '').trim();
+    const gross = Number(employee.salary?.gross ?? employee.grossSalary ?? 0);
+    return status === 'Active' && gross > 0;
   };
 
-  const employeePoolForBulkCreate =
-    employees.length > 0 ? employees : (currentOverview?.employees || []);
-  const activeEmployeeCount = employeePoolForBulkCreate.filter(isEmployeeActive).length;
+  const bulkPayrollEligibleCount =
+    currentOverview?.totalEmployees ??
+    (currentOverview?.employees?.length ||
+      employees.filter(isPayrollEligibleEmployee).length);
 
   // Unused function - handleApprove
   // const handleApprove = async (payrollId) => {
@@ -1005,7 +1006,10 @@ Do you want to:
           <Button
             variant="outlined"
             startIcon={<GroupWorkIcon />}
-            onClick={() => setBulkCreateDialogOpen(true)}
+            onClick={() => {
+              fetchCurrentOverview();
+              setBulkCreateDialogOpen(true);
+            }}
             sx={{ mr: 2 }}
             color="secondary"
           >
@@ -2299,12 +2303,13 @@ Do you want to:
                   Employee Information
                 </Typography>
                 <Typography variant="body2" color="textSecondary">
-                  Total Employees: <strong>{employeePoolForBulkCreate.length}</strong>
+                  Employees for payroll: <strong>{bulkPayrollEligibleCount}</strong>
+                  {currentOverviewLoading ? ' (loading…)' : ''}
                 </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Active Employees: <strong>{activeEmployeeCount}</strong>
+                <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
+                  Active employees with salary configured (same as General Payroll overview)
                 </Typography>
-                <Typography variant="body2" color="textSecondary">
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
                   Selected Period: <strong>{months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}</strong>
                 </Typography>
               </Box>
@@ -2312,7 +2317,7 @@ Do you want to:
             
             <Grid item xs={12}>
               <Alert severity="info">
-                This will create payroll records for <strong>ALL {activeEmployeeCount} active employees</strong> for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}. 
+                This will create payroll records for <strong>ALL {bulkPayrollEligibleCount} payroll-eligible employees</strong> for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}. 
                 Each employee will have a draft payroll with their basic salary and default values.
               </Alert>
             </Grid>
@@ -2323,8 +2328,7 @@ Do you want to:
                 p => p.month === parseInt(bulkCreateForm.month) && p.year === bulkCreateForm.year
               ).length;
               if (existingCount > 0) {
-                const activeEmployeesCount = activeEmployeeCount;
-                const remainingCount = activeEmployeesCount - existingCount;
+                const remainingCount = bulkPayrollEligibleCount - existingCount;
                 
                 return (
                   <Grid item xs={12}>
@@ -2347,7 +2351,7 @@ Do you want to:
             disabled={bulkCreateLoading}
             startIcon={bulkCreateLoading ? <CircularProgress size={20} /> : <GroupWorkIcon />}
           >
-            {bulkCreateLoading ? `Creating... (${activeEmployeeCount} employees)` : `Create All Payrolls (${activeEmployeeCount} employees)`}
+            {bulkCreateLoading ? `Creating... (${bulkPayrollEligibleCount} employees)` : `Create All Payrolls (${bulkPayrollEligibleCount} employees)`}
           </Button>
         </DialogActions>
       </Dialog>
