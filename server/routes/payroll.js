@@ -1199,19 +1199,6 @@ router.post('/', [
   try {
     console.log(`🚀 Starting payroll generation for ${month}/${year}...`);
 
-    // Check if payrolls already exist for this month/year
-    if (!forceRegenerate) {
-      const existingPayrolls = await Payroll.countDocuments({ month, year });
-      if (existingPayrolls > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Payrolls already exist for ${month}/${year}. Use forceRegenerate: true to regenerate.`,
-          existingCount: existingPayrolls,
-          suggestion: 'Use forceRegenerate: true to overwrite existing payrolls'
-        });
-      }
-    }
-
     // Get all active employees with salary information
     const activeEmployees = await Employee.find({
       employmentStatus: 'Active',
@@ -1377,6 +1364,17 @@ router.post('/', [
           // taxCalculation.totalNetSalary already includes tax deduction, so subtract other deductions
           // Note: Provident Fund is NOT deducted from net salary (display only)
           const netSalary = taxCalculation.totalNetSalary - eobi - healthInsurance - loanDeductions - attendanceDeduction - otherDeductions;
+
+          if (netSalary < 0) {
+            return {
+              success: false,
+              error: `Calculated net salary is negative (Rs. ${Math.round(netSalary)})`,
+              employee: {
+                employeeId: employee.employeeId,
+                name: `${employee.firstName} ${employee.lastName}`
+              }
+            };
+          }
           
           // Create payroll data
           const payrollData = {
@@ -1451,6 +1449,19 @@ router.post('/', [
             createdBy: req.user.id,
             status: 'Draft'
           };
+
+          // Validate each record before batching so one bad row never breaks the whole bulk run.
+          const validationError = new Payroll(payrollData).validateSync();
+          if (validationError) {
+            return {
+              success: false,
+              error: validationError.message,
+              employee: {
+                employeeId: employee.employeeId,
+                name: `${employee.firstName} ${employee.lastName}`
+              }
+            };
+          }
 
           return {
             success: true,
@@ -1541,9 +1552,37 @@ router.post('/', [
       console.log(`✅ Batch ${batchIndex + 1}/${batches.length} completed`);
     }
     
+    if (createdPayrolls.length === 0) {
+      console.log('ℹ️ No new payroll records to create (all employees skipped or errored)');
+      return res.status(200).json({
+        success: true,
+        message: `No new payrolls created for ${month}/${year}`,
+        data: {
+          payrolls: [],
+          summary: {
+            totalEmployees: activeEmployees.length,
+            payrollsCreated: 0,
+            skippedEmployees: skippedEmployees.length,
+            errors: errors.length,
+            arrearsUpdated: 0,
+            totalGrossSalary,
+            totalNetSalary,
+            totalTax
+          },
+          skippedEmployees,
+          errors,
+          serverStatus: {
+            zkbioServerOnline,
+            message: serverStatus.message,
+            server: serverStatus.server || 'ZKBio Time'
+          }
+        }
+      });
+    }
+
     // 🚀 BULK DATABASE INSERT (Major performance boost)
     console.log(`💾 Performing bulk insert of ${createdPayrolls.length} payroll records...`);
-    const insertedPayrolls = await Payroll.insertMany(createdPayrolls);
+    const insertedPayrolls = await Payroll.insertMany(createdPayrolls, { ordered: false });
     console.log(`✅ Bulk insert completed: ${insertedPayrolls.length} payroll records created`);
     
     // 🔧 UPDATE ARREARS STATUS TO 'PAID' FOR ALL CREATED PAYROLLS

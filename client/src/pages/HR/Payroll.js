@@ -310,12 +310,6 @@ const Payroll = () => {
   useEffect(() => {
     const filteredPayrolls = getFilteredPayrolls();
     
-    // Debug logging
-    if (filteredPayrolls.length > 0) {
-      console.log('Processing payrolls:', filteredPayrolls.length);
-      console.log('Sample payroll:', filteredPayrolls[0]);
-    }
-    
     if (filteredPayrolls.length > 0) {
       const grouped = filteredPayrolls.reduce((acc, payroll) => {
         // Ensure month and year exist before processing
@@ -577,6 +571,17 @@ const Payroll = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
+  const isEmployeeActive = (employee = {}) => {
+    const status = String(employee.employmentStatus || '').trim().toLowerCase();
+    // Some overview payloads may omit status/isActive for already-filtered active rows.
+    if (!status && employee.isActive == null) return true;
+    return employee.isActive === true && status === 'active';
+  };
+
+  const employeePoolForBulkCreate =
+    employees.length > 0 ? employees : (currentOverview?.employees || []);
+  const activeEmployeeCount = employeePoolForBulkCreate.filter(isEmployeeActive).length;
+
   // Unused function - handleApprove
   // const handleApprove = async (payrollId) => {
   //   try {
@@ -673,6 +678,8 @@ Do you want to:
         month: month,
         year: year,
         forceRegenerate: forceRegenerate
+      }, {
+        timeout: 600000
       });
       
       setBulkCreateDialogOpen(false);
@@ -691,10 +698,14 @@ Do you want to:
       if (response.data.success) {
         const summary = response.data.data.summary;
         const skippedCount = response.data.data.skippedEmployees ? response.data.data.skippedEmployees.length : 0;
+        const createdCount = summary.payrollsCreated ?? 0;
+        const processedCount = summary.totalEmployees ?? createdCount;
+        const errorCount = summary.errors ?? (response.data.data.errors?.length || 0);
         
-        let message = `✅ Successfully generated ${summary.totalEmployees} payrolls for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}!\n\n`;
+        let message = `✅ Successfully generated ${createdCount} payrolls for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}.\n\n`;
         message += `📊 Summary:\n`;
-        message += `• Total Employees: ${summary.totalEmployees}\n`;
+        message += `• Employees Processed: ${processedCount}\n`;
+        message += `• Payrolls Created: ${createdCount}\n`;
         message += `• Total Gross Salary: Rs. ${summary.totalGrossSalary.toLocaleString()}\n`;
         message += `• Total Net Salary: Rs. ${summary.totalNetSalary.toLocaleString()}\n`;
         message += `• Total Tax: Rs. ${summary.totalTax.toLocaleString()}\n`;
@@ -707,8 +718,8 @@ Do you want to:
           message += `\n⏭️  Skipped: ${skippedCount} employees (already had payrolls)`;
         }
         
-        if (response.data.data.errors && response.data.data.errors.length > 0) {
-          message += `\n⚠️  Errors: ${response.data.data.errors.length} (see console for details)`;
+        if (errorCount > 0) {
+          message += `\n⚠️  Errors: ${errorCount} (see console for details)`;
         }
         
         alert(message);
@@ -717,7 +728,9 @@ Do you want to:
       }
     } catch (error) {
       console.error('Error creating bulk payrolls:', error);
-      setError(`Failed to create bulk payrolls: ${error.message}`);
+      const backendMessage = error.response?.data?.message;
+      const backendDetail = error.response?.data?.error;
+      setError(`Failed to create bulk payrolls: ${backendMessage || backendDetail || error.message}`);
     } finally {
       setBulkCreateLoading(false);
     }
@@ -2286,10 +2299,10 @@ Do you want to:
                   Employee Information
                 </Typography>
                 <Typography variant="body2" color="textSecondary">
-                  Total Employees: <strong>{employees.length}</strong>
+                  Total Employees: <strong>{employeePoolForBulkCreate.length}</strong>
                 </Typography>
                 <Typography variant="body2" color="textSecondary">
-                  Active Employees: <strong>{employees.filter(emp => emp.employmentStatus === 'Active').length}</strong>
+                  Active Employees: <strong>{activeEmployeeCount}</strong>
                 </Typography>
                 <Typography variant="body2" color="textSecondary">
                   Selected Period: <strong>{months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}</strong>
@@ -2299,7 +2312,7 @@ Do you want to:
             
             <Grid item xs={12}>
               <Alert severity="info">
-                This will create payroll records for <strong>ALL {employees.filter(emp => emp.employmentStatus === 'Active').length} active employees</strong> for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}. 
+                This will create payroll records for <strong>ALL {activeEmployeeCount} active employees</strong> for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}. 
                 Each employee will have a draft payroll with their basic salary and default values.
               </Alert>
             </Grid>
@@ -2310,7 +2323,7 @@ Do you want to:
                 p => p.month === parseInt(bulkCreateForm.month) && p.year === bulkCreateForm.year
               ).length;
               if (existingCount > 0) {
-                const activeEmployeesCount = employees.filter(emp => emp.employmentStatus === 'Active').length;
+                const activeEmployeesCount = activeEmployeeCount;
                 const remainingCount = activeEmployeesCount - existingCount;
                 
                 return (
@@ -2334,7 +2347,7 @@ Do you want to:
             disabled={bulkCreateLoading}
             startIcon={bulkCreateLoading ? <CircularProgress size={20} /> : <GroupWorkIcon />}
           >
-            {bulkCreateLoading ? `Creating... (${employees.filter(emp => emp.employmentStatus === 'Active').length} employees)` : `Create All Payrolls (${employees.filter(emp => emp.employmentStatus === 'Active').length} employees)`}
+            {bulkCreateLoading ? `Creating... (${activeEmployeeCount} employees)` : `Create All Payrolls (${activeEmployeeCount} employees)`}
           </Button>
         </DialogActions>
       </Dialog>
