@@ -18,6 +18,15 @@ const incrementService = require('../services/incrementService');
 
 const router = express.Router();
 
+const isProvidentFundEnabledForEmployee = (employee) =>
+  employee?.providentFund?.isActive === true;
+
+const calculateProvidentFundForEmployee = (employee, basicSalary = 0) => {
+  if (!isProvidentFundEnabledForEmployee(employee)) return 0;
+  const pfPercentage = Number(employee?.providentFund?.percentage || 8.34);
+  return Math.round((Number(basicSalary || 0) * pfPercentage) / 100);
+};
+
 /**
  * Generate payslip PDF
  * @param {Object} payslip - Payslip data
@@ -530,11 +539,17 @@ router.get('/monthly',
       .select('month year basicSalary grossSalary netSalary status employee createdAt')
       .populate({
         path: 'employee',
-        select: 'firstName lastName employeeId placementProject',
-        populate: {
-          path: 'placementProject',
-          select: 'name'
-        }
+        select: 'firstName lastName employeeId placementProject placementDepartment',
+        populate: [
+          {
+            path: 'placementProject',
+            select: 'name'
+          },
+          {
+            path: 'placementDepartment',
+            select: 'name code'
+          }
+        ]
       })
       .sort({ year: -1, month: -1, createdAt: -1 })
       .lean(); // Use lean() for better performance since we don't need Mongoose documents
@@ -755,7 +770,7 @@ router.get('/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears');
+        .select('firstName lastName employeeId salary allowances arrears providentFund');
 
       if (!employee) {
         return res.status(404).json({
@@ -891,7 +906,7 @@ router.get('/employee/:employeeId',
             incomeTax: Math.round(taxCalculation.totalTax),
             eobi: 370,
             healthInsurance: 0,
-            providentFund: Math.round((basic * 8.34) / 100),
+            providentFund: calculateProvidentFundForEmployee(employee, basic),
             loanDeductions: 0,
             attendanceDeduction: 0,
             leaveDeduction: 0,
@@ -952,7 +967,7 @@ router.get('/view/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears');
+        .select('firstName lastName employeeId salary allowances arrears providentFund');
 
       if (!employee) {
         return res.status(404).json({
@@ -1088,7 +1103,7 @@ router.get('/view/employee/:employeeId',
             incomeTax: Math.round(taxCalculation.totalTax),
             eobi: 370,
             healthInsurance: 0,
-            providentFund: Math.round((basic * 8.34) / 100),
+            providentFund: calculateProvidentFundForEmployee(employee, basic),
             loanDeductions: 0,
             attendanceDeduction: 0,
             leaveDeduction: 0,
@@ -1147,7 +1162,7 @@ router.get('/:id',
     const payroll = await Payroll.findById(req.params.id)
       .populate({
         path: 'employee',
-        select: 'firstName lastName employeeId department position salary placementProject',
+        select: 'firstName lastName employeeId department position salary placementProject providentFund',
         populate: {
           path: 'placementProject',
           select: 'name'
@@ -1166,6 +1181,9 @@ router.get('/:id',
     // 🔧 CALCULATE ATTENDANCE DEDUCTION FOR DISPLAY
     // This ensures the attendance deduction is always calculated correctly when viewing
     payroll.calculateAttendanceDeduction();
+    const pfEnabled = payroll.providentFundEnabled === true || isProvidentFundEnabledForEmployee(payroll.employee);
+    payroll.providentFundEnabled = pfEnabled;
+    payroll.providentFund = pfEnabled ? (payroll.providentFund || 0) : 0;
     
     console.log(`📊 Payroll ${payroll._id} fetched with calculated attendance deduction: Rs. ${payroll.attendanceDeduction?.toFixed(2) || 0}`);
 
@@ -1203,7 +1221,7 @@ router.post('/', [
     const activeEmployees = await Employee.find({
       employmentStatus: 'Active',
       'salary.gross': { $exists: true, $gt: 0 }
-    }).select('firstName lastName employeeId salary allowances arrears department position');
+    }).select('firstName lastName employeeId salary allowances arrears department position providentFund');
 
     if (activeEmployees.length === 0) {
       return res.status(404).json({
@@ -1320,7 +1338,8 @@ router.post('/', [
           const monthlyTax = taxCalculation.totalTax;
           
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
-          const providentFund = Math.round((basicSalary * 8.34) / 100);
+          const providentFundEnabled = isProvidentFundEnabledForEmployee(employee);
+          const providentFund = calculateProvidentFundForEmployee(employee, basicSalary);
           const eobi = 370;
           
           // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS
@@ -1421,6 +1440,7 @@ router.post('/', [
             otherBonus: 0,
             arrears: employeeArrears,
             providentFund,
+            providentFundEnabled,
             incomeTax: monthlyTax,
             healthInsurance: 0,
             loanDeductions: loanDeductions,
@@ -1850,10 +1870,14 @@ router.put('/:id', [
   // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
   updateData.eobi = 370;
 
-  // Auto-calculate Provident Fund (8.34% of basic salary) if not provided
-  if (!updateData.providentFund && (updateData.basicSalary || payroll.basicSalary) > 0) {
+  const payrollEmployee = await Employee.findById(payroll.employee).select('providentFund');
+  const pfEnabledForEmployee = isProvidentFundEnabledForEmployee(payrollEmployee);
+  updateData.providentFundEnabled = pfEnabledForEmployee;
+  if (!pfEnabledForEmployee) {
+    updateData.providentFund = 0;
+  } else if ((updateData.providentFund === undefined || updateData.providentFund === null) && (updateData.basicSalary || payroll.basicSalary) > 0) {
     const basicSalary = updateData.basicSalary || payroll.basicSalary;
-    updateData.providentFund = Math.round((basicSalary * 8.34) / 100);
+    updateData.providentFund = calculateProvidentFundForEmployee(payrollEmployee, basicSalary);
   }
 
   // Recalculate totals
@@ -3023,7 +3047,7 @@ router.post('/:id/generate-payslip',
       const payroll = await Payroll.findById(payrollId)
         .populate({
           path: 'employee',
-          select: 'firstName lastName employeeId department position placementDesignation',
+          select: 'firstName lastName employeeId department position placementDesignation providentFund',
           populate: [
             { path: 'department', select: 'name' },
             { path: 'placementDesignation', select: 'title' }
@@ -3060,6 +3084,10 @@ router.post('/:id/generate-payslip',
       // Generate payslip number for PDF (no database record)
       const payslipNumber = `PS${payroll.year}${payroll.month.toString().padStart(2, '0')}${payroll.employee.employeeId}`;
       
+      const pfEnabled = payroll.providentFundEnabled === true || isProvidentFundEnabledForEmployee(payroll.employee);
+      const calculatedPf = calculateProvidentFundForEmployee(payroll.employee, payroll.basicSalary || 0);
+      const providentFundForPayslip = pfEnabled ? (payroll.providentFund || calculatedPf || 0) : 0;
+
       // Create payslip data object for PDF generation (no database save)
       const payslipData = {
         payslipNumber: payslipNumber,
@@ -3099,7 +3127,7 @@ router.post('/:id/generate-payslip',
         
         // Deductions from payroll
         deductions: {
-          providentFund: payroll.providentFund || 0,
+          providentFund: providentFundForPayslip,
           eobi: payroll.eobi || 0,
           incomeTax: payroll.incomeTax || 0,
           loanDeduction: payroll.loanDeductions || 0,

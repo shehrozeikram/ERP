@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -47,7 +47,8 @@ import {
   ExpandMore as ExpandMoreIcon,
   GroupWork as GroupWorkIcon,
   Search as SearchIcon,
-  Clear as ClearIcon
+  Clear as ClearIcon,
+  Download as DownloadIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -110,6 +111,8 @@ const Payroll = () => {
   const [generalPayrollRowsPerPage, setGeneralPayrollRowsPerPage] = useState(10);
   const [currentOverview, setCurrentOverview] = useState(null);
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
+  const [masterDepartments, setMasterDepartments] = useState([]);
+  const [masterProjects, setMasterProjects] = useState([]);
 
   // Define functions with useCallback to avoid dependency issues
   const fetchPayrolls = useCallback(async () => {
@@ -194,13 +197,40 @@ const Payroll = () => {
     }
   }, []);
 
+  const fetchMasterFilterOptions = useCallback(async () => {
+    try {
+      const [departmentsRes, projectsRes] = await Promise.allSettled([
+        api.get('/hr/departments'),
+        api.get('/projects')
+      ]);
+
+      if (departmentsRes.status === 'fulfilled') {
+        setMasterDepartments(departmentsRes.value.data?.data || []);
+      }
+      if (projectsRes.status === 'fulfilled') {
+        setMasterProjects(projectsRes.value.data?.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching master filter options:', error);
+    }
+  }, []);
+
   const getFilteredPayrolls = useCallback(() => {
     // Safety check - ensure payrolls is an array and filter out invalid entries
     let filtered = (payrolls || []).filter(p => p && p.month && p.year && p.employee);
+    const getDepartmentId = (payroll) =>
+      payroll?.employee?.placementDepartment?._id ||
+      payroll?.employee?.department?._id ||
+      payroll?.employee?.department;
+    const getProjectId = (payroll) =>
+      payroll?.employee?.placementProject?._id ||
+      payroll?.employee?.placementProject;
+    const getStatusValue = (payroll) => String(payroll?.status || '').toLowerCase();
 
     // Filter by status
     if (filters.status) {
-      filtered = filtered.filter(p => p.status === filters.status);
+      const targetStatus = String(filters.status).toLowerCase();
+      filtered = filtered.filter(p => getStatusValue(p) === targetStatus);
     }
 
     // Filter by employee
@@ -210,7 +240,7 @@ const Payroll = () => {
 
     // Filter by department
     if (filters.department) {
-      filtered = filtered.filter(p => p.employee?.department === filters.department);
+      filtered = filtered.filter(p => String(getDepartmentId(p)) === String(filters.department));
     }
 
     // Filter by position
@@ -220,7 +250,7 @@ const Payroll = () => {
 
     // Filter by project
     if (filters.project) {
-      filtered = filtered.filter(p => p.employee?.placementProject === filters.project);
+      filtered = filtered.filter(p => String(getProjectId(p)) === String(filters.project));
     }
 
     // Filter by search query - Updated to include both monthly and general payroll
@@ -297,7 +327,8 @@ const Payroll = () => {
   // Fetch current overview when component mounts and when general payroll is expanded
   useEffect(() => {
     fetchCurrentOverview();
-  }, [fetchCurrentOverview]);
+    fetchMasterFilterOptions();
+  }, [fetchCurrentOverview, fetchMasterFilterOptions]);
 
   useEffect(() => {
     if (generalPayrollExpanded) {
@@ -519,6 +550,7 @@ const Payroll = () => {
       employeeId: '',
       department: '',
       position: '',
+      project: '',
       startDate: '',
       endDate: '',
       searchQuery: ''
@@ -536,7 +568,7 @@ const Payroll = () => {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    switch (String(status || '').toLowerCase()) {
       case 'draft': return 'default';
       case 'approved': return 'warning';
       case 'paid': return 'success';
@@ -546,7 +578,7 @@ const Payroll = () => {
   };
 
   const getStatusLabel = (status) => {
-    switch (status) {
+    switch (String(status || '').toLowerCase()) {
       case 'draft': return 'Draft';
       case 'approved': return 'Approved';
       case 'paid': return 'Paid';
@@ -571,6 +603,53 @@ const Payroll = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
+  const handleExportMonthlySummary = () => {
+    try {
+      if (!monthlyPayrolls.length) {
+        setError('No monthly payroll data available to export.');
+        return;
+      }
+
+      const rows = monthlyPayrolls.map((monthly) => ({
+        period: `${monthly.monthName} ${monthly.year}`,
+        employees: monthly.totalEmployees || 0,
+        totalBasicSalary: Math.round(monthly.totalBasicSalary || 0),
+        totalGrossSalary: Math.round(monthly.totalGrossSalary || 0),
+        totalNetSalary: Math.round(monthly.totalNetSalary || 0),
+        status: getMonthStatusLabel(monthly.statuses || new Set())
+      }));
+
+      const csvHeader = ['Pay Period', 'Employees', 'Total Basic Salary', 'Total Gross Pay', 'Total Net Pay', 'Status'];
+      const csvRows = rows.map((row) => ([
+        row.period,
+        row.employees,
+        row.totalBasicSalary,
+        row.totalGrossSalary,
+        row.totalNetSalary,
+        row.status
+      ]));
+
+      const csvContent = [csvHeader, ...csvRows]
+        .map((line) => line.map((item) => `"${String(item).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const now = new Date();
+      const datePart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      link.href = url;
+      link.setAttribute('download', `monthly-payroll-summary-${datePart}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (exportError) {
+      console.error('Error exporting monthly payroll summary:', exportError);
+      setError('Failed to export monthly payroll summary.');
+    }
+  };
+
   // Same criteria as GET /payroll/current-overview and POST /payroll bulk create
   const isPayrollEligibleEmployee = (employee = {}) => {
     const status = String(employee.employmentStatus || '').trim();
@@ -582,6 +661,54 @@ const Payroll = () => {
     currentOverview?.totalEmployees ??
     (currentOverview?.employees?.length ||
       employees.filter(isPayrollEligibleEmployee).length);
+
+  const departmentOptions = useMemo(() => {
+    const map = new Map();
+    const pushOption = (id, name) => {
+      if (!id) return;
+      const key = String(id);
+      if (!map.has(key)) map.set(key, { _id: key, name: name || key });
+    };
+
+    (masterDepartments || []).forEach((dept) => pushOption(dept?._id, dept?.name));
+    (departments || []).forEach((dept) => pushOption(dept?._id, dept?.name));
+    (payrolls || []).forEach((p) => {
+      const deptObj = p?.employee?.placementDepartment || p?.employee?.department;
+      if (deptObj && typeof deptObj === 'object') pushOption(deptObj._id, deptObj.name);
+      else if (deptObj) pushOption(deptObj, deptObj);
+    });
+    (currentOverview?.employees || []).forEach((emp) => {
+      const deptObj = emp?.placementDepartment || emp?.department;
+      if (deptObj && typeof deptObj === 'object') pushOption(deptObj._id, deptObj.name);
+      else if (deptObj) pushOption(deptObj, deptObj);
+    });
+
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [masterDepartments, departments, payrolls, currentOverview]);
+
+  const projectOptions = useMemo(() => {
+    const map = new Map();
+    const pushOption = (id, name) => {
+      if (!id) return;
+      const key = String(id);
+      if (!map.has(key)) map.set(key, { _id: key, name: name || key });
+    };
+
+    (masterProjects || []).forEach((project) => pushOption(project?._id, project?.name));
+    (projects || []).forEach((project) => pushOption(project?._id, project?.name));
+    (payrolls || []).forEach((p) => {
+      const projectObj = p?.employee?.placementProject;
+      if (projectObj && typeof projectObj === 'object') pushOption(projectObj._id, projectObj.name);
+      else if (projectObj) pushOption(projectObj, projectObj);
+    });
+    (currentOverview?.employees || []).forEach((emp) => {
+      const projectObj = emp?.placementProject;
+      if (projectObj && typeof projectObj === 'object') pushOption(projectObj._id, projectObj.name);
+      else if (projectObj) pushOption(projectObj, projectObj);
+    });
+
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [masterProjects, projects, payrolls, currentOverview]);
 
   // Unused function - handleApprove
   // const handleApprove = async (payrollId) => {
@@ -1534,6 +1661,84 @@ Do you want to:
 
       {/* Monthly Payroll Summary Table */}
       <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+        {/* Quick Filters + Export */}
+        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'grey.200', bgcolor: 'background.paper' }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={filters.status}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  label="Status"
+                >
+                  <MenuItem value="">All Statuses</MenuItem>
+                  <MenuItem value="draft">Draft</MenuItem>
+                  <MenuItem value="approved">Approved</MenuItem>
+                  <MenuItem value="paid">Paid</MenuItem>
+                  <MenuItem value="cancelled">Cancelled</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Department</InputLabel>
+                <Select
+                  value={filters.department}
+                  onChange={(e) => handleFilterChange('department', e.target.value)}
+                  label="Department"
+                >
+                  <MenuItem value="">All Departments</MenuItem>
+                  {departmentOptions.map((dept) => (
+                    <MenuItem key={dept._id} value={dept._id}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Project</InputLabel>
+                <Select
+                  value={filters.project}
+                  onChange={(e) => handleFilterChange('project', e.target.value)}
+                  label="Project"
+                >
+                  <MenuItem value="">All Projects</MenuItem>
+                  {projectOptions
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((project) => (
+                      <MenuItem key={project._id} value={project._id}>
+                        {project.name}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Box sx={{ display: 'flex', gap: 1, justifyContent: { xs: 'stretch', md: 'flex-end' } }}>
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  startIcon={<ClearIcon />}
+                  onClick={clearFilters}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  onClick={handleExportMonthlySummary}
+                >
+                  Export
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+        </Box>
+
         {/* Pagination Info */}
         <Box sx={{ 
           p: 2, 
@@ -2066,7 +2271,7 @@ Do you want to:
                   }}
                 >
                   <MenuItem value="">All Departments</MenuItem>
-                  {departments.map((dept) => (
+                  {departmentOptions.map((dept) => (
                     <MenuItem key={dept._id} value={dept._id}>
                       {dept.name}
                     </MenuItem>
@@ -2114,7 +2319,8 @@ Do you want to:
                   <MenuItem value="">
                     <em>All Projects</em>
                   </MenuItem>
-                  {projects
+                  {projectOptions
+                    .slice()
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map((project) => (
                       <MenuItem key={project._id} value={project._id}>
@@ -2194,7 +2400,7 @@ Do you want to:
                     )}
                     {filters.department && (
                       <Chip 
-                        label={`Department: ${departments.find(d => d._id === filters.department)?.name}`} 
+                        label={`Department: ${departmentOptions.find(d => d._id === String(filters.department))?.name || filters.department}`} 
                         size="small" 
                         onDelete={() => handleFilterChange('department', '')}
                         color="info"
@@ -2212,7 +2418,7 @@ Do you want to:
                     )}
                     {filters.project && (
                       <Chip 
-                        label={`Project: ${projects.find(p => p._id === filters.project)?.name}`} 
+                        label={`Project: ${projectOptions.find(p => p._id === String(filters.project))?.name || filters.project}`} 
                         size="small" 
                         onDelete={() => handleFilterChange('project', '')}
                         color="secondary"

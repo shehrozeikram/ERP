@@ -10,6 +10,9 @@ const { calculateMonthlyTax } = require('../utils/taxCalculator');
 
 const router = express.Router();
 
+const isProvidentFundEnabledForEmployee = (employee) =>
+  employee?.providentFund?.isActive === true;
+
 // @route   GET /api/payslips
 // @desc    Get all payslips with pagination and filters
 // @access  Private (HR and Admin)
@@ -69,7 +72,7 @@ router.get('/:id',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const payslip = await Payslip.findById(req.params.id)
-      .populate('employee', 'employeeId firstName lastName email phone department position')
+      .populate('employee', 'employeeId firstName lastName email phone department position providentFund')
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
 
@@ -78,6 +81,10 @@ router.get('/:id',
         success: false,
         message: 'Payslip not found'
       });
+    }
+
+    if (!isProvidentFundEnabledForEmployee(payslip.employee)) {
+      payslip.deductions.providentFund = 0;
     }
 
     res.json({
@@ -145,6 +152,8 @@ router.post('/',
     const grossSalary = employee.salary?.gross || 0;
     const taxInfo = calculateMonthlyTax(grossSalary);
 
+    const pfEnabled = isProvidentFundEnabledForEmployee(employee);
+
     // Generate payslip number
     const payslipNumber = `PS${year}${month.toString().padStart(2, '0')}${employee.employeeId}`;
     
@@ -178,7 +187,7 @@ router.post('/',
         otherEarnings: earnings?.otherEarnings || 0
       },
       deductions: {
-        providentFund: deductions?.providentFund || 0,
+        providentFund: pfEnabled ? (deductions?.providentFund || 0) : 0,
         eobi: deductions?.eobi || 0,
         incomeTax: taxInfo.monthlyTax,
         loanDeduction: deductions?.loanDeduction || 0,
