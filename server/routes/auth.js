@@ -15,26 +15,25 @@ const fs = require('fs');
 const UserLoginLog = require('../models/general/UserLoginLog');
 const { getClientIP, getUserAgent } = require('../utils/requestHelpers');
 const realtimeNotificationGateway = require('../services/realtimeNotificationGateway');
+const { findEmployeeForAuthUser } = require('../utils/employeeUserLink');
 
 const router = express.Router();
 
 /** Attach linked employee fields (incl. explicit reporting line choice) to auth profile payload. */
 async function attachEmployeeProfileFields(userProfile, userDoc) {
-  const userRef = userDoc?._id || userDoc?.id;
-  if (!userRef) return userProfile;
+  const employeeData = await findEmployeeForAuthUser(userDoc, {
+    select: 'jobDescription leaveBalance reportingLine employeeId',
+    autoLink: true
+  });
 
-  const employeeData = await Employee.findOne({
-    $or: [{ user: userRef }, { employeeId: userDoc.employeeId }]
-  })
-    .select('jobDescription leaveBalance reportingLine employeeId')
-    .populate('reportingLine', 'firstName lastName employeeId');
+  if (!employeeData) return userProfile;
 
-  if (employeeData) {
-    userProfile.jobDescription = employeeData.jobDescription;
-    userProfile.leaveBalance = employeeData.leaveBalance;
-    userProfile.employeeDocId = employeeData._id;
-    userProfile.reportingLine = employeeData.reportingLine || null;
-  }
+  await employeeData.populate('reportingLine', 'firstName lastName employeeId');
+
+  userProfile.jobDescription = employeeData.jobDescription;
+  userProfile.leaveBalance = employeeData.leaveBalance;
+  userProfile.employeeDocId = employeeData._id;
+  userProfile.reportingLine = employeeData.reportingLine || null;
 
   return userProfile;
 }
@@ -412,9 +411,7 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
 // @desc    Get active employees for manager/HOD selection
 // @access  Private
 router.get('/reporting-options', authMiddleware, asyncHandler(async (req, res) => {
-  const me = await Employee.findOne({
-    $or: [{ user: req.user._id }, { employeeId: req.user.employeeId }]
-  }).select('_id');
+  const me = await findEmployeeForAuthUser(req.user, { select: '_id', autoLink: true });
 
   const query = {
     isDeleted: { $ne: true },
@@ -487,14 +484,16 @@ router.put('/profile', [
   );
 
   if (reportingLineId !== undefined) {
-    const employeeDoc = await Employee.findOne({
-      $or: [{ user: req.user.id }, { employeeId: req.user.employeeId }]
-    }).select('_id reportingLine');
+    const employeeDoc = await findEmployeeForAuthUser(req.user, {
+      select: '_id reportingLine employeeId email',
+      autoLink: true
+    });
 
     if (!employeeDoc) {
       return res.status(404).json({
         success: false,
-        message: 'Employee profile not found for reporting line update'
+        message:
+          'No HR employee record is linked to your login. Ask HR to link your user account to your employee profile, or ensure your login email / employee ID matches HR records.'
       });
     }
 

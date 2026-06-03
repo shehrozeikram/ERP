@@ -4,22 +4,22 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const KPIWorksheet = require('../models/hr/KPIWorksheet');
 const Employee = require('../models/hr/Employee');
 const { getOrCreateWorksheet, ensureWorksheetsForMonth } = require('../utils/kpiWorksheetService');
+const { findEmployeeForAuthUser } = require('../utils/employeeUserLink');
 
 const router = express.Router();
 
 async function employeeFromUser(userCtx) {
-  const userId =
-    typeof userCtx === 'object'
-      ? userCtx?._id || userCtx?.id
-      : userCtx;
-  const employeeId = typeof userCtx === 'object' ? userCtx?.employeeId : null;
-  const or = [];
-  if (userId) or.push({ user: userId });
-  if (employeeId) or.push({ employeeId });
-  if (!or.length) return null;
-  return Employee.findOne({ $or: or })
-    .select('_id reportingLine manager hod firstName lastName employeeId')
-    .lean();
+  if (typeof userCtx !== 'object' || userCtx === null) {
+    if (!userCtx) return null;
+    return Employee.findById(userCtx)
+      .select('_id reportingLine manager hod firstName lastName employeeId')
+      .lean();
+  }
+  const doc = await findEmployeeForAuthUser(userCtx, {
+    select: '_id reportingLine manager hod firstName lastName employeeId',
+    autoLink: true
+  });
+  return doc ? doc.toObject() : null;
 }
 
 function isHrAdmin(role) {
