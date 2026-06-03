@@ -777,6 +777,22 @@ mongoose.connection.once('open', async () => {
         console.log('🔔 Starting IT Notification Service...');
         itNotificationService.start();
         console.log('✅ IT Notification Service started successfully');
+      })(),
+
+      // Clear legacy auto follow-up mappings (one-time safe cleanup on each deploy)
+      (async () => {
+        try {
+          const RecoveryCampaign = require('./models/finance/RecoveryCampaign');
+          const r = await RecoveryCampaign.updateMany(
+            { followUpCampaignId: { $exists: true, $ne: null } },
+            { $unset: { followUpCampaignId: '' } }
+          );
+          if (r.modifiedCount > 0) {
+            console.log(`[Recovery] Cleared legacy follow-up on ${r.modifiedCount} campaign(s)`);
+          }
+        } catch (e) {
+          console.warn('[Recovery] Legacy follow-up cleanup skipped:', e.message);
+        }
       })()
     ];
     
@@ -833,9 +849,8 @@ server.listen(PORT, '0.0.0.0', async () => {
     console.error('❌ Failed to start Deferred Entry Cron:', error);
   }
 
-  // Recovery WhatsApp follow-up cron intentionally disabled.
-  // Follow-ups are now controlled per campaign and executed manually via Run now.
-  
+  // Recovery WhatsApp: manual sends only (My Tasks). No cron or automatic follow-up.
+
   try {
     const { startKpiWorksheetMonthlyCron } = require('./utils/kpiWorksheetMonthlyCron');
     startKpiWorksheetMonthlyCron();

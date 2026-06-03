@@ -7,11 +7,10 @@ const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
 
 /**
- * Core WhatsApp send (single recipient). Used by routes and auto follow-up cron.
+ * Core WhatsApp send (single recipient). Manual sends from My Tasks / recovery routes only.
  * @returns {Promise<{ ok: true, data, sentAs, messageId, toNumber } | { ok: false, message, statusCode, toNumber }>}
  */
-async function executeRecoveryWhatsAppSend(payload, user, options = {}) {
-  const { isAutoFollowUp = false } = options;
+async function executeRecoveryWhatsAppSend(payload, user) {
   const {
     to,
     body: textBody,
@@ -189,10 +188,9 @@ async function executeRecoveryWhatsAppSend(payload, user, options = {}) {
       } else {
         displayText = `(WhatsApp template: ${sentAs})`;
       }
-      const outLabel = isAutoFollowUp ? '[Auto follow-up] ' : '';
       await WhatsAppOutgoingMessage.create({
         to: toNumber,
-        text: outLabel + displayText,
+        text: displayText,
         messageId,
         sentAt: new Date(),
         sentBy: user?._id,
@@ -211,7 +209,7 @@ async function executeRecoveryWhatsAppSend(payload, user, options = {}) {
         'Campaign';
     }
 
-    if (assignmentId && !isAutoFollowUp) {
+    if (assignmentId) {
       try {
         const update = {};
         if (campaignLabel) {
@@ -231,8 +229,7 @@ async function executeRecoveryWhatsAppSend(payload, user, options = {}) {
 
     await recordRecoveryOutboundActivity({
       assignmentId,
-      phone: toNumber,
-      isAutoFollowUp
+      phone: toNumber
     });
 
     return { ok: true, data, sentAs, messageId, toNumber };

@@ -21,15 +21,14 @@ const recoveryAssignmentSchema = new mongoose.Schema(
     callFeedback: { type: String, trim: true, default: '' },
     lastCampaignSentAt: { type: Date },
     lastCampaignName: { type: String, trim: true, default: '' },
-    /** RecoveryCampaign used for the last manual/campaign send (drives per-campaign follow-up). */
+    /** RecoveryCampaign used for the last manual send from My Tasks. */
     lastCampaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'RecoveryCampaign' },
-    /** Last outbound WhatsApp (any type) — starts / tracks the messaging cycle. */
+    /** Last outbound WhatsApp (any type). */
     lastOutboundAt: { type: Date },
     /** Last customer reply via webhook (any incoming message). */
     lastCustomerReplyAt: { type: Date },
-    /** Anchor for auto follow-up: last manual/campaign send that opened the session window. */
+    /** Legacy fields (no longer used for auto follow-up). */
     sessionAnchorAt: { type: Date },
-    /** When the automatic session-refresh campaign was sent for the current anchor. */
     autoFollowUpSentAt: { type: Date },
     taskStatus: { type: String, trim: true, default: 'pending' },
     taskCompletedAt: { type: Date },

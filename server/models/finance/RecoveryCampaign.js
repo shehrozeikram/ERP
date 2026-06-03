@@ -21,12 +21,6 @@ const recoveryCampaignSchema = new mongoose.Schema(
       trim: true,
       default: ''
     },
-    /** Auto follow-up template sent when this campaign was the last one messaged and customer did not reply. */
-    followUpCampaignId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'RecoveryCampaign',
-      default: null
-    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
