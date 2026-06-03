@@ -123,6 +123,12 @@ const userSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  /** When no HR Employee row is linked, reporting line is stored on the user (see employeeUserLink). */
+  reportingLine: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    default: null
+  },
   lastLogin: {
     type: Date
   },

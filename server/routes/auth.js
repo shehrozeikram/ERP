@@ -15,7 +15,11 @@ const fs = require('fs');
 const UserLoginLog = require('../models/general/UserLoginLog');
 const { getClientIP, getUserAgent } = require('../utils/requestHelpers');
 const realtimeNotificationGateway = require('../services/realtimeNotificationGateway');
-const { findEmployeeForAuthUser } = require('../utils/employeeUserLink');
+const {
+  findEmployeeForAuthUser,
+  loadReportingLineForProfile,
+  saveReportingLineForUser
+} = require('../utils/employeeUserLink');
 
 const router = express.Router();
 
@@ -26,14 +30,13 @@ async function attachEmployeeProfileFields(userProfile, userDoc) {
     autoLink: true
   });
 
-  if (!employeeData) return userProfile;
+  if (employeeData) {
+    userProfile.jobDescription = employeeData.jobDescription;
+    userProfile.leaveBalance = employeeData.leaveBalance;
+    userProfile.employeeDocId = employeeData._id;
+  }
 
-  await employeeData.populate('reportingLine', 'firstName lastName employeeId');
-
-  userProfile.jobDescription = employeeData.jobDescription;
-  userProfile.leaveBalance = employeeData.leaveBalance;
-  userProfile.employeeDocId = employeeData._id;
-  userProfile.reportingLine = employeeData.reportingLine || null;
+  userProfile.reportingLine = await loadReportingLineForProfile(userDoc);
 
   return userProfile;
 }
@@ -484,46 +487,22 @@ router.put('/profile', [
   );
 
   if (reportingLineId !== undefined) {
-    const employeeDoc = await findEmployeeForAuthUser(req.user, {
-      select: '_id reportingLine employeeId email',
-      autoLink: true
-    });
-
-    if (!employeeDoc) {
-      return res.status(404).json({
-        success: false,
-        message:
-          'No HR employee record is linked to your login. Ask HR to link your user account to your employee profile, or ensure your login email / employee ID matches HR records.'
-      });
-    }
-
-    const validateReportingTarget = async (idValue) => {
-      if (idValue === '' || idValue === null) return null;
-      if (!mongoose.Types.ObjectId.isValid(idValue)) {
-        throw new Error('Invalid reporting line id');
-      }
-      if (String(idValue) === String(employeeDoc._id)) {
-        throw new Error('Reporting line cannot be yourself');
-      }
-      const target = await Employee.findOne({
-        _id: idValue,
-        isDeleted: { $ne: true },
-        isActive: true
-      }).select('_id');
-      if (!target) throw new Error('Reporting line employee not found or inactive');
-      return target._id;
-    };
-
     try {
-      employeeDoc.reportingLine = await validateReportingTarget(reportingLineId);
+      await saveReportingLineForUser(req.user, reportingLineId);
     } catch (e) {
+      if (e.code === 'NO_EMPLOYEE_LINK') {
+        return res.status(404).json({
+          success: false,
+          message:
+            `Your login (${req.user.email || 'unknown'}) is not linked to your own HR employee record, so reporting line cannot be saved yet. ` +
+            'The manager you selected (e.g. Adeel Khalid Siddiqui) only needs to exist in HR — your account must match your employee profile by email, employee ID, or name. Ask HR to link your user in Admin → User Management to your HR employee, or align email/employee ID.'
+        });
+      }
       return res.status(400).json({
         success: false,
         message: e.message || 'Invalid reporting line values'
       });
     }
-
-    await employeeDoc.save();
   }
 
   const userProfile = updatedUser.getProfile();
