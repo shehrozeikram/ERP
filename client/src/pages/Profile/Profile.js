@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Box, 
@@ -31,6 +31,20 @@ import { getImageUrl } from '../../utils/imageService';
 import { fetchMyKpiWorksheet, fetchTeamKpiWorksheets } from '../../services/kpiWorksheetService';
 
 const CHAT_SOUND_PREF_PREFIX = 'sgc:chat-sound-enabled:';
+
+const resolveReportingLineId = (reportingLine) => {
+  if (!reportingLine) return '';
+  if (typeof reportingLine === 'object') {
+    return String(reportingLine._id || reportingLine.id || '');
+  }
+  return String(reportingLine);
+};
+
+const formatReportingLineLabel = (emp) => {
+  if (!emp) return '';
+  const name = [emp.firstName, emp.lastName].filter(Boolean).join(' ') || emp.employeeId || 'Employee';
+  return emp.employeeId ? `${name} (${emp.employeeId})` : name;
+};
 
 const Profile = () => {
   const showLeaveBalanceSection = false; // Temporarily hidden; keep code for easy re-enable
@@ -86,8 +100,23 @@ const Profile = () => {
   }, [user?.id, user?._id]);
 
   useEffect(() => {
-    setReportingLineId(user?.reportingLine?._id || '');
-  }, [user?.reportingLine?._id]);
+    setReportingLineId(resolveReportingLineId(user?.reportingLine));
+  }, [user?.reportingLine]);
+
+  const reportingLineOptions = useMemo(() => {
+    const opts = [...reportingOptions];
+    const current = user?.reportingLine;
+    const currentId = resolveReportingLineId(current);
+    if (currentId && !opts.some((e) => String(e._id) === currentId)) {
+      opts.unshift({
+        _id: currentId,
+        firstName: current?.firstName,
+        lastName: current?.lastName,
+        employeeId: current?.employeeId
+      });
+    }
+    return opts;
+  }, [reportingOptions, user?.reportingLine]);
 
   useEffect(() => {
     const fetchReportingOptions = async () => {
@@ -330,10 +359,13 @@ const Profile = () => {
   const handleSaveReportingLine = async () => {
     try {
       setSavingReportingLine(true);
-      await updateProfile({ reportingLineId: reportingLineId || null });
-      await refreshUser();
+      await authService.updateProfile({ reportingLineId: reportingLineId || null });
+      const refreshed = await refreshUser();
+      const savedId = resolveReportingLineId(refreshed?.user?.reportingLine);
+      setReportingLineId(savedId);
       setSnackbar({ open: true, message: 'Reporting line updated successfully', severity: 'success' });
     } catch (error) {
+      setReportingLineId(resolveReportingLineId(user?.reportingLine));
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Failed to update reporting line',
@@ -638,6 +670,11 @@ const Profile = () => {
               <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2 }}>
                 Reporting line
               </Typography>
+              {user?.reportingLine && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Assigned: <strong>{formatReportingLineLabel(user.reportingLine)}</strong>
+                </Typography>
+              )}
               <Grid container spacing={2}>
                 <Grid item xs={12}>
                   <TextField
@@ -648,9 +685,9 @@ const Profile = () => {
                     onChange={(e) => setReportingLineId(e.target.value)}
                   >
                     <MenuItem value="">None</MenuItem>
-                    {reportingOptions.map((emp) => (
-                      <MenuItem key={emp._id} value={emp._id}>
-                        {[emp.firstName, emp.lastName].filter(Boolean).join(' ') || emp.employeeId} ({emp.employeeId})
+                    {reportingLineOptions.map((emp) => (
+                      <MenuItem key={emp._id} value={String(emp._id)}>
+                        {formatReportingLineLabel(emp)}
                       </MenuItem>
                     ))}
                   </TextField>

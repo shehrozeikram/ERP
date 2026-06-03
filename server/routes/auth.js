@@ -18,6 +18,27 @@ const realtimeNotificationGateway = require('../services/realtimeNotificationGat
 
 const router = express.Router();
 
+/** Attach linked employee fields (incl. explicit reporting line choice) to auth profile payload. */
+async function attachEmployeeProfileFields(userProfile, userDoc) {
+  const userRef = userDoc?._id || userDoc?.id;
+  if (!userRef) return userProfile;
+
+  const employeeData = await Employee.findOne({
+    $or: [{ user: userRef }, { employeeId: userDoc.employeeId }]
+  })
+    .select('jobDescription leaveBalance reportingLine employeeId')
+    .populate('reportingLine', 'firstName lastName employeeId');
+
+  if (employeeData) {
+    userProfile.jobDescription = employeeData.jobDescription;
+    userProfile.leaveBalance = employeeData.leaveBalance;
+    userProfile.employeeDocId = employeeData._id;
+    userProfile.reportingLine = employeeData.reportingLine || null;
+  }
+
+  return userProfile;
+}
+
 // Configure multer for profile image uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -377,26 +398,8 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
   await req.user.populate('subRoles', 'name module permissions description');
   
   const userProfile = req.user.getProfile();
-  
-  // Fetch employee specific data (Job Description, Leave Balance)
-  const employeeData = await Employee.findOne({
-    $or: [
-      { user: req.user._id },
-      { employeeId: req.user.employeeId }
-    ]
-  })
-    .select('jobDescription leaveBalance reportingLine manager hod employeeId')
-    .populate('reportingLine', 'firstName lastName employeeId')
-    .populate('manager', 'firstName lastName employeeId')
-    .populate('hod', 'firstName lastName employeeId');
+  await attachEmployeeProfileFields(userProfile, req.user);
 
-  if (employeeData) {
-    userProfile.jobDescription = employeeData.jobDescription;
-    userProfile.leaveBalance = employeeData.leaveBalance;
-    userProfile.employeeDocId = employeeData._id;
-    userProfile.reportingLine = employeeData.reportingLine || employeeData.manager || employeeData.hod || null;
-  }
-  
   res.json({
     success: true,
     data: {
@@ -524,11 +527,14 @@ router.put('/profile', [
     await employeeDoc.save();
   }
 
+  const userProfile = updatedUser.getProfile();
+  await attachEmployeeProfileFields(userProfile, updatedUser);
+
   res.json({
     success: true,
     message: 'Profile updated successfully',
     data: {
-      user: updatedUser.getProfile()
+      user: userProfile
     }
   });
 }));

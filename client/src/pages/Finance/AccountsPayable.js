@@ -68,6 +68,13 @@ import ComparativeStatementView from '../../components/Procurement/ComparativeSt
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import NarrationTableCell from '../../components/common/NarrationTableCell';
 import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
+import { useAuth } from '../../contexts/AuthContext';
+import FinanceApprovalAuthorityPicker from '../../components/finance/FinanceApprovalAuthorityPicker';
+import {
+  buildFinanceApprovalAuthoritiesPayload,
+  fetchFinanceAuthorityCandidates,
+  validateFinanceAuthoritySelection
+} from '../../services/financeApprovalAuthorityService';
 
 const getBillPayeeEmployeeId = (bill) => {
   const pe = bill?.payeeEmployee;
@@ -87,6 +94,13 @@ const getBillPayeeEmployeeDisplayName = (bill) => {
 };
 
 const AccountsPayable = () => {
+  const { user: currentUser } = useAuth();
+  const preparerUserId = String(currentUser?.id || currentUser?._id || '');
+  const preparerDisplayName = [currentUser?.firstName, currentUser?.lastName]
+    .filter(Boolean)
+    .join(' ')
+    .trim() || currentUser?.email || 'Preparer';
+
   const getPaidAmount = (bill) => {
     // Backend responses are inconsistent: sometimes use `paidAmount`, sometimes `amountPaid`.
     const paid = bill?.paidAmount ?? bill?.amountPaid ?? 0;
@@ -98,11 +112,14 @@ const AccountsPayable = () => {
     return Math.round((getPaidAmount(bill) + getAdvanceAppliedAmount(bill)) * 100) / 100;
   };
 
+  const getSettlementPending = (bill) =>
+    Number(bill?.settlementPending ?? ((bill?.advancePending || 0) + (bill?.paymentPending || 0))) || 0;
+
   const getOutstanding = (bill) => {
     const total = Number(bill?.totalAmount || 0);
     const adv = Number(bill?.advanceApplied || 0);
-    // Use `outstandingAmount` if the API provides it (even when it's `0`).
-    const outRaw = (bill?.outstandingAmount ?? (total - getPaidAmount(bill) - adv));
+    const pending = getSettlementPending(bill);
+    const outRaw = bill?.outstandingAmount ?? (total - getPaidAmount(bill) - adv - pending);
     return Math.round((Number(outRaw) || 0) * 100) / 100;
   };
 
@@ -236,6 +253,11 @@ const AccountsPayable = () => {
   const [loadingPayeeCashApprovals, setLoadingPayeeCashApprovals] = useState(false);
   const [caApplyAmounts, setCaApplyAmounts] = useState({});
   const [processingCaApply, setProcessingCaApply] = useState(false);
+  const [financeAuthorityCandidates, setFinanceAuthorityCandidates] = useState([]);
+  const [billPaymentFinAuth, setBillPaymentFinAuth] = useState({
+    accountsManagerUser: null,
+    financeControllerUser: null
+  });
   const [filters, setFilters] = useState({
     status: '',
     vendor: '',
@@ -259,6 +281,19 @@ const AccountsPayable = () => {
   useEffect(() => {
     fetchAccountsPayable();
   }, [filters, pagination.currentPage]);
+
+  useEffect(() => {
+    if (!paymentDialogOpen) return;
+    let cancelled = false;
+    fetchFinanceAuthorityCandidates()
+      .then((list) => {
+        if (!cancelled) setFinanceAuthorityCandidates(list);
+      })
+      .catch(() => {
+        if (!cancelled) setFinanceAuthorityCandidates([]);
+      });
+    return () => { cancelled = true; };
+  }, [paymentDialogOpen]);
 
   // Load bank/cash accounts from chart of accounts (transactional Current Asset accounts)
   useEffect(() => {
@@ -537,6 +572,7 @@ const AccountsPayable = () => {
     }
 
     setCaApplyAmounts({});
+    setBillPaymentFinAuth({ accountsManagerUser: null, financeControllerUser: null });
     setPaymentDialogOpen(true);
 
     if (employeeId) {
@@ -654,15 +690,26 @@ const AccountsPayable = () => {
       }
     }
 
+    const finAuthErr = validateFinanceAuthoritySelection(billPaymentFinAuth);
+    if (finAuthErr) {
+      toast.error(finAuthErr);
+      return;
+    }
+    const financeApprovalAuthorities = buildFinanceApprovalAuthoritiesPayload(
+      billPaymentFinAuth,
+      preparerUserId
+    );
+
     try {
       setProcessingCaApply(true);
       const response = await api.post('/finance/accounts-payable/apply-employee-advance-batch', {
         employeeId: selectedEmployeePayee.employeeId,
         cashApprovalUsages,
-        billAllocations
+        billAllocations,
+        financeApprovalAuthorities
       });
       if (response.data?.success) {
-        toast.success(response.data.message || 'Cash approval applied to bill(s)');
+        toast.success(response.data.message || 'Cash approval submitted for bill(s)');
         setCaApplyAmounts({});
         await refreshPaymentDialogData();
         fetchAccountsPayable();
@@ -680,6 +727,16 @@ const AccountsPayable = () => {
       return;
     }
 
+    const finAuthErr = validateFinanceAuthoritySelection(billPaymentFinAuth);
+    if (finAuthErr) {
+      toast.error(finAuthErr);
+      return;
+    }
+    const financeApprovalAuthorities = buildFinanceApprovalAuthoritiesPayload(
+      billPaymentFinAuth,
+      preparerUserId
+    );
+
     try {
       setProcessingPayment(true);
       const payRows = outstandingTransactions
@@ -690,17 +747,22 @@ const AccountsPayable = () => {
         setProcessingPayment(false);
         return;
       }
+      let paymentToast = '';
       for (const row of payRows) {
-        await api.post(`/finance/accounts-payable/${row.billId}/payment`, {
+        const payRes = await api.post(`/finance/accounts-payable/${row.billId}/payment`, {
           amount: row.payAmount,
           paymentMethod: paymentData.paymentMethod,
           reference: paymentData.reference,
           paymentDate: paymentData.paymentDate,
           whtRate: Number(paymentData.whtRate) || 0,
-          bankAccountId: paymentData.bankAccountId || null
+          bankAccountId: paymentData.bankAccountId || null,
+          financeApprovalAuthorities
         });
+        paymentToast = payRes?.data?.message || paymentToast;
       }
-      toast.success(`Payment posted for ${payRows.length} bill(s)`);
+      toast.success(
+        paymentToast || `Payment submitted for ${payRows.length} bill(s) — pending finance approval`
+      );
       setPaymentDialogOpen(false);
       fetchAccountsPayable();
     } catch (error) {
@@ -1161,6 +1223,9 @@ const AccountsPayable = () => {
                         </TableCell>
                         <TableCell>
                           <Chip label={bill.status?.toUpperCase() || 'UNKNOWN'} size="small" color={getStatusColor(bill.status)} icon={getStatusIcon(bill.status)} />
+                          {getSettlementPending(bill) > 0 ? (
+                            <Chip label="Pending approval" size="small" color="warning" variant="outlined" sx={{ ml: 0.5 }} />
+                          ) : null}
                         </TableCell>
                         <TableCell>
                           <Chip label={`${days} days`} size="small" color={getAgingColor(days)} />
@@ -1899,6 +1964,20 @@ const AccountsPayable = () => {
               </Paper>
             </Grid>
             <Grid item xs={12}>
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
+                <Grid container spacing={1.5}>
+                  <FinanceApprovalAuthorityPicker
+                    finAuth={billPaymentFinAuth}
+                    onChange={setBillPaymentFinAuth}
+                    candidateUsers={financeAuthorityCandidates}
+                    preparerName={preparerDisplayName}
+                    disabled={processingCaApply || processingPayment}
+                    title="Finance approval authorities (required before apply or payment)"
+                  />
+                </Grid>
+              </Paper>
+            </Grid>
+            <Grid item xs={12}>
               <Paper variant="outlined" sx={{ p: 1.5 }}>
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>
                   {payeeType === 'employee' ? 'Outstanding bills — apply advance (Step 2a)' : 'Outstanding Transactions'}
@@ -2175,7 +2254,9 @@ const AccountsPayable = () => {
                         disabled={
                           processingCaApply ||
                           employeeAdvanceApplyTotals.totalCaUsage <= 0 ||
-                          employeeAdvanceApplyTotals.remainingToAllocate !== 0
+                          employeeAdvanceApplyTotals.remainingToAllocate !== 0 ||
+                          !billPaymentFinAuth.accountsManagerUser ||
+                          !billPaymentFinAuth.financeControllerUser
                         }
                         onClick={handleApplyCaAdvanceToBill}
                       >
@@ -2253,7 +2334,16 @@ const AccountsPayable = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={handleRecordPayment} disabled={processingPayment}>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleRecordPayment}
+            disabled={
+              processingPayment
+              || !billPaymentFinAuth.accountsManagerUser
+              || !billPaymentFinAuth.financeControllerUser
+            }
+          >
             {processingPayment ? 'Processing…' : 'Post Payment'}
           </Button>
         </DialogActions>

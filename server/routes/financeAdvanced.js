@@ -138,6 +138,72 @@ const upload = multer({
   }
 });
 
+const User = require('../models/User');
+
+// @route   GET /api/finance/finance-authority-candidates
+// @desc    Active users for AP settlement / vendor advance finance authority pickers
+// @access  Private (Finance and Admin)
+router.get('/finance-authority-candidates',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 150, 1), 200);
+    const search = String(req.query.search || '').trim();
+    const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const andClauses = [
+      { isActive: true },
+      {
+        $or: [
+          { department: { $regex: /finance|account/i } },
+          { role: { $in: ['finance_manager', 'admin', 'super_admin'] } }
+        ]
+      }
+    ];
+    if (search) {
+      const rx = new RegExp(escapeRx(search), 'i');
+      andClauses.push({
+        $or: [
+          { firstName: rx },
+          { lastName: rx },
+          { email: rx },
+          { employeeId: rx },
+          { department: rx }
+        ]
+      });
+    }
+
+    let users = await User.find({ $and: andClauses })
+      .select('firstName lastName email employeeId department role digitalSignature')
+      .sort({ firstName: 1, lastName: 1 })
+      .limit(limit)
+      .lean();
+
+    if (users.length < 3) {
+      const broadClauses = [{ isActive: true }];
+      if (search) {
+        const rx = new RegExp(escapeRx(search), 'i');
+        broadClauses.push({
+          $or: [
+            { firstName: rx },
+            { lastName: rx },
+            { email: rx },
+            { employeeId: rx },
+            { department: rx }
+          ]
+        });
+      }
+      users = await User.find(broadClauses.length > 1 ? { $and: broadClauses } : broadClauses[0])
+        .select('firstName lastName email employeeId department role digitalSignature')
+        .sort({ firstName: 1, lastName: 1 })
+        .limit(limit)
+        .lean();
+    }
+
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json({ success: true, data: users });
+  })
+);
+
 // ================================
 // CHART OF ACCOUNTS ROUTES
 // ================================
@@ -1510,6 +1576,58 @@ router.put('/vendor-advances/:id/finance-reject',
   })
 );
 
+const ApPaymentApplication = require('../models/finance/ApPaymentApplication');
+const ApPaymentHelper = require('../utils/apPaymentApplication');
+
+const populateApPaymentApplication = (query) => ApPaymentHelper.populateApplication(query);
+
+// @route   GET /api/finance/ap-payment-applications/by-journal-entry/:journalEntryId
+router.get('/ap-payment-applications/by-journal-entry/:journalEntryId',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const doc = await populateApPaymentApplication({ journalEntryId: req.params.journalEntryId });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'AP settlement not found for this voucher' });
+    }
+    res.json({ success: true, data: doc.toObject ? doc.toObject() : doc });
+  })
+);
+
+// @route   PUT /api/finance/ap-payment-applications/:id/finance-approve
+router.put('/ap-payment-applications/:id/finance-approve',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const app = await ApPaymentApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ success: false, message: 'AP settlement not found' });
+    const { remaining, finalized } = await ApPaymentHelper.recordAuthorityApproval(
+      app,
+      req.user,
+      req.body?.comments || ''
+    );
+    const fresh = await populateApPaymentApplication({ _id: app._id });
+    const message = finalized
+      ? 'All finance authorities approved. Voucher posted and bill settlement finalized.'
+      : `Finance authority recorded. ${remaining} approval(s) remaining.`;
+    res.json({ success: true, message, data: fresh?.toObject ? fresh.toObject() : fresh });
+  })
+);
+
+// @route   PUT /api/finance/ap-payment-applications/:id/finance-reject
+router.put('/ap-payment-applications/:id/finance-reject',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const app = await ApPaymentApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ success: false, message: 'AP settlement not found' });
+    await ApPaymentHelper.recordAuthorityRejection(app, req.user, req.body?.comments || req.body?.rejectionComments || '');
+    const fresh = await populateApPaymentApplication({ _id: app._id });
+    res.json({
+      success: true,
+      message: 'Finance authority rejection recorded. Draft voucher cancelled and bill pending amount released.',
+      data: fresh?.toObject ? fresh.toObject() : fresh
+    });
+  })
+);
+
 // @route   GET /api/finance/accounts-payable/payee-cash-approvals
 // @desc    Cash approvals linked to bill payment payee (employee or vendor)
 // IMPORTANT: Must be registered BEFORE /accounts-payable/:id
@@ -1549,11 +1667,11 @@ router.get('/accounts-payable/payee-cash-approvals',
       .limit(100)
       .lean();
 
-    const rows = cas.map((ca) => {
+    const rows = await Promise.all(cas.map(async (ca) => {
       const advanceAmount = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
       const applied = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
       const issued = Boolean(ca.advanceIssuedAt);
-      const open = issued ? Math.max(0, Math.round((advanceAmount - applied) * 100) / 100) : null;
+      const open = issued ? await ApPaymentHelper.getCaOpenForAp(ca) : null;
 
       return {
         cashApprovalId: String(ca._id),
@@ -1571,7 +1689,7 @@ router.get('/accounts-payable/payee-cash-approvals',
           ? (ca.vendor?.name || null)
           : (ca.advanceToName || null)
       };
-    });
+    }));
 
     res.json({ success: true, data: rows });
   })
@@ -1595,19 +1713,23 @@ router.get('/accounts-payable/employee-advance-balance',
       .sort({ advanceIssuedAt: 1 })
       .lean();
 
-    const advances = cas.map((ca) => {
-      const advanced = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
-      const applied = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
-      const open = Math.max(0, Math.round((advanced - applied) * 100) / 100);
-      return {
-        cashApprovalId: String(ca._id),
-        caNumber: ca.caNumber,
-        advanced,
-        applied,
-        open,
-        status: ca.status
-      };
-    }).filter((r) => r.open > 0);
+    const advances = (
+      await Promise.all(
+        cas.map(async (ca) => {
+          const advanced = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
+          const applied = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
+          const open = await ApPaymentHelper.getCaOpenForAp(ca);
+          return {
+            cashApprovalId: String(ca._id),
+            caNumber: ca.caNumber,
+            advanced,
+            applied,
+            open,
+            status: ca.status
+          };
+        })
+      )
+    ).filter((r) => r.open > 0);
 
     const totalOpen = Math.round(advances.reduce((s, r) => s + r.open, 0) * 100) / 100;
     res.json({ success: true, data: { totalOpen, advances } });
@@ -1637,14 +1759,16 @@ router.post('/accounts-payable/apply-employee-advance-batch',
       req.body.employeeId,
       req.body.cashApprovalUsages,
       req.body.billAllocations,
-      req.user._id
+      req.user._id,
+      { financeApprovalAuthorities: req.body.financeApprovalAuthorities }
     );
 
-    res.json({
-      success: true,
-      message: `Advance applied to bill(s): PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`,
-      data: result
-    });
+    const pending = Number(result.pending || 0);
+    const message = pending > 0
+      ? `Settlement submitted: PKR ${pending.toLocaleString('en-PK')} pending finance voucher approval on ${(result.adjustments || []).length} voucher(s).`
+      : `Advance applied to bill(s): PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`;
+
+    res.json({ success: true, message, data: result });
   })
 );
 
@@ -1768,10 +1892,15 @@ router.post('/accounts-payable/:id/payment',
         whtRate:       Number(req.body.whtRate)  || 0,
         bankAccountId: req.body.bankAccountId    || null,
         allocations:   req.body.allocations      || [],
-        createdBy:     req.user._id
+        createdBy:     req.user._id,
+        financeApprovalAuthorities: req.body.financeApprovalAuthorities
       });
 
-      res.json({ success: true, message: 'Payment recorded successfully', data: updatedBill });
+      const pending = updatedBill?._pendingSettlement;
+      const message = pending
+        ? `Payment submitted: PKR ${Number(pending.amount || 0).toLocaleString('en-PK')} pending finance voucher approval. Bill will show as paid after all authorities approve.`
+        : 'Payment recorded successfully';
+      res.json({ success: true, message, data: updatedBill });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message || 'Failed to record payment' });
     }
@@ -1889,22 +2018,28 @@ router.post('/accounts-payable/:id/apply-advance',
           req.body.amount ?? null,
           employeeId,
           req.user._id,
-          { allocations }
+          {
+            allocations,
+            financeApprovalAuthorities: req.body.financeApprovalAuthorities
+          }
         );
       } catch (empErr) {
         if (source === 'employee' || allocations.length > 0) throw empErr;
       }
     }
 
-    if (Number(result.applied || 0) <= 0 && source !== 'employee' && allocations.length === 0) {
-      result = await FinanceHelper.applyVendorAdvanceToBill(req.params.id, req.body.amount ?? null, req.user._id);
+    if (Number(result.applied || 0) <= 0 && Number(result.pending || 0) <= 0 && source !== 'employee' && allocations.length === 0) {
+      result = await FinanceHelper.applyVendorAdvanceToBill(req.params.id, req.body.amount ?? null, req.user._id, {
+        financeApprovalAuthorities: req.body.financeApprovalAuthorities
+      });
     }
 
-    res.json({
-      success: true,
-      message: `Advance applied: PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`,
-      data: result
-    });
+    const pending = Number(result.pending || 0);
+    const message = pending > 0
+      ? `Settlement submitted: PKR ${pending.toLocaleString('en-PK')} pending finance voucher approval. Bill will show as paid after all authorities approve.`
+      : `Advance applied: PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`;
+
+    res.json({ success: true, message, data: result });
   })
 );
 
@@ -1978,18 +2113,21 @@ router.get('/accounts-payable',
           totalAmount: { $ifNull: ['$totalAmount', 0] },
           amountPaid: { $ifNull: ['$amountPaid', 0] },
           advanceApplied: { $ifNull: ['$advanceApplied', 0] },
-          dueDate: 1
+          advancePending: { $ifNull: ['$advancePending', 0] },
+          paymentPending: { $ifNull: ['$paymentPending', 0] },
+          dueDate: 1,
+          openBalance: {
+            $subtract: [
+              { $subtract: ['$totalAmount', '$amountPaid'] },
+              { $add: ['$advanceApplied', { $ifNull: ['$advancePending', 0] }, { $ifNull: ['$paymentPending', 0] }] }
+            ]
+          }
         }
       },
       {
         $group: {
           _id: null,
-          totalOutstanding: {
-            $sum: {
-              $subtract: [{ $subtract: ['$totalAmount', '$amountPaid'] }, '$advanceApplied']
-            }
-          },
-          // "Paid" in AP dashboard means total settlement (cash/bank + advance applied).
+          totalOutstanding: { $sum: '$openBalance' },
           totalPaid: { $sum: { $add: ['$amountPaid', '$advanceApplied'] } },
           totalOverdue: {
             $sum: {
@@ -1998,10 +2136,10 @@ router.get('/accounts-payable',
                   $and: [
                     { $ne: ['$dueDate', null] },
                     { $lt: ['$dueDate', today] },
-                    { $gt: [{ $subtract: [{ $subtract: ['$totalAmount', '$amountPaid'] }, '$advanceApplied'] }, 0] }
+                    { $gt: ['$openBalance', 0] }
                   ]
                 },
-                { $subtract: [{ $subtract: ['$totalAmount', '$amountPaid'] }, '$advanceApplied'] },
+                '$openBalance',
                 0
               ]
             }
@@ -2029,7 +2167,18 @@ router.get('/accounts-payable',
       paidAmount: bill.amountPaid || 0,
       settledAmount: Math.round((((bill.amountPaid || 0) + (bill.advanceApplied || 0)) * 100)) / 100,
       advanceApplied: bill.advanceApplied || 0,
-      outstandingAmount: Math.round(((bill.totalAmount || 0) - (bill.amountPaid || 0) - (bill.advanceApplied || 0)) * 100) / 100
+      advancePending: bill.advancePending || 0,
+      paymentPending: bill.paymentPending || 0,
+      settlementPending: Math.round(
+        (((bill.advancePending || 0) + (bill.paymentPending || 0)) * 100)
+      ) / 100,
+      outstandingAmount: Math.round(
+        ((bill.totalAmount || 0)
+          - (bill.amountPaid || 0)
+          - (bill.advanceApplied || 0)
+          - (bill.advancePending || 0)
+          - (bill.paymentPending || 0)) * 100
+      ) / 100
     }));
 
     const totalPages = Math.ceil(totalCount / parseInt(limit));

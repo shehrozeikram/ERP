@@ -18,8 +18,12 @@ const {
 } = require('../utils/utilityBillApproverEligibility');
 const {
   postUtilityBillToFinance,
-  isUtilityBillAuditFinalApproved
+  isUtilityBillAuditFinalApproved,
+  repairStaleUtilityBillsFinanceStatus,
+  syncLinkedUtilityBillsFromApPayment,
+  getFinanceApBillRefId
 } = require('../utils/utilityBillFinance');
+const AccountsPayable = require('../models/finance/AccountsPayable');
 const { applyBillLinesToPayload } = require('../utils/utilityBillLines');
 
 const MAX_BILL_ATTACHMENTS = 50;
@@ -240,7 +244,9 @@ const auditStatusesBlockingEdit = [
   'Send to Audit',
   'Forwarded to Audit Director',
   'Approved (from Send to Audit)',
-  'Approved (from Forwarded to Audit Director)'
+  'Approved (from Forwarded to Audit Director)',
+  'Partially Paid (from Finance)',
+  'Paid (from Finance)'
 ];
 
 // Configure multer for image uploads
@@ -349,11 +355,12 @@ router.get('/', permissions.checkSubRolePermission('admin', 'utility_bills_manag
 
     const total = await UtilityBill.countDocuments(query);
 
+    let filteredBills = await repairStaleUtilityBillsFinanceStatus(bills, getActorId(req));
+
     // Filter by search term if provided
-    let filteredBills = bills;
     if (search) {
       const searchLower = search.toLowerCase();
-      filteredBills = bills.filter(bill => 
+      filteredBills = filteredBills.filter(bill => 
         bill.billId?.toLowerCase().includes(searchLower) ||
         bill.provider?.toLowerCase().includes(searchLower) ||
         bill.accountNumber?.toLowerCase().includes(searchLower) ||
@@ -621,10 +628,19 @@ router.get('/form-master-data', permissions.checkSubRolePermission('admin', 'uti
 // Get single utility bill
 router.get('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
-    const bill = await populateUtilityBill(UtilityBill.findById(req.params.id));
+    let bill = await populateUtilityBill(UtilityBill.findById(req.params.id));
 
     if (!bill) {
       return res.status(404).json({ success: false, message: 'Utility bill not found' });
+    }
+
+    const financeApId = getFinanceApBillRefId(bill.financeApBillId);
+    if (financeApId && isUtilityBillAuditFinalApproved(bill.auditStatus)) {
+      const ap = await AccountsPayable.findById(financeApId);
+      if (ap && ['paid', 'partial'].includes(ap.status)) {
+        await syncLinkedUtilityBillsFromApPayment(ap, getActorId(req));
+        bill = await populateUtilityBill(UtilityBill.findById(req.params.id));
+      }
     }
 
     res.json({ success: true, data: bill });

@@ -37,6 +37,35 @@ function buildMultipartAttachment(boundary, filename, fileUtf8, contentType = 't
 }
 
 /** Draft vendor advance → finance approvals → posted JE → attachment → signed (triggers PO auto-approve when full advance). */
+/** Draft AP settlement (apply advance / payment) → finance approvals → posted JE */
+async function finalizeApSettlementApplicationsForE2e(api, applyResult, label) {
+  const apps = applyResult?.applications || [];
+  const fromAdjustments = (applyResult?.adjustments || [])
+    .filter((a) => a.applicationId)
+    .map((a) => ({ applicationId: a.applicationId }));
+  const all = apps.length ? apps : fromAdjustments;
+  if (!all.length) fail(`${label}: no AP payment applications returned`, applyResult);
+  for (const row of all) {
+    const appId = row.applicationId || row._id;
+    if (!appId) fail(`${label}: missing applicationId`, row);
+    let done = false;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const appr = await api.put(`/finance/ap-payment-applications/${appId}/finance-approve`, {});
+      if (!appr.data?.success) fail(`${label}: AP settlement finance approve failed`, appr.data);
+      const wf = appr.data?.data?.workflowStatus;
+      if (wf === 'fully_approved' || String(appr.data?.message || '').includes('finalized')) {
+        done = true;
+        break;
+      }
+    }
+    if (!done && row.journalEntryId) {
+      const check = await api.get(`/finance/ap-payment-applications/by-journal-entry/${row.journalEntryId}`);
+      if (check.data?.data?.workflowStatus === 'fully_approved') done = true;
+    }
+    if (!done) fail(`${label}: AP settlement not fully approved`, row);
+  }
+}
+
 async function finalizeVendorAdvanceVoucherForE2e(api, advanceResData, stamp, label) {
   const advId = advanceResData?._id;
   const jeId = advanceResData?.journalEntryId;
@@ -205,19 +234,50 @@ async function run() {
 
   const apply = await api.post(`/finance/accounts-payable/${bill._id}/apply-advance`, { amount: advanceAmt });
   if (!apply.data?.success) fail('Apply advance failed', apply.data);
-  ok('Advance applied to bill', apply.data.data);
+  ok('Advance apply submitted (pending voucher approval)', apply.data.data);
+
+  const afterSubmit = await api.get(`/finance/accounts-payable/${bill._id}`);
+  const billPending = afterSubmit.data?.data;
+  const outstandingAfterSubmit = Math.round(
+    ((billPending.totalAmount || 0)
+      - (billPending.amountPaid || 0)
+      - (billPending.advanceApplied || 0)
+      - (billPending.advancePending || 0)
+      - (billPending.paymentPending || 0)) * 100
+  ) / 100;
+  if (billPending.status === 'paid' || (billPending.advancePending || 0) <= 0) {
+    fail('Bill should not be paid until voucher authorities approve', billPending);
+  }
+  if (outstandingAfterSubmit > 0.02) fail('Outstanding should be zero while advance is pending approval', { outstandingAfterSubmit });
+
+  await finalizeApSettlementApplicationsForE2e(api, apply.data.data, 'Apply-advance voucher');
 
   const afterApply = await api.get(`/finance/accounts-payable/${bill._id}`);
   const billAfter = afterApply.data?.data;
   const outstanding = Math.round(((billAfter.totalAmount || 0) - (billAfter.amountPaid || 0) - (billAfter.advanceApplied || 0)) * 100) / 100;
-  if (!(billAfter.advanceApplied > 0 && outstanding >= 0)) fail('Bill advance not reflected', { advanceApplied: billAfter.advanceApplied, outstanding });
+  if (!(billAfter.advanceApplied > 0 && outstanding >= 0)) fail('Bill advance not reflected after approval', { advanceApplied: billAfter.advanceApplied, outstanding });
 
   // Pay remaining
   if (outstanding > 0.01) {
     const pay = await api.post(`/finance/accounts-payable/${bill._id}/payment`, {
-      amount: outstanding, paymentMethod: 'bank_transfer', reference: `E2E-FINALPAY-${stamp}`, paymentDate: new Date().toISOString()
+      amount: outstanding,
+      paymentMethod: 'bank_transfer',
+      reference: `E2E-FINALPAY-${stamp}`,
+      paymentDate: new Date().toISOString(),
+      financeApprovalAuthorities: {
+        accountsManagerUser: userId,
+        financeControllerUser: userId
+      }
     });
     if (!pay.data?.success) fail('Final payment failed', pay.data);
+    const payAppId = pay.data?.data?._pendingSettlement?.applicationId;
+    if (payAppId) {
+      await finalizeApSettlementApplicationsForE2e(
+        api,
+        { applications: [{ applicationId: payAppId, journalEntryId: pay.data.data._pendingSettlement.journalEntryId }] },
+        'Final payment voucher'
+      );
+    }
   }
   const billEnd = (await api.get(`/finance/accounts-payable/${bill._id}`)).data?.data;
   const rem = Math.round(((billEnd.totalAmount || 0) - (billEnd.amountPaid || 0) - (billEnd.advanceApplied || 0)) * 100) / 100;

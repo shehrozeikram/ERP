@@ -374,6 +374,8 @@ const UtilityBillDetails = () => {
   const getAuditStatusColor = (auditLabel) => {
     const s = String(auditLabel || '');
     if (s === 'Returned from Audit' || s.includes('Rejected')) return 'error';
+    if (s.includes('Paid (from Finance)')) return 'success';
+    if (s.includes('Partially Paid (from Finance)')) return 'info';
     if (s.startsWith('Approved')) return 'success';
     if (s === 'Not Sent') return 'default';
     return 'warning';

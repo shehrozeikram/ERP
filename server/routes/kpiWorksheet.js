@@ -8,10 +8,15 @@ const { getOrCreateWorksheet, ensureWorksheetsForMonth } = require('../utils/kpi
 const router = express.Router();
 
 async function employeeFromUser(userCtx) {
-  const userId = typeof userCtx === 'object' ? userCtx?._id : userCtx;
+  const userId =
+    typeof userCtx === 'object'
+      ? userCtx?._id || userCtx?.id
+      : userCtx;
   const employeeId = typeof userCtx === 'object' ? userCtx?.employeeId : null;
-  const or = [{ user: userId }];
+  const or = [];
+  if (userId) or.push({ user: userId });
   if (employeeId) or.push({ employeeId });
+  if (!or.length) return null;
   return Employee.findOne({ $or: or })
     .select('_id reportingLine manager hod firstName lastName employeeId')
     .lean();
@@ -19,6 +24,30 @@ async function employeeFromUser(userCtx) {
 
 function isHrAdmin(role) {
   return ['super_admin', 'admin', 'developer', 'hr_manager', 'higher_management'].includes(role);
+}
+
+/** Employee has committed their row once total assigned is set (> 0). Achieved may be 0. */
+function employeeHasEnteredMarks(row) {
+  const eT = Number(row?.employeeTotalAssigned);
+  if (Number.isFinite(eT) && eT > 0) return true;
+  const legacyT = Number(row?.totalAssigned);
+  return Number.isFinite(legacyT) && legacyT > 0;
+}
+
+function rowIdentityKey(row) {
+  return [
+    String(row?.kpiArea || '').trim(),
+    Number(row?.weight) || 0,
+    Number(row?.employeeAchieved) || 0,
+    Number(row?.employeeTotalAssigned) || 0,
+    Number(row?.managerAchieved) || 0,
+    Number(row?.managerTotalAssigned) || 0
+  ].join('|');
+}
+
+function rowStillPresent(prevRow, newRows) {
+  const key = rowIdentityKey(prevRow);
+  return newRows.some((r) => rowIdentityKey(r) === key);
 }
 
 async function worksheetEditFlags(req, subjectEmployeeId) {
@@ -35,8 +64,31 @@ async function worksheetEditFlags(req, subjectEmployeeId) {
   return {
     canEditStructure: owner || hr,
     canEditEmployeeCols: owner || hr,
-    canEditManagerCols: (managerOf && !owner) || hr
+    canEditManagerCols: (managerOf && !owner) || hr,
+    canDeleteRowsAsReportingLine: (managerOf && !owner) || hr
   };
+}
+
+function validateRowDeletions(prevRows, newRows, flags) {
+  const hr = flags.canEditStructure && flags.canDeleteRowsAsReportingLine && flags.canEditManagerCols;
+  if (newRows.length >= prevRows.length) return null;
+
+  const removed = prevRows.filter((pr) => !rowStillPresent(pr, newRows));
+  if (!removed.length) return null;
+
+  for (const pr of removed) {
+    const hadEmployeeMarks = employeeHasEnteredMarks(pr);
+    if (flags.canEditStructure && !flags.canDeleteRowsAsReportingLine) {
+      if (hadEmployeeMarks) {
+        return 'Cannot delete a KPI row after you have entered achieved and total assigned. Your reporting line can remove it.';
+      }
+    } else if (flags.canDeleteRowsAsReportingLine && !flags.canEditStructure) {
+      if (!hadEmployeeMarks) {
+        return 'Reporting line can only remove KPI rows after the employee has entered achieved and total assigned.';
+      }
+    }
+  }
+  return null;
 }
 
 async function populateWorksheetEmployee(doc) {
@@ -194,12 +246,24 @@ router.put(
 
     const flags = await worksheetEditFlags(req, doc.employee);
     const prevRows = (doc.rows || []).map((x) => rowToPlain(x));
+    const hr = isHrAdmin(req.user?.role);
 
-    if (!flags.canEditStructure && rows.length !== prevRows.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Only the employee (or HR) can add/remove KPI rows or change weights.'
-      });
+    if (rows.length !== prevRows.length) {
+      const canChangeStructure = flags.canEditStructure;
+      const canDeleteAsReportingLine = flags.canDeleteRowsAsReportingLine;
+
+      if (!hr && !canChangeStructure && !canDeleteAsReportingLine) {
+        return res.status(400).json({
+          success: false,
+          message: 'Only the employee (or HR) can add/remove KPI rows or change weights.'
+        });
+      }
+      if (!hr && canDeleteAsReportingLine && !canChangeStructure && rows.length > prevRows.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'Reporting line cannot add KPI rows or change weights.'
+        });
+      }
     }
 
     const cleaned = rows.map((r) => ({
@@ -228,6 +292,11 @@ router.put(
       }
       return out;
     });
+
+    const deleteErr = validateRowDeletions(prevRows, merged, flags);
+    if (deleteErr && !hr) {
+      return res.status(400).json({ success: false, message: deleteErr });
+    }
 
     const sumW = merged.reduce((s, r) => s + r.weight, 0);
     if (merged.length > 0 && Math.abs(sumW - 100) > 0.01) {

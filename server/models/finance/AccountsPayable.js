@@ -132,10 +132,40 @@ const accountsPayableSchema = new mongoose.Schema({
       return Math.round(val * 100) / 100;
     }
   },
+  /** Advance apply submitted; voucher pending finance signatures */
+  advancePending: {
+    type: Number,
+    default: 0,
+    min: 0,
+    get: function(val) {
+      return Math.round(val * 100) / 100;
+    },
+    set: function(val) {
+      return Math.round(val * 100) / 100;
+    }
+  },
+  /** Bank/cash payment submitted; voucher pending finance signatures */
+  paymentPending: {
+    type: Number,
+    default: 0,
+    min: 0,
+    get: function(val) {
+      return Math.round(val * 100) / 100;
+    },
+    set: function(val) {
+      return Math.round(val * 100) / 100;
+    }
+  },
   balanceDue: {
     type: Number,
     get: function() {
-      return Math.round((this.totalAmount - (this.amountPaid || 0) - (this.advanceApplied || 0)) * 100) / 100;
+      return Math.round(
+        (this.totalAmount
+          - (this.amountPaid || 0)
+          - (this.advanceApplied || 0)
+          - (this.advancePending || 0)
+          - (this.paymentPending || 0)) * 100
+      ) / 100;
     }
   },
   // Payment terms

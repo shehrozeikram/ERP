@@ -121,6 +121,8 @@ const CentralizedStoreBills = () => {
 
   const getWorkflowColor = (bill) => {
     const label = getWorkflowLabel(bill);
+    if (label.includes('Paid (from Finance)')) return 'success';
+    if (label.includes('Partially Paid (from Finance)')) return 'info';
     if (label.includes('Approved')) return 'success';
     if (label === 'Send to Audit' || label === 'Forwarded to Audit Director' || label === 'Submitted') return 'warning';
     if (label.includes('Rejected') || label === 'Returned from Audit') return 'error';

@@ -183,6 +183,8 @@ const utilityBillSchema = new mongoose.Schema({
       'Forwarded to Audit Director',
       'Approved (from Send to Audit)',
       'Approved (from Forwarded to Audit Director)',
+      'Partially Paid (from Finance)',
+      'Paid (from Finance)',
       'Returned from Audit',
       'Rejected (from Send to Audit)'
     ],

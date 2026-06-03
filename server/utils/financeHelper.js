@@ -366,7 +366,13 @@ const FinanceHelper = {
   },
 
   getAPOutstanding: (bill) => {
-    return Math.round(((Number(bill.totalAmount) || 0) - (Number(bill.amountPaid) || 0) - (Number(bill.advanceApplied) || 0)) * 100) / 100;
+    return Math.round(
+      ((Number(bill.totalAmount) || 0)
+        - (Number(bill.amountPaid) || 0)
+        - (Number(bill.advanceApplied) || 0)
+        - (Number(bill.advancePending) || 0)
+        - (Number(bill.paymentPending) || 0)) * 100
+    ) / 100;
   },
 
   /**
@@ -739,20 +745,30 @@ const FinanceHelper = {
    */
   recordAPPayment: async (billId, paymentData) => {
     try {
+      const ApPayment = require('./apPaymentApplication');
       const bill = await AccountsPayable.findById(billId);
       if (!bill) throw new Error('Bill not found');
 
-      const { amount, paymentMethod, reference, date, createdBy, whtRate = 0, bankAccountId, allocations } = paymentData;
+      const {
+        amount,
+        paymentMethod,
+        reference,
+        date,
+        createdBy,
+        whtRate = 0,
+        bankAccountId,
+        allocations,
+        financeApprovalAuthorities
+      } = paymentData;
 
-      // Validate amount doesn't exceed balance
+      const amount_ = Math.round((Number(amount) || 0) * 100) / 100;
       const balance = FinanceHelper.getAPOutstanding(bill);
-      if (amount > balance + 0.01) {
-        throw new Error(`Payment amount PKR ${amount} exceeds outstanding balance PKR ${balance}`);
+      if (amount_ > balance + 0.01) {
+        throw new Error(`Payment amount PKR ${amount_} exceeds outstanding balance PKR ${balance}`);
       }
 
-      // WHT calculation
-      const whtAmount = whtRate > 0 ? Math.round(amount * (whtRate / 100) * 100) / 100 : 0;
-      const netBankAmount = Math.round((amount - whtAmount) * 100) / 100;
+      const whtAmount = whtRate > 0 ? Math.round(amount_ * (whtRate / 100) * 100) / 100 : 0;
+      const netBankAmount = Math.round((amount_ - whtAmount) * 100) / 100;
 
       const normalizedAllocations = Array.isArray(allocations)
         ? allocations
@@ -762,51 +778,69 @@ const FinanceHelper = {
           }))
           .filter((a) => a.grnId && a.amount > 0)
         : [];
-      bill.payments.push({ amount, paymentDate: date || new Date(), paymentMethod, reference, createdBy, allocations: normalizedAllocations });
-      bill.amountPaid = Math.round((bill.amountPaid + amount) * 100) / 100;
-      FinanceHelper._updateDocumentStatus(bill);
-      await bill.save();
 
-      const apAccount  = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
-      let bankAccount  = bankAccountId ? await Account.findById(bankAccountId) : null;
+      const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+      let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
       if (!bankAccount) {
         bankAccount = await FinanceHelper.getAccountByNumber(
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
+      if (!apAccount || !bankAccount) throw new Error('AP or Bank/Cash account not found');
 
-      if (apAccount && bankAccount) {
-        const lines = [
-          { account: apAccount._id,  description: `Payment to ${bill.vendor.name} – ${bill.billNumber}`, debit: amount,        department: bill.department },
-          { account: bankAccount._id, description: `Bank payment – ${bill.billNumber}`,                  credit: netBankAmount, department: bill.department }
-        ];
-
-        // WHT deduction line
-        if (whtAmount > 0) {
-          const whtAccount = await FinanceHelper.getAccountByNumber('2004'); // WHT Payable
-          if (whtAccount) {
-            lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${bill.vendor.name}`, credit: whtAmount, department: bill.department });
-          } else {
-            // If no WHT account, add to bank credit to keep it balanced
-            lines[1].credit = amount;
-          }
+      const lines = [
+        { account: apAccount._id, description: `Payment to ${bill.vendor.name} – ${bill.billNumber}`, debit: amount_, department: bill.department },
+        { account: bankAccount._id, description: `Bank payment – ${bill.billNumber} (pending signatures)`, credit: netBankAmount, department: bill.department }
+      ];
+      if (whtAmount > 0) {
+        const whtAccount = await FinanceHelper.getAccountByNumber('2004');
+        if (whtAccount) {
+          lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${bill.vendor.name}`, credit: whtAmount, department: bill.department });
+        } else {
+          lines[1].credit = amount_;
         }
-
-        await FinanceHelper.createAndPostJournalEntry({
-          date:          date || new Date(),
-          reference:     reference || bill.billNumber,
-          description:   `Payment: ${bill.billNumber} – ${bill.vendor.name}`,
-          department:    bill.department,
-          module:        bill.module,
-          referenceId:   bill._id,
-          referenceType: 'payment',
-          journalCode:   'BANK',
-          createdBy,
-          lines
-        });
       }
 
-      return bill;
+      const authorities = await ApPayment.resolvePaymentFinanceAuthorities(
+        bill,
+        financeApprovalAuthorities,
+        createdBy
+      );
+
+      const { application, journalEntry } = await ApPayment.submitSettlement({
+        bill,
+        amount: amount_,
+        sourceType: 'bank_payment',
+        createdBy,
+        financeApprovalAuthorities: authorities,
+        journalPayload: {
+          date: date || new Date(),
+          reference: reference || bill.billNumber,
+          description: `Payment: ${bill.billNumber} – ${bill.vendor.name} (pending finance signatures)`,
+          department: bill.department,
+          module: bill.module,
+          referenceType: 'payment',
+          journalCode: 'BANK',
+          voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
+          lines
+        },
+        paymentMeta: {
+          paymentMethod,
+          reference: reference || bill.billNumber,
+          whtRate,
+          bankAccountId: bankAccount._id,
+          allocations: normalizedAllocations
+        }
+      });
+
+      const fresh = await AccountsPayable.findById(bill._id);
+      fresh._pendingSettlement = {
+        applicationId: application._id,
+        journalEntryId: journalEntry._id,
+        amount: amount_,
+        workflowStatus: 'pending_authority'
+      };
+      return fresh;
     } catch (error) {
       console.error('❌ Error recording AP payment:', error);
       throw error;
@@ -916,12 +950,13 @@ const FinanceHelper = {
     return advance;
   },
 
-  applyVendorAdvanceToBill: async (billId, requestedAmount = null, createdBy = null) => {
+  applyVendorAdvanceToBill: async (billId, requestedAmount = null, createdBy = null, options = {}) => {
+    const ApPayment = require('./apPaymentApplication');
     const bill = await AccountsPayable.findById(billId);
     if (!bill) throw new Error('Bill not found');
 
     let remainingBill = FinanceHelper.getAPOutstanding(bill);
-    if (remainingBill <= 0) return { bill, applied: 0, adjustments: [] };
+    if (remainingBill <= 0) return { bill, applied: 0, pending: 0, adjustments: [], applications: [] };
 
     let remainingRequest = requestedAmount == null ? remainingBill : Math.round((Number(requestedAmount) || 0) * 100) / 100;
     if (remainingRequest <= 0) throw new Error('Apply amount must be greater than zero');
@@ -936,67 +971,76 @@ const FinanceHelper = {
     const advances = await VendorAdvance.find(query).sort({ paymentDate: 1, createdAt: 1 });
 
     const adjustments = [];
+    const applications = [];
+    let totalPending = 0;
+
     for (const adv of advances) {
       if (remainingBill <= 0 || remainingRequest <= 0) break;
       const wf = adv.voucherWorkflowStatus || 'immediate';
       if (wf === 'pending_authority' || wf === 'rejected') continue;
       const advRemaining = Math.round(((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0)) * 100) / 100;
-      if (advRemaining <= 0) continue;
-      const applyAmount = Math.min(remainingBill, remainingRequest, advRemaining);
+      const pendingOnAdv = await ApPayment.sumPendingForVendorAdvance(adv._id);
+      const openAdv = Math.max(0, Math.round((advRemaining - pendingOnAdv) * 100) / 100);
+      if (openAdv <= 0) continue;
+      const applyAmount = Math.min(remainingBill, remainingRequest, openAdv);
       if (applyAmount <= 0) continue;
 
-      await FinanceHelper.createAndPostJournalEntry({
-        date: new Date(),
-        reference: `ADV-ADJ-${bill.billNumber}`,
-        description: `Vendor advance adjusted against ${bill.billNumber}`,
-        department: bill.department,
-        module: bill.module,
-        referenceId: bill._id,
-        referenceType: 'payment',
-        journalCode: 'PURCH',
-        createdBy: createdBy || bill.createdBy,
-        lines: [
-          { account: apAccount._id, description: `Advance adjusted – ${bill.billNumber}`, debit: applyAmount, department: bill.department },
-          { account: advAccount._id, description: `Advance utilization – ${adv.reference || adv._id}`, credit: applyAmount, department: bill.department }
-        ]
-      });
-
-      bill.advanceApplied = Math.round(((Number(bill.advanceApplied) || 0) + applyAmount) * 100) / 100;
-      adv.appliedAmount = Math.round(((Number(adv.appliedAmount) || 0) + applyAmount) * 100) / 100;
-      const newRem = Math.round(((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0)) * 100) / 100;
-      adv.status = newRem <= 0.01 ? 'applied' : 'partially_applied';
-      // Keep a detailed allocation history for UI breakdown.
-      if (!Array.isArray(adv.allocations)) adv.allocations = [];
-      adv.allocations.push({
-        billId: bill._id,
-        billNumber: bill.billNumber,
+      const { application, journalEntry } = await ApPayment.submitSettlement({
+        bill,
         amount: applyAmount,
-        appliedAt: new Date()
+        sourceType: 'vendor_advance',
+        createdBy: createdBy || bill.createdBy,
+        financeApprovalAuthorities: options.financeApprovalAuthorities,
+        authoritySourceDoc: adv,
+        vendorAdvanceId: adv._id,
+        journalPayload: {
+          date: new Date(),
+          reference: `ADV-ADJ-${bill.billNumber}`,
+          description: `Vendor advance adjusted against ${bill.billNumber} (pending finance signatures)`,
+          department: bill.department,
+          module: bill.module,
+          referenceType: 'adjustment',
+          journalCode: 'ADJUSTMENT',
+          voucherSeries: 'JV',
+          lines: [
+            { account: apAccount._id, description: `Advance adjusted – ${bill.billNumber}`, debit: applyAmount, department: bill.department },
+            { account: advAccount._id, description: `Advance utilization – ${adv.reference || adv._id}`, credit: applyAmount, department: bill.department }
+          ]
+        }
       });
-      await adv.save();
 
-      adjustments.push({ advanceId: adv._id, reference: adv.reference, amount: applyAmount });
+      adjustments.push({ advanceId: adv._id, reference: adv.reference, amount: applyAmount, pending: true });
+      applications.push({
+        applicationId: application._id,
+        journalEntryId: journalEntry._id,
+        advanceId: adv._id
+      });
+      totalPending += applyAmount;
       remainingBill = FinanceHelper.getAPOutstanding(bill);
       remainingRequest = Math.round((remainingRequest - applyAmount) * 100) / 100;
     }
 
-    FinanceHelper._updateDocumentStatus(bill);
-    await bill.save();
-    return { bill, applied: adjustments.reduce((s, a) => s + a.amount, 0), adjustments };
+    const fresh = await AccountsPayable.findById(bill._id);
+    return {
+      bill: fresh,
+      applied: 0,
+      pending: totalPending,
+      adjustments,
+      applications
+    };
   },
 
-  _getCaOpenAdvanceForAp: (ca) => {
-    const advanced = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
-    const alreadyToAp = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
-    return Math.max(0, Math.round((advanced - alreadyToAp) * 100) / 100);
+  _getCaOpenAdvanceForAp: async (ca) => {
+    const ApPayment = require('./apPaymentApplication');
+    return ApPayment.getCaOpenForAp(ca);
   },
 
-  _applyOneCashApprovalToBill: async (ca, bill, applyAmount, employee, createdBy) => {
+  _applyOneCashApprovalToBill: async (ca, bill, applyAmount, employee, createdBy, options = {}) => {
+    const ApPayment = require('./apPaymentApplication');
     const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
     if (!apAccount) throw new Error('Accounts Payable account not found');
 
-    const alreadyToAp = Math.round((Number(ca.apAdvanceApplied) || 0) * 100) / 100;
-    const caRemaining = FinanceHelper._getCaOpenAdvanceForAp(ca);
+    const caRemaining = await FinanceHelper._getCaOpenAdvanceForAp(ca);
     const amount = Math.round((Number(applyAmount) || 0) * 100) / 100;
     if (amount <= 0) throw new Error('Apply amount must be greater than zero');
     if (amount > caRemaining + 0.009) {
@@ -1016,46 +1060,38 @@ const FinanceHelper = {
     }
     if (!advAccount) throw new Error(`No advance account for ${ca.caNumber}`);
 
-    await FinanceHelper.createAndPostJournalEntry({
-      date: new Date(),
-      reference: `CA-ADJ-${bill.billNumber}`,
-      description: `Cash approval ${ca.caNumber} applied to bill ${bill.billNumber}`,
-      department: bill.department || 'general',
-      module: bill.module || 'general',
-      referenceId: bill._id,
-      referenceType: 'adjustment',
-      journalCode: 'ADJUSTMENT',
-      voucherSeries: 'JV',
+    const { application, journalEntry } = await ApPayment.submitSettlement({
+      bill,
+      amount,
+      sourceType: 'cash_approval',
       createdBy: createdBy || bill.createdBy,
-      lines: [
-        {
-          account: apAccount._id,
-          description: `Advance applied – ${bill.billNumber}`,
-          debit: amount,
-          department: bill.department
-        },
-        {
-          account: advAccount._id,
-          description: `CA ${ca.caNumber} utilized`,
-          credit: amount,
-          department: bill.department || 'general'
-        }
-      ]
+      financeApprovalAuthorities: options.financeApprovalAuthorities,
+      authoritySourceDoc: ca,
+      cashApprovalId: ca._id,
+      journalPayload: {
+        date: new Date(),
+        reference: `CA-ADJ-${bill.billNumber}`,
+        description: `Cash approval ${ca.caNumber} applied to bill ${bill.billNumber} (pending finance signatures)`,
+        department: bill.department || 'general',
+        module: bill.module || 'general',
+        referenceType: 'adjustment',
+        journalCode: 'ADJUSTMENT',
+        voucherSeries: 'JV',
+        lines: [
+          { account: apAccount._id, description: `Advance applied – ${bill.billNumber}`, debit: amount, department: bill.department },
+          { account: advAccount._id, description: `CA ${ca.caNumber} utilized`, credit: amount, department: bill.department || 'general' }
+        ]
+      }
     });
 
-    ca.apAdvanceApplied = Math.round((alreadyToAp + amount) * 100) / 100;
-    await ca.save();
-
-    bill.advanceApplied = Math.round(((Number(bill.advanceApplied) || 0) + amount) * 100) / 100;
-    if (!Array.isArray(bill.employeeAdvanceAllocations)) bill.employeeAdvanceAllocations = [];
-    bill.employeeAdvanceAllocations.push({
+    return {
       cashApprovalId: ca._id,
       caNumber: ca.caNumber,
       amount,
-      appliedAt: new Date()
-    });
-
-    return { cashApprovalId: ca._id, caNumber: ca.caNumber, amount };
+      pending: true,
+      applicationId: application._id,
+      journalEntryId: journalEntry._id
+    };
   },
 
   applyEmployeeAdvanceToBill: async (billId, requestedAmount = null, employeeId = null, createdBy = null, options = {}) => {
@@ -1069,10 +1105,7 @@ const FinanceHelper = {
     if (!employee) throw new Error('Employee not found');
 
     let remainingBill = FinanceHelper.getAPOutstanding(bill);
-    if (remainingBill <= 0) return { bill, applied: 0, adjustments: [] };
-
-    const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
-    if (!apAccount) throw new Error('Accounts Payable account not found');
+    if (remainingBill <= 0) return { bill, applied: 0, pending: 0, adjustments: [] };
 
     const adjustments = [];
     const explicitAllocations = Array.isArray(options.allocations)
@@ -1098,10 +1131,10 @@ const FinanceHelper = {
         }
 
         const applyAmount = Math.min(row.amount, remainingBill);
-        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmount, employee, createdBy);
+        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmount, employee, createdBy, options);
         if (!bill.payeeEmployee) bill.payeeEmployee = empId;
         adjustments.push(adj);
-        remainingBill = Math.round((remainingBill - applyAmount) * 100) / 100;
+        remainingBill = FinanceHelper.getAPOutstanding(bill);
       }
     } else {
       let remainingRequest = requestedAmount == null
@@ -1118,35 +1151,33 @@ const FinanceHelper = {
       for (const ca of cas) {
         if (remainingBill <= 0 || remainingRequest <= 0) break;
 
-        const caRemaining = FinanceHelper._getCaOpenAdvanceForAp(ca);
+        const caRemaining = await FinanceHelper._getCaOpenAdvanceForAp(ca);
         if (caRemaining <= 0) continue;
 
         const applyAmount = Math.min(remainingBill, remainingRequest, caRemaining);
         if (applyAmount <= 0) continue;
 
-        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmount, employee, createdBy);
+        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmount, employee, createdBy, options);
         if (!bill.payeeEmployee) bill.payeeEmployee = empId;
         adjustments.push(adj);
-        remainingBill = Math.round((remainingBill - applyAmount) * 100) / 100;
+        remainingBill = FinanceHelper.getAPOutstanding(bill);
         remainingRequest = Math.round((remainingRequest - applyAmount) * 100) / 100;
       }
     }
 
-    FinanceHelper._updateDocumentStatus(bill);
-    await bill.save();
-
-    const applied = adjustments.reduce((s, a) => s + a.amount, 0);
-    if (applied <= 0) {
+    const pending = adjustments.reduce((s, a) => s + a.amount, 0);
+    if (pending <= 0) {
       throw new Error('No open cash approval advance balance for this employee');
     }
-    return { bill, applied, adjustments };
+    const fresh = await AccountsPayable.findById(bill._id);
+    return { bill: fresh, applied: 0, pending, adjustments };
   },
 
   /**
    * Apply one or more cash approval advances to one or more AP bills (Taj deposit-style reconciliation).
    * Total from cashApprovalUsages must equal total from billAllocations.
    */
-  applyEmployeeAdvanceBatch: async (employeeId, cashApprovalUsages = [], billAllocations = [], createdBy = null) => {
+  applyEmployeeAdvanceBatch: async (employeeId, cashApprovalUsages = [], billAllocations = [], createdBy = null, options = {}) => {
     const empId = employeeId;
     if (!empId) throw new Error('Employee is required');
 
@@ -1201,11 +1232,11 @@ const FinanceHelper = {
           throw new Error(`${ca.caNumber || 'CA'} is not for this employee`);
         }
 
-        const caOpen = FinanceHelper._getCaOpenAdvanceForAp(ca);
+        const caOpen = await FinanceHelper._getCaOpenAdvanceForAp(ca);
         const applyAmt = Math.min(billNeed, p.remaining, caOpen);
         if (applyAmt <= 0) continue;
 
-        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmt, employee, createdBy);
+        const adj = await FinanceHelper._applyOneCashApprovalToBill(ca, bill, applyAmt, employee, createdBy, options);
         if (!bill.payeeEmployee) bill.payeeEmployee = empId;
         adjustments.push({ ...adj, billId: String(bill._id), billNumber: bill.billNumber });
         p.remaining = Math.round((p.remaining - applyAmt) * 100) / 100;
@@ -1215,13 +1246,10 @@ const FinanceHelper = {
       if (billNeed > 0.009) {
         throw new Error(`Could not apply full amount to bill ${bill.billNumber}. Reduce bill allocation or add cash approval balance.`);
       }
-
-      FinanceHelper._updateDocumentStatus(bill);
-      await bill.save();
     }
 
-    const applied = Math.round(adjustments.reduce((s, a) => s + a.amount, 0) * 100) / 100;
-    return { applied, adjustments };
+    const pending = Math.round(adjustments.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    return { applied: 0, pending, adjustments };
   },
 
   /**

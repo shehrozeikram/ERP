@@ -124,7 +124,18 @@ const defaultFlags = {
   canEditStructure: true,
   canEditEmployeeCols: true,
   // Safer before GET returns; reporting-line columns are not for the sheet owner (except HR tooling).
-  canEditManagerCols: false
+  canEditManagerCols: false,
+  canDeleteRowsAsReportingLine: false
+};
+
+/** Employee locked the row once total assigned > 0 (achieved may be 0). */
+const employeeHasEnteredMarks = (row) => (Number(row?.employeeTotalAssigned) || 0) > 0;
+
+const canDeleteKpiRow = (row, editFlags, isHrAdminUser) => {
+  if (isHrAdminUser) return true;
+  if (editFlags.canDeleteRowsAsReportingLine && employeeHasEnteredMarks(row)) return true;
+  if (editFlags.canEditStructure && !employeeHasEnteredMarks(row)) return true;
+  return false;
 };
 
 const KPIMonthlySheet = () => {
@@ -149,6 +160,7 @@ const KPIMonthlySheet = () => {
   const [hrEmployees, setHrEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   const targetEmployeeId = useMemo(() => {
     if (isHrPage && isHrAdmin && hrEmployeeId) return hrEmployeeId;
@@ -162,6 +174,14 @@ const KPIMonthlySheet = () => {
     if (!targetEmployeeId) return false;
     return editFlags.canEditManagerCols;
   }, [targetEmployeeId, editFlags.canEditManagerCols]);
+
+  const isOwnSheet = !targetEmployeeId;
+
+  const canSaveSheet = useMemo(() => {
+    if (saving) return false;
+    if (sheet?._id) return true;
+    return isOwnSheet && editFlags.canEditStructure;
+  }, [saving, sheet?._id, isOwnSheet, editFlags.canEditStructure]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -198,10 +218,12 @@ const KPIMonthlySheet = () => {
       setSheet(null);
       setRows([]);
       setEditFlags(defaultFlags);
+      setLoadError(null);
       setLoading(false);
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       let res;
       if (targetEmployeeId) {
@@ -230,7 +252,9 @@ const KPIMonthlySheet = () => {
       });
       setRows(r.length ? r : []);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load KPI sheet');
+      const msg = err.response?.data?.message || 'Failed to load KPI sheet';
+      setLoadError(msg);
+      toast.error(msg);
       setSheet(null);
       setRows([]);
       setEditFlags(defaultFlags);
@@ -286,11 +310,43 @@ const KPIMonthlySheet = () => {
   const addRow = () => setRows((r) => recomputeLocal([...r, emptyRow()]));
 
   const removeRow = (index) => {
+    const row = rows[index];
+    if (!canDeleteKpiRow(row, editFlags, isHrAdmin)) {
+      if (employeeHasEnteredMarks(row)) {
+        toast.error('You cannot delete this KPI after entering achieved and total assigned. Your reporting line can remove it.');
+      } else {
+        toast.error('Only your reporting line can remove KPI rows before you enter achieved and total assigned.');
+      }
+      return;
+    }
     setRows((r) => recomputeLocal(r.filter((_, i) => i !== index)));
   };
 
+  const ensureSheetId = async () => {
+    if (sheet?._id) return sheet._id;
+    try {
+      let res;
+      if (targetEmployeeId) {
+        res = await fetchEmployeeKpiWorksheet(targetEmployeeId, { year, month });
+      } else {
+        res = await fetchMyKpiWorksheet({ year, month });
+      }
+      const data = res.data?.data;
+      const flags = res.data?.editFlags || defaultFlags;
+      if (data?._id) {
+        setSheet(data);
+        setEditFlags(flags);
+        return data._id;
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not create KPI sheet for this month');
+    }
+    return null;
+  };
+
   const handleSave = async () => {
-    if (!sheet?._id) return;
+    const sheetId = sheet?._id || (await ensureSheetId());
+    if (!sheetId) return;
     if (rows.length > 0 && Math.abs(totalWeight - 100) > 0.01) {
       toast.error(`Weights must total 100%. Current: ${totalWeight}%`);
       return;
@@ -307,7 +363,7 @@ const KPIMonthlySheet = () => {
     };
     setSaving(true);
     try {
-      const res = await updateKpiWorksheet(sheet._id, payload);
+      const res = await updateKpiWorksheet(sheetId, payload);
       setSheet(res.data?.data);
       setEditFlags(res.data?.editFlags || defaultFlags);
       const d = res.data?.data;
@@ -358,26 +414,6 @@ const KPIMonthlySheet = () => {
           Pending reviews this month: <strong>{pendingReviews}</strong>
         </Alert>
       )}
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        Employees define <strong>KPI areas</strong> and <strong>weights</strong> (total 100%). Use separate columns for{' '}
-        <strong>employee</strong> vs <strong>reporting line</strong> counts. Achievement %, score, and final weightage use{' '}
-        <strong>reporting line</strong> numbers when reporting line &quot;Total assigned&quot; &gt; 0; otherwise they use the employee row
-        (same idea as linking your two Excel sheets).
-        {!targetEmployeeId && (
-          <>
-            {' '}
-            On <strong>your</strong> sheet, fill only the <strong>Employee</strong> achieved / total assigned; the{' '}
-            <strong>Reporting line</strong> pair is disabled and is entered by your reporting line (e.g.{' '}
-            <strong>Team KPI reviews</strong>). HR may edit reporting-line values when your employee is selected in{' '}
-            <strong>HR → Monthly KPI sheet</strong>.
-          </>
-        )}
-      </Typography>
-      <Alert severity="info" sx={{ mb: 2 }}>
-        <strong>Where saved sheets appear:</strong> this page — choose <strong>Month</strong> and <strong>Year</strong> to
-        switch periods. Profile: <strong>User Profile → Monthly KPI sheet</strong> (<code>/profile/kpi-sheet</code>). HR
-        menu: <strong>KPI Management → Monthly KPI sheet</strong> (<code>/hr/kpi/sheet</code>) to open any employee.
-      </Alert>
 
       {!isHrPage && team.length > 0 && (
         <Card sx={{ mb: 2 }}>
@@ -474,6 +510,20 @@ const KPIMonthlySheet = () => {
           )}
         </CardContent>
       </Card>
+
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {loadError}
+        </Alert>
+      )}
+
+      {!loading && targetEmployeeId && !canEditStructure && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          You are viewing a team member&apos;s sheet. Use <strong>Back to my sheet</strong> to add KPI areas and weights on
+          your own monthly sheet. As reporting line, you can remove a KPI row only after the employee has entered achieved
+          and total assigned on that row.
+        </Alert>
+      )}
 
       {loading ? (
         <Box display="flex" justifyContent="center" py={6}>
@@ -602,7 +652,7 @@ const KPIMonthlySheet = () => {
                         color="error"
                         onClick={() => removeRow(index)}
                         aria-label="Remove row"
-                        disabled={!canEditStructure}
+                        disabled={!canDeleteKpiRow(row, editFlags, isHrAdmin)}
                       >
                         <DeleteIcon fontSize="small" />
                       </IconButton>
@@ -628,12 +678,22 @@ const KPIMonthlySheet = () => {
           </TableContainer>
 
           <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button variant="outlined" startIcon={<AddIcon />} onClick={addRow} disabled={!canEditStructure || (isTeamReviewPage && !sheet?._id)}>
+            <Button
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={addRow}
+              disabled={!canEditStructure || loadError || (isTeamReviewPage && !sheet?._id && !isOwnSheet)}
+            >
               Add KPI row
             </Button>
-            <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSave} disabled={saving || !sheet?._id}>
+            <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSave} disabled={!canSaveSheet || loadError}>
               {saving ? <CircularProgress size={22} /> : 'Save'}
             </Button>
+            {canEditStructure && rows.length > 0 && Math.abs(totalWeight - 100) > 0.01 && (
+              <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+                Weights must total 100% before save (current: {totalWeight}%)
+              </Typography>
+            )}
           </Box>
         </>
       )}

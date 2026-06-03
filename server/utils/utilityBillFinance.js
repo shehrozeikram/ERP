@@ -392,6 +392,123 @@ const tryAutoPostUtilityBillToFinance = async (billId, actorId) => {
   return postUtilityBillToFinance(fresh, actorId);
 };
 
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** financeApBillId may be an ObjectId or a populated AP document from list/detail queries. */
+const getFinanceApBillRefId = (ref) => {
+  if (!ref) return null;
+  if (typeof ref === 'object' && ref._id) return ref._id;
+  const s = String(ref).trim();
+  if (/^[a-fA-F0-9]{24}$/.test(s)) return s;
+  const embedded = s.match(/ObjectId\("([a-fA-F0-9]{24})"\)/);
+  if (embedded) return embedded[1];
+  return null;
+};
+
+/**
+ * After Finance AP is settled (paid/partial), mirror status on linked Admin utility bills.
+ */
+const syncLinkedUtilityBillsFromApPayment = async (apBill, userId) => {
+  if (!apBill?._id) return { synced: 0 };
+
+  const UtilityBill = require('../models/hr/UtilityBill');
+  const orConditions = [{ financeApBillId: apBill._id }];
+  if (apBill.referenceType === 'utility_bill' && apBill.referenceId) {
+    orConditions.push({ _id: apBill.referenceId });
+  }
+
+  const bills = await UtilityBill.find({ $or: orConditions });
+  if (!bills.length) return { synced: 0 };
+
+  const actorId = normalizeActorId(userId);
+  const settled = round2((Number(apBill.amountPaid) || 0) + (Number(apBill.advanceApplied) || 0));
+  const apTotal = round2(Number(apBill.totalAmount) || 0);
+  const isPaid = apBill.status === 'paid' || (apTotal > 0 && settled >= apTotal - 0.01);
+  const isPartial = !isPaid && settled > 0.01;
+  if (!isPaid && !isPartial) return { synced: 0 };
+
+  const lastPayment = Array.isArray(apBill.payments) && apBill.payments.length
+    ? apBill.payments[apBill.payments.length - 1]
+    : null;
+  const paymentDate = lastPayment?.paymentDate ? new Date(lastPayment.paymentDate) : new Date();
+  const paymentRef = lastPayment?.reference || apBill.billNumber || '';
+
+  let synced = 0;
+  for (const bill of bills) {
+    const billTotal = round2(Number(bill.amount) || getUtilityBillPostAmount(bill));
+    const previousAudit = bill.auditStatus || 'Not Sent';
+    const nextAudit = isPaid ? 'Paid (from Finance)' : 'Partially Paid (from Finance)';
+
+    if (bill.auditStatus === nextAudit && round2(bill.paidAmount) >= (isPaid ? billTotal : settled) - 0.01) {
+      continue;
+    }
+
+    bill.paidAmount = isPaid ? billTotal : Math.min(settled, billTotal);
+    bill.auditStatus = nextAudit;
+    if (isPaid && !bill.paymentDate) {
+      bill.paymentDate = paymentDate;
+    }
+    if (actorId) bill.updatedBy = actorId;
+
+    if (!Array.isArray(bill.workflowHistory)) bill.workflowHistory = [];
+    bill.workflowHistory.push({
+      fromStatus: previousAudit,
+      toStatus: nextAudit,
+      changedBy: actorId,
+      changedAt: new Date(),
+      comments: `Finance settlement on AP ${apBill.billNumber}${paymentRef ? ` (${paymentRef})` : ''}: PKR ${settled.toLocaleString()}`,
+      module: 'finance'
+    });
+
+    await bill.save();
+    synced += 1;
+  }
+
+  return { synced };
+};
+
+/** Backfill Admin workflow when Finance AP is already paid but utility bill audit status was not updated. */
+const repairStaleUtilityBillsFinanceStatus = async (utilityBills, userId) => {
+  const list = Array.isArray(utilityBills) ? utilityBills : [];
+  const stale = list.filter(
+    (b) => b?.financeApBillId && isUtilityBillAuditFinalApproved(b.auditStatus)
+  );
+  if (!stale.length) return list;
+
+  const AccountsPayable = require('../models/finance/AccountsPayable');
+  const apIds = [...new Set(
+    stale.map((b) => getFinanceApBillRefId(b.financeApBillId)).filter(Boolean)
+  )];
+  if (!apIds.length) return list;
+
+  const paidAps = await AccountsPayable.find({
+    _id: { $in: apIds },
+    status: { $in: ['paid', 'partial'] }
+  });
+  if (!paidAps.length) return list;
+
+  const actorId = normalizeActorId(userId);
+  for (const ap of paidAps) {
+    await syncLinkedUtilityBillsFromApPayment(ap, actorId);
+  }
+
+  const UtilityBill = require('../models/hr/UtilityBill');
+  const refreshIds = stale.map((b) => b._id);
+  const refreshed = await UtilityBill.find({ _id: { $in: refreshIds } })
+    .select('auditStatus paidAmount status paymentDate workflowHistory')
+    .lean();
+  const byId = new Map(refreshed.map((r) => [String(r._id), r]));
+
+  return list.map((bill) => {
+    const patch = byId.get(String(bill._id));
+    if (!patch) return bill;
+    if (typeof bill.toObject === 'function') {
+      return { ...bill.toObject(), ...patch };
+    }
+    return { ...bill, ...patch };
+  });
+};
+
 module.exports = {
   UTILITY_EXPENSE_ACCOUNT,
   buildUtilityBillLineItems,
@@ -400,5 +517,8 @@ module.exports = {
   isUtilityBillAuditFinalApproved,
   postJournalForUtilityAp,
   tryAutoPostUtilityBillToFinance,
+  syncLinkedUtilityBillsFromApPayment,
+  repairStaleUtilityBillsFinanceStatus,
+  getFinanceApBillRefId,
   normalizeActorId
 };

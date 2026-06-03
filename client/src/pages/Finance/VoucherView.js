@@ -28,6 +28,7 @@ const VoucherView = () => {
   const [entry, setEntry] = useState(null);
   const [cashApproval, setCashApproval] = useState(null);
   const [vendorAdvanceDoc, setVendorAdvanceDoc] = useState(null);
+  const [apPaymentApp, setApPaymentApp] = useState(null);
   const [approvalMsg, setApprovalMsg] = useState('');
 
   useEffect(() => {
@@ -60,19 +61,26 @@ const VoucherView = () => {
   }, [entry?.referenceId]);
 
   useEffect(() => {
-    const loadVendorAdvance = async () => {
+    const loadLinkedDocs = async () => {
+      if (!entry?._id) {
+        setVendorAdvanceDoc(null);
+        setApPaymentApp(null);
+        return;
+      }
       try {
-        if (!entry?._id) {
-          setVendorAdvanceDoc(null);
-          return;
-        }
+        const apRes = await api.get(`/finance/ap-payment-applications/by-journal-entry/${entry._id}`);
+        setApPaymentApp(apRes?.data?.data || null);
+      } catch (_e) {
+        setApPaymentApp(null);
+      }
+      try {
         const res = await api.get(`/finance/vendor-advances/by-journal-entry/${entry._id}`);
         setVendorAdvanceDoc(res?.data?.data || null);
       } catch (_e) {
         setVendorAdvanceDoc(null);
       }
     };
-    loadVendorAdvance();
+    loadLinkedDocs();
   }, [entry?._id]);
 
   const reloadEntry = async () => {
@@ -84,9 +92,27 @@ const VoucherView = () => {
     }
   };
 
+  const refreshApPaymentApp = async () => {
+    try {
+      const res = await api.get(`/finance/ap-payment-applications/by-journal-entry/${id}`);
+      setApPaymentApp(res?.data?.data || apPaymentApp);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const approveMyAuthorityFromVoucher = async () => {
     try {
       setApprovalMsg('');
+      if (apPaymentApp?._id) {
+        await api.put(`/finance/ap-payment-applications/${apPaymentApp._id}/finance-approve`, {
+          comments: 'Approved from Voucher page'
+        });
+        await refreshApPaymentApp();
+        await reloadEntry();
+        setApprovalMsg('Authority approval recorded. Bill is marked paid when all three authorities have approved.');
+        return;
+      }
       if (cashApproval?._id) {
         await api.put(`/cash-approvals/${cashApproval._id}/finance-approve`, { comments: 'Approved from Voucher page' });
         const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
@@ -110,6 +136,15 @@ const VoucherView = () => {
   const rejectMyAuthorityFromVoucher = async () => {
     try {
       setApprovalMsg('');
+      if (apPaymentApp?._id) {
+        await api.put(`/finance/ap-payment-applications/${apPaymentApp._id}/finance-reject`, {
+          comments: 'Rejected from Voucher page'
+        });
+        await refreshApPaymentApp();
+        await reloadEntry();
+        setApprovalMsg('Settlement rejected. Draft voucher cancelled; bill remains unpaid.');
+        return;
+      }
       if (cashApproval?._id) {
         await api.put(`/cash-approvals/${cashApproval._id}/finance-reject`, { comments: 'Rejected from Voucher page' });
         const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
@@ -130,7 +165,10 @@ const VoucherView = () => {
     }
   };
 
-  const financeAuthorityDoc = cashApproval || vendorAdvanceDoc;
+  const financeAuthorityDoc = apPaymentApp || vendorAdvanceDoc || cashApproval;
+  const pendingAuthorityVoucher =
+    (apPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
+    || (vendorAdvanceDoc?.voucherWorkflowStatus === 'pending_authority' && entry?.status === 'draft');
 
   const myPendingAuthorityLabels = useMemo(() => {
     if (!financeAuthorityDoc || !user) return [];
@@ -244,10 +282,19 @@ const VoucherView = () => {
               {approvalMsg}
             </Alert>
           ) : null}
-          {vendorAdvanceDoc?.voucherWorkflowStatus === 'pending_authority' && entry?.status === 'draft' ? (
+          {pendingAuthorityVoucher ? (
             <Alert severity="warning" sx={{ mb: 1.5 }}>
-              This voucher is <strong>draft</strong> until all finance authorities approve. General ledger and account balances update only after final approval.
+              This voucher is <strong>draft</strong> until all finance authorities approve.
+              {apPaymentApp
+                ? ' The related vendor bill stays unpaid until final approval.'
+                : ' General ledger and account balances update only after final approval.'}
             </Alert>
+          ) : null}
+          {apPaymentApp?.accountsPayableId ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Bill: <strong>{apPaymentApp.billNumber || apPaymentApp.accountsPayableId?.billNumber || '—'}</strong>
+              {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}
+            </Typography>
           ) : null}
           {myPendingAuthorityLabels.length > 0 ? (
             <Box className="app-print-hide" sx={{ mb: 1.5 }}>
