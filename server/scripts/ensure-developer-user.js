@@ -48,6 +48,7 @@ loadEnvFiles();
 const mongoose = require('mongoose');
 const { getMongoUri, getMongooseClientOptions } = require('../config/database');
 const User = require('../models/User');
+const { linkDeveloperShehrozeAccount } = require('../utils/employeeUserLink');
 
 const CONFIG = {
   email: 'developer@tovus.net',
@@ -144,6 +145,13 @@ async function main() {
   }
 
   await user.save();
+
+  const link = await linkDeveloperShehrozeAccount();
+  if (link.ok) {
+    console.log(`   HR employee linked: ${link.employeeId} (${link.employeeDocId})`);
+  } else {
+    console.warn(`   ⚠️ HR link: ${link.message}`);
+  }
 
   console.log('\n✅ Done. Sign in with:');
   console.log(`   Email:    ${emailLower}`);

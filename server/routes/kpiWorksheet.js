@@ -8,17 +8,11 @@ const { findEmployeeForAuthUser } = require('../utils/employeeUserLink');
 
 const router = express.Router();
 
+const EMPLOYEE_SELECT = '_id reportingLine manager hod firstName lastName employeeId';
+
 async function employeeFromUser(userCtx) {
-  if (typeof userCtx !== 'object' || userCtx === null) {
-    if (!userCtx) return null;
-    return Employee.findById(userCtx)
-      .select('_id reportingLine manager hod firstName lastName employeeId')
-      .lean();
-  }
-  const doc = await findEmployeeForAuthUser(userCtx, {
-    select: '_id reportingLine manager hod firstName lastName employeeId',
-    autoLink: true
-  });
+  if (!userCtx || typeof userCtx !== 'object') return null;
+  const doc = await findEmployeeForAuthUser(userCtx, { select: EMPLOYEE_SELECT, autoLink: true });
   return doc ? doc.toObject() : null;
 }
 
@@ -135,7 +129,13 @@ router.get(
   '/me',
   asyncHandler(async (req, res) => {
     const emp = await employeeFromUser(req.user);
-    if (!emp) return res.status(404).json({ success: false, message: 'Employee profile not found' });
+    if (!emp) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'No HR employee matches your login. Ask HR to link your user to your employee record (same email or employee ID).'
+      });
+    }
 
     const now = new Date();
     const year = Math.max(2000, parseInt(req.query.year, 10) || now.getFullYear());
@@ -153,7 +153,13 @@ router.get(
   '/history/me',
   asyncHandler(async (req, res) => {
     const emp = await employeeFromUser(req.user);
-    if (!emp) return res.status(404).json({ success: false, message: 'Employee profile not found' });
+    if (!emp) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'No HR employee matches your login. Ask HR to link your user to your employee record (same email or employee ID).'
+      });
+    }
 
     const list = await KPIWorksheet.find({ employee: emp._id })
       .select('year month totalKPIScore totalWeight updatedAt')

@@ -2,169 +2,86 @@ const mongoose = require('mongoose');
 const Employee = require('../models/hr/Employee');
 const User = require('../models/User');
 
-/**
- * Build common employeeId variants (User "2528" vs HR "02528").
- */
 function employeeIdVariants(code) {
   const s = String(code || '').trim();
   if (!s) return [];
-  const variants = new Set([s]);
-  const numeric = s.replace(/^0+/, '') || s;
-  if (numeric && /^\d+$/.test(numeric)) {
-    variants.add(numeric);
-    variants.add(numeric.padStart(5, '0'));
-    variants.add(numeric.padStart(4, '0'));
+  const n = s.replace(/^0+/, '') || s;
+  const out = new Set([s]);
+  if (/^\d+$/.test(n)) {
+    out.add(n);
+    out.add(n.padStart(5, '0'));
   }
-  return [...variants];
+  return [...out];
 }
 
-function userRefId(userDoc) {
-  if (!userDoc) return null;
-  return userDoc._id || userDoc.id || null;
-}
-
-function normalizeEmail(email) {
-  return String(email || '').trim().toLowerCase();
-}
-
-function escapeRegex(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function namesMatch(userDoc, employee) {
-  const uFirst = String(userDoc?.firstName || '').trim().toLowerCase();
-  const uLast = String(userDoc?.lastName || '').trim().toLowerCase();
-  const eFirst = String(employee?.firstName || '').trim().toLowerCase();
-  const eLast = String(employee?.lastName || '').trim().toLowerCase();
-  if (!uFirst || !eFirst) return false;
-  if (uFirst !== eFirst) return false;
-  if (uLast && eLast && uLast !== eLast) return false;
-  return true;
-}
-
-async function findByUniqueName(userDoc, baseFilter, select) {
-  const first = String(userDoc?.firstName || '').trim();
-  if (!first) return null;
-
-  const q = {
-    ...baseFilter,
-    firstName: new RegExp(`^${escapeRegex(first)}$`, 'i')
-  };
-  const last = String(userDoc?.lastName || '').trim();
-  if (last) {
-    q.lastName = new RegExp(`^${escapeRegex(last)}$`, 'i');
-  }
-
-  const matches = await Employee.find(q).select(select).limit(5);
-  if (matches.length === 1) return matches[0];
-
-  const email = normalizeEmail(userDoc?.email);
-  if (email && matches.length > 1) {
-    const byEmail = matches.find((e) => normalizeEmail(e.email) === email);
-    if (byEmail) return byEmail;
-  }
-
-  const unlinked = matches.filter((e) => !e.user);
-  if (unlinked.length === 1) return unlinked[0];
-
-  return null;
-}
-
-async function canRelinkEmployeeToUser(employee, userId, userDoc) {
-  if (!employee?.user) return true;
-  if (String(employee.user) === String(userId)) return true;
-
-  const linkedUser = await User.findById(employee.user).select('email employeeId isActive').lean();
-  if (!linkedUser || linkedUser.isActive === false) return true;
-
-  const myEmail = normalizeEmail(userDoc?.email);
-  const linkedEmail = normalizeEmail(linkedUser?.email);
-  if (myEmail && linkedEmail && myEmail === linkedEmail) return true;
-
-  return namesMatch(userDoc, employee) && !linkedEmail;
+function userIdOf(userDoc) {
+  return userDoc?._id || userDoc?.id || null;
 }
 
 /**
- * Find HR Employee for a login user. Tries user ref, employeeId (padded/plain), email, and name.
- * Optionally links employee.user when a match is found without a conflicting user ref.
+ * Find HR employee for logged-in user.
  */
 async function findEmployeeForAuthUser(userDoc, options = {}) {
-  const {
-    select = '_id reportingLine employeeId email firstName lastName user',
-    autoLink = true,
-    includeDeleted = false
-  } = options;
+  const { select = '_id reportingLine employeeId email firstName lastName user', autoLink = true } = options;
+  const uid = userIdOf(userDoc);
+  if (!uid) return null;
 
-  const userId = userRefId(userDoc);
-  let dbUser = null;
-  if (userId) {
-    dbUser = await User.findById(userId).select('email employeeId firstName lastName').lean();
+  const dbUser = await User.findById(uid)
+    .select('email employeeId firstName lastName linkedEmployee')
+    .lean();
+  if (!dbUser) return null;
+
+  const base = { isDeleted: { $ne: true } };
+
+  if (dbUser.linkedEmployee) {
+    const cached = await Employee.findOne({ _id: dbUser.linkedEmployee, ...base }).select(select);
+    if (cached) return cached;
   }
-  const mergedUser = { ...(dbUser || {}), ...(userDoc || {}) };
 
-  if (!userId && !mergedUser.employeeId && !mergedUser.email) return null;
-
-  const baseFilter = includeDeleted ? {} : { isDeleted: { $ne: true } };
-  const or = [];
-
-  if (userId) or.push({ user: userId });
-
-  const idVariants = [
-    ...employeeIdVariants(mergedUser.employeeId),
-    ...employeeIdVariants(dbUser?.employeeId)
-  ];
-  const uniqueIds = [...new Set(idVariants)];
-  if (uniqueIds.length) or.push({ employeeId: { $in: uniqueIds } });
-
-  const email = normalizeEmail(mergedUser.email);
+  const email = String(dbUser.email || userDoc?.email || '').trim().toLowerCase();
+  const ids = [...new Set(employeeIdVariants(dbUser.employeeId || userDoc?.employeeId))];
+  const or = [{ user: uid }];
+  if (ids.length) or.push({ employeeId: { $in: ids } });
   if (email) or.push({ email });
 
-  let employee = null;
-  if (or.length) {
-    employee = await Employee.findOne({ ...baseFilter, $or: or }).select(select);
+  let emp = or.length ? await Employee.findOne({ ...base, $or: or }).select(select) : null;
+
+  if (!emp && email) {
+    const esc = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    emp = await Employee.findOne({ ...base, email: { $regex: new RegExp(`^${esc}$`, 'i') } }).select(select);
   }
 
-  if (!employee && email) {
-    employee = await Employee.findOne({
-      ...baseFilter,
-      email: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') }
-    }).select(select);
+  if (!emp && dbUser.firstName) {
+    const q = { ...base, firstName: new RegExp(`^${String(dbUser.firstName).trim()}$`, 'i') };
+    const last = String(dbUser.lastName || '').trim();
+    if (last) q.lastName = new RegExp(`^${last}$`, 'i');
+    const list = await Employee.find(q).select(select).limit(2);
+    if (list.length === 1) emp = list[0];
   }
 
-  if (!employee) {
-    employee = await findByUniqueName(mergedUser, baseFilter, select);
-  }
+  if (!emp) return null;
 
-  if (!employee) return null;
-
-  if (autoLink && userId) {
-    const mayLink = await canRelinkEmployeeToUser(employee, userId, mergedUser);
-    if (mayLink) {
-      employee.user = userId;
-      await employee.save();
-    } else if (String(employee.user) !== String(userId)) {
-      return null;
+  if (autoLink) {
+    if (!emp.user) {
+      emp.user = uid;
+      await emp.save();
     }
+    await User.findByIdAndUpdate(uid, {
+      linkedEmployee: emp._id,
+      ...(emp.employeeId ? { employeeId: String(emp.employeeId) } : {})
+    });
   }
 
-  return employee;
+  return emp;
 }
 
-/** Load reporting line for profile (employee record first, then user-level fallback). */
 async function loadReportingLineForProfile(userDoc) {
-  const employee = await findEmployeeForAuthUser(userDoc, {
-    select: 'reportingLine',
-    autoLink: false
-  });
-  if (employee?.reportingLine) {
-    await employee.populate('reportingLine', 'firstName lastName employeeId');
-    return employee.reportingLine;
+  const emp = await findEmployeeForAuthUser(userDoc, { select: 'reportingLine', autoLink: false });
+  if (emp?.reportingLine) {
+    await emp.populate('reportingLine', 'firstName lastName employeeId');
+    return emp.reportingLine;
   }
-
-  const userId = userRefId(userDoc);
-  if (!userId) return null;
-
-  const u = await User.findById(userId)
+  const u = await User.findById(userIdOf(userDoc))
     .select('reportingLine')
     .populate('reportingLine', 'firstName lastName employeeId')
     .lean();
@@ -172,71 +89,72 @@ async function loadReportingLineForProfile(userDoc) {
 }
 
 async function saveReportingLineForUser(userDoc, reportingLineId) {
-  const employeeDoc = await findEmployeeForAuthUser(userDoc, {
-    select: '_id reportingLine employeeId email firstName lastName',
-    autoLink: true
-  });
+  const uid = userIdOf(userDoc);
+  const empty = reportingLineId === '' || reportingLineId == null;
 
-  const validateTarget = async (idValue, selfEmployeeId) => {
-    if (idValue === '' || idValue === null || idValue === undefined) return null;
-    if (!mongoose.Types.ObjectId.isValid(idValue)) {
-      throw new Error('Invalid reporting line id');
-    }
-    if (selfEmployeeId && String(idValue) === String(selfEmployeeId)) {
+  const resolveTarget = async (selfEmpId) => {
+    if (empty) return null;
+    if (!mongoose.Types.ObjectId.isValid(reportingLineId)) throw new Error('Invalid reporting line');
+    if (selfEmpId && String(reportingLineId) === String(selfEmpId)) {
       throw new Error('Reporting line cannot be yourself');
     }
-    const target = await Employee.findOne({
-      _id: idValue,
-      isDeleted: { $ne: true },
-      isActive: true
-    })
-      .select('_id firstName lastName employeeId')
-      .lean();
-    if (!target) throw new Error('Reporting line employee not found or inactive');
-    return target._id;
+    const t = await Employee.findOne({ _id: reportingLineId, isDeleted: { $ne: true }, isActive: true }).select('_id');
+    if (!t) throw new Error('Reporting line employee not found or inactive');
+    return t._id;
   };
 
-  if (employeeDoc) {
-    const targetId = await validateTarget(reportingLineId, employeeDoc._id);
-    employeeDoc.reportingLine = targetId;
-    await employeeDoc.save();
-    const userId = userRefId(userDoc);
-    if (userId) {
-      await User.findByIdAndUpdate(userId, { $unset: { reportingLine: 1 } });
-    }
-    return { storage: 'employee', employeeDoc, targetId };
+  const emp = await findEmployeeForAuthUser(userDoc, { select: '_id', autoLink: true });
+  const targetId = await resolveTarget(emp?._id);
+
+  if (emp) {
+    emp.reportingLine = targetId;
+    await emp.save();
+    if (uid) await User.findByIdAndUpdate(uid, { $unset: { reportingLine: 1 } });
+    return;
   }
 
-  const userId = userRefId(userDoc);
-  if (!userId) {
-    const err = new Error('NO_EMPLOYEE_LINK');
-    err.code = 'NO_EMPLOYEE_LINK';
-    throw err;
+  if (!uid) throw Object.assign(new Error('Not logged in'), { code: 'NO_EMPLOYEE_LINK' });
+  await User.findByIdAndUpdate(uid, { reportingLine: targetId });
+}
+
+/** Link developer@tovus.net (Sardar Shehroze Ikram) user ↔ HR employee. */
+async function linkDeveloperShehrozeAccount() {
+  const email = 'developer@tovus.net';
+  const user = await User.findOne({ email }).select('_id email employeeId firstName lastName');
+  if (!user) return { ok: false, message: 'User not found' };
+
+  const base = { isDeleted: { $ne: true } };
+  let emp =
+    (await Employee.findOne({ ...base, user: user._id }).select('_id employeeId firstName lastName user')) ||
+    (await Employee.findOne({
+      ...base,
+      firstName: /^Sardar$/i,
+      lastName: /Shehroze/i
+    }).select('_id employeeId firstName lastName user'));
+
+  if (!emp) {
+    return { ok: false, message: 'HR employee Sardar Shehroze Ikram not found' };
   }
 
-  let selfEmployeeId = null;
-  const email = normalizeEmail(userDoc?.email);
-  if (email) {
-    const selfCandidates = await Employee.find({
-      isDeleted: { $ne: true },
-      email: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') }
-    })
-      .select('_id')
-      .limit(2)
-      .lean();
-    if (selfCandidates.length === 1) selfEmployeeId = selfCandidates[0]._id;
-  }
+  emp.user = user._id;
+  await emp.save();
+  user.linkedEmployee = emp._id;
+  user.employeeId = String(emp.employeeId);
+  await user.save();
 
-  const targetId = await validateTarget(reportingLineId, selfEmployeeId);
-  await User.findByIdAndUpdate(userId, { reportingLine: targetId });
-  return { storage: 'user', targetId };
+  return {
+    ok: true,
+    userId: String(user._id),
+    employeeId: emp.employeeId,
+    employeeDocId: String(emp._id)
+  };
 }
 
 module.exports = {
-  employeeIdVariants,
   findEmployeeForAuthUser,
   loadReportingLineForProfile,
   saveReportingLineForUser,
-  userRefId,
-  namesMatch
+  linkDeveloperShehrozeAccount,
+  employeeIdVariants,
+  userIdOf
 };

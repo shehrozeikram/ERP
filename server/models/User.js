@@ -129,6 +129,12 @@ const userSchema = new mongoose.Schema({
     ref: 'Employee',
     default: null
   },
+  /** HR employee record for KPI / profile (set when linked or auto-matched). */
+  linkedEmployee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Employee',
+    default: null
+  },
   lastLogin: {
     type: Date
   },
