@@ -543,6 +543,29 @@ const employeeSchema = new mongoose.Schema({
         min: [0, 'Food allowance cannot be negative']
       }
     },
+    vehicle: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Vehicle allowance cannot be negative']
+      }
+    },
+    fuel: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Fuel allowance cannot be negative']
+      }
+    },
+    /** @deprecated Use vehicle + fuel; kept for existing records */
     vehicleFuel: {
       isActive: {
         type: Boolean,

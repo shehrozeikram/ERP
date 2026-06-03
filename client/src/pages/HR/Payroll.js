@@ -113,6 +113,9 @@ const Payroll = () => {
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
   const [masterDepartments, setMasterDepartments] = useState([]);
   const [masterProjects, setMasterProjects] = useState([]);
+  const [exportMonth, setExportMonth] = useState((new Date().getMonth() + 1).toString());
+  const [exportYear, setExportYear] = useState(new Date().getFullYear());
+  const [exportLoadingKey, setExportLoadingKey] = useState(null);
 
   // Define functions with useCallback to avoid dependency issues
   const fetchPayrolls = useCallback(async () => {
@@ -396,6 +399,10 @@ const Payroll = () => {
 
       setMonthlyPayrolls(monthlyArray);
       setTotalItems(monthlyArray.length);
+      if (monthlyArray.length > 0) {
+        setExportMonth(String(monthlyArray[0].month));
+        setExportYear(monthlyArray[0].year);
+      }
     } else {
       setMonthlyPayrolls([]);
       setTotalItems(0);
@@ -603,6 +610,81 @@ const Payroll = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
+  const exportYearOptions = useMemo(() => {
+    const years = new Set(monthlyPayrolls.map((m) => m.year));
+    const current = new Date().getFullYear();
+    for (let y = current; y >= current - 8; y--) years.add(y);
+    return Array.from(years).sort((a, b) => b - a);
+  }, [monthlyPayrolls]);
+
+  const downloadCsvBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const exportMonthPayrollCsv = async (month, year, periodLabel) => {
+    const key = `${month}-${year}`;
+    const monthNum = Number(month);
+    const yearNum = Number(year);
+    if (!monthNum || monthNum < 1 || monthNum > 12 || !yearNum) {
+      setError('Select a valid month and year to export.');
+      return;
+    }
+
+    try {
+      setExportLoadingKey(key);
+      setError(null);
+
+      const response = await api.get('/hr/reports/payroll/monthly', {
+        params: {
+          month: monthNum,
+          year: yearNum,
+          ...(filters.department ? { department: filters.department } : {}),
+          ...(filters.project ? { project: filters.project } : {}),
+          format: 'csv'
+        },
+        responseType: 'blob',
+        timeout: 120000
+      });
+
+      const contentType = response.headers?.['content-type'] || '';
+      if (contentType.includes('application/json')) {
+        const text = await response.data.text();
+        const json = JSON.parse(text);
+        setError(json.message || 'No payroll data to export for this period.');
+        return;
+      }
+
+      const safeLabel = (periodLabel || `${monthNum}-${yearNum}`).replace(/\s+/g, '-');
+      downloadCsvBlob(
+        new Blob([response.data], { type: 'text/csv;charset=utf-8;' }),
+        `payroll-detail-${safeLabel}.csv`
+      );
+    } catch (exportError) {
+      console.error('Error exporting month payroll:', exportError);
+      const blob = exportError.response?.data;
+      if (blob instanceof Blob) {
+        try {
+          const text = await blob.text();
+          const json = JSON.parse(text);
+          setError(json.message || 'Failed to export payroll for this month.');
+        } catch {
+          setError('Failed to export payroll for this month.');
+        }
+      } else {
+        setError(exportError.response?.data?.message || 'Failed to export payroll for this month.');
+      }
+    } finally {
+      setExportLoadingKey(null);
+    }
+  };
+
   const handleExportMonthlySummary = () => {
     try {
       if (!monthlyPayrolls.length) {
@@ -633,17 +715,12 @@ const Payroll = () => {
         .map((line) => line.map((item) => `"${String(item).replace(/"/g, '""')}"`).join(','))
         .join('\n');
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
       const now = new Date();
       const datePart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      link.href = url;
-      link.setAttribute('download', `monthly-payroll-summary-${datePart}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      downloadCsvBlob(
+        new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }),
+        `monthly-payroll-summary-all-periods-${datePart}.csv`
+      );
     } catch (exportError) {
       console.error('Error exporting monthly payroll summary:', exportError);
       setError('Failed to export monthly payroll summary.');
@@ -1664,7 +1741,7 @@ Do you want to:
         {/* Quick Filters + Export */}
         <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'grey.200', bgcolor: 'background.paper' }}>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2}>
               <FormControl fullWidth size="small">
                 <InputLabel>Status</InputLabel>
                 <Select
@@ -1680,7 +1757,7 @@ Do you want to:
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2}>
               <FormControl fullWidth size="small">
                 <InputLabel>Department</InputLabel>
                 <Select
@@ -1697,7 +1774,7 @@ Do you want to:
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2}>
               <FormControl fullWidth size="small">
                 <InputLabel>Project</InputLabel>
                 <Select
@@ -1717,22 +1794,69 @@ Do you want to:
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ display: 'flex', gap: 1, justifyContent: { xs: 'stretch', md: 'flex-end' } }}>
+            <Grid item xs={6} md={1.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Export month</InputLabel>
+                <Select
+                  value={exportMonth}
+                  onChange={(e) => setExportMonth(e.target.value)}
+                  label="Export month"
+                >
+                  {months.map((m) => (
+                    <MenuItem key={m.value} value={String(parseInt(m.value, 10))}>
+                      {m.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={6} md={1.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Export year</InputLabel>
+                <Select
+                  value={exportYear}
+                  onChange={(e) => setExportYear(Number(e.target.value))}
+                  label="Export year"
+                >
+                  {exportYearOptions.map((y) => (
+                    <MenuItem key={y} value={y}>
+                      {y}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: { xs: 'stretch', md: 'flex-end' } }}>
                 <Button
                   variant="outlined"
                   color="inherit"
                   startIcon={<ClearIcon />}
                   onClick={clearFilters}
+                  size="small"
                 >
                   Clear
                 </Button>
                 <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={exportLoadingKey === `${exportMonth}-${exportYear}` ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />}
+                  disabled={!!exportLoadingKey}
+                  onClick={() => {
+                    const label = months.find((m) => String(parseInt(m.value, 10)) === String(exportMonth))?.label;
+                    exportMonthPayrollCsv(exportMonth, exportYear, `${label || exportMonth}-${exportYear}`);
+                  }}
+                >
+                  Export month (CSV)
+                </Button>
+                <Button
                   variant="outlined"
+                  size="small"
                   startIcon={<DownloadIcon />}
                   onClick={handleExportMonthlySummary}
+                  disabled={!!exportLoadingKey || !monthlyPayrolls.length}
                 >
-                  Export
+                  Export all periods
                 </Button>
               </Box>
             </Grid>
@@ -1834,6 +1958,22 @@ Do you want to:
                         </TableCell>
                         <TableCell align="center">
                           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                            <Tooltip title="Export this month's payroll (CSV)">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  disabled={exportLoadingKey === monthKey}
+                                  onClick={() => exportMonthPayrollCsv(monthly.month, monthly.year, `${monthly.monthName}-${monthly.year}`)}
+                                >
+                                  {exportLoadingKey === monthKey ? (
+                                    <CircularProgress size={18} />
+                                  ) : (
+                                    <DownloadIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                             <Tooltip title={isExpanded ? "Hide Details" : "View Details"}>
                               <IconButton
                                 size="small"
@@ -1851,16 +1991,27 @@ Do you want to:
                         <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
                           <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                             <Box sx={{ margin: 1 }}>
-                              <Typography variant="h6" gutterBottom component="div">
-                                Employee Details - {monthly.monthName} {monthly.year}
-                                <Chip 
-                                  label="↑ Sorted by Employee ID" 
-                                  size="small" 
-                                  color="primary" 
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                                <Typography variant="h6" component="div">
+                                  Employee Details - {monthly.monthName} {monthly.year}
+                                  <Chip 
+                                    label="↑ Sorted by Employee ID" 
+                                    size="small" 
+                                    color="primary" 
+                                    variant="outlined"
+                                    sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
+                                  />
+                                </Typography>
+                                <Button
+                                  size="small"
                                   variant="outlined"
-                                  sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
-                                />
-                              </Typography>
+                                  startIcon={exportLoadingKey === monthKey ? <CircularProgress size={14} /> : <DownloadIcon />}
+                                  disabled={exportLoadingKey === monthKey}
+                                  onClick={() => exportMonthPayrollCsv(monthly.month, monthly.year, `${monthly.monthName}-${monthly.year}`)}
+                                >
+                                  Export {monthly.monthName} {monthly.year}
+                                </Button>
+                              </Box>
                               
                               {/* Employee Details Pagination Info */}
                               {(() => {

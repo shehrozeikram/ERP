@@ -18,11 +18,18 @@ import {
   Alert,
   CircularProgress,
   IconButton,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip,
+  Popover,
   List,
   ListItemButton,
   ListItemText
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon, Save as SaveIcon } from '@mui/icons-material';
+import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Save as SaveIcon } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../services/api';
@@ -138,6 +145,94 @@ const canDeleteKpiRow = (row, editFlags, isHrAdminUser) => {
   return false;
 };
 
+const canEditKpiRow = (editFlags, isHrAdminUser) => {
+  if (isHrAdminUser) return true;
+  if (editFlags.canEditStructure || editFlags.canEditEmployeeCols || editFlags.canEditManagerCols) return true;
+  return false;
+};
+
+/** Rows for multiline KPI area from content (stays tall after you finish typing). */
+function kpiAreaRowCount(text, whileTyping = false) {
+  const t = String(text || '');
+  const lineBreaks = (t.match(/\n/g) || []).length + 1;
+  const wrapped = Math.ceil(t.length / 36) || 1;
+  const base = Math.max(lineBreaks, wrapped, t.trim() ? 2 : 1);
+  const rows = whileTyping ? Math.max(base, 3) : base;
+  return Math.min(10, rows);
+}
+
+function kpiAreaChipLabel(text) {
+  const t = String(text || '').trim();
+  if (!t) return 'View';
+  const oneLine = t.replace(/\s+/g, ' ');
+  if (oneLine.length <= 18) return oneLine;
+  return `${oneLine.slice(0, 16)}…`;
+}
+
+/** Expands while typing; keeps height after blur; chip opens full text. */
+function KpiAreaField({ value, onChange, disabled, label }) {
+  const [focused, setFocused] = useState(false);
+  const [fullTextAnchor, setFullTextAnchor] = useState(null);
+  const text = value || '';
+  const rows = kpiAreaRowCount(text, focused);
+  const showChip = text.trim().length > 0;
+
+  return (
+    <Box sx={{ minWidth: 200, maxWidth: 320 }}>
+      <TextField
+        fullWidth
+        multiline
+        minRows={rows}
+        maxRows={12}
+        size="small"
+        label={label}
+        value={text}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        disabled={disabled}
+        placeholder="e.g. Interview preparation"
+        sx={{
+          '& .MuiInputBase-root': { alignItems: 'flex-start', py: 0.75 },
+          '& textarea': { lineHeight: 1.45 }
+        }}
+      />
+      {showChip && (
+        <Tooltip title="Click to view full KPI area text">
+          <Chip
+            size="small"
+            variant="outlined"
+            color="primary"
+            label={kpiAreaChipLabel(text)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setFullTextAnchor(e.currentTarget);
+            }}
+            sx={{ mt: 0.75, height: 22, maxWidth: '100%', '& .MuiChip-label': { px: 1 } }}
+          />
+        </Tooltip>
+      )}
+      <Popover
+        open={Boolean(fullTextAnchor)}
+        anchorEl={fullTextAnchor}
+        onClose={() => setFullTextAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { maxWidth: 420 } } }}
+      >
+        <Box sx={{ p: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            KPI area (full text)
+          </Typography>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {text.trim() || '—'}
+          </Typography>
+        </Box>
+      </Popover>
+    </Box>
+  );
+}
+
 const KPIMonthlySheet = () => {
   const { user } = useAuth();
   const location = useLocation();
@@ -161,6 +256,8 @@ const KPIMonthlySheet = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [editRowIndex, setEditRowIndex] = useState(null);
+  const [editRowDraft, setEditRowDraft] = useState(null);
 
   const targetEmployeeId = useMemo(() => {
     if (isHrPage && isHrAdmin && hrEmployeeId) return hrEmployeeId;
@@ -319,7 +416,44 @@ const KPIMonthlySheet = () => {
       }
       return;
     }
+    if (editRowIndex === index) {
+      setEditRowIndex(null);
+      setEditRowDraft(null);
+    }
     setRows((r) => recomputeLocal(r.filter((_, i) => i !== index)));
+  };
+
+  const openEditRow = (index) => {
+    if (!canEditKpiRow(editFlags, isHrAdmin)) {
+      toast.error('You do not have permission to edit KPI rows on this sheet.');
+      return;
+    }
+    setEditRowIndex(index);
+    setEditRowDraft({ ...rows[index] });
+  };
+
+  const closeEditRow = () => {
+    setEditRowIndex(null);
+    setEditRowDraft(null);
+  };
+
+  const handleEditDraftField = (field, value) => {
+    if (!editRowDraft) return;
+    const raw = field === 'kpiArea' ? value : value === '' ? 0 : Number(value);
+    const next = {
+      ...editRowDraft,
+      [field]: field === 'kpiArea' ? String(value) : raw
+    };
+    setEditRowDraft(recomputeLocal([next])[0]);
+  };
+
+  const applyEditRow = () => {
+    if (editRowIndex == null || editRowDraft == null) return;
+    const next = [...rows];
+    next[editRowIndex] = { ...editRowDraft };
+    setRows(recomputeLocal(next));
+    closeEditRow();
+    toast.success('KPI row updated. Click Save to store your sheet.');
   };
 
   const ensureSheetId = async () => {
@@ -566,7 +700,9 @@ const KPIMonthlySheet = () => {
                   <TableCell rowSpan={2} align="right">
                     Final weightage
                   </TableCell>
-                  <TableCell rowSpan={2} width={48} />
+                  <TableCell rowSpan={2} width={88} align="center">
+                    Actions
+                  </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell align="right">Achieved</TableCell>
@@ -578,13 +714,10 @@ const KPIMonthlySheet = () => {
               <TableBody>
                 {rows.map((row, index) => (
                   <TableRow key={row._id || index}>
-                    <TableCell sx={{ minWidth: 160 }}>
-                      <TextField
-                        fullWidth
-                        size="small"
+                    <TableCell sx={{ minWidth: 220, verticalAlign: 'top' }}>
+                      <KpiAreaField
                         value={row.kpiArea}
-                        onChange={(e) => handleCell(index, 'kpiArea', e.target.value)}
-                        placeholder="e.g. Interview preparation"
+                        onChange={(v) => handleCell(index, 'kpiArea', v)}
                         disabled={!canEditStructure}
                       />
                     </TableCell>
@@ -646,16 +779,35 @@ const KPIMonthlySheet = () => {
                     </TableCell>
                     <TableCell align="right">{row.score1to5}</TableCell>
                     <TableCell align="right">{row.finalWeightage}</TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => removeRow(index)}
-                        aria-label="Remove row"
-                        disabled={!canDeleteKpiRow(row, editFlags, isHrAdmin)}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+                    <TableCell align="center">
+                      <Box sx={{ display: 'inline-flex', gap: 0.25 }}>
+                        <Tooltip title="Edit KPI row">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => openEditRow(index)}
+                              aria-label="Edit row"
+                              disabled={!canEditKpiRow(editFlags, isHrAdmin)}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Delete KPI row">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => removeRow(index)}
+                              aria-label="Remove row"
+                              disabled={!canDeleteKpiRow(row, editFlags, isHrAdmin)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -695,6 +847,88 @@ const KPIMonthlySheet = () => {
               </Typography>
             )}
           </Box>
+
+          <Dialog open={editRowIndex != null} onClose={closeEditRow} maxWidth="sm" fullWidth>
+            <DialogTitle>Edit KPI row</DialogTitle>
+            <DialogContent dividers>
+              {editRowDraft && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 0.5 }}>
+                  <KpiAreaField
+                    label="KPI area"
+                    value={editRowDraft.kpiArea}
+                    onChange={(v) => handleEditDraftField('kpiArea', v)}
+                    disabled={!editFlags.canEditStructure && !isHrAdmin}
+                  />
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="Weight %"
+                    inputProps={{ min: 0, max: 100, step: 1 }}
+                    value={editRowDraft.weight || ''}
+                    onChange={(e) => handleEditDraftField('weight', e.target.value)}
+                    disabled={!editFlags.canEditStructure && !isHrAdmin}
+                  />
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Employee
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 2 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Achieved"
+                      inputProps={{ min: 0, step: 1 }}
+                      value={editRowDraft.employeeAchieved === 0 ? '' : editRowDraft.employeeAchieved}
+                      onChange={(e) => handleEditDraftField('employeeAchieved', e.target.value)}
+                      disabled={!canEditEmployeeCols && !isHrAdmin}
+                    />
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Total assigned"
+                      inputProps={{ min: 0, step: 1 }}
+                      value={editRowDraft.employeeTotalAssigned === 0 ? '' : editRowDraft.employeeTotalAssigned}
+                      onChange={(e) => handleEditDraftField('employeeTotalAssigned', e.target.value)}
+                      disabled={!canEditEmployeeCols && !isHrAdmin}
+                    />
+                  </Box>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Reporting line
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 2 }}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Achieved"
+                      inputProps={{ min: 0, step: 1 }}
+                      value={editRowDraft.managerAchieved === 0 ? '' : editRowDraft.managerAchieved}
+                      onChange={(e) => handleEditDraftField('managerAchieved', e.target.value)}
+                      disabled={!canEditReportingLineFields && !isHrAdmin}
+                    />
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Total assigned"
+                      inputProps={{ min: 0, step: 1 }}
+                      value={editRowDraft.managerTotalAssigned === 0 ? '' : editRowDraft.managerTotalAssigned}
+                      onChange={(e) => handleEditDraftField('managerTotalAssigned', e.target.value)}
+                      disabled={!canEditReportingLineFields && !isHrAdmin}
+                    />
+                  </Box>
+                  <Alert severity="info" icon={false}>
+                    Achievement: {editRowDraft.achievementPercent}% · Score: {editRowDraft.score1to5} · Final weightage:{' '}
+                    {editRowDraft.finalWeightage} (via{' '}
+                    {editRowDraft.scoringSource === 'manager' ? 'reporting line' : 'employee'})
+                  </Alert>
+                </Box>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={closeEditRow}>Cancel</Button>
+              <Button variant="contained" onClick={applyEditRow}>
+                Apply
+              </Button>
+            </DialogActions>
+          </Dialog>
         </>
       )}
     </Box>

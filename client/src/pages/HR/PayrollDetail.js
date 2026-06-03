@@ -41,6 +41,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { formatPKR } from '../../utils/currency';
+import { vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 import api from '../../services/api';
 
 const PayrollDetail = () => {
@@ -531,8 +532,12 @@ const PayrollDetail = () => {
                       <TableCell align="right">{formatPKR(payroll.allowances.food.amount || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Vehicle & Fuel Allowance</TableCell>
-                      <TableCell align="right">{formatPKR(payroll.allowances.vehicleFuel.amount || 0)}</TableCell>
+                      <TableCell>Vehicle Allowance</TableCell>
+                      <TableCell align="right">{formatPKR(vehicleAllowanceAmount(payroll.allowances))}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Fuel Allowance</TableCell>
+                      <TableCell align="right">{formatPKR(fuelAllowanceAmount(payroll.allowances))}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Special Allowance</TableCell>

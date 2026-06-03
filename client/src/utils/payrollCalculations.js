@@ -1,3 +1,5 @@
+import { vehicleFuelTotal } from './allowanceHelpers';
+
 /**
  * 🧮 Payroll Calculation Utilities
  * Optimized, reusable calculations for payroll management
@@ -43,7 +45,7 @@ export const calculateTotalEarnings = (payroll) => {
   const additionalAllowances = [
     payroll?.allowances?.conveyance?.isActive ? (payroll.allowances.conveyance.amount || 0) : 0,
     payroll?.allowances?.food?.isActive ? (payroll.allowances.food.amount || 0) : 0,
-    payroll?.allowances?.vehicleFuel?.isActive ? (payroll.allowances.vehicleFuel.amount || 0) : 0,
+    vehicleFuelTotal(payroll?.allowances),
     payroll?.allowances?.special?.isActive ? (payroll.allowances.special.amount || 0) : 0,
     payroll?.allowances?.other?.isActive ? (payroll.allowances.other.amount || 0) : 0
   ];

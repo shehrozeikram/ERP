@@ -1,4 +1,9 @@
 const express = require('express');
+const {
+  vehicleFuelTotal,
+  vehicleAllowanceAmount,
+  fuelAllowanceAmount
+} = require('../utils/allowanceHelpers');
 const { authorize } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const Employee = require('../models/hr/Employee');
@@ -32,9 +37,18 @@ const months = [
 // @desc    Generate monthly payroll report
 // @access  Private (HR and Admin)
 router.get('/monthly', 
-  authorize('admin', 'hr_manager', 'finance_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { month, year, department, project, format = 'json' } = req.query;
+
+    const monthNum = parseInt(month, 10);
+    const yearNum = parseInt(year, 10);
+    if (!monthNum || monthNum < 1 || monthNum > 12 || !yearNum || yearNum < 2020 || yearNum > 2035) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid month (1–12) and year are required to export payroll.'
+      });
+    }
     
     try {
       // Build base filter
@@ -64,8 +78,8 @@ router.get('/monthly',
       // Get payroll data directly from payrolls collection for the specified month/year
       // Build payroll filter
       let payrollFilter = { 
-        month: parseInt(month), 
-        year: parseInt(year) 
+        month: monthNum, 
+        year: yearNum 
       };
       
       // Apply department and project filters by finding employees first
@@ -259,9 +273,13 @@ router.get('/monthly',
 
       // Check if data exists
       if (payrollData.length === 0) {
+        const msg = `No payroll data found for ${months[monthNum - 1]?.label || month}/${year}`;
+        if (format === 'csv') {
+          return res.status(404).json({ success: false, message: msg, data: null });
+        }
         return res.json({
           success: false,
-          message: `No payroll data found for ${months[parseInt(month) - 1]?.label || month}/${year}`,
+          message: msg,
           data: null
         });
       }
@@ -307,7 +325,9 @@ router.get('/monthly',
         conveyanceAllowance: employee.allowances?.conveyance?.amount || 0,
         houseAllowance: employee.allowances?.houseRent?.amount || 0,
         foodAllowance: employee.allowances?.food?.amount || 0,
-        vehicleFuelAllowance: employee.allowances?.vehicleFuel?.amount || 0,
+        vehicleAllowance: vehicleAllowanceAmount(employee.allowances),
+        fuelAllowance: fuelAllowanceAmount(employee.allowances),
+        vehicleFuelAllowance: vehicleFuelTotal(employee.allowances),
         medicalAllowance: employee.allowances?.medical?.amount || 0,
         totalEarnings: employee.totalEarnings || 0,
         incomeTax: employee.incomeTax || 0,
@@ -696,7 +716,8 @@ function convertToCSV(reportData) {
     'Conveyance Allowance',
     'House Allowance',
     'Food Allowance',
-    'Vehicle & Fuel Allowance',
+    'Vehicle Allowance',
+    'Fuel Allowance',
     'Medical Allowance',
     'Total Earnings',
     'Total Deductions',
@@ -746,7 +767,8 @@ function convertToCSV(reportData) {
       row.conveyanceAllowance || 0, // Conveyance Allowance
       row.houseAllowance || 0, // House Allowance
       row.foodAllowance || 0, // Food Allowance
-      row.vehicleFuelAllowance || 0, // Vehicle & Fuel Allowance
+      row.vehicleAllowance || 0, // Vehicle Allowance
+      row.fuelAllowance || 0, // Fuel Allowance
       row.medicalAllowance || 0, // Medical Allowance
       row.totalEarnings || 0, // Total Earnings (from actual payroll)
       row.deductions || 0, // Total Deductions (from actual payroll)

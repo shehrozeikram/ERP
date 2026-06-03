@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -356,7 +357,9 @@ const EmployeePayrollDetails = () => {
                 medicalAllowance: currentPayroll.medicalAllowance || 0,
                 conveyanceAllowance: currentPayroll.allowances?.conveyance?.amount || 0,
                 foodAllowance: currentPayroll.allowances?.food?.amount || 0,
-                vehicleFuelAllowance: currentPayroll.allowances?.vehicleFuel?.amount || 0,
+                vehicleAllowance: vehicleAllowanceAmount(currentPayroll.allowances),
+                fuelAllowance: fuelAllowanceAmount(currentPayroll.allowances),
+                vehicleFuelAllowance: vehicleAllowanceAmount(currentPayroll.allowances) + fuelAllowanceAmount(currentPayroll.allowances),
                 specialAllowance: currentPayroll.allowances?.special?.amount || 0,
                 otherAllowances: currentPayroll.allowances?.other?.amount || 0,
                 overtime: currentPayroll.overtimeAmount || 0,
@@ -455,8 +458,12 @@ const EmployeePayrollDetails = () => {
                       <TableCell align="right">{formatPKR(currentPayroll.allowances?.food?.amount || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Vehicle & Fuel Allowance</TableCell>
-                      <TableCell align="right">{formatPKR(currentPayroll.allowances?.vehicleFuel?.amount || 0)}</TableCell>
+                      <TableCell>Vehicle Allowance</TableCell>
+                      <TableCell align="right">{formatPKR(vehicleAllowanceAmount(currentPayroll.allowances))}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Fuel Allowance</TableCell>
+                      <TableCell align="right">{formatPKR(fuelAllowanceAmount(currentPayroll.allowances))}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Special Allowance</TableCell>
@@ -1081,10 +1088,16 @@ const EmployeePayrollDetails = () => {
                         <TableCell align="right">Rs {payslipModal.data?.earnings?.foodAllowance?.toLocaleString()}</TableCell>
                       </TableRow>
                     )}
-                    {(payslipModal.data?.earnings?.vehicleFuelAllowance || 0) > 0 && (
+                    {(payslipModal.data?.earnings?.vehicleAllowance || 0) > 0 && (
                       <TableRow>
-                        <TableCell>Vehicle & Fuel Allowance</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.vehicleFuelAllowance?.toLocaleString()}</TableCell>
+                        <TableCell>Vehicle Allowance</TableCell>
+                        <TableCell align="right">Rs {payslipModal.data?.earnings?.vehicleAllowance?.toLocaleString()}</TableCell>
+                      </TableRow>
+                    )}
+                    {(payslipModal.data?.earnings?.fuelAllowance || 0) > 0 && (
+                      <TableRow>
+                        <TableCell>Fuel Allowance</TableCell>
+                        <TableCell align="right">Rs {payslipModal.data?.earnings?.fuelAllowance?.toLocaleString()}</TableCell>
                       </TableRow>
                     )}
                     {(payslipModal.data?.earnings?.specialAllowance || 0) > 0 && (

@@ -33,6 +33,7 @@
     "ensure:developer-user": "node server/scripts/ensure-developer-user.js",
     "ensure:developer-user:droplet": "bash scripts/ensure-developer-on-droplet.sh",
     "link:developer-employee": "node server/scripts/link-developer-employee.js",
+    "list:employees-without-gross": "node server/scripts/list-active-employees-without-gross-salary.js",
     "mongo:show-target": "node scripts/show-mongodb-target.js",
     "mongo:show-target:prod": "NODE_ENV=production node scripts/show-mongodb-target.js",
     "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect",

@@ -47,6 +47,7 @@ import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import { allowancesForForm, vehicleFuelTotal } from '../../utils/allowanceHelpers';
 import { useData } from '../../contexts/DataContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
 
@@ -215,9 +216,13 @@ const EmployeeForm = () => {
         isActive: Yup.boolean(),
         amount: Yup.number().min(0, 'Food allowance must be positive')
       }),
-      vehicleFuel: Yup.object({
+      vehicle: Yup.object({
         isActive: Yup.boolean(),
-        amount: Yup.number().min(0, 'Vehicle & fuel allowance must be positive')
+        amount: Yup.number().min(0, 'Vehicle allowance must be positive')
+      }),
+      fuel: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Fuel allowance must be positive')
       }),
       medical: Yup.object({
         isActive: Yup.boolean(),
@@ -699,6 +704,7 @@ const EmployeeForm = () => {
           basic: employeeData.salary?.basic || 0
         },
         allowances: {
+          ...allowancesForForm(employeeData.allowances || {}),
           conveyance: {
             isActive: employeeData.allowances?.conveyance?.isActive || false,
             amount: employeeData.allowances?.conveyance?.amount || 0
@@ -706,10 +712,6 @@ const EmployeeForm = () => {
           food: {
             isActive: employeeData.allowances?.food?.isActive || false,
             amount: employeeData.allowances?.food?.amount || 0
-          },
-          vehicleFuel: {
-            isActive: employeeData.allowances?.vehicleFuel?.isActive || false,
-            amount: employeeData.allowances?.vehicleFuel?.amount || 0
           },
           medical: {
             isActive: employeeData.allowances?.medical?.isActive || false,
@@ -3606,29 +3608,60 @@ const EmployeeForm = () => {
               </Grid>
             )}
             
-            {/* Vehicle & Fuel Allowance */}
+            {/* Vehicle Allowance */}
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <FormControlLabel
                   control={
                     <Switch
-                      checked={formik.values.allowances?.vehicleFuel?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.vehicleFuel.isActive', e.target.checked)}
-                      name="allowances.vehicleFuel.isActive"
+                      checked={formik.values.allowances?.vehicle?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.vehicle.isActive', e.target.checked)}
+                      name="allowances.vehicle.isActive"
                     />
                   }
-                  label="Vehicle & Fuel Allowance"
+                  label="Vehicle Allowance"
                 />
               </FormControl>
             </Grid>
-            {formik.values.allowances?.vehicleFuel?.isActive && (
+            {formik.values.allowances?.vehicle?.isActive && (
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  name="allowances.vehicleFuel.amount"
-                  label="Vehicle & Fuel Allowance Amount"
+                  name="allowances.vehicle.amount"
+                  label="Vehicle Allowance Amount"
                   type="number"
-                  value={formik.values.allowances?.vehicleFuel?.amount || ''}
+                  value={formik.values.allowances?.vehicle?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+
+            {/* Fuel Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.fuel?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.fuel.isActive', e.target.checked)}
+                      name="allowances.fuel.isActive"
+                    />
+                  }
+                  label="Fuel Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.fuel?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.fuel.amount"
+                  label="Fuel Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.fuel?.amount || ''}
                   onChange={formik.handleChange}
                   InputProps={{
                     startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
@@ -3942,7 +3975,7 @@ const EmployeeForm = () => {
                   {/* Calculate the actual distribution based on current allowances */}
                   {(() => {
                     const grossSalary = formik.values.salary?.gross || 0;
-                    const vehicleFuelAllowance = formik.values.allowances?.vehicleFuel?.isActive ? (formik.values.allowances.vehicleFuel.amount || 0) : 0;
+                    const vehicleFuelAllowance = vehicleFuelTotal(formik.values.allowances);
                     const houseRent = Math.round(grossSalary * 0.2334); // 23.34% of gross
                     const medical = Math.round(grossSalary * 0.1); // 10% of gross
                     const basicSalary = grossSalary - houseRent - medical - vehicleFuelAllowance;
@@ -3962,7 +3995,7 @@ const EmployeeForm = () => {
                         {/* Show Vehicle & Fuel allowance as included in gross */}
                         {vehicleFuelAllowance > 0 && (
                           <Typography variant="body2" color="success.main">
-                            🚗 Vehicle & Fuel: {formatPKR(vehicleFuelAllowance)} (Included in Gross)
+                            🚗 Vehicle + Fuel: {formatPKR(vehicleFuelAllowance)} (Included in Gross)
                           </Typography>
                         )}
                         
@@ -4033,14 +4066,14 @@ const EmployeeForm = () => {
                     • Medical = 10% of Gross Salary (Fixed)
                   </Typography>
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
-                    • Vehicle & Fuel = Fixed Amount (if active)
+                    • Vehicle + Fuel = Fixed Amounts (if active)
                   </Typography>
                   
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
                     <strong>Step 2:</strong> Calculate Basic Salary
                   </Typography>
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
-                    • Basic Salary = Gross Salary - House Rent - Medical - Vehicle & Fuel
+                    • Basic Salary = Gross Salary - House Rent - Medical - Vehicle - Fuel
                   </Typography>
                   
                   <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
@@ -4075,7 +4108,7 @@ const EmployeeForm = () => {
                   {/* Net Salary Calculation */}
                   {(() => {
                     const grossSalary = formik.values.salary?.gross || 0;
-                    const vehicleFuelAllowance = formik.values.allowances?.vehicleFuel?.isActive ? (formik.values.allowances.vehicleFuel.amount || 0) : 0;
+                    const vehicleFuelAllowance = vehicleFuelTotal(formik.values.allowances);
                     const houseRent = Math.round(grossSalary * 0.2334);
                     const medical = Math.round(grossSalary * 0.1);
                     const basicSalary = grossSalary - houseRent - medical - vehicleFuelAllowance;

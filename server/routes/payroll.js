@@ -15,6 +15,13 @@ const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Attendance = require('../models/hr/Attendance');
 const AttendanceIntegrationService = require('../services/attendanceIntegrationService');
 const incrementService = require('../services/incrementService');
+const {
+  vehicleFuelTotal,
+  vehicleAllowanceAmount,
+  fuelAllowanceAmount,
+  buildAllowancesPayload,
+  payrollAllowancesFromEmployee
+} = require('../utils/allowanceHelpers');
 
 const router = express.Router();
 
@@ -217,7 +224,13 @@ async function generatePayslipPDF(payslip, res) {
     if (payslip.earnings.conveyanceAllowance > 0) {
       earnings.push(['Conveyance Allowance', payslip.earnings.conveyanceAllowance]);
     }
-    if (payslip.earnings.vehicleFuelAllowance > 0) {
+    if (payslip.earnings.vehicleAllowance > 0) {
+      earnings.push(['Vehicle Allowance', payslip.earnings.vehicleAllowance]);
+    }
+    if (payslip.earnings.fuelAllowance > 0) {
+      earnings.push(['Fuel Allowance', payslip.earnings.fuelAllowance]);
+    }
+    if (!payslip.earnings.vehicleAllowance && !payslip.earnings.fuelAllowance && payslip.earnings.vehicleFuelAllowance > 0) {
       earnings.push(['Vehicle & Fuel Allowance', payslip.earnings.vehicleFuelAllowance]);
     }
     if (payslip.earnings.foodAllowance > 0) {
@@ -675,7 +688,7 @@ router.get('/current-overview',
         // Calculate additional allowances beyond basic salary breakdown
         const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
                                    (employee.allowances?.food?.amount || 0) +
-                                   (employee.allowances?.vehicleFuel?.amount || 0) +
+                                   vehicleFuelTotal(employee.allowances) +
                                    (employee.allowances?.medical?.amount || 0) +
                                    (employee.allowances?.houseRent?.amount || 0) +
                                    (employee.allowances?.special?.amount || 0) +
@@ -790,7 +803,7 @@ router.get('/employee/:employeeId',
       // Calculate additional allowances beyond basic salary breakdown
       const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
                                  (employee.allowances?.food?.amount || 0) +
-                                 (employee.allowances?.vehicleFuel?.amount || 0) +
+                                 vehicleFuelTotal(employee.allowances) +
                                  (employee.allowances?.medical?.amount || 0) +
                                  (employee.allowances?.houseRent?.amount || 0) +
                                  (employee.allowances?.special?.amount || 0) +
@@ -867,36 +880,7 @@ router.get('/employee/:employeeId',
             monthlyTax: Math.round(taxCalculation.totalTax),
             netSalary: Math.round(netSalary),
             // Allowances breakdown
-            allowances: {
-              conveyance: {
-                isActive: employee.allowances?.conveyance?.isActive || false,
-                amount: employee.allowances?.conveyance?.amount || 0
-              },
-              food: {
-                isActive: employee.allowances?.food?.isActive || false,
-                amount: employee.allowances?.food?.amount || 0
-              },
-              vehicleFuel: {
-                isActive: employee.allowances?.vehicleFuel?.isActive || false,
-                amount: employee.allowances?.vehicleFuel?.amount || 0
-              },
-              medical: {
-                isActive: employee.allowances?.medical?.isActive || false,
-                amount: employee.allowances?.medical?.amount || 0
-              },
-              houseRent: {
-                isActive: employee.allowances?.houseRent?.isActive || false,
-                amount: employee.allowances?.houseRent?.amount || 0
-              },
-              special: {
-                isActive: employee.allowances?.special?.isActive || false,
-                amount: employee.allowances?.special?.amount || 0
-              },
-              other: {
-                isActive: employee.allowances?.other?.isActive || false,
-                amount: employee.allowances?.other?.amount || 0
-              }
-            },
+            allowances: payrollAllowancesFromEmployee(employee.allowances),
             // Overtime and bonuses
             overtimeHours: 0,
             overtimeAmount: 0,
@@ -987,7 +971,7 @@ router.get('/view/employee/:employeeId',
       // Calculate additional allowances beyond basic salary breakdown
       const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
                                  (employee.allowances?.food?.amount || 0) +
-                                 (employee.allowances?.vehicleFuel?.amount || 0) +
+                                 vehicleFuelTotal(employee.allowances) +
                                  (employee.allowances?.medical?.amount || 0) +
                                  (employee.allowances?.houseRent?.amount || 0) +
                                  (employee.allowances?.special?.amount || 0) +
@@ -1064,36 +1048,7 @@ router.get('/view/employee/:employeeId',
             monthlyTax: Math.round(taxCalculation.totalTax),
             netSalary: Math.round(netSalary),
             // Allowances breakdown
-            allowances: {
-              conveyance: {
-                isActive: employee.allowances?.conveyance?.isActive || false,
-                amount: employee.allowances?.conveyance?.amount || 0
-              },
-              food: {
-                isActive: employee.allowances?.food?.isActive || false,
-                amount: employee.allowances?.food?.amount || 0
-              },
-              vehicleFuel: {
-                isActive: employee.allowances?.vehicleFuel?.isActive || false,
-                amount: employee.allowances?.vehicleFuel?.amount || 0
-              },
-              medical: {
-                isActive: employee.allowances?.medical?.isActive || false,
-                amount: employee.allowances?.medical?.amount || 0
-              },
-              houseRent: {
-                isActive: employee.allowances?.houseRent?.isActive || false,
-                amount: employee.allowances?.houseRent?.amount || 0
-              },
-              special: {
-                isActive: employee.allowances?.special?.isActive || false,
-                amount: employee.allowances?.special?.amount || 0
-              },
-              other: {
-                isActive: employee.allowances?.other?.isActive || false,
-                amount: employee.allowances?.other?.amount || 0
-              }
-            },
+            allowances: payrollAllowancesFromEmployee(employee.allowances),
             // Overtime and bonuses
             overtimeHours: 0,
             overtimeAmount: 0,
@@ -1302,7 +1257,7 @@ router.post('/', [
           const additionalAllowances = 
             (employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0) +
             (employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0) +
-            (employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0) +
+            vehicleFuelTotal(employee.allowances) +
             (employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0) +
             (employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0) +
             (employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0) +
@@ -1403,36 +1358,7 @@ router.post('/', [
             basicSalary,
             houseRentAllowance,
             medicalAllowance,
-            allowances: {
-              conveyance: {
-                isActive: employee.allowances?.conveyance?.isActive || false,
-                amount: employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0
-              },
-              food: {
-                isActive: employee.allowances?.food?.isActive || false,
-                amount: employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0
-              },
-              vehicleFuel: {
-                isActive: employee.allowances?.vehicleFuel?.isActive || false,
-                amount: employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0
-              },
-              medical: {
-                isActive: employee.allowances?.medical?.isActive || false,
-                amount: employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0
-              },
-              houseRent: {
-                isActive: employee.allowances?.houseRent?.isActive || false,
-                amount: employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0
-              },
-              special: {
-                isActive: employee.allowances?.special?.isActive || false,
-                amount: employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0
-              },
-              other: {
-                isActive: employee.allowances?.other?.isActive || false,
-                amount: employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0
-              }
-            },
+            allowances: payrollAllowancesFromEmployee(employee.allowances),
             overtimeHours: 0,
             overtimeRate: 0,
             overtimeAmount: 0,
@@ -1776,32 +1702,7 @@ router.put('/:id', [
     updateData.otherAllowance = parseFloat(req.body.allowances.other) || 0;
     
     // Update the new allowances structure with frontend allowances
-    updateData.allowances = {
-      conveyance: {
-        isActive: req.body.allowances.conveyance?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.conveyance?.amount) || 0
-      },
-      food: {
-        isActive: req.body.allowances.food?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.food?.amount) || 0
-      },
-      vehicleFuel: {
-        isActive: req.body.allowances.vehicleFuel?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.vehicleFuel?.amount) || 0
-      },
-      medical: {
-        isActive: req.body.allowances.medical?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.medical?.amount) || 0
-      },
-      special: {
-        isActive: req.body.allowances.special?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.special?.amount) || 0
-      },
-      other: {
-        isActive: req.body.allowances.other?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.other?.amount) || 0
-      }
-    };
+    updateData.allowances = buildAllowancesPayload(req.body.allowances);
   }
 
   // Map overtime fields if provided
@@ -1888,36 +1789,7 @@ router.put('/:id', [
   // 🔧 CRITICAL FIX: Update allowances structure on payroll object FIRST
   if (req.body.allowances) {
     console.log('🔧 Updating payroll.allowances with frontend data');
-    payroll.allowances = {
-      conveyance: {
-        isActive: req.body.allowances.conveyance?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.conveyance?.amount) || 0
-      },
-      food: {
-        isActive: req.body.allowances.food?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.food?.amount) || 0
-      },
-      vehicleFuel: {
-        isActive: req.body.allowances.vehicleFuel?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.vehicleFuel?.amount) || 0
-      },
-      medical: {
-        isActive: req.body.allowances.medical?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.medical?.amount) || 0
-      },
-      houseRent: {
-        isActive: req.body.allowances.houseRent?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.houseRent?.amount) || 0
-      },
-      special: {
-        isActive: req.body.allowances.special?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.special?.amount) || 0
-      },
-      other: {
-        isActive: req.body.allowances.other?.isActive ?? false,
-        amount: parseFloat(req.body.allowances.other?.amount) || 0
-      }
-    };
+    payroll.allowances = buildAllowancesPayload(req.body.allowances);
     console.log('✅ Updated payroll.allowances:', JSON.stringify(payroll.allowances, null, 2));
   }
 
@@ -1929,7 +1801,7 @@ router.put('/:id', [
   const additionalAllowances = 
     (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
     (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0) +
-    (payroll.allowances?.vehicleFuel?.isActive ? payroll.allowances.vehicleFuel.amount : 0) +
+vehicleFuelTotal(payroll.allowances) +
     (payroll.allowances?.medical?.isActive ? payroll.allowances.medical.amount : 0) +
     (payroll.allowances?.houseRent?.isActive ? payroll.allowances.houseRent.amount : 0) +
     (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0) +
@@ -1938,7 +1810,8 @@ router.put('/:id', [
   console.log('💰 Additional Allowances Calculation:');
   console.log('   Conveyance:', payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0);
   console.log('   Food:', payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0);
-  console.log('   Vehicle & Fuel:', payroll.allowances?.vehicleFuel?.isActive ? payroll.allowances.vehicleFuel.amount : 0);
+  console.log('   Vehicle:', payroll.allowances?.vehicle?.isActive ? payroll.allowances.vehicle.amount : 0);
+  console.log('   Fuel:', payroll.allowances?.fuel?.isActive ? payroll.allowances.fuel.amount : 0);
   console.log('   Special:', payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0);
   console.log('   Other:', payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
   console.log('   Total Additional Allowances:', additionalAllowances);
@@ -2244,8 +2117,10 @@ router.put('/:id', [
 
   console.log('✅ PUT /api/payroll/:id - Request completed successfully');
   console.log('   Updated Total Earnings:', updatedPayroll.totalEarnings);
-  console.log('   Updated Vehicle & Fuel:', updatedPayroll.allowances?.vehicleFuel?.isActive ? 
-    `Rs. ${updatedPayroll.allowances.vehicleFuel.amount} (Active)` : 'Inactive');
+  console.log('   Updated Vehicle:', updatedPayroll.allowances?.vehicle?.isActive ?
+    `Rs. ${updatedPayroll.allowances.vehicle.amount} (Active)` : 'Inactive');
+  console.log('   Updated Fuel:', updatedPayroll.allowances?.fuel?.isActive ?
+    `Rs. ${updatedPayroll.allowances.fuel.amount} (Active)` : 'Inactive');
 
   res.json({
     success: true,
@@ -3103,7 +2978,9 @@ router.post('/:id/generate-payslip',
         houseRent: payroll.houseRentAllowance || 0,
         medicalAllowance: payroll.medicalAllowance || 0,
         conveyanceAllowance: payroll.allowances?.conveyance?.amount || 0,
-        vehicleFuelAllowance: payroll.allowances?.vehicleFuel?.amount || 0,
+        vehicleAllowance: vehicleAllowanceAmount(payroll.allowances),
+        fuelAllowance: fuelAllowanceAmount(payroll.allowances),
+        vehicleFuelAllowance: vehicleFuelTotal(payroll.allowances),
         foodAllowance: payroll.allowances?.food?.amount || 0,
         specialAllowance: payroll.allowances?.special?.amount || 0,
         otherAllowances: payroll.allowances?.other?.amount || 0,
@@ -3114,7 +2991,9 @@ router.post('/:id/generate-payslip',
           houseRent: payroll.houseRentAllowance || 0,
           medicalAllowance: payroll.medicalAllowance || 0,
           conveyanceAllowance: payroll.allowances?.conveyance?.amount || 0,
-          vehicleFuelAllowance: payroll.allowances?.vehicleFuel?.amount || 0,
+          vehicleAllowance: vehicleAllowanceAmount(payroll.allowances),
+          fuelAllowance: fuelAllowanceAmount(payroll.allowances),
+          vehicleFuelAllowance: vehicleFuelTotal(payroll.allowances),
           foodAllowance: payroll.allowances?.food?.amount || 0,
           specialAllowance: payroll.allowances?.special?.amount || 0,
           otherAllowances: payroll.allowances?.other?.amount || 0,

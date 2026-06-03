@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 const { calculateMonthlyTax, calculateMonthlyTaxImage, calculateTaxableIncome, calculateTax } = require('../../utils/taxCalculator');
+const {
+  vehicleFuelTotal,
+  vehicleAllowanceAmount,
+  fuelAllowanceAmount,
+  payrollAllowancesFromEmployee
+} = require('../../utils/allowanceHelpers');
 
 // Helper function to calculate loan deductions from active loans
 const calculateLoanDeductions = async (employeeId) => {
@@ -74,6 +80,29 @@ const payrollSchema = new mongoose.Schema({
         min: [0, 'Food allowance cannot be negative']
       }
     },
+    vehicle: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Vehicle allowance cannot be negative']
+      }
+    },
+    fuel: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Fuel allowance cannot be negative']
+      }
+    },
+    /** @deprecated Use vehicle + fuel; kept for existing records */
     vehicleFuel: {
       isActive: {
         type: Boolean,
@@ -455,7 +484,13 @@ payrollSchema.virtual('totalAllowances').get(function() {
     if (this.allowances.food?.isActive) {
       total += this.allowances.food.amount || 0;
     }
-    if (this.allowances.vehicleFuel?.isActive) {
+    if (this.allowances.vehicle?.isActive) {
+      total += this.allowances.vehicle.amount || 0;
+    }
+    if (this.allowances.fuel?.isActive) {
+      total += this.allowances.fuel.amount || 0;
+    }
+    if (!this.allowances.vehicle?.isActive && !this.allowances.fuel?.isActive && this.allowances.vehicleFuel?.isActive) {
       total += this.allowances.vehicleFuel.amount || 0;
     }
     if (this.allowances.medical?.isActive) {
@@ -745,37 +780,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   const leaveDays = attendanceData.leaveDays || 0;
   
   // Get employee allowances (only active ones)
-  const employeeAllowances = employee.allowances || {};
-  const payrollAllowances = {
-    conveyance: {
-      isActive: employeeAllowances.conveyance?.isActive || false,
-      amount: employeeAllowances.conveyance?.isActive ? employeeAllowances.conveyance.amount : 0
-    },
-    food: {
-      isActive: employeeAllowances.food?.isActive || false,
-      amount: employeeAllowances.food?.isActive ? employeeAllowances.food.amount : 0
-    },
-    vehicleFuel: {
-      isActive: employeeAllowances.vehicleFuel?.isActive || false,
-      amount: employeeAllowances.vehicleFuel?.isActive ? employeeAllowances.vehicleFuel.amount : 0
-    },
-    medical: {
-      isActive: employeeAllowances.medical?.isActive || false,
-      amount: employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0
-    },
-    houseRent: {
-      isActive: employeeAllowances.houseRent?.isActive || false,
-      amount: employeeAllowances.houseRent?.isActive ? employeeAllowances.houseRent.amount : 0
-    },
-    special: {
-      isActive: employeeAllowances.special?.isActive || false,
-      amount: employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0
-    },
-    other: {
-      isActive: employeeAllowances.other?.isActive || false,
-      amount: employeeAllowances.other?.isActive ? employeeAllowances.other.amount : 0
-    }
-  };
+  const payrollAllowances = payrollAllowancesFromEmployee(employee.allowances);
 
   // Calculate gross salary (basic + all active allowances)
   const totalAllowances = Object.values(payrollAllowances).reduce((sum, allowance) => {
@@ -796,7 +801,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   const additionalAllowances = 
     (payrollAllowances.conveyance.isActive ? payrollAllowances.conveyance.amount : 0) +
     (payrollAllowances.food.isActive ? payrollAllowances.food.amount : 0) +
-    (payrollAllowances.vehicleFuel.isActive ? payrollAllowances.vehicleFuel.amount : 0) +
+    vehicleFuelTotal(payrollAllowances) +
     (payrollAllowances.medical.isActive ? payrollAllowances.medical.amount : 0) +
     (payrollAllowances.houseRent.isActive ? payrollAllowances.houseRent.amount : 0) +
     (payrollAllowances.special.isActive ? payrollAllowances.special.amount : 0) +
@@ -849,7 +854,9 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     // Set direct allowance fields for backward compatibility
     conveyanceAllowance: payrollAllowances.conveyance.isActive ? payrollAllowances.conveyance.amount : 0,
     foodAllowance: payrollAllowances.food.isActive ? payrollAllowances.food.amount : 0,
-    vehicleFuelAllowance: payrollAllowances.vehicleFuel.isActive ? payrollAllowances.vehicleFuel.amount : 0,
+    vehicleAllowance: vehicleAllowanceAmount(payrollAllowances),
+    fuelAllowance: fuelAllowanceAmount(payrollAllowances),
+    vehicleFuelAllowance: vehicleFuelTotal(payrollAllowances),
     // Automatic allowances based on gross salary
     houseRentAllowance: automaticHouseRentAllowance,
     medicalAllowance: automaticMedicalAllowance,

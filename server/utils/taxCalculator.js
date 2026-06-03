@@ -2,6 +2,7 @@
  * Pakistan FBR Tax Calculator
  * Implements exact FBR 2025-2026 tax slabs
  */
+const { vehicleFuelTotal } = require('./allowanceHelpers');
 
 /**
  * Calculate monthly tax deduction using FBR 2025-2026 tax slabs
@@ -181,11 +182,7 @@ function calculateTaxableIncomeCorrected(salary) {
       totalGrossAmount += salary.allowances.food.amount || 0;
     }
     
-    if (typeof salary.allowances.vehicleFuel === 'number') {
-      totalGrossAmount += salary.allowances.vehicleFuel;
-    } else if (salary.allowances.vehicleFuel?.isActive) {
-      totalGrossAmount += salary.allowances.vehicleFuel.amount || 0;
-    }
+    totalGrossAmount += vehicleFuelTotal(salary.allowances);
     
     if (typeof salary.allowances.other === 'number') {
       totalGrossAmount += salary.allowances.other;

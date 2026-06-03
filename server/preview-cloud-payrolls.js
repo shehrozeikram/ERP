@@ -103,7 +103,7 @@ const previewCloudPayrolls = async () => {
           $group: {
             _id: null,
             totalBasicSalary: { $sum: '$basicSalary' },
-            totalAllowances: { $sum: { $add: ['$allowances.conveyance.amount', '$allowances.food.amount', '$allowances.vehicleFuel.amount', '$allowances.medical.amount', '$allowances.special.amount', '$allowances.other.amount'] } },
+            totalAllowances: { $sum: { $add: ['$allowances.conveyance.amount', '$allowances.food.amount', '$allowances.vehicle.amount', '$allowances.fuel.amount', '$allowances.vehicleFuel.amount', '$allowances.medical.amount', '$allowances.special.amount', '$allowances.other.amount'] } },
             totalHouseRent: { $sum: '$houseRentAllowance' }
           }
         }

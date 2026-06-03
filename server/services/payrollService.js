@@ -4,6 +4,12 @@ const LeaveRequest = require('../models/hr/LeaveRequest');
 const LeaveBalance = require('../models/hr/LeaveBalance');
 const Attendance = require('../models/hr/Attendance');
 const LeaveIntegrationService = require('./leaveIntegrationService');
+const {
+  vehicleAllowanceAmount,
+  fuelAllowanceAmount,
+  payrollAllowancesFromEmployee,
+  mergePayrollAllowances
+} = require('../utils/allowanceHelpers');
 
 /**
  * Payroll Service - Implements Two-Tier Allowance System
@@ -38,32 +44,7 @@ class PayrollService {
 
       // Prepare payroll allowances (Tier 2 - Monthly Overrides)
       // If frontend doesn't specify allowances, use employee master defaults
-      const payrollAllowances = {
-        conveyance: {
-          isActive: payrollData.allowances?.conveyance?.isActive ?? employeeAllowances.conveyance?.isActive ?? false,
-          amount: payrollData.allowances?.conveyance?.amount ?? employeeAllowances.conveyance?.amount ?? 0
-        },
-        food: {
-          isActive: payrollData.allowances?.food?.isActive ?? employeeAllowances.food?.isActive ?? false,
-          amount: payrollData.allowances?.food?.amount ?? employeeAllowances.food?.amount ?? 0
-        },
-        vehicleFuel: {
-          isActive: payrollData.allowances?.vehicleFuel?.isActive ?? employeeAllowances.vehicleFuel?.isActive ?? false,
-          amount: payrollData.allowances?.vehicleFuel?.amount ?? employeeAllowances.vehicleFuel?.amount ?? 0
-        },
-        medical: {
-          isActive: payrollData.allowances?.medical?.isActive ?? employeeAllowances.medical?.isActive ?? false,
-          amount: payrollData.allowances?.medical?.amount ?? employeeAllowances.medical?.amount ?? 0
-        },
-        special: {
-          isActive: payrollData.allowances?.special?.isActive ?? employeeAllowances.special?.isActive ?? false,
-          amount: payrollData.allowances?.special?.amount ?? employeeAllowances.special?.amount ?? 0
-        },
-        other: {
-          isActive: payrollData.allowances?.other?.isActive ?? employeeAllowances.other?.isActive ?? false,
-          amount: payrollData.allowances?.other?.amount ?? employeeAllowances.other?.amount ?? 0
-        }
-      };
+      const payrollAllowances = mergePayrollAllowances(payrollData.allowances, employeeAllowances);
 
       // Create payroll with the prepared allowances
       const payroll = new Payroll({
@@ -98,8 +79,11 @@ class PayrollService {
       if (allowanceUpdates.food !== undefined) {
         payroll.allowances.food = allowanceUpdates.food;
       }
-      if (allowanceUpdates.vehicleFuel !== undefined) {
-        payroll.allowances.vehicleFuel = allowanceUpdates.vehicleFuel;
+      if (allowanceUpdates.vehicle !== undefined) {
+        payroll.allowances.vehicle = allowanceUpdates.vehicle;
+      }
+      if (allowanceUpdates.fuel !== undefined) {
+        payroll.allowances.fuel = allowanceUpdates.fuel;
       }
       if (allowanceUpdates.medical !== undefined) {
         payroll.allowances.medical = allowanceUpdates.medical;
@@ -160,17 +144,31 @@ class PayrollService {
           isOverridden: payroll.allowances.food.isActive !== (employeeAllowances.food?.isActive || false) ||
                        payroll.allowances.food.amount !== (employeeAllowances.food?.amount || 0)
         },
-        vehicleFuel: {
+        vehicle: {
           employeeMaster: {
-            isActive: employeeAllowances.vehicleFuel?.isActive || false,
-            amount: employeeAllowances.vehicleFuel?.amount || 0
+            isActive: employeeAllowances.vehicle?.isActive || employeeAllowances.vehicleFuel?.isActive || false,
+            amount: vehicleAllowanceAmount(employeeAllowances)
           },
           monthlyOverride: {
-            isActive: payroll.allowances.vehicleFuel.isActive,
-            amount: payroll.allowances.vehicleFuel.amount
+            isActive: payroll.allowances.vehicle?.isActive || false,
+            amount: payroll.allowances.vehicle?.amount || 0
           },
-          isOverridden: payroll.allowances.vehicleFuel.isActive !== (employeeAllowances.vehicleFuel?.isActive || false) ||
-                       payroll.allowances.vehicleFuel.amount !== (employeeAllowances.vehicleFuel?.amount || 0)
+          isOverridden:
+            (payroll.allowances.vehicle?.isActive || false) !== (employeeAllowances.vehicle?.isActive || employeeAllowances.vehicleFuel?.isActive || false) ||
+            (payroll.allowances.vehicle?.amount || 0) !== vehicleAllowanceAmount(employeeAllowances)
+        },
+        fuel: {
+          employeeMaster: {
+            isActive: employeeAllowances.fuel?.isActive || false,
+            amount: fuelAllowanceAmount(employeeAllowances)
+          },
+          monthlyOverride: {
+            isActive: payroll.allowances.fuel?.isActive || false,
+            amount: payroll.allowances.fuel?.amount || 0
+          },
+          isOverridden:
+            (payroll.allowances.fuel?.isActive || false) !== (employeeAllowances.fuel?.isActive || false) ||
+            (payroll.allowances.fuel?.amount || 0) !== fuelAllowanceAmount(employeeAllowances)
         },
         medical: {
           employeeMaster: {
@@ -244,32 +242,7 @@ class PayrollService {
       const employeeAllowances = employee.allowances || {};
 
       // Reset all allowances to employee master defaults
-      payroll.allowances = {
-        conveyance: {
-          isActive: employeeAllowances.conveyance?.isActive || false,
-          amount: employeeAllowances.conveyance?.amount || 0
-        },
-        food: {
-          isActive: employeeAllowances.food?.isActive || false,
-          amount: employeeAllowances.food?.amount || 0
-        },
-        vehicleFuel: {
-          isActive: employeeAllowances.vehicleFuel?.isActive || false,
-          amount: employeeAllowances.vehicleFuel?.amount || 0
-        },
-        medical: {
-          isActive: employeeAllowances.medical?.isActive || false,
-          amount: employeeAllowances.medical?.amount || 0
-        },
-        special: {
-          isActive: employeeAllowances.special?.isActive || false,
-          amount: employeeAllowances.special?.amount || 0
-        },
-        other: {
-          isActive: employeeAllowances.other?.isActive || false,
-          amount: employeeAllowances.other?.amount || 0
-        }
-      };
+      payroll.allowances = payrollAllowancesFromEmployee(employeeAllowances);
 
       await payroll.save();
       return payroll;
