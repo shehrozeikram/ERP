@@ -690,6 +690,18 @@ const employeeSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Tax exemption amount cannot be negative']
   },
+  // Manual tax override: when isActive, payroll uses fixedAmount instead of auto-calculated tax
+  manualTax: {
+    isActive: {
+      type: Boolean,
+      default: false
+    },
+    fixedAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Manual tax amount cannot be negative']
+    }
+  },
   benefits: {
     healthInsurance: {
       type: Boolean,

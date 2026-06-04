@@ -26,7 +26,8 @@ const EmployeeIncrement = require('../models/hr/EmployeeIncrement');
 const incrementService = require('../services/incrementService');
 const {
   buildAllowancesPayload,
-  syncDraftPayrollsAllowancesFromEmployee
+  syncDraftPayrollsAllowancesFromEmployee,
+  syncDraftPayrollsManualTaxFromEmployee
 } = require('../utils/allowanceHelpers');
 
 const router = express.Router();
@@ -1202,6 +1203,14 @@ router.put('/employees/:id', [
         payrollsSynced = syncResult.updated || 0;
       } catch (syncError) {
         console.error('Error syncing payroll allowances after employee update:', syncError);
+      }
+    }
+
+    if ('manualTax' in req.body) {
+      try {
+        await syncDraftPayrollsManualTaxFromEmployee(employee);
+      } catch (syncError) {
+        console.error('Error syncing manual tax after employee update:', syncError);
       }
     }
 

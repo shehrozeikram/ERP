@@ -255,6 +255,50 @@ const getEmployeeEobiDeduction = (employee) => {
   return 370;
 };
 
+/**
+ * Returns { isManual, tax } for an employee's income tax.
+ * When manualTax.isActive, the fixed amount overrides auto calculation.
+ */
+const resolveEmployeeIncomeTax = (employee, autoCalculatedTax) => {
+  if (employee?.manualTax?.isActive) {
+    const fixed = Math.max(0, Math.round(Number(employee.manualTax.fixedAmount) || 0));
+    return { isManual: true, tax: fixed };
+  }
+  return { isManual: false, tax: Math.round(autoCalculatedTax || 0) };
+};
+
+/**
+ * When manualTax changes on employee master, sync all Draft payrolls for that employee.
+ */
+const syncDraftPayrollsManualTaxFromEmployee = async (employee) => {
+  if (!employee?._id) return { updated: 0 };
+
+  const Payroll = require('../models/hr/Payroll');
+
+  const payrolls = await Payroll.find({ employee: employee._id, status: 'Draft' });
+  let updated = 0;
+
+  for (const payroll of payrolls) {
+    const { isManual, tax } = resolveEmployeeIncomeTax(employee, payroll.incomeTax);
+    if (!isManual) continue;
+
+    payroll.incomeTax = tax;
+    payroll.totalDeductions =
+      (payroll.incomeTax || 0) +
+      (payroll.healthInsurance || 0) +
+      (payroll.loanDeductions || 0) +
+      (payroll.eobi || 0) +
+      (payroll.attendanceDeduction || 0) +
+      (payroll.leaveDeduction || 0) +
+      (payroll.otherDeductions || 0);
+    payroll.netSalary = (payroll.totalEarnings || 0) - payroll.totalDeductions;
+    await payroll.save();
+    updated += 1;
+  }
+
+  return { updated };
+};
+
 module.exports = {
   activeAmount,
   usesSplitVehicleFuelFields,
@@ -267,5 +311,7 @@ module.exports = {
   mergePayrollAllowances,
   syncDraftPayrollsAllowancesFromEmployee,
   syncDraftPayrollsTaxFromSettings,
-  getEmployeeEobiDeduction
+  syncDraftPayrollsManualTaxFromEmployee,
+  getEmployeeEobiDeduction,
+  resolveEmployeeIncomeTax
 };

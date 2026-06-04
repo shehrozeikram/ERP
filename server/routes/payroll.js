@@ -26,7 +26,8 @@ const {
   buildAllowancesPayload,
   payrollAllowancesFromEmployee,
   additionalAllowancesTotal,
-  getEmployeeEobiDeduction
+  getEmployeeEobiDeduction,
+  resolveEmployeeIncomeTax
 } = require('../utils/allowanceHelpers');
 
 const router = express.Router();
@@ -99,9 +100,10 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
     employeeId: employee._id,
     settings: taxSettings
   });
+  const { tax: resolvedTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
   const eobiDeduction = getEmployeeEobiDeduction(employee);
   const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
-  const netSalary = taxCalculation.totalNetSalary - eobiDeduction;
+  const netSalary = taxCalculation.totalNetSalary - eobiDeduction - (resolvedTax - taxCalculation.totalTax);
 
   return {
     basic,
@@ -113,6 +115,7 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
     totalEarnings,
     mainSalary,
     taxCalculation,
+    resolvedTax,
     eobiDeduction,
     netSalary
   };
@@ -131,7 +134,8 @@ const resolveEmployeeGrossSalary = async (employee) => {
 };
 
 const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
-  const { taxCalculation, eobiDeduction } = figures;
+  const { taxCalculation, eobiDeduction, resolvedTax } = figures;
+  const finalTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
   return {
     basicSalary: Math.round(figures.basic),
     grossSalary: Math.round(gross),
@@ -144,14 +148,15 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
     taxableIncome: Math.round(
       taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome
     ),
-    monthlyTax: Math.round(taxCalculation.totalTax),
+    monthlyTax: finalTax,
     netSalary: Math.round(figures.netSalary),
     allowances: payrollAllowancesFromEmployee(employee.allowances),
     overtimeHours: 0,
     overtimeAmount: 0,
     performanceBonus: 0,
     otherBonus: 0,
-    incomeTax: Math.round(taxCalculation.totalTax),
+    incomeTax: finalTax,
+    isManualTax: Boolean(employee?.manualTax?.isActive),
     eobi: eobiDeduction,
     healthInsurance: 0,
     providentFund: calculateProvidentFundForEmployee(employee, figures.basic),
@@ -772,7 +777,7 @@ router.get('/current-overview',
         employmentStatus: 'Active',
         'salary.gross': { $exists: true, $gt: 0 }
       })
-        .select('firstName lastName employeeId salary allowances arrears eobi placementDepartment placementProject department')
+        .select('firstName lastName employeeId salary allowances arrears eobi manualTax placementDepartment placementProject department')
         .populate('placementDepartment', 'name code')
         .populate('placementProject', 'name')
         .populate('department', 'name');
@@ -834,17 +839,18 @@ router.get('/current-overview',
       for (const employee of activeEmployees) {
         const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
         const figures = computeEmployeeCurrentPayrollFigures(employee, gross, taxSettings);
-        const { taxCalculation } = figures;
-        const monthlyTax = taxCalculation.totalTax;
+        const { taxCalculation, resolvedTax } = figures;
+        const monthlyTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
         const taxableIncome =
           taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome;
+        const netSalary = Math.round(figures.totalEarnings - monthlyTax - figures.eobiDeduction);
 
         totalBasicSalary += figures.basic;
         totalGrossSalary += figures.totalEarnings;
         totalMedicalAllowance += figures.medical;
         totalTaxableIncome += taxableIncome;
         totalTax += monthlyTax;
-        totalNetSalary += figures.netSalary;
+        totalNetSalary += netSalary;
 
         employeeDetails.push({
           _id: employee._id,
@@ -858,9 +864,10 @@ router.get('/current-overview',
           totalEarnings: Math.round(figures.totalEarnings),
           medicalAllowance: Math.round(figures.medical),
           taxableIncome: Math.round(taxableIncome),
-          monthlyTax: Math.round(monthlyTax),
+          monthlyTax: monthlyTax,
           eobi: Math.round(figures.eobiDeduction),
-          netSalary: Math.round(figures.netSalary),
+          netSalary: netSalary,
+          isManualTax: Boolean(employee?.manualTax?.isActive),
           department: employee.department,
           placementDepartment: employee.placementDepartment,
           placementProject: employee.placementProject,
@@ -917,7 +924,7 @@ router.get('/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund eobi');
+        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax');
 
       if (!employee) {
         return res.status(404).json({
@@ -978,7 +985,7 @@ router.get('/view/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund eobi');
+        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax');
 
       if (!employee) {
         return res.status(404).json({
@@ -1199,7 +1206,7 @@ router.post('/', [
     const activeEmployees = await Employee.find({
       employmentStatus: 'Active',
       'salary.gross': { $exists: true, $gt: 0 }
-    }).select('firstName lastName employeeId salary allowances arrears department position providentFund eobi');
+    }).select('firstName lastName employeeId salary allowances arrears department position providentFund eobi manualTax');
 
     if (activeEmployees.length === 0) {
       return res.status(404).json({
@@ -1311,7 +1318,7 @@ router.post('/', [
             employeeId: employee._id,
             settings: taxSettings
           });
-          const monthlyTax = taxCalculation.totalTax;
+          const { tax: monthlyTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
           
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
           const providentFundEnabled = isProvidentFundEnabledForEmployee(employee);
@@ -1790,7 +1797,7 @@ router.put('/:id', [
     }
   }
 
-  const payrollEmployee = await Employee.findById(payroll.employee).select('providentFund eobi');
+  const payrollEmployee = await Employee.findById(payroll.employee).select('providentFund eobi manualTax');
   if (!req.body.deductions) {
     updateData.eobi = getEmployeeEobiDeduction(payrollEmployee);
   }
@@ -1873,10 +1880,13 @@ router.put('/:id', [
     employeeId: payroll.employee,
     settings: taxSettings
   });
-  
+
+  const employeeForTax = await Employee.findById(payroll.employee).select('manualTax eobi').lean();
+  const { tax: resolvedPayrollTax } = resolveEmployeeIncomeTax(employeeForTax, taxCalculation.totalTax);
+
   // Auto-calculate tax when allowances change (always recalculate for accuracy)
   try {
-    updateData.incomeTax = taxCalculation.totalTax;
+    updateData.incomeTax = resolvedPayrollTax;
     
     // 🔧 CRITICAL FIX: Update payroll.incomeTax with calculated value
     payroll.incomeTax = updateData.incomeTax;

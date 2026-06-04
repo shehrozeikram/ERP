@@ -246,6 +246,10 @@ const EmployeeForm = () => {
       amount: Yup.number().min(0, 'EOBI amount must be positive'),
       percentage: Yup.number().min(0, 'EOBI percentage must be positive')
     }),
+    manualTax: Yup.object({
+      isActive: Yup.boolean(),
+      fixedAmount: Yup.number().min(0, 'Manual tax amount must be 0 or more')
+    }),
     providentFund: Yup.object({
       isActive: Yup.boolean(),
       amount: Yup.number().min(0, 'Provident Fund amount must be positive'),
@@ -735,6 +739,10 @@ const EmployeeForm = () => {
           amount: employeeData.eobi?.amount || 0,
           percentage: employeeData.eobi?.percentage || 0.06 // Assuming 6% is the default
         },
+        manualTax: {
+          isActive: employeeData.manualTax?.isActive || false,
+          fixedAmount: employeeData.manualTax?.fixedAmount || 0
+        },
         providentFund: {
           isActive: employeeData.providentFund?.isActive || false,
           amount: employeeData.providentFund?.amount || 0,
@@ -967,6 +975,10 @@ const EmployeeForm = () => {
       eobi: {
         isActive: false,
         amount: 0
+      },
+      manualTax: {
+        isActive: false,
+        fixedAmount: 0
       },
       providentFund: {
         isActive: false,
@@ -3875,6 +3887,50 @@ const EmployeeForm = () => {
               </Grid>
             )}
             
+            {/* Manual Tax Override */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.manualTax?.isActive || false}
+                      onChange={(e) => {
+                        formik.setFieldValue('manualTax.isActive', e.target.checked);
+                        if (!e.target.checked) formik.setFieldValue('manualTax.fixedAmount', 0);
+                      }}
+                      name="manualTax.isActive"
+                      color="warning"
+                    />
+                  }
+                  label="Manual Tax Override (Turn Off Auto Tax)"
+                />
+                <FormHelperText>
+                  When enabled, auto income tax is skipped and the fixed amount below is deducted instead.
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.manualTax?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="manualTax.fixedAmount"
+                  label="Fixed Monthly Tax Amount"
+                  type="number"
+                  value={formik.values.manualTax?.fixedAmount || 0}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                  inputProps={{ min: 0, step: 1 }}
+                  helperText="This exact amount will be deducted as income tax every month."
+                  error={Boolean(formik.errors.manualTax?.fixedAmount)}
+                />
+              </Grid>
+            )}
+
             {/* Auto-Calculated Salary Breakdown */}
             <Grid item xs={12}>
               <Card variant="outlined" sx={{ p: 2, backgroundColor: '#f8f9fa', mt: 2 }}>
