@@ -232,6 +232,7 @@ import BankManagement from './pages/HR/BankManagement';
 import NotFound from './pages/NotFound/NotFound';
 
 import FBRTaxManagement from './pages/HR/FBRTaxManagement';
+import PayrollTaxes from './pages/HR/PayrollTaxes';
 import EvaluationDocuments from './pages/HR/EvaluationAppraisal/EvaluationDocuments';
 import EvaluationAuthorities from './pages/HR/EvaluationAppraisal/EvaluationAuthorities';
 import EvaluationDashboard from './pages/HR/EvaluationAppraisal/EvaluationDashboard';
@@ -578,6 +579,10 @@ function App() {
             <Route
               path="/hr/payroll"
               element={<ProtectedRoute><Payroll /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/payroll-taxes"
+              element={<ProtectedRoute><PayrollTaxes /></ProtectedRoute>}
             />
             <Route
               path="/hr/payroll/:id/edit"

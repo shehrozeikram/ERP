@@ -209,28 +209,15 @@ const Profile = () => {
 
       if (response.data.success) {
         const imagePath = response.data.data.imagePath;
-        
-        // Update user profile with new image path
-        try {
-          await updateProfile({ profileImage: imagePath });
-        } catch (updateError) {
-          console.error('Error updating profile:', updateError);
-          // Continue even if profile update fails - image is already uploaded
-        }
+        const uploadedUser = response.data.data.user;
 
-        // Refresh user data to get updated profile
         try {
-          const profileResponse = await authService.getProfile();
-          if (profileResponse?.data?.data?.user) {
-            const updatedUser = profileResponse.data.data.user;
-            // Update local state with proper image URL
-            setProfileImage(getImageUrl(updatedUser.profileImage || imagePath));
-          } else {
-            setProfileImage(getImageUrl(imagePath));
-          }
+          const refreshResult = await refreshUser();
+          const updatedUser = refreshResult?.user || uploadedUser;
+          setProfileImage(getImageUrl(updatedUser?.profileImage || imagePath));
         } catch (refreshError) {
           console.error('Error refreshing profile:', refreshError);
-          setProfileImage(getImageUrl(imagePath));
+          setProfileImage(getImageUrl(uploadedUser?.profileImage || imagePath));
         }
 
         setSnackbar({

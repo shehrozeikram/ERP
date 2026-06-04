@@ -19,15 +19,76 @@ function userIdOf(userDoc) {
 }
 
 /**
- * Find HR employee for logged-in user.
+ * Persist only linkedEmployee when HR already has user = this login (no employeeId overwrite).
+ */
+async function ensureLinkedEmployeeCache(uid, employeeDocId) {
+  if (!uid || !employeeDocId) return;
+  await User.findByIdAndUpdate(uid, { linkedEmployee: employeeDocId });
+}
+
+/**
+ * Explicit admin (or user-create) link: sets linkedEmployee, optional employeeId sync, and employee.user.
+ */
+async function linkUserToEmployee(userId, employeeDocId, options = {}) {
+  const { syncEmployeeId = true } = options;
+  if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(employeeDocId)) {
+    throw new Error('Invalid user or employee id');
+  }
+
+  const emp = await Employee.findOne({ _id: employeeDocId, isDeleted: { $ne: true } });
+  if (!emp) throw new Error('Employee not found');
+
+  if (emp.user && String(emp.user) !== String(userId)) {
+    const other = await User.findById(emp.user).select('_id isActive');
+    if (other) {
+      throw new Error('Employee is already linked to another user account');
+    }
+  }
+
+  const userUpdate = { linkedEmployee: emp._id };
+  if (syncEmployeeId && emp.employeeId) {
+    userUpdate.employeeId = String(emp.employeeId);
+  }
+  await User.findByIdAndUpdate(userId, userUpdate);
+
+  if (!emp.user || String(emp.user) !== String(userId)) {
+    emp.user = userId;
+    await emp.save();
+  }
+
+  return emp;
+}
+
+async function unlinkUserFromEmployee(userId) {
+  if (!mongoose.Types.ObjectId.isValid(userId)) return;
+  const user = await User.findById(userId).select('linkedEmployee');
+  if (!user) return;
+
+  if (user.linkedEmployee) {
+    const emp = await Employee.findById(user.linkedEmployee);
+    if (emp && String(emp.user) === String(userId)) {
+      emp.user = undefined;
+      await emp.save();
+    }
+  }
+  await User.findByIdAndUpdate(userId, { $unset: { linkedEmployee: 1 } });
+}
+
+/**
+ * Find HR employee for logged-in user (read-only by default).
+ * Resolution order: linkedEmployee → employee.user === login → single exact employeeId match.
+ * Does not use email/name guessing. Does not mutate user.employeeId on read.
  */
 async function findEmployeeForAuthUser(userDoc, options = {}) {
-  const { select = '_id reportingLine employeeId email firstName lastName user', autoLink = true } = options;
+  const {
+    select = '_id reportingLine employeeId email firstName lastName user',
+    autoLink = false
+  } = options;
   const uid = userIdOf(userDoc);
   if (!uid) return null;
 
   const dbUser = await User.findById(uid)
-    .select('email employeeId firstName lastName linkedEmployee')
+    .select('email employeeId linkedEmployee')
     .lean();
   if (!dbUser) return null;
 
@@ -38,41 +99,21 @@ async function findEmployeeForAuthUser(userDoc, options = {}) {
     if (cached) return cached;
   }
 
-  const email = String(dbUser.email || userDoc?.email || '').trim().toLowerCase();
-  const ids = [...new Set(employeeIdVariants(dbUser.employeeId || userDoc?.employeeId))];
-  const or = [{ user: uid }];
-  if (ids.length) or.push({ employeeId: { $in: ids } });
-  if (email) or.push({ email });
-
-  let emp = or.length ? await Employee.findOne({ ...base, $or: or }).select(select) : null;
-
-  if (!emp && email) {
-    const esc = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    emp = await Employee.findOne({ ...base, email: { $regex: new RegExp(`^${esc}$`, 'i') } }).select(select);
+  const byUserField = await Employee.findOne({ ...base, user: uid }).select(select);
+  if (byUserField) {
+    if (autoLink) await ensureLinkedEmployeeCache(uid, byUserField._id);
+    return byUserField;
   }
 
-  if (!emp && dbUser.firstName) {
-    const q = { ...base, firstName: new RegExp(`^${String(dbUser.firstName).trim()}$`, 'i') };
-    const last = String(dbUser.lastName || '').trim();
-    if (last) q.lastName = new RegExp(`^${last}$`, 'i');
-    const list = await Employee.find(q).select(select).limit(2);
-    if (list.length === 1) emp = list[0];
+  const ids = [...new Set(employeeIdVariants(dbUser.employeeId))];
+  if (ids.length) {
+    const matches = await Employee.find({ ...base, employeeId: { $in: ids } })
+      .select(select)
+      .limit(2);
+    if (matches.length === 1) return matches[0];
   }
 
-  if (!emp) return null;
-
-  if (autoLink) {
-    if (!emp.user) {
-      emp.user = uid;
-      await emp.save();
-    }
-    await User.findByIdAndUpdate(uid, {
-      linkedEmployee: emp._id,
-      ...(emp.employeeId ? { employeeId: String(emp.employeeId) } : {})
-    });
-  }
-
-  return emp;
+  return null;
 }
 
 async function loadReportingLineForProfile(userDoc) {
@@ -98,12 +139,16 @@ async function saveReportingLineForUser(userDoc, reportingLineId) {
     if (selfEmpId && String(reportingLineId) === String(selfEmpId)) {
       throw new Error('Reporting line cannot be yourself');
     }
-    const t = await Employee.findOne({ _id: reportingLineId, isDeleted: { $ne: true }, isActive: true }).select('_id');
+    const t = await Employee.findOne({
+      _id: reportingLineId,
+      isDeleted: { $ne: true },
+      isActive: true
+    }).select('_id');
     if (!t) throw new Error('Reporting line employee not found or inactive');
     return t._id;
   };
 
-  const emp = await findEmployeeForAuthUser(userDoc, { select: '_id', autoLink: true });
+  const emp = await findEmployeeForAuthUser(userDoc, { select: '_id', autoLink: false });
   const targetId = await resolveTarget(emp?._id);
 
   if (emp) {
@@ -136,11 +181,7 @@ async function linkDeveloperShehrozeAccount() {
     return { ok: false, message: 'HR employee Sardar Shehroze Ikram not found' };
   }
 
-  emp.user = user._id;
-  await emp.save();
-  user.linkedEmployee = emp._id;
-  user.employeeId = String(emp.employeeId);
-  await user.save();
+  await linkUserToEmployee(user._id, emp._id);
 
   return {
     ok: true,
@@ -154,6 +195,8 @@ module.exports = {
   findEmployeeForAuthUser,
   loadReportingLineForProfile,
   saveReportingLineForUser,
+  linkUserToEmployee,
+  unlinkUserFromEmployee,
   linkDeveloperShehrozeAccount,
   employeeIdVariants,
   userIdOf

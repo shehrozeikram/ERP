@@ -29,6 +29,7 @@ connectDB();
 const authRoutes = require('./routes/auth');
 const hrRoutes = require('./routes/hr');
 const payrollRoutes = require('./routes/payroll');
+const payrollTaxSettingsRoutes = require('./routes/payrollTaxSettings');
 const attendanceRoutes = require('./routes/attendance');
 const biometricRoutes = require('./routes/biometric');
 const financeRoutes = require('./routes/finance');
@@ -548,6 +549,7 @@ app.get('/api/hr/image/:filename(*)', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/hr', authMiddleware, activityLogger, hrRoutes);
 app.use('/api/payroll', authMiddleware, activityLogger, payrollRoutes);
+app.use('/api/hr/payroll-taxes', authMiddleware, activityLogger, payrollTaxSettingsRoutes);
 app.use('/api/attendance', authMiddleware, activityLogger, attendanceRoutes);
 app.use('/api/biometric', authMiddleware, activityLogger, biometricRoutes);
 app.use('/api/finance/recovery-members', authMiddleware, activityLogger, recoveryMembersRoutes);

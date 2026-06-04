@@ -191,6 +191,62 @@ const syncDraftPayrollsAllowancesFromEmployee = async (employee) => {
   return { updated };
 };
 
+/**
+ * Recalculate income tax on all Draft payrolls after tax settings change.
+ * Approved payrolls are not modified.
+ */
+const syncDraftPayrollsTaxFromSettings = async (settings) => {
+  const Payroll = require('../models/hr/Payroll');
+  const { calculatePayrollTaxWithSettings, normalizeSettings } = require('./allowanceTaxCalculator');
+  const config = normalizeSettings(settings);
+
+  const payrolls = await Payroll.find({ status: 'Draft' });
+  let updated = 0;
+
+  for (const payroll of payrolls) {
+    const grossSalary =
+      payroll.grossSalary ||
+      (payroll.basicSalary || 0) +
+        (payroll.houseRentAllowance || 0) +
+        (payroll.medicalAllowance || 0);
+    const arrears = payroll.arrears || 0;
+    const employeeId = payroll.employee;
+
+    const taxCalculation = calculatePayrollTaxWithSettings({
+      grossSalary,
+      allowances: payroll.allowances,
+      arrears,
+      employeeId,
+      settings: config
+    });
+
+    payroll.incomeTax = Math.round(taxCalculation.totalTax);
+    payroll.taxCalculation = {
+      mainTax: taxCalculation.mainTax,
+      arrearsTax: taxCalculation.arrearsTax,
+      totalTax: taxCalculation.totalTax,
+      mainTaxableIncome: taxCalculation.mainTaxableIncome,
+      arrearsTaxableIncome: taxCalculation.arrearsTaxableIncome,
+      usesAllowanceTaxPolicy: taxCalculation.usesAllowanceTaxPolicy
+    };
+
+    payroll.totalDeductions =
+      (payroll.incomeTax || 0) +
+      (payroll.healthInsurance || 0) +
+      (payroll.loanDeductions || 0) +
+      (payroll.eobi || 0) +
+      (payroll.attendanceDeduction || 0) +
+      (payroll.leaveDeduction || 0) +
+      (payroll.otherDeductions || 0);
+
+    payroll.netSalary = (payroll.totalEarnings || 0) - payroll.totalDeductions;
+    await payroll.save();
+    updated += 1;
+  }
+
+  return { updated };
+};
+
 /** EOBI deduction from employee master (0 when inactive). */
 const getEmployeeEobiDeduction = (employee) => {
   if (!employee?.eobi?.isActive) return 0;
@@ -210,5 +266,6 @@ module.exports = {
   payrollAllowancesFromEmployee,
   mergePayrollAllowances,
   syncDraftPayrollsAllowancesFromEmployee,
+  syncDraftPayrollsTaxFromSettings,
   getEmployeeEobiDeduction
 };

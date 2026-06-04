@@ -12,7 +12,7 @@ const EMPLOYEE_SELECT = '_id reportingLine manager hod firstName lastName employ
 
 async function employeeFromUser(userCtx) {
   if (!userCtx || typeof userCtx !== 'object') return null;
-  const doc = await findEmployeeForAuthUser(userCtx, { select: EMPLOYEE_SELECT, autoLink: true });
+  const doc = await findEmployeeForAuthUser(userCtx, { select: EMPLOYEE_SELECT, autoLink: false });
   return doc ? doc.toObject() : null;
 }
 

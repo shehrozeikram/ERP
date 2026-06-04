@@ -77,6 +77,14 @@ export const authService = {
     return api.put(`/auth/users/${userId}`, userData);
   },
 
+  linkUserEmployee: async (userId, employeeDocId) => {
+    return api.patch(`/auth/users/${userId}/link-employee`, { employee: employeeDocId });
+  },
+
+  unlinkUserEmployee: async (userId) => {
+    return api.patch(`/auth/users/${userId}/link-employee`, { unlink: true });
+  },
+
   // Admin: Update user role
   updateUserRole: async (userId, role) => {
     return api.patch(`/auth/users/${userId}/role`, { role });

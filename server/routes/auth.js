@@ -18,16 +18,41 @@ const realtimeNotificationGateway = require('../services/realtimeNotificationGat
 const {
   findEmployeeForAuthUser,
   loadReportingLineForProfile,
-  saveReportingLineForUser
+  saveReportingLineForUser,
+  linkUserToEmployee,
+  unlinkUserFromEmployee
 } = require('../utils/employeeUserLink');
 
 const router = express.Router();
+
+const USER_ROLE_POPULATE = [
+  { path: 'roleRef', select: 'name displayName description permissions isActive' },
+  { path: 'roles', select: 'name displayName description permissions isActive' },
+  { path: 'subRoles', select: 'name module permissions description' }
+];
+
+async function loadUserWithRoles(userIdOrDoc) {
+  const id = userIdOrDoc?._id || userIdOrDoc?.id || userIdOrDoc;
+  const user = await User.findById(id).select('-password');
+  if (!user) return null;
+  await user.populate(USER_ROLE_POPULATE);
+  return user;
+}
+
+async function buildAuthProfilePayload(userIdOrDoc) {
+  const user = await loadUserWithRoles(userIdOrDoc);
+  if (!user) return null;
+  const userProfile = user.getProfile();
+  userProfile.linkedEmployee = user.linkedEmployee;
+  await attachEmployeeProfileFields(userProfile, user);
+  return userProfile;
+}
 
 /** Attach linked employee fields (incl. explicit reporting line choice) to auth profile payload. */
 async function attachEmployeeProfileFields(userProfile, userDoc) {
   const employeeData = await findEmployeeForAuthUser(userDoc, {
     select: 'jobDescription leaveBalance reportingLine employeeId',
-    autoLink: true
+    autoLink: false
   });
 
   if (employeeData) {
@@ -393,14 +418,7 @@ router.post('/refresh-token', refreshAuthMiddleware, asyncHandler(async (req, re
 // @desc    Get current user profile
 // @access  Private
 router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
-  // Populate roleRef and roles (RBAC system) before returning user profile
-  await req.user.populate('roleRef', 'name displayName description permissions isActive');
-  await req.user.populate('roles', 'name displayName description permissions isActive');
-  // Populate subRoles (legacy system) before returning user profile
-  await req.user.populate('subRoles', 'name module permissions description');
-  
-  const userProfile = req.user.getProfile();
-  await attachEmployeeProfileFields(userProfile, req.user);
+  const userProfile = await buildAuthProfilePayload(req.user.id);
 
   res.json({
     success: true,
@@ -414,7 +432,7 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
 // @desc    Get active employees for manager/HOD selection
 // @access  Private
 router.get('/reporting-options', authMiddleware, asyncHandler(async (req, res) => {
-  const me = await findEmployeeForAuthUser(req.user, { select: '_id', autoLink: true });
+  const me = await findEmployeeForAuthUser(req.user, { select: '_id', autoLink: false });
 
   const query = {
     isDeleted: { $ne: true },
@@ -480,11 +498,7 @@ router.put('/profile', [
   if (digitalSignature !== undefined) updateData.digitalSignature = digitalSignature;
   if (approvalStamp !== undefined) updateData.approvalStamp = approvalStamp;
 
-  const updatedUser = await User.findByIdAndUpdate(
-    req.user.id,
-    updateData,
-    { new: true, runValidators: true }
-  );
+  await User.findByIdAndUpdate(req.user.id, updateData, { runValidators: true });
 
   if (reportingLineId !== undefined) {
     try {
@@ -505,8 +519,7 @@ router.put('/profile', [
     }
   }
 
-  const userProfile = updatedUser.getProfile();
-  await attachEmployeeProfileFields(userProfile, updatedUser);
+  const userProfile = await buildAuthProfilePayload(req.user.id);
 
   res.json({
     success: true,
@@ -536,11 +549,8 @@ router.post('/upload-profile-image',
       const imagePath = `/uploads/profile-images/${req.file.filename}`;
       
       // Update user's profile image
-      const updatedUser = await User.findByIdAndUpdate(
-        req.user.id,
-        { profileImage: imagePath },
-        { new: true, runValidators: true }
-      );
+      await User.findByIdAndUpdate(req.user.id, { profileImage: imagePath }, { runValidators: true });
+      const userProfile = await buildAuthProfilePayload(req.user.id);
 
       res.json({
         success: true,
@@ -548,7 +558,7 @@ router.post('/upload-profile-image',
         data: {
           imagePath: imagePath,
           filename: req.file.filename,
-          user: updatedUser.getProfile()
+          user: userProfile
         }
       });
     } catch (error) {
@@ -579,11 +589,8 @@ router.post(
       }
 
       const imagePath = `/uploads/digital-signatures/${req.file.filename}`;
-      const updatedUser = await User.findByIdAndUpdate(
-        req.user.id,
-        { digitalSignature: imagePath },
-        { new: true, runValidators: true }
-      );
+      await User.findByIdAndUpdate(req.user.id, { digitalSignature: imagePath }, { runValidators: true });
+      const userProfile = await buildAuthProfilePayload(req.user.id);
 
       res.json({
         success: true,
@@ -591,7 +598,7 @@ router.post(
         data: {
           imagePath,
           filename: req.file.filename,
-          user: updatedUser.getProfile()
+          user: userProfile
         }
       });
     } catch (error) {
@@ -622,11 +629,8 @@ router.post(
       }
 
       const imagePath = `/uploads/approval-stamps/${req.file.filename}`;
-      const updatedUser = await User.findByIdAndUpdate(
-        req.user.id,
-        { approvalStamp: imagePath },
-        { new: true, runValidators: true }
-      );
+      await User.findByIdAndUpdate(req.user.id, { approvalStamp: imagePath }, { runValidators: true });
+      const userProfile = await buildAuthProfilePayload(req.user.id);
 
       res.json({
         success: true,
@@ -634,7 +638,7 @@ router.post(
         data: {
           imagePath,
           filename: req.file.filename,
-          user: updatedUser.getProfile()
+          user: userProfile
         }
       });
     } catch (error) {
@@ -893,17 +897,17 @@ router.post('/users', [
 
   await user.save();
 
-  // Link user to employee if employee ID was provided
   if (employeeDoc) {
-    employeeDoc.user = user._id;
-    await employeeDoc.save();
+    await linkUserToEmployee(user._id, employeeDoc._id);
   }
+
+  const userProfile = await buildAuthProfilePayload(user._id);
 
   res.status(201).json({
     success: true,
     message: 'User created successfully',
     data: {
-      user: user.getProfile()
+      user: userProfile
     }
   });
 }));
@@ -1061,6 +1065,48 @@ router.get('/users/:id',
   })
 );
 
+// @route   PATCH /api/auth/users/:id/link-employee
+// @desc    Explicitly link or unlink HR employee (Admin only)
+// @access  Private (Admin)
+router.patch(
+  '/users/:id/link-employee',
+  [
+    authMiddleware,
+    permissions.checkSubRolePermission('admin', 'user_management', 'update'),
+    body('employee').optional().isMongoId().withMessage('Invalid employee id'),
+    body('unlink').optional().isBoolean()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+
+    const { employee, unlink } = req.body;
+    try {
+      if (unlink) {
+        await unlinkUserFromEmployee(req.params.id);
+      } else if (employee) {
+        await linkUserToEmployee(req.params.id, employee);
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Provide employee (HR record id) or unlink: true'
+        });
+      }
+    } catch (e) {
+      return res.status(400).json({ success: false, message: e.message || 'Link failed' });
+    }
+
+    const userProfile = await buildAuthProfilePayload(req.params.id);
+    res.json({
+      success: true,
+      message: unlink ? 'Employee link removed' : 'Employee linked successfully',
+      data: { user: userProfile }
+    });
+  })
+);
+
 // @route   PUT /api/auth/users/:id
 // @desc    Update user (Admin only)
 // @access  Private (Admin)
@@ -1125,11 +1171,25 @@ router.put('/users/:id', [
     });
   }
 
-  const user = await User.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true, runValidators: true }
-  ).select('-password');
+  const allowedFields = [
+    'firstName',
+    'lastName',
+    'phone',
+    'department',
+    'position',
+    'role',
+    'isActive',
+    'profileImage'
+  ];
+  const update = {};
+  allowedFields.forEach((key) => {
+    if (req.body[key] !== undefined) update[key] = req.body[key];
+  });
+
+  const user = await User.findByIdAndUpdate(req.params.id, update, {
+    new: true,
+    runValidators: true
+  }).select('-password');
 
   if (!user) {
     return res.status(404).json({
@@ -1138,11 +1198,13 @@ router.put('/users/:id', [
     });
   }
 
+  const userProfile = await buildAuthProfilePayload(user._id);
+
   res.json({
     success: true,
     message: 'User updated successfully',
     data: {
-      user: user.getProfile()
+      user: userProfile
     }
   });
 }));

@@ -503,6 +503,7 @@ export const MODULES = {
       { name: 'Attendance Report', path: '/hr/attendance/report' },
       { name: 'Biometric Integration', path: '/hr/biometric' },
       { name: 'Payroll', path: '/hr/payroll' },
+      { name: 'Payroll Taxes', path: '/hr/payroll-taxes' },
       { name: 'Loan Management', path: '/hr/loans' },
       { name: 'Final Settlement', path: '/hr/settlements' },
       { 
@@ -1300,6 +1301,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/hr/attendance/report': 'attendance_management',
       '/hr/biometric': 'attendance_management',
       '/hr/payroll': 'payroll_management',
+      '/hr/payroll-taxes': 'payroll_management',
       '/hr/loans': 'loan_management',
       '/hr/settlements': 'settlement_management',
       '/hr/increments': 'employee_management',

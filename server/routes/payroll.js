@@ -11,6 +11,10 @@ const Employee = require('../models/hr/Employee');
 const FinanceHelper = require('../utils/financeHelper');
 const Payslip = require('../models/hr/Payslip');
 const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected, calculateTaxWithSeparateArrears } = require('../utils/taxCalculator');
+const {
+  calculatePayrollTaxWithSettings,
+  loadPayrollTaxSettings
+} = require('../utils/allowanceTaxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Attendance = require('../models/hr/Attendance');
 const AttendanceIntegrationService = require('../services/attendanceIntegrationService');
@@ -78,7 +82,7 @@ const getCurrentMonthEmployeeArrears = (employee) => {
 };
 
 /** Shared current-payroll math for General Payroll overview and employee detail preview. */
-const computeEmployeeCurrentPayrollFigures = (employee, gross) => {
+const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = null) => {
   const grossSalary = Number(gross) || 0;
   const basic = grossSalary * 0.6666;
   const medical = grossSalary * 0.1;
@@ -88,7 +92,13 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross) => {
 
   const { employeeArrears, arrearsDetails } = getCurrentMonthEmployeeArrears(employee);
   const mainSalary = grossSalary + additionalAllowances;
-  const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
+  const taxCalculation = calculatePayrollTaxWithSettings({
+    grossSalary,
+    allowances: employee.allowances,
+    arrears: employeeArrears,
+    employeeId: employee._id,
+    settings: taxSettings
+  });
   const eobiDeduction = getEmployeeEobiDeduction(employee);
   const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
   const netSalary = taxCalculation.totalNetSalary - eobiDeduction;
@@ -819,9 +829,11 @@ router.get('/current-overview',
         incrementMap.set(inc._id.toString(), inc.latestIncrement.newSalary);
       });
 
+      const taxSettings = await loadPayrollTaxSettings();
+
       for (const employee of activeEmployees) {
         const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
-        const figures = computeEmployeeCurrentPayrollFigures(employee, gross);
+        const figures = computeEmployeeCurrentPayrollFigures(employee, gross, taxSettings);
         const { taxCalculation } = figures;
         const monthlyTax = taxCalculation.totalTax;
         const taxableIncome =
@@ -915,7 +927,8 @@ router.get('/employee/:employeeId',
       }
 
       const gross = await resolveEmployeeGrossSalary(employee);
-      const figures = computeEmployeeCurrentPayrollFigures(employee, gross);
+      const taxSettings = await loadPayrollTaxSettings();
+      const figures = computeEmployeeCurrentPayrollFigures(employee, gross, taxSettings);
 
       const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
         .sort({ year: -1, month: -1 })
@@ -975,7 +988,8 @@ router.get('/view/employee/:employeeId',
       }
 
       const gross = await resolveEmployeeGrossSalary(employee);
-      const figures = computeEmployeeCurrentPayrollFigures(employee, gross);
+      const taxSettings = await loadPayrollTaxSettings();
+      const figures = computeEmployeeCurrentPayrollFigures(employee, gross, taxSettings);
 
       const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
         .sort({ year: -1, month: -1 })
@@ -1244,6 +1258,8 @@ router.post('/', [
     );
     
     console.log(`✅ Bulk attendance data fetched for ${activeEmployees.length} employees`);
+
+    const taxSettings = await loadPayrollTaxSettings();
     
     // Process each batch in parallel
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -1288,10 +1304,13 @@ router.post('/', [
           // 🔧 NEW SEPARATE TAX CALCULATION
           // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
           // Arrears: taxed at 100% (full amount)
-          const mainSalary = grossSalary + additionalAllowances;
-          const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
-          
-          // Calculate monthly tax using FBR 2025-2026 rules
+          const taxCalculation = calculatePayrollTaxWithSettings({
+            grossSalary,
+            allowances: employee.allowances,
+            arrears: employeeArrears,
+            employeeId: employee._id,
+            settings: taxSettings
+          });
           const monthlyTax = taxCalculation.totalTax;
           
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
@@ -1390,7 +1409,8 @@ router.post('/', [
               arrearsTax: Math.round(taxCalculation.arrearsTax),
               totalTax: Math.round(taxCalculation.totalTax),
               mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
-              arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
+              arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome),
+              usesAllowanceTaxPolicy: taxCalculation.usesAllowanceTaxPolicy
             },
             currency: 'PKR',
             remarks: `Monthly payroll generated for ${month}/${year}`,
@@ -1839,13 +1859,23 @@ router.put('/:id', [
   // 🔧 NEW SEPARATE TAX CALCULATION
   // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
   // Arrears: taxed at 100% (full amount)
-  const mainSalary = totalEarnings - currentArrears;
-  const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, currentArrears);
+  const grossForTax =
+    updateData.grossSalary ||
+    payroll.grossSalary ||
+    (payroll.basicSalary || 0) +
+      (payroll.houseRentAllowance || 0) +
+      (payroll.medicalAllowance || 0);
+  const taxSettings = await loadPayrollTaxSettings();
+  const taxCalculation = calculatePayrollTaxWithSettings({
+    grossSalary: grossForTax,
+    allowances: payroll.allowances,
+    arrears: currentArrears,
+    employeeId: payroll.employee,
+    settings: taxSettings
+  });
   
   // Auto-calculate tax when allowances change (always recalculate for accuracy)
-  // This ensures tax is always updated when Total Earnings change
   try {
-    // Use the new separate tax calculation
     updateData.incomeTax = taxCalculation.totalTax;
     
     // 🔧 CRITICAL FIX: Update payroll.incomeTax with calculated value
