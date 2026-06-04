@@ -9,9 +9,14 @@ const hasVehicleOrFuel = (allowances) => {
   return !!(a.vehicle?.isActive || a.fuel?.isActive);
 };
 
+const usesSplitVehicleFuelFields = (allowances) => {
+  const a = allowances || {};
+  return a.vehicle != null || a.fuel != null || hasVehicleOrFuel(a);
+};
+
 export const vehicleFuelTotal = (allowances) => {
   const a = allowances || {};
-  if (hasVehicleOrFuel(a)) {
+  if (usesSplitVehicleFuelFields(a)) {
     return activeAmount(a.vehicle) + activeAmount(a.fuel);
   }
   return activeAmount(a.vehicleFuel);
@@ -20,7 +25,7 @@ export const vehicleFuelTotal = (allowances) => {
 export const vehicleAllowanceAmount = (allowances) => {
   const a = allowances || {};
   if (a.vehicle) return activeAmount(a.vehicle);
-  if (!hasVehicleOrFuel(a) && a.vehicleFuel?.isActive) return activeAmount(a.vehicleFuel);
+  if (!usesSplitVehicleFuelFields(a) && a.vehicleFuel?.isActive) return activeAmount(a.vehicleFuel);
   return 0;
 };
 
@@ -39,6 +44,26 @@ export const allowancesForForm = (allowances = {}) => {
     };
   }
   return { ...allowances, vehicle, fuel };
+};
+
+/** Normalize allowances for save (clears legacy combined vehicleFuel). */
+export const buildAllowancesPayload = (src) => {
+  if (!src || typeof src !== 'object') return defaultAllowanceFields();
+  const parse = (e) => ({
+    isActive: !!e?.isActive,
+    amount: parseFloat(e?.amount) || 0
+  });
+  return {
+    conveyance: parse(src.conveyance),
+    food: parse(src.food),
+    vehicle: parse(src.vehicle),
+    fuel: parse(src.fuel),
+    vehicleFuel: { isActive: false, amount: 0 },
+    medical: parse(src.medical),
+    houseRent: parse(src.houseRent),
+    special: parse(src.special),
+    other: parse(src.other)
+  };
 };
 
 export const defaultAllowanceFields = () => ({

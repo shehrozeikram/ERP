@@ -17,10 +17,16 @@ const hasVehicleOrFuel = (allowances) => {
   return !!(a.vehicle?.isActive || a.fuel?.isActive);
 };
 
-/** Combined vehicle + fuel for totals (falls back to legacy vehicleFuel). */
+/** True when employee uses split vehicle/fuel fields (ignore legacy vehicleFuel). */
+const usesSplitVehicleFuelFields = (allowances) => {
+  const a = allowances || {};
+  return a.vehicle != null || a.fuel != null || hasVehicleOrFuel(a);
+};
+
+/** Combined vehicle + fuel for totals (legacy vehicleFuel only if split fields absent). */
 const vehicleFuelTotal = (allowances) => {
   const a = allowances || {};
-  if (hasVehicleOrFuel(a)) {
+  if (usesSplitVehicleFuelFields(a)) {
     return activeAmount(a.vehicle) + activeAmount(a.fuel);
   }
   return activeAmount(a.vehicleFuel);
@@ -29,11 +35,25 @@ const vehicleFuelTotal = (allowances) => {
 const vehicleAllowanceAmount = (allowances) => {
   const a = allowances || {};
   if (a.vehicle) return activeAmount(a.vehicle);
-  if (!hasVehicleOrFuel(a) && a.vehicleFuel?.isActive) return activeAmount(a.vehicleFuel);
+  if (!usesSplitVehicleFuelFields(a) && a.vehicleFuel?.isActive) return activeAmount(a.vehicleFuel);
   return 0;
 };
 
 const fuelAllowanceAmount = (allowances) => activeAmount((allowances || {}).fuel);
+
+/** Sum active additional allowances (respects isActive on each type). */
+const additionalAllowancesTotal = (allowances) => {
+  const a = allowances || {};
+  return (
+    activeAmount(a.conveyance) +
+    activeAmount(a.food) +
+    vehicleFuelTotal(a) +
+    activeAmount(a.medical) +
+    activeAmount(a.houseRent) +
+    activeAmount(a.special) +
+    activeAmount(a.other)
+  );
+};
 
 /**
  * Normalize allowances for API persistence (clears legacy vehicleFuel).
@@ -70,7 +90,7 @@ const payrollAllowancesFromEmployee = (employeeAllowances = {}) => {
   });
   const vehicleAmt = vehicleAllowanceAmount(a);
   const fuelAmt = fuelAllowanceAmount(a);
-  const legacyOnly = !hasVehicleOrFuel(a) && a.vehicleFuel?.isActive;
+  const legacyOnly = !usesSplitVehicleFuelFields(a) && a.vehicleFuel?.isActive;
   return {
     conveyance: pick('conveyance'),
     food: pick('food'),
@@ -109,12 +129,86 @@ const mergePayrollAllowances = (payrollDataAllowances, employeeAllowances = {}) 
   return out;
 };
 
+/**
+ * After employee master allowance changes, refresh draft/approved payroll snapshots.
+ * @param {import('mongoose').Document} employee
+ */
+const syncDraftPayrollsAllowancesFromEmployee = async (employee) => {
+  if (!employee?._id) return { updated: 0 };
+
+  const Payroll = require('../models/hr/Payroll');
+  const { calculateTaxWithSeparateArrears } = require('./taxCalculator');
+
+  const payrolls = await Payroll.find({
+    employee: employee._id,
+    status: { $in: ['Draft', 'Approved'] }
+  });
+
+  let updated = 0;
+
+  for (const payroll of payrolls) {
+    payroll.allowances = payrollAllowancesFromEmployee(employee.allowances);
+    payroll.conveyanceAllowance = activeAmount(payroll.allowances.conveyance);
+    payroll.foodAllowance = activeAmount(payroll.allowances.food);
+    payroll.vehicleAllowance = vehicleAllowanceAmount(payroll.allowances);
+    payroll.fuelAllowance = fuelAllowanceAmount(payroll.allowances);
+    payroll.vehicleFuelAllowance = vehicleFuelTotal(payroll.allowances);
+
+    const grossBase =
+      (payroll.basicSalary || 0) +
+      (payroll.houseRentAllowance || 0) +
+      (payroll.medicalAllowance || 0);
+    const addl = additionalAllowancesTotal(payroll.allowances);
+    const arrears = payroll.arrears || 0;
+
+    payroll.totalEarnings =
+      grossBase +
+      addl +
+      (payroll.overtimeAmount || 0) +
+      (payroll.performanceBonus || 0) +
+      (payroll.otherBonus || 0) +
+      arrears;
+
+    const mainSalary = payroll.totalEarnings - arrears;
+    const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, arrears);
+    payroll.incomeTax = Math.round(taxCalculation.totalTax);
+    payroll.eobi = getEmployeeEobiDeduction(employee);
+
+    payroll.totalDeductions =
+      (payroll.incomeTax || 0) +
+      (payroll.healthInsurance || 0) +
+      (payroll.loanDeductions || 0) +
+      (payroll.eobi || 0) +
+      (payroll.attendanceDeduction || 0) +
+      (payroll.leaveDeduction || 0) +
+      (payroll.otherDeductions || 0);
+
+    payroll.netSalary = payroll.totalEarnings - payroll.totalDeductions;
+    await payroll.save();
+    updated += 1;
+  }
+
+  return { updated };
+};
+
+/** EOBI deduction from employee master (0 when inactive). */
+const getEmployeeEobiDeduction = (employee) => {
+  if (!employee?.eobi?.isActive) return 0;
+  const amount = Number(employee.eobi.amount);
+  if (Number.isFinite(amount) && amount >= 0) return Math.round(amount);
+  return 370;
+};
+
 module.exports = {
   activeAmount,
+  usesSplitVehicleFuelFields,
   vehicleFuelTotal,
   vehicleAllowanceAmount,
   fuelAllowanceAmount,
+  additionalAllowancesTotal,
   buildAllowancesPayload,
   payrollAllowancesFromEmployee,
-  mergePayrollAllowances
+  mergePayrollAllowances,
+  syncDraftPayrollsAllowancesFromEmployee,
+  getEmployeeEobiDeduction
 };

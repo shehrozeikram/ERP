@@ -138,7 +138,7 @@ const EmployeePayrollDetails = () => {
     const advanceLeaveDeduction = calculateAdvanceLeaveDeduction();
     
     return (currentPayroll.incomeTax || 0) + 
-           (currentPayroll.eobi || 370) + 
+           (currentPayroll.eobi || 0) + 
            (currentPayroll.healthInsurance || 0) + 
            loanDeductions + 
            (currentPayroll.attendanceDeduction || 0) + 
@@ -220,7 +220,7 @@ const EmployeePayrollDetails = () => {
         },
         deductions: {
           providentFund: payroll.providentFund || 0,
-          eobi: 370, // Fixed EOBI amount
+          eobi: payroll.eobi || 0,
           incomeTax: payroll.incomeTax || 0,
           loanDeduction: 0,
           advanceDeduction: 0,
@@ -368,7 +368,7 @@ const EmployeePayrollDetails = () => {
                 arrears: currentPayroll.arrears || 0
               },
               deductions: {
-                eobi: currentPayroll.eobi || 370,
+                eobi: currentPayroll.eobi || 0,
                 incomeTax: currentPayroll.incomeTax || 0,
                 providentFund: currentPayroll.providentFund || 0,
                 healthInsurance: currentPayroll.healthInsurance || 0,

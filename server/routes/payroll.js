@@ -20,7 +20,9 @@ const {
   vehicleAllowanceAmount,
   fuelAllowanceAmount,
   buildAllowancesPayload,
-  payrollAllowancesFromEmployee
+  payrollAllowancesFromEmployee,
+  additionalAllowancesTotal,
+  getEmployeeEobiDeduction
 } = require('../utils/allowanceHelpers');
 
 const router = express.Router();
@@ -32,6 +34,143 @@ const calculateProvidentFundForEmployee = (employee, basicSalary = 0) => {
   if (!isProvidentFundEnabledForEmployee(employee)) return 0;
   const pfPercentage = Number(employee?.providentFund?.percentage || 8.34);
   return Math.round((Number(basicSalary || 0) * pfPercentage) / 100);
+};
+
+const ARREARS_TYPES = [
+  'salaryAdjustment',
+  'bonusPayment',
+  'overtimePayment',
+  'allowanceAdjustment',
+  'deductionReversal',
+  'other'
+];
+
+const getCurrentMonthEmployeeArrears = (employee) => {
+  const currentDate = new Date();
+  const currentMonth = currentDate.getMonth() + 1;
+  const currentYear = currentDate.getFullYear();
+  let employeeArrears = 0;
+  const arrearsDetails = [];
+
+  if (employee?.arrears) {
+    for (const arrearsType of ARREARS_TYPES) {
+      const arrearsData = employee.arrears[arrearsType];
+      if (
+        arrearsData &&
+        arrearsData.isActive &&
+        arrearsData.month === currentMonth &&
+        arrearsData.year === currentYear &&
+        arrearsData.status !== 'Paid' &&
+        arrearsData.status !== 'Cancelled'
+      ) {
+        employeeArrears += arrearsData.amount || 0;
+        arrearsDetails.push({
+          type: `Arrears - ${arrearsType.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())}`,
+          amount: arrearsData.amount || 0,
+          description: arrearsData.description || '',
+          status: arrearsData.status || 'Pending'
+        });
+      }
+    }
+  }
+
+  return { employeeArrears, arrearsDetails, currentMonth, currentYear };
+};
+
+/** Shared current-payroll math for General Payroll overview and employee detail preview. */
+const computeEmployeeCurrentPayrollFigures = (employee, gross) => {
+  const grossSalary = Number(gross) || 0;
+  const basic = grossSalary * 0.6666;
+  const medical = grossSalary * 0.1;
+  const houseRent = grossSalary * 0.2334;
+
+  const additionalAllowances = additionalAllowancesTotal(employee.allowances);
+
+  const { employeeArrears, arrearsDetails } = getCurrentMonthEmployeeArrears(employee);
+  const mainSalary = grossSalary + additionalAllowances;
+  const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
+  const eobiDeduction = getEmployeeEobiDeduction(employee);
+  const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
+  const netSalary = taxCalculation.totalNetSalary - eobiDeduction;
+
+  return {
+    basic,
+    medical,
+    houseRent,
+    additionalAllowances,
+    employeeArrears,
+    arrearsDetails,
+    totalEarnings,
+    mainSalary,
+    taxCalculation,
+    eobiDeduction,
+    netSalary
+  };
+};
+
+const resolveEmployeeGrossSalary = async (employee) => {
+  try {
+    const result = await incrementService.getEmployeeCurrentSalary(employee._id);
+    if (result?.success && result.data?.currentSalary) {
+      return Number(result.data.currentSalary) || employee.salary?.gross || 0;
+    }
+  } catch (error) {
+    console.warn('Increment lookup failed, using master salary:', error.message);
+  }
+  return employee.salary?.gross || 0;
+};
+
+const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
+  const { taxCalculation, eobiDeduction } = figures;
+  return {
+    basicSalary: Math.round(figures.basic),
+    grossSalary: Math.round(gross),
+    additionalAllowances: Math.round(figures.additionalAllowances),
+    arrears: Math.round(figures.employeeArrears),
+    arrearsDetails: figures.arrearsDetails,
+    totalEarnings: Math.round(figures.totalEarnings),
+    medicalAllowance: Math.round(figures.medical),
+    houseRentAllowance: Math.round(figures.houseRent),
+    taxableIncome: Math.round(
+      taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome
+    ),
+    monthlyTax: Math.round(taxCalculation.totalTax),
+    netSalary: Math.round(figures.netSalary),
+    allowances: payrollAllowancesFromEmployee(employee.allowances),
+    overtimeHours: 0,
+    overtimeAmount: 0,
+    performanceBonus: 0,
+    otherBonus: 0,
+    incomeTax: Math.round(taxCalculation.totalTax),
+    eobi: eobiDeduction,
+    healthInsurance: 0,
+    providentFund: calculateProvidentFundForEmployee(employee, figures.basic),
+    loanDeductions: 0,
+    attendanceDeduction: 0,
+    leaveDeduction: 0,
+    otherDeductions: 0,
+    totalDeductions: Math.round(taxCalculation.totalTax + eobiDeduction),
+    totalWorkingDays: 26,
+    presentDays: 26,
+    absentDays: 0,
+    leaveDays: 0,
+    dailyRate: Math.round(gross / 26),
+    leaveDeductions: {
+      unpaidLeave: 0,
+      sickLeave: 0,
+      casualLeave: 0,
+      annualLeave: 0,
+      otherLeave: 0,
+      totalLeaveDays: 0
+    },
+    taxCalculation: {
+      mainTax: Math.round(taxCalculation.mainTax),
+      arrearsTax: Math.round(taxCalculation.arrearsTax),
+      totalTax: Math.round(taxCalculation.totalTax),
+      mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
+      arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
+    }
+  };
 };
 
 /**
@@ -623,7 +762,7 @@ router.get('/current-overview',
         employmentStatus: 'Active',
         'salary.gross': { $exists: true, $gt: 0 }
       })
-        .select('firstName lastName employeeId salary allowances placementDepartment placementProject department')
+        .select('firstName lastName employeeId salary allowances arrears eobi placementDepartment placementProject department')
         .populate('placementDepartment', 'name code')
         .populate('placementProject', 'name')
         .populate('department', 'name');
@@ -681,58 +820,35 @@ router.get('/current-overview',
       });
 
       for (const employee of activeEmployees) {
-        // Get current salary (with latest increment applied) - use map for O(1) lookup
         const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
-        
-        // Calculate salary breakdown (66.66% basic, 10% medical, 23.34% house rent)
-        const basic = gross * 0.6666;
-        const medical = gross * 0.1;
-        const houseRent = gross * 0.2334;
-        
-        // Calculate additional allowances beyond basic salary breakdown
-        const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
-                                   (employee.allowances?.food?.amount || 0) +
-                                   vehicleFuelTotal(employee.allowances) +
-                                   (employee.allowances?.medical?.amount || 0) +
-                                   (employee.allowances?.houseRent?.amount || 0) +
-                                   (employee.allowances?.special?.amount || 0) +
-                                   (employee.allowances?.other?.amount || 0);
-        
-        // Total earnings = Gross salary + additional allowances
-        const totalEarnings = gross + additionalAllowances;
-        
-        // Taxable income = Total earnings - Medical allowance (10% of total earnings)
-        const taxableIncome = totalEarnings - (totalEarnings * 0.1);
-        
-        // Calculate monthly tax using FBR 2025-2026 tax slabs
-        // Tax is calculated on taxable income (90% of total earnings)
-        const monthlyTax = calculateMonthlyTax(taxableIncome);
-        
-        // Net salary = Total earnings - tax
-        const netSalary = totalEarnings - monthlyTax;
-        
-        // Accumulate totals
-        totalBasicSalary += basic;
-        totalGrossSalary += totalEarnings;
-        totalMedicalAllowance += medical;
+        const figures = computeEmployeeCurrentPayrollFigures(employee, gross);
+        const { taxCalculation } = figures;
+        const monthlyTax = taxCalculation.totalTax;
+        const taxableIncome =
+          taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome;
+
+        totalBasicSalary += figures.basic;
+        totalGrossSalary += figures.totalEarnings;
+        totalMedicalAllowance += figures.medical;
         totalTaxableIncome += taxableIncome;
         totalTax += monthlyTax;
-        totalNetSalary += netSalary;
-        
-        // Add employee details
+        totalNetSalary += figures.netSalary;
+
         employeeDetails.push({
           _id: employee._id,
           firstName: employee.firstName,
           lastName: employee.lastName,
           employeeId: employee.employeeId,
-          basicSalary: Math.round(basic),
+          basicSalary: Math.round(figures.basic),
           grossSalary: Math.round(gross),
-          additionalAllowances: Math.round(additionalAllowances),
-          totalEarnings: Math.round(totalEarnings),
-          medicalAllowance: Math.round(medical),
+          additionalAllowances: Math.round(figures.additionalAllowances),
+          arrears: Math.round(figures.employeeArrears),
+          totalEarnings: Math.round(figures.totalEarnings),
+          medicalAllowance: Math.round(figures.medical),
           taxableIncome: Math.round(taxableIncome),
           monthlyTax: Math.round(monthlyTax),
-          netSalary: Math.round(netSalary),
+          eobi: Math.round(figures.eobiDeduction),
+          netSalary: Math.round(figures.netSalary),
           department: employee.department,
           placementDepartment: employee.placementDepartment,
           placementProject: employee.placementProject,
@@ -789,7 +905,7 @@ router.get('/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund');
+        .select('firstName lastName employeeId salary allowances arrears providentFund eobi');
 
       if (!employee) {
         return res.status(404).json({
@@ -798,69 +914,12 @@ router.get('/employee/:employeeId',
         });
       }
 
-      // Calculate current payroll details for this employee
-      const gross = employee.salary?.gross || 0;
-      
-      // Calculate salary breakdown (66.66% basic, 10% medical, 23.34% house rent)
-      const basic = gross * 0.6666;
-      const medical = gross * 0.1;
-      const houseRent = gross * 0.2334;
-      
-      // Calculate additional allowances beyond basic salary breakdown
-      const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
-                                 (employee.allowances?.food?.amount || 0) +
-                                 vehicleFuelTotal(employee.allowances) +
-                                 (employee.allowances?.medical?.amount || 0) +
-                                 (employee.allowances?.houseRent?.amount || 0) +
-                                 (employee.allowances?.special?.amount || 0) +
-                                 (employee.allowances?.other?.amount || 0);
-      
-      // Get current month arrears from employee record
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth() + 1; // 1-12
-      const currentYear = currentDate.getFullYear();
-      let employeeArrears = 0;
-      const arrearsDetails = [];
-      
-      if (employee.arrears) {
-        const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
-        
-        for (const arrearsType of arrearsTypes) {
-          const arrearsData = employee.arrears[arrearsType];
-          if (arrearsData && arrearsData.isActive && 
-              arrearsData.month === currentMonth && 
-              arrearsData.year === currentYear && 
-              arrearsData.status !== 'Paid' && 
-              arrearsData.status !== 'Cancelled') {
-            employeeArrears += arrearsData.amount || 0;
-            
-            // Add to arrears details for UI display
-            arrearsDetails.push({
-              type: `Arrears - ${arrearsType.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}`,
-              amount: arrearsData.amount || 0,
-              description: arrearsData.description || '',
-              status: arrearsData.status || 'Pending'
-            });
-          }
-        }
-      }
-      
-      // Total earnings = Gross salary + additional allowances + arrears
-      const totalEarnings = gross + additionalAllowances + employeeArrears;
-      
-      // 🔧 NEW SEPARATE TAX CALCULATION
-      // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
-      // Arrears: taxed at 100% (full amount)
-      const mainSalary = gross + additionalAllowances;
-      const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
-      
-      // Net salary = Total earnings - tax - EOBI
-      const netSalary = taxCalculation.totalNetSalary - 370;
+      const gross = await resolveEmployeeGrossSalary(employee);
+      const figures = computeEmployeeCurrentPayrollFigures(employee, gross);
 
-      // Get existing payrolls for this employee
       const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
         .sort({ year: -1, month: -1 })
-        .limit(12); // Last 12 months
+        .limit(12);
 
       res.json({
         success: true,
@@ -873,59 +932,8 @@ router.get('/employee/:employeeId',
             department: employee.department,
             position: employee.position
           },
-          currentPayroll: {
-            basicSalary: Math.round(basic),
-            grossSalary: Math.round(gross),
-            additionalAllowances: Math.round(additionalAllowances),
-            arrears: Math.round(employeeArrears),
-            arrearsDetails: arrearsDetails,
-            totalEarnings: Math.round(totalEarnings),
-            medicalAllowance: Math.round(medical),
-            houseRentAllowance: Math.round(houseRent),
-            taxableIncome: Math.round(taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome),
-            monthlyTax: Math.round(taxCalculation.totalTax),
-            netSalary: Math.round(netSalary),
-            // Allowances breakdown
-            allowances: payrollAllowancesFromEmployee(employee.allowances),
-            // Overtime and bonuses
-            overtimeHours: 0,
-            overtimeAmount: 0,
-            performanceBonus: 0,
-            otherBonus: 0,
-            // Deductions
-            incomeTax: Math.round(taxCalculation.totalTax),
-            eobi: 370,
-            healthInsurance: 0,
-            providentFund: calculateProvidentFundForEmployee(employee, basic),
-            loanDeductions: 0,
-            attendanceDeduction: 0,
-            leaveDeduction: 0,
-            otherDeductions: 0,
-            totalDeductions: Math.round(taxCalculation.totalTax + 370),
-            // Attendance details
-            totalWorkingDays: 26,
-            presentDays: 26,
-            absentDays: 0,
-            leaveDays: 0,
-            dailyRate: Math.round(gross / 26),
-            // Leave deductions breakdown
-            leaveDeductions: {
-              unpaidLeave: 0,
-              sickLeave: 0,
-              casualLeave: 0,
-              annualLeave: 0,
-              otherLeave: 0,
-              totalLeaveDays: 0
-            },
-            taxCalculation: {
-              mainTax: Math.round(taxCalculation.mainTax),
-              arrearsTax: Math.round(taxCalculation.arrearsTax),
-              totalTax: Math.round(taxCalculation.totalTax),
-              mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
-              arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
-            }
-          },
-          existingPayrolls: existingPayrolls
+          currentPayroll: buildEmployeeCurrentPayrollPayload(employee, gross, figures),
+          existingPayrolls
         }
       });
     } catch (error) {
@@ -957,7 +965,7 @@ router.get('/view/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund');
+        .select('firstName lastName employeeId salary allowances arrears providentFund eobi');
 
       if (!employee) {
         return res.status(404).json({
@@ -966,69 +974,12 @@ router.get('/view/employee/:employeeId',
         });
       }
 
-      // Calculate current payroll details for this employee
-      const gross = employee.salary?.gross || 0;
-      
-      // Calculate salary breakdown (66.66% basic, 10% medical, 23.34% house rent)
-      const basic = gross * 0.6666;
-      const medical = gross * 0.1;
-      const houseRent = gross * 0.2334;
-      
-      // Calculate additional allowances beyond basic salary breakdown
-      const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
-                                 (employee.allowances?.food?.amount || 0) +
-                                 vehicleFuelTotal(employee.allowances) +
-                                 (employee.allowances?.medical?.amount || 0) +
-                                 (employee.allowances?.houseRent?.amount || 0) +
-                                 (employee.allowances?.special?.amount || 0) +
-                                 (employee.allowances?.other?.amount || 0);
-      
-      // Get current month arrears from employee record
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth() + 1; // 1-12
-      const currentYear = currentDate.getFullYear();
-      let employeeArrears = 0;
-      const arrearsDetails = [];
-      
-      if (employee.arrears) {
-        const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
-        
-        for (const arrearsType of arrearsTypes) {
-          const arrearsData = employee.arrears[arrearsType];
-          if (arrearsData && arrearsData.isActive && 
-              arrearsData.month === currentMonth && 
-              arrearsData.year === currentYear && 
-              arrearsData.status !== 'Paid' && 
-              arrearsData.status !== 'Cancelled') {
-            employeeArrears += arrearsData.amount || 0;
-            
-            // Add to arrears details for UI display
-            arrearsDetails.push({
-              type: `Arrears - ${arrearsType.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}`,
-              amount: arrearsData.amount || 0,
-              description: arrearsData.description || '',
-              status: arrearsData.status || 'Pending'
-            });
-          }
-        }
-      }
-      
-      // Total earnings = Gross salary + additional allowances + arrears
-      const totalEarnings = gross + additionalAllowances + employeeArrears;
-      
-      // 🔧 NEW SEPARATE TAX CALCULATION
-      // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
-      // Arrears: taxed at 100% (full amount)
-      const mainSalary = gross + additionalAllowances;
-      const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
-      
-      // Net salary = Total earnings - tax - EOBI
-      const netSalary = taxCalculation.totalNetSalary - 370;
+      const gross = await resolveEmployeeGrossSalary(employee);
+      const figures = computeEmployeeCurrentPayrollFigures(employee, gross);
 
-      // Get existing payrolls for this employee
       const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
         .sort({ year: -1, month: -1 })
-        .limit(12); // Last 12 months
+        .limit(12);
 
       res.json({
         success: true,
@@ -1041,59 +992,8 @@ router.get('/view/employee/:employeeId',
             department: employee.department,
             position: employee.position
           },
-          currentPayroll: {
-            basicSalary: Math.round(basic),
-            grossSalary: Math.round(gross),
-            additionalAllowances: Math.round(additionalAllowances),
-            arrears: Math.round(employeeArrears),
-            arrearsDetails: arrearsDetails,
-            totalEarnings: Math.round(totalEarnings),
-            medicalAllowance: Math.round(medical),
-            houseRentAllowance: Math.round(houseRent),
-            taxableIncome: Math.round(taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome),
-            monthlyTax: Math.round(taxCalculation.totalTax),
-            netSalary: Math.round(netSalary),
-            // Allowances breakdown
-            allowances: payrollAllowancesFromEmployee(employee.allowances),
-            // Overtime and bonuses
-            overtimeHours: 0,
-            overtimeAmount: 0,
-            performanceBonus: 0,
-            otherBonus: 0,
-            // Deductions
-            incomeTax: Math.round(taxCalculation.totalTax),
-            eobi: 370,
-            healthInsurance: 0,
-            providentFund: calculateProvidentFundForEmployee(employee, basic),
-            loanDeductions: 0,
-            attendanceDeduction: 0,
-            leaveDeduction: 0,
-            otherDeductions: 0,
-            totalDeductions: Math.round(taxCalculation.totalTax + 370),
-            // Attendance details
-            totalWorkingDays: 26,
-            presentDays: 26,
-            absentDays: 0,
-            leaveDays: 0,
-            dailyRate: Math.round(gross / 26),
-            // Leave deductions breakdown
-            leaveDeductions: {
-              unpaidLeave: 0,
-              sickLeave: 0,
-              casualLeave: 0,
-              annualLeave: 0,
-              otherLeave: 0,
-              totalLeaveDays: 0
-            },
-            taxCalculation: {
-              mainTax: Math.round(taxCalculation.mainTax),
-              arrearsTax: Math.round(taxCalculation.arrearsTax),
-              totalTax: Math.round(taxCalculation.totalTax),
-              mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
-              arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
-            }
-          },
-          existingPayrolls: existingPayrolls
+          currentPayroll: buildEmployeeCurrentPayrollPayload(employee, gross, figures),
+          existingPayrolls
         }
       });
     } catch (error) {
@@ -1285,7 +1185,7 @@ router.post('/', [
     const activeEmployees = await Employee.find({
       employmentStatus: 'Active',
       'salary.gross': { $exists: true, $gt: 0 }
-    }).select('firstName lastName employeeId salary allowances arrears department position providentFund');
+    }).select('firstName lastName employeeId salary allowances arrears department position providentFund eobi');
 
     if (activeEmployees.length === 0) {
       return res.status(404).json({
@@ -1363,14 +1263,7 @@ router.post('/', [
           const houseRentAllowance = Math.round(grossSalary * 0.2334);
           
           // Calculate additional allowances from employee master data
-          const additionalAllowances = 
-            (employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0) +
-            (employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0) +
-            vehicleFuelTotal(employee.allowances) +
-            (employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0) +
-            (employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0) +
-            (employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0) +
-            (employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
+          const additionalAllowances = additionalAllowancesTotal(employee.allowances);
           
           // Get current month arrears from employee record
           let employeeArrears = 0;
@@ -1404,7 +1297,7 @@ router.post('/', [
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
           const providentFundEnabled = isProvidentFundEnabledForEmployee(employee);
           const providentFund = calculateProvidentFundForEmployee(employee, basicSalary);
-          const eobi = 370;
+          const eobi = getEmployeeEobiDeduction(employee);
           
           // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS
           const loanModel = require('../models/hr/Loan');
@@ -1877,10 +1770,10 @@ router.put('/:id', [
     }
   }
 
-  // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
-  updateData.eobi = 370;
-
-  const payrollEmployee = await Employee.findById(payroll.employee).select('providentFund');
+  const payrollEmployee = await Employee.findById(payroll.employee).select('providentFund eobi');
+  if (!req.body.deductions) {
+    updateData.eobi = getEmployeeEobiDeduction(payrollEmployee);
+  }
   const pfEnabledForEmployee = isProvidentFundEnabledForEmployee(payrollEmployee);
   updateData.providentFundEnabled = pfEnabledForEmployee;
   if (!pfEnabledForEmployee) {
@@ -1907,14 +1800,7 @@ router.put('/:id', [
 
   // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses + Arrears)
   // Now use the updated payroll.allowances (which contains the frontend data)
-  const additionalAllowances = 
-    (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
-    (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0) +
-vehicleFuelTotal(payroll.allowances) +
-    (payroll.allowances?.medical?.isActive ? payroll.allowances.medical.amount : 0) +
-    (payroll.allowances?.houseRent?.isActive ? payroll.allowances.houseRent.amount : 0) +
-    (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0) +
-    (payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
+  const additionalAllowances = additionalAllowancesTotal(payroll.allowances);
   
   console.log('💰 Additional Allowances Calculation:');
   console.log('   Conveyance:', payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0);

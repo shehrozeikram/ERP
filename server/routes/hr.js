@@ -24,6 +24,10 @@ const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Sector = require('../models/hr/Sector');
 const EmployeeIncrement = require('../models/hr/EmployeeIncrement');
 const incrementService = require('../services/incrementService');
+const {
+  buildAllowancesPayload,
+  syncDraftPayrollsAllowancesFromEmployee
+} = require('../utils/allowanceHelpers');
 
 const router = express.Router();
 
@@ -587,6 +591,10 @@ router.post('/employees', [
       employeeData.profileImage = '';
     }
 
+    if (employeeData.allowances) {
+      employeeData.allowances = buildAllowancesPayload(employeeData.allowances);
+    }
+
     const employee = new Employee(employeeData);
     await employee.save();
 
@@ -1113,6 +1121,10 @@ router.put('/employees/:id', [
       employeeData.employmentHistory = [];
     }
 
+    if (employeeData.allowances) {
+      employeeData.allowances = buildAllowancesPayload(employeeData.allowances);
+    }
+
     // Explicitly handle array fields to ensure they're properly updated
     const updateData = { ...employeeData };
     
@@ -1183,10 +1195,24 @@ router.put('/employees/:id', [
       });
     }
 
+    let payrollsSynced = 0;
+    if ('allowances' in req.body) {
+      try {
+        const syncResult = await syncDraftPayrollsAllowancesFromEmployee(employee);
+        payrollsSynced = syncResult.updated || 0;
+      } catch (syncError) {
+        console.error('Error syncing payroll allowances after employee update:', syncError);
+      }
+    }
+
     res.json({
       success: true,
-      message: 'Employee updated successfully',
-      data: employee
+      message:
+        payrollsSynced > 0
+          ? `Employee updated successfully. ${payrollsSynced} draft/approved payroll(s) refreshed with new allowances.`
+          : 'Employee updated successfully',
+      data: employee,
+      payrollsSynced
     });
   })
 );

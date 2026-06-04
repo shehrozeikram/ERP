@@ -47,7 +47,7 @@ import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
-import { allowancesForForm, vehicleFuelTotal } from '../../utils/allowanceHelpers';
+import { allowancesForForm, vehicleFuelTotal, buildAllowancesPayload } from '../../utils/allowanceHelpers';
 import { useData } from '../../contexts/DataContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
 
@@ -1146,6 +1146,10 @@ const EmployeeForm = () => {
         }
         if (!cleanedValues.employmentHistory || !Array.isArray(cleanedValues.employmentHistory)) {
           cleanedValues.employmentHistory = [];
+        }
+
+        if (cleanedValues.allowances) {
+          cleanedValues.allowances = buildAllowancesPayload(cleanedValues.allowances);
         }
         
         let employeeId = id;

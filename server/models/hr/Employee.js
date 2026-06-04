@@ -1438,16 +1438,14 @@ employeeSchema.pre('save', async function(next) {
           this.salary.houseRent = Math.round(this.salary.gross * 0.2334); // 23.34% of gross
     this.salary.medical = Math.round(this.salary.gross * 0.1); // 10% of gross
     
-    // Calculate EOBI amount if EOBI is active
-    if (this.eobi?.isActive) {
-      // Pakistan EOBI: Fixed amount of Rs 370 (1% of minimum wage Rs 37,000)
-      // This is the standard contribution for all employees
-      this.eobi.amount = 370; // Fixed EOBI amount
-      this.eobi.percentage = 1; // 1% of minimum wage
-    } else {
+    // Sync EOBI amount with active flag (respect user-configured amount)
+    if (!this.eobi?.isActive) {
       this.eobi.amount = 0;
+    } else if (!this.eobi.amount || this.eobi.amount <= 0) {
+      this.eobi.amount = 370;
+      this.eobi.percentage = this.eobi.percentage || 1;
     }
-    
+
     // Calculate Provident Fund amount if PF is active
     if (this.providentFund?.isActive) {
       // Pakistan Provident Fund: 8.34% of basic salary
@@ -1543,6 +1541,15 @@ employeeSchema.pre('save', async function(next) {
         console.error('Error updating related payrolls:', error);
         // Don't fail the employee save if payroll update fails
       }
+    }
+  }
+
+  if (this.isModified('eobi.isActive') || this.isModified('eobi.amount') || this.isModified('eobi')) {
+    if (!this.eobi?.isActive) {
+      this.eobi.amount = 0;
+    } else if (!this.eobi.amount || this.eobi.amount <= 0) {
+      this.eobi.amount = 370;
+      this.eobi.percentage = this.eobi.percentage || 1;
     }
   }
 
