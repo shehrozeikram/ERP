@@ -311,8 +311,14 @@ const PayrollForm = () => {
           }
         };
 
+        if (!id) {
+          setError('Payroll ID is required. Use Bulk Create Payroll on the Payroll Management page.');
+          setLoading(false);
+          return;
+        }
+
         let savedPayroll;
-        if (id && id !== 'add') {
+        {
           console.log('🔄 UPDATING EXISTING PAYROLL:', id);
           console.log('📤 COMPLETE PAYLOAD BEING SENT TO BACKEND:');
           console.log('   Payroll ID:', id);
@@ -337,10 +343,6 @@ const PayrollForm = () => {
             sum + (allowance.isActive ? allowance.amount : 0), 0));
           console.log('🚀 SENDING PUT REQUEST TO:', `/api/payroll/${id}`);
           savedPayroll = await api.put(`/payroll/${id}`, payrollData);
-        } else {
-          console.log('Creating new payroll');
-          console.log('🐛 DEBUG: Sending payrollData:', payrollData);
-          savedPayroll = await api.post('/payroll', payrollData);
         }
 
         // Process loan payment if there's a loan deduction
@@ -401,11 +403,13 @@ const PayrollForm = () => {
   });
 
   useEffect(() => {
-    fetchEmployees();
-    if (id && id !== 'add') {
-      fetchPayroll();
+    if (!id) {
+      navigate('/hr/payroll', { replace: true });
+      return;
     }
-  }, [id]);
+    fetchEmployees();
+    fetchPayroll();
+  }, [id, navigate]);
 
   // Update loan deduction when employee loans change
   useEffect(() => {
@@ -2011,7 +2015,7 @@ const PayrollForm = () => {
     }
   };
 
-  if (loading && id && id !== 'add') {
+  if (loading && id) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
         <CircularProgress />
@@ -2022,7 +2026,7 @@ const PayrollForm = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" component="h1" gutterBottom>
-        {id && id !== 'add' ? 'Edit Payroll' : 'Create New Payroll'}
+        Edit Payroll
       </Typography>
 
       {error && (

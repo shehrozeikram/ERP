@@ -106,7 +106,7 @@ const PayrollDetail = () => {
   const handleApprove = async () => {
     try {
       setActionLoading(true);
-      await api.put(`/payroll/${id}/approve`);
+      await api.patch(`/payroll/${id}/approve`);
       await fetchPayrollDetail();
     } catch (error) {
       console.error('Error approving payroll:', error);
@@ -118,7 +118,7 @@ const PayrollDetail = () => {
   const handleMarkAsPaid = async () => {
     try {
       setActionLoading(true);
-      await api.put(`/payroll/${id}/mark-paid`);
+      await api.patch(`/payroll/${id}/mark-paid`);
       await fetchPayrollDetail();
     } catch (error) {
       console.error('Error marking payroll as paid:', error);
@@ -130,7 +130,7 @@ const PayrollDetail = () => {
   const handleMarkAsUnpaid = async () => {
     try {
       setActionLoading(true);
-      await api.put(`/payroll/${id}/mark-unpaid`);
+      await api.patch(`/payroll/${id}/mark-unpaid`);
       await fetchPayrollDetail();
     } catch (error) {
       console.error('Error marking payroll as unpaid:', error);

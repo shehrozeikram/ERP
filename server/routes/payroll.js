@@ -622,7 +622,11 @@ router.get('/current-overview',
       const activeEmployees = await Employee.find({
         employmentStatus: 'Active',
         'salary.gross': { $exists: true, $gt: 0 }
-      }).select('firstName lastName employeeId salary allowances placementDepartment placementProject');
+      })
+        .select('firstName lastName employeeId salary allowances placementDepartment placementProject department')
+        .populate('placementDepartment', 'name code')
+        .populate('placementProject', 'name')
+        .populate('department', 'name');
 
       if (activeEmployees.length === 0) {
         return res.json({
@@ -730,6 +734,8 @@ router.get('/current-overview',
           monthlyTax: Math.round(monthlyTax),
           netSalary: Math.round(netSalary),
           department: employee.department,
+          placementDepartment: employee.placementDepartment,
+          placementProject: employee.placementProject,
           position: employee.position
         });
       }
@@ -1098,6 +1104,109 @@ router.get('/view/employee/:employeeId',
         error: error.message
       });
     }
+  })
+);
+
+// @route   POST /api/payroll/bulk-approve
+// @desc    Approve all draft payrolls for a month/year (optional department/project filters)
+// @access  Private (HR and Admin)
+router.post(
+  '/bulk-approve',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  [
+    body('month').isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
+    body('year').isInt({ min: 2020 }).withMessage('Year must be 2020 or later'),
+    body('department').optional().isMongoId().withMessage('Invalid department'),
+    body('project').optional().isMongoId().withMessage('Invalid project')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const month = parseInt(req.body.month, 10);
+    const year = parseInt(req.body.year, 10);
+    const { department, project } = req.body;
+
+    const payrollQuery = { month, year, status: 'Draft' };
+
+    if (department || project) {
+      const employeeFilter = { isDeleted: { $ne: true } };
+      if (department) {
+        employeeFilter.$or = [
+          { department: new mongoose.Types.ObjectId(department) },
+          { placementDepartment: new mongoose.Types.ObjectId(department) }
+        ];
+      }
+      if (project) {
+        employeeFilter.placementProject = new mongoose.Types.ObjectId(project);
+      }
+      const employeeIds = await Employee.find(employeeFilter).distinct('_id');
+      if (!employeeIds.length) {
+        return res.json({
+          success: true,
+          message: 'No employees match the selected filters for this period.',
+          data: { approved: 0, skipped: 0, errors: [], month, year }
+        });
+      }
+      payrollQuery.employee = { $in: employeeIds };
+    }
+
+    const draftPayrolls = await Payroll.find(payrollQuery).sort({ employee: 1 });
+
+    if (!draftPayrolls.length) {
+      return res.json({
+        success: true,
+        message: `No draft payrolls to approve for ${month}/${year}.`,
+        data: { approved: 0, skipped: 0, errors: [], month, year }
+      });
+    }
+
+    let approved = 0;
+    const approveErrors = [];
+
+    for (const payroll of draftPayrolls) {
+      try {
+        await payroll.approve(req.user.id);
+        try {
+          await FinanceHelper.recordPayrollAccrual(payroll, req.user.id);
+        } catch (finError) {
+          console.error(`[bulk-approve] Finance accrual failed for payroll ${payroll._id}:`, finError.message);
+        }
+        approved += 1;
+      } catch (err) {
+        approveErrors.push({
+          payrollId: payroll._id,
+          message: err.message || 'Approval failed'
+        });
+      }
+    }
+
+    const monthNames = [
+      '', 'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    res.json({
+      success: true,
+      message:
+        approved > 0
+          ? `Approved ${approved} payroll(s) for ${monthNames[month] || month} ${year}.`
+          : `No payrolls were approved for ${monthNames[month] || month} ${year}.`,
+      data: {
+        month,
+        year,
+        approved,
+        skipped: draftPayrolls.length - approved - approveErrors.length,
+        failed: approveErrors.length,
+        errors: approveErrors
+      }
+    });
   })
 );
 

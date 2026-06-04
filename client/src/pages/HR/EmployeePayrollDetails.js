@@ -952,7 +952,7 @@ const EmployeePayrollDetails = () => {
                           <Tooltip title="Edit Payroll">
                             <IconButton
                               size="small"
-                              onClick={() => navigate(`/hr/payroll/edit/${payroll._id}`)}
+                              onClick={() => navigate(`/hr/payroll/${payroll._id}/edit`)}
                             >
                               <EditIcon />
                             </IconButton>

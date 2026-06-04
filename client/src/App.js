@@ -580,14 +580,6 @@ function App() {
               element={<ProtectedRoute><Payroll /></ProtectedRoute>}
             />
             <Route
-              path="/hr/payroll/add"
-              element={<ProtectedRoute><PayrollForm /></ProtectedRoute>}
-            />
-            <Route
-              path="/hr/payroll/:id"
-              element={<ProtectedRoute><PayrollForm /></ProtectedRoute>}
-            />
-            <Route
               path="/hr/payroll/:id/edit"
               element={<ProtectedRoute><PayrollForm /></ProtectedRoute>}
             />
