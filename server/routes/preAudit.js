@@ -22,6 +22,8 @@ const {
   normalizeActorId
 } = require('../utils/utilityBillFinance');
 const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDirectorRole');
+const { hasAuditAccess, canPerformInitialPreAuditActions } = require('../utils/auditAccess');
+const { resolveAuditStampMeta } = require('../utils/auditStampMeta');
 
 /** Cash approvals in Pre-Audit (includes post–Audit Director statuses for Approved tab). */
 const CA_PRE_AUDIT_VISIBLE_STATUSES = [
@@ -39,20 +41,6 @@ const mapCashApprovalToPreAuditStatus = (ca) => {
   if (status === 'Send to CEO Office' || status === 'Pending Finance') return 'approved';
   if (status === 'Pending Audit' && ca?.preAuditInitialApprovedAt) return 'under_review';
   return 'pending';
-};
-
-const hasModuleAccess = (roleDoc, moduleKey) => {
-  if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
-  return roleDoc.permissions.some((permission) => permission?.module === moduleKey);
-};
-
-const hasAuditAccess = (user) => {
-  if (!user) return false;
-  if (['super_admin', 'admin', 'audit_manager', 'auditor', 'audit_director'].includes(user.role)) return true;
-  if (hasModuleAccess(user.roleRef, 'audit')) return true;
-  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'audit'))) return true;
-  if (Array.isArray(user.subRoles) && user.subRoles.some((roleDoc) => normalizeRoleLabel(roleDoc?.module) === 'audit')) return true;
-  return false;
 };
 
 const getUserIdsByRoles = async (roles = []) => {
@@ -789,10 +777,10 @@ router.post('/',
 router.put('/:id/forward',
   authMiddleware,
   asyncHandler(async (req, res) => {
-    if (!hasAuditAccess(req.user) || isAuditDirectorUser(req.user)) {
+    if (!canPerformInitialPreAuditActions(req.user)) {
       return res.status(403).json({
         success: false,
-        message: 'Only assistant/auditor-level pre-audit users can forward to Audit Director.'
+        message: 'Only General Audit / pre-audit staff can forward to Audit Director (not Audit Director).'
       });
     }
     const { forwardComments } = req.body;
@@ -1067,10 +1055,7 @@ router.put('/:id/approve',
       });
     }
     const { approvalComments } = req.body;
-    // Auto-apply stamp on audit approvals whenever approver has uploaded one.
-    const stampMeta = (req.user?.approvalStamp)
-      ? { stampUsed: true, stampImage: req.user.approvalStamp }
-      : { stampUsed: false };
+    const stampMeta = resolveAuditStampMeta(req);
 
     // Check if it's a workflow document by trying to find it in workflow modules
     let isWorkflowDocument = false;
@@ -1101,10 +1086,10 @@ router.put('/:id/approve',
       const wfStatus = workflowDocument[workflowConfig.workflowStatusField];
       // Step 1: Initial approval by assistant/auditor while still in Send to Audit.
       if (wfStatus === 'Send to Audit') {
-        if (isAuditDirectorUser(req.user) && req.user.role !== 'super_admin') {
+        if (!canPerformInitialPreAuditActions(req.user)) {
           return res.status(403).json({
             success: false,
-            message: 'Initial approval should be completed by assistant/auditor before director final approval.'
+            message: 'Initial approval must be completed by General Audit / pre-audit staff before director final approval.'
           });
         }
         if (!Array.isArray(workflowDocument.workflowHistory)) workflowDocument.workflowHistory = [];
@@ -1258,10 +1243,10 @@ router.put('/:id/approve',
 
     // Step 1: initial approval by assistant/auditor
     if (document.status === 'pending' || document.status === 'under_review') {
-      if (isAuditDirectorUser(req.user) && req.user.role !== 'super_admin') {
+      if (!canPerformInitialPreAuditActions(req.user)) {
         return res.status(403).json({
           success: false,
-          message: 'Initial approval should be completed by assistant/auditor before director final approval.'
+          message: 'Initial approval must be completed by General Audit / pre-audit staff before director final approval.'
         });
       }
       document.status = 'under_review';

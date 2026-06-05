@@ -1,5 +1,5 @@
 const {
-  assertUtilityBillApproversEligible,
+  assertActiveUserApproversEligible,
   getEligibleUtilityBillApproverUserIds
 } = require('./utilityBillApproverEligibility');
 
@@ -196,7 +196,7 @@ const applyGeneralSubmitApprovers = async (ca, approverIds, actorId) => {
     err.statusCode = 400;
     throw err;
   }
-  const check = await assertUtilityBillApproversEligible(ids);
+  const check = await assertActiveUserApproversEligible(ids);
   if (!check.ok) {
     const err = new Error(check.message || 'Invalid approvers');
     err.statusCode = 400;

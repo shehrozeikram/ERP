@@ -117,10 +117,57 @@ async function assertUtilityBillApproversEligible(approverIds = []) {
   return { ok: true };
 }
 
+async function assertActiveUserApproversEligible(approverIds = []) {
+  const unique = [...new Set(approverIds.map(String).filter(Boolean))];
+  if (!unique.length) return { ok: true };
+  const activeCount = await User.countDocuments({ _id: { $in: unique }, isActive: true });
+  if (activeCount !== unique.length) {
+    return { ok: false, message: 'Approvers must be active users.' };
+  }
+  return { ok: true };
+}
+
+/** Active users for Manager / HOD pickers when allUsers=true (centralized store bills, general cash approval). */
+async function queryApproverCandidateUsers({ search = '', limit = 50, allUsers = false } = {}) {
+  const cap = Math.min(Math.max(parseInt(limit, 10) || 50, 1), allUsers ? 500 : 100);
+  const filter = { isActive: true };
+
+  if (!allUsers) {
+    const eligibleIds = await getEligibleUtilityBillApproverUserIds();
+    filter._id = { $in: [...eligibleIds] };
+  }
+
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escaped, 'i');
+    const searchOr = [
+      { firstName: rx },
+      { lastName: rx },
+      { email: rx },
+      { employeeId: rx }
+    ];
+    if (allUsers) {
+      filter.$or = searchOr;
+    } else {
+      const eligibleIds = await getEligibleUtilityBillApproverUserIds();
+      filter.$and = [{ _id: { $in: [...eligibleIds] } }, { $or: searchOr }];
+      delete filter._id;
+    }
+  }
+
+  return User.find(filter)
+    .select('firstName lastName email employeeId department')
+    .sort({ firstName: 1, lastName: 1 })
+    .limit(cap)
+    .lean();
+}
+
 module.exports = {
   getAdministrationDepartment,
   userDepartmentMatchesAdministration,
   getEligibleUtilityBillApproverUserIds,
   isUserEligibleAsUtilityBillApprover,
-  assertUtilityBillApproversEligible
+  assertUtilityBillApproversEligible,
+  assertActiveUserApproversEligible,
+  queryApproverCandidateUsers
 };

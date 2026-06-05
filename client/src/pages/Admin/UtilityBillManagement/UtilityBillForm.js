@@ -648,7 +648,11 @@ const UtilityBillForm = () => {
   const loadApproverOptions = async (search = '') => {
     try {
       setApproverLoading(true);
-      const response = await utilityBillService.getApproverCandidates({ search, limit: 50 });
+      const response = await utilityBillService.getApproverCandidates({
+        search,
+        limit: isCentralizedStoreBill ? 500 : 50,
+        ...(isCentralizedStoreBill ? { allUsers: true } : {})
+      });
       setApproverOptions(response.data || []);
     } catch {
       setApproverOptions([]);
@@ -1607,10 +1611,8 @@ const UtilityBillForm = () => {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   {isCentralizedStoreBill
-                    ? 'Choose Manager and Head Of Department approvers before submitting (same as utility bill / indent approval).'
-                    : 'Choose Manager and Head Of Department approvers before submitting. You can also save as draft.'}
-                  {' '}
-                  Only users whose department in User Management is Administration (code ADMIN) are listed.
+                    ? 'Choose Manager and Head Of Department approvers before submitting. All active users are listed.'
+                    : 'Choose Manager and Head Of Department approvers before submitting. You can also save as draft. Only users whose department in User Management is Administration (code ADMIN) are listed.'}
                 </Typography>
               </Grid>
 

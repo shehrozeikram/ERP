@@ -35,6 +35,7 @@ const PROCUREMENT_MODULE_KEY = 'procurement';
 const PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES = ['gm procurement', 'general manager procurement'];
 const AUDIT_MODULE_KEY = 'audit';
 const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDirectorRole');
+const { hasAuditAccess, canPerformInitialPreAuditActions } = require('../utils/auditAccess');
 
 const normalizeRoleLabel = (value) => String(value || '').trim().toLowerCase();
 
@@ -71,14 +72,6 @@ const hasProcurementModuleAccess = (roleDoc) => {
 const hasModuleAccess = (roleDoc, moduleKey) => {
   if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
   return roleDoc.permissions.some((permission) => permission?.module === moduleKey);
-};
-
-const hasAuditAccess = (user) => {
-  if (!user) return false;
-  if (['super_admin', 'admin', 'audit_manager', 'auditor', 'audit_director'].includes(user.role)) return true;
-  if (hasModuleAccess(user.roleRef, AUDIT_MODULE_KEY)) return true;
-  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, AUDIT_MODULE_KEY))) return true;
-  return false;
 };
 
 const hasProcurementAccess = (user) => {
@@ -1719,10 +1712,10 @@ router.put('/purchase-orders/:id/audit-approve',
 
     // Step 1: Initial audit approval by assistant/auditor while PO is still in Pending Audit.
     if (purchaseOrder.status === 'Pending Audit') {
-      if (isAuditDirectorUser(req.user)) {
+      if (!canPerformInitialPreAuditActions(req.user)) {
         return res.status(403).json({
           success: false,
-          message: 'Initial pre-audit approval must be completed by assistant/auditor before director approval.'
+          message: 'Initial pre-audit approval must be completed by General Audit / pre-audit staff before director approval.'
         });
       }
       const initialComments = req.body.approvalComments || req.body.comments || '';

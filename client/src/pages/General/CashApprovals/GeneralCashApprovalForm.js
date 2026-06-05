@@ -127,7 +127,7 @@ const GeneralCashApprovalForm = () => {
   const loadApproverOptions = async (search = '') => {
     try {
       setApproverLoading(true);
-      const res = await generalCashApprovalService.getApproverCandidates({ search, limit: 50 });
+      const res = await generalCashApprovalService.getApproverCandidates({ search, limit: 500, allUsers: true });
       setApproverOptions(res.data || []);
     } catch {
       setApproverOptions([]);
@@ -553,7 +553,7 @@ const GeneralCashApprovalForm = () => {
           <>
             <Typography variant="h6" gutterBottom>Approvals</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Choose Manager and Head Of Department approvers before submitting (Administration department users only).
+              Choose Manager and Head Of Department approvers before submitting.
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>

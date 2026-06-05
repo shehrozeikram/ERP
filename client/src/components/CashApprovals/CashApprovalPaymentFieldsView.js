@@ -28,7 +28,8 @@ const CashApprovalPaymentFieldsView = ({
   outstandingTransactions,
   onOutstandingRowChange,
   loadingOutstanding,
-  showAmountSubtitle = false
+  showAmountSubtitle = false,
+  referenceRequired = false
 }) => (
   <>
     {showAmountSubtitle && (
@@ -134,10 +135,12 @@ const CashApprovalPaymentFieldsView = ({
     <Grid item xs={6}>
       <TextField
         fullWidth
+        required={referenceRequired}
         label="Reference / Cheque # / TT #"
         value={paymentData.reference}
         onChange={(e) => onPaymentDataChange({ ...paymentData, reference: e.target.value })}
         size="small"
+        helperText={referenceRequired ? 'Required when creating voucher' : undefined}
       />
     </Grid>
     <Grid item xs={12}>

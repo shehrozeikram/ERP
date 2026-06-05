@@ -94,6 +94,7 @@ import {
   getStoreInvoiceOrgTitle,
   isCentralizedStoreBill
 } from '../../utils/centralizedStoreBillDisplay';
+import { canPerformInitialPreAuditActions } from '../../utils/auditAccess';
 
 /** Comment from the most recent workflow step that moved the document to Pre-Audit (Send to Audit), e.g. resubmit notes. */
 function getLatestSendToAuditWorkflowComment(workflowHistory) {
@@ -243,10 +244,7 @@ const PreAudit = () => {
     userHasRoleByPredicate(isAuditDirectorLabel) ||
     normalizeRole(user?.role) === 'super_admin' ||
     normalizeRole(user?.role) === 'developer';
-  const isAuditReviewerUser = () =>
-    userHasRoleLabel(['audit_manager', 'auditor']) ||
-    normalizeRole(user?.role) === 'super_admin' ||
-    normalizeRole(user?.role) === 'developer';
+  const isAuditReviewerUser = () => canPerformInitialPreAuditActions(user);
   const isCashApprovalBillDoc = (doc) => {
     if (!doc?.isCashApproval) return false;
     if (doc?.originalDocument?.evidenceSubmittedAt) return true;
@@ -569,11 +567,10 @@ const PreAudit = () => {
         const toStatus = normalize(entry?.toStatus);
         return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
       });
-      return entries.find((e) => e?.stampUsed && e?.stampImage)
-        || entries.find((e) => e?.changedBy?.digitalSignature)
-        || entries[0];
+      return entries.find((e) => e?.changedBy?.digitalSignature) || entries[0];
     };
-    const preAuditActorEntry = findPreferredAuditEntry(['forwarded to audit director', 'initial audit approval']);
+    const preAuditActorEntry = findPreferredAuditEntry(['initial audit approval', 'pending audit'])
+      || findPreferredAuditEntry(['forwarded to audit director']);
     const directorApproval = findLatestByToStatus(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
 
     return [
@@ -599,9 +596,6 @@ const PreAudit = () => {
         authority: 'Pre-Audit Authority',
         name: userDisplayName(preAuditActorEntry?.changedBy),
         signatureUser: preAuditActorEntry?.changedBy || null,
-        signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage
-          ? preAuditActorEntry.stampImage
-          : preAuditActorEntry?.changedBy?.digitalSignature || '',
         dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : ''
       },
       {
@@ -645,18 +639,17 @@ const PreAudit = () => {
         const toStatus = normalize(entry?.toStatus);
         return accepted.some((status) => toStatus === status || toStatus.startsWith(status));
       });
-      return entries.find((e) => e?.stampUsed && e?.stampImage)
-        || entries.find((e) => e?.changedBy?.digitalSignature)
-        || entries[0];
+      return entries.find((e) => e?.changedBy?.digitalSignature) || entries[0];
     };
-    const preAuditActorEntry = findPreferredAuditEntry(['forwarded to audit director', 'initial audit approval']);
+    const preAuditActorEntry = findPreferredAuditEntry(['initial audit approval', 'pending audit'])
+      || findPreferredAuditEntry(['forwarded to audit director']);
     const directorApproval = findLatestByToStatus(['approved (from forwarded to audit director)', 'approved (from send to audit)']);
 
     return [
       { authority: 'Sig of Requester', name: userDisplayName(document?.createdBy), signatureUser: document?.createdBy, dateTime: document?.createdAt ? formatDateTime(document.createdAt) : '' },
       { authority: 'Manager Approver', name: userDisplayName(chain[0]?.approver), signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null, dateTime: chain[0]?.status === 'approved' && chain[0]?.actedAt ? formatDateTime(chain[0].actedAt) : '' },
       { authority: 'Head Of Department Approver', name: userDisplayName(chain[1]?.approver), signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null, dateTime: chain[1]?.status === 'approved' && chain[1]?.actedAt ? formatDateTime(chain[1].actedAt) : '' },
-      { authority: 'Pre-Audit Authority', name: userDisplayName(preAuditActorEntry?.changedBy), signatureUser: preAuditActorEntry?.changedBy || null, signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage ? preAuditActorEntry.stampImage : preAuditActorEntry?.changedBy?.digitalSignature || '', dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : '' },
+      { authority: 'Pre-Audit Authority', name: userDisplayName(preAuditActorEntry?.changedBy), signatureUser: preAuditActorEntry?.changedBy || null, dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : '' },
       { authority: 'Audit Director', name: userDisplayName(directorApproval?.changedBy), signatureUser: directorApproval?.changedBy || null, signaturePath: directorApproval?.stampUsed && directorApproval?.stampImage ? directorApproval.stampImage : directorApproval?.changedBy?.digitalSignature || '', dateTime: directorApproval?.changedAt ? formatDateTime(directorApproval.changedAt) : '' }
     ];
   };
@@ -731,9 +724,6 @@ const PreAudit = () => {
         authority: 'Pre-Audit Authority',
         name: userDisplayName(preAuditActorEntry?.changedBy),
         signatureUser: preAuditActorEntry?.changedBy || null,
-        signaturePath: preAuditActorEntry?.stampUsed && preAuditActorEntry?.stampImage
-          ? preAuditActorEntry.stampImage
-          : preAuditActorEntry?.changedBy?.digitalSignature || '',
         dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : ''
       },
       {
@@ -2686,7 +2676,7 @@ const PreAudit = () => {
                                                   <>
                                                     {/* Post-GRN audit POs: Show "Send to Finance" instead of standard audit actions */}
                                                     {doc.isPostGrnAudit ? (
-                                                      (user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'developer' || user?.role === 'auditor') && (
+                                                      canPerformInitialPreAuditActions(user) && (
                                                         <Tooltip title="Send to Finance">
                                                           <IconButton
                                                             size="small"

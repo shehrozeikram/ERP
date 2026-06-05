@@ -47,8 +47,12 @@ export const userDisplayName = (user) => {
   return [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.email || user.employeeId || '';
 };
 
-export const getSignatureSource = (row) =>
-  row?.signaturePath || row?.signatureUser?.digitalSignature || row?.signatureUser?.approvalStamp || '';
+/** Digital Signature column only — stamps render in the separate Approval Stamp section. */
+export const getSignatureSource = (row) => {
+  if (row?.signatureUser?.digitalSignature) return row.signatureUser.digitalSignature;
+  if (row?.authority === 'CEO' && row?.signaturePath) return row.signaturePath;
+  return '';
+};
 
 /** Public URL for files under /uploads (cash approval line attachments, etc.) */
 export const resolveUploadPublicUrl = (relativePath) =>
@@ -99,21 +103,18 @@ export const buildGeneralCashApprovalApprovalRows = (ca) => {
 
   const findPreferredAuditEntry = (keywords) => {
     const entries = matchingAuditHistory(keywords);
-    return (
-      entries.find((e) => e?.stampUsed && e?.stampImage) ||
-      entries.find((e) => e?.changedBy?.digitalSignature) ||
-      entries[0] ||
-      null
-    );
+    return entries.find((e) => e?.changedBy?.digitalSignature) || entries[0] || null;
   };
 
   const preAuditFromHistory = findPreferredAuditEntry([
-    'forwarded to audit director',
     'initial audit approval',
     'pending audit'
   ]);
-  const preAuditActor = preAuditFromHistory?.changedBy || ca.preAuditInitialApprovedBy || null;
-  const preAuditAt = preAuditFromHistory?.changedAt || ca.preAuditInitialApprovedAt;
+  const preAuditActor =
+    (typeof ca.preAuditInitialApprovedBy === 'object' ? ca.preAuditInitialApprovedBy : null) ||
+    preAuditFromHistory?.changedBy ||
+    null;
+  const preAuditAt = ca.preAuditInitialApprovedAt || preAuditFromHistory?.changedAt;
 
   const directorFromHistory = findPreferredAuditEntry([
     'approved (from forwarded to audit director)',
@@ -160,10 +161,6 @@ export const buildGeneralCashApprovalApprovalRows = (ca) => {
       authority: 'Pre-Audit Authority',
       name: preAuditActor ? userDisplayName(preAuditActor) : '—',
       signatureUser: preAuditActor || null,
-      signaturePath:
-        preAuditFromHistory?.stampUsed && preAuditFromHistory?.stampImage
-          ? preAuditFromHistory.stampImage
-          : preAuditActor?.digitalSignature || '',
       dateTime: preAuditActor ? formatDateTime(preAuditAt) : '—'
     },
     {

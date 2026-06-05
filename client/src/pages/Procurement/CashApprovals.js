@@ -516,6 +516,11 @@ const CashApprovalsPage = () => {
         case 'issue-advance': actionRes = await procurementService.caIssueAdvance(ca._id, extraData); break;
         case 'create-voucher': {
           const isGeneral = isGeneralModuleCashApproval(ca);
+          if (isGeneral && !String(generalPayment.paymentData.reference || '').trim()) {
+            setError('Reference / Cheque # / TT # is required');
+            setActionLoading(false);
+            return;
+          }
           const payRows = isGeneral ? generalPayment.getAllocationRows() : [];
           const rowForCa = payRows.find((r) => String(r.cashApprovalId) === String(ca._id));
           const advanceAmount = isGeneral
@@ -1750,6 +1755,7 @@ const CashApprovalsPage = () => {
                   generalPayment.setPaymentData((prev) => ({ ...prev, amount: total }));
                 }}
                 loadingOutstanding={generalPayment.loadingOutstanding}
+                referenceRequired
               />
             </>
             )}
@@ -2044,6 +2050,7 @@ const CashApprovalsPage = () => {
                 || !financeAuthoritiesForm.accountsManagerUser
                 || !financeAuthoritiesForm.financeControllerUser
                 || (isGeneralCreateVoucherOpen && !(generalPayment.paymentData.amount > 0))
+                || (isGeneralCreateVoucherOpen && !String(generalPayment.paymentData.reference || '').trim())
               ))
               || (actionDialog.type === 'issue-advance' && (
                 !advanceForm.advanceAmount

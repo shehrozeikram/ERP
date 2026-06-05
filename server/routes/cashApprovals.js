@@ -27,12 +27,11 @@ const {
   buildGeneralCashApprovalDocument,
   uniqueApproverIds,
   applyGeneralSubmitApprovers,
-  getEligibleUtilityBillApproverUserIds,
   approverIdFromStep,
   getFirstPendingDepartmentStepIndex,
   getActorPendingDepartmentStepIndex
 } = require('../utils/generalCashApproval');
-const { assertUtilityBillApproversEligible } = require('../utils/utilityBillApproverEligibility');
+const { queryApproverCandidateUsers } = require('../utils/utilityBillApproverEligibility');
 const Employee = require('../models/hr/Employee');
 const {
   listEmployeesForAdvancePicker,
@@ -42,6 +41,7 @@ const {
   employeeDisplayName
 } = require('../utils/employeeAdvanceAccount');
 const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDirectorRole');
+const { hasAuditAccess, canPerformInitialPreAuditActions } = require('../utils/auditAccess');
 const {
   authenticateUser,
   validateFilename,
@@ -167,14 +167,6 @@ const userHasRoleName = (user, names = []) => {
 const hasModuleAccess = (roleDoc, moduleKey) => {
   if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
   return roleDoc.permissions.some((p) => p?.module === moduleKey);
-};
-
-const hasAuditAccess = (user) => {
-  if (!user) return false;
-  if (['super_admin', 'admin', 'audit_manager', 'auditor', 'audit_director'].includes(user.role)) return true;
-  if (hasModuleAccess(user.roleRef, 'audit')) return true;
-  if (Array.isArray(user.roles) && user.roles.some((r) => hasModuleAccess(r, 'audit'))) return true;
-  return false;
 };
 
 const hasFinanceAccess = (user) => {
@@ -648,23 +640,8 @@ router.get('/general/approver-candidates', authMiddleware, asyncHandler(async (r
     return res.status(403).json({ success: false, message: 'General module access required' });
   }
   const search = String(req.query.search || '').trim();
-  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-  const eligibleIds = await getEligibleUtilityBillApproverUserIds();
-  const filter = { isActive: true, _id: { $in: [...eligibleIds] } };
-  if (search) {
-    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const rx = new RegExp(escaped, 'i');
-    filter.$and = [
-      { _id: { $in: [...eligibleIds] } },
-      { $or: [{ firstName: rx }, { lastName: rx }, { email: rx }, { employeeId: rx }] }
-    ];
-    delete filter._id;
-  }
-  const users = await User.find(filter)
-    .select('firstName lastName email employeeId department')
-    .sort({ firstName: 1, lastName: 1 })
-    .limit(limit)
-    .lean();
+  const limit = parseInt(req.query.limit, 10) || 50;
+  const users = await queryApproverCandidateUsers({ search, limit, allUsers: true });
   res.json({ success: true, data: users });
 }));
 
@@ -1402,8 +1379,11 @@ router.put('/:id/audit-approve', authMiddleware, asyncHandler(async (req, res) =
 
   // Step 1: Initial pre-audit approval (assistant/auditor)
   if (ca.status === 'Pending Audit') {
-    if (isAuditDirectorUser(req.user)) {
-      return res.status(403).json({ success: false, message: 'Initial approval must be done by assistant/auditor, not the Audit Director.' });
+    if (!canPerformInitialPreAuditActions(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Initial approval must be done by General Audit / pre-audit staff, not the Audit Director.'
+      });
     }
     const initialAt = new Date();
     ca.preAuditInitialApprovedBy = req.user.id;
@@ -1885,6 +1865,12 @@ router.put('/:id/create-voucher', authMiddleware, asyncHandler(async (req, res) 
   }
   if (ids.length !== distinctCount) {
     return res.status(400).json({ success: false, message: 'Each finance authority must be assigned to a different user' });
+  }
+  if (isGeneralCashApproval(ca)) {
+    const reference = String(req.body?.reference || req.body?.signedCheckNumber || '').trim();
+    if (!reference) {
+      return res.status(400).json({ success: false, message: 'Reference / Cheque # / TT # is required' });
+    }
   }
   ca.financeApprovalAuthorities = authorities;
   ca.financeAuthorityApprovals = [];

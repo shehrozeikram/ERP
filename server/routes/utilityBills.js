@@ -13,8 +13,9 @@ const Department = require('../models/hr/Department');
 const Employee = require('../models/hr/Employee');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 const {
-  getEligibleUtilityBillApproverUserIds,
-  assertUtilityBillApproversEligible
+  assertUtilityBillApproversEligible,
+  assertActiveUserApproversEligible,
+  queryApproverCandidateUsers
 } = require('../utils/utilityBillApproverEligibility');
 const {
   postUtilityBillToFinance,
@@ -542,33 +543,9 @@ router.get('/pending', permissions.checkSubRolePermission('admin', 'utility_bill
 router.get('/approver-candidates', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const search = String(req.query.search || '').trim();
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-    const eligibleIds = await getEligibleUtilityBillApproverUserIds();
-    const filter = { isActive: true, _id: { $in: [...eligibleIds] } };
-
-    if (search) {
-      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const rx = new RegExp(escaped, 'i');
-      filter.$and = [
-        { _id: { $in: [...eligibleIds] } },
-        {
-          $or: [
-            { firstName: rx },
-            { lastName: rx },
-            { email: rx },
-            { employeeId: rx }
-          ]
-        }
-      ];
-      delete filter._id;
-    }
-
-    const users = await User.find(filter)
-      .select('firstName lastName email employeeId department')
-      .sort({ firstName: 1, lastName: 1 })
-      .limit(limit)
-      .lean();
-
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const allUsers = req.query.allUsers === 'true' || req.query.allUsers === true;
+    const users = await queryApproverCandidateUsers({ search, limit, allUsers });
     res.json({ success: true, data: users });
   } catch (error) {
     console.error('Error fetching utility bill approvers:', error);
@@ -672,7 +649,11 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
     delete billData.consolidatedIntoBillId;
     billData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
     if (billData.draftApproverIds.length) {
-      const approverCheck = await assertUtilityBillApproversEligible(billData.draftApproverIds);
+      const useAllUsersApprovers =
+        billData.useCentralizedStore === true || billData.useCentralizedStore === 'true';
+      const approverCheck = useAllUsersApprovers
+        ? await assertActiveUserApproversEligible(billData.draftApproverIds)
+        : await assertUtilityBillApproversEligible(billData.draftApproverIds);
       if (!approverCheck.ok) {
         return res.status(400).json({ success: false, message: approverCheck.message });
       }
@@ -756,7 +737,14 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
     if (req.body.draftApproverIds !== undefined) {
       updateData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
       if (updateData.draftApproverIds.length) {
-        const approverCheck = await assertUtilityBillApproversEligible(updateData.draftApproverIds);
+        const existingBill = await UtilityBill.findById(req.params.id).select('useCentralizedStore').lean();
+        const useAllUsersApprovers =
+          updateData.useCentralizedStore === true ||
+          updateData.useCentralizedStore === 'true' ||
+          existingBill?.useCentralizedStore === true;
+        const approverCheck = useAllUsersApprovers
+          ? await assertActiveUserApproversEligible(updateData.draftApproverIds)
+          : await assertUtilityBillApproversEligible(updateData.draftApproverIds);
         if (!approverCheck.ok) {
           return res.status(400).json({ success: false, message: approverCheck.message });
         }
@@ -876,7 +864,10 @@ router.post('/:id/submit', permissions.checkSubRolePermission('admin', 'utility_
       });
     }
 
-    const approverDeptCheck = await assertUtilityBillApproversEligible(approverIds);
+    const useAllUsersApprovers = bill.useCentralizedStore === true;
+    const approverDeptCheck = useAllUsersApprovers
+      ? await assertActiveUserApproversEligible(approverIds)
+      : await assertUtilityBillApproversEligible(approverIds);
     if (!approverDeptCheck.ok) {
       return res.status(400).json({ success: false, message: approverDeptCheck.message });
     }

@@ -16,14 +16,29 @@ import {
   Alert,
   CircularProgress,
   IconButton,
-  Tooltip
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
-import { Add as AddIcon, Visibility as ViewIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import {
+  Add as AddIcon,
+  Visibility as ViewIcon,
+  Refresh as RefreshIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon
+} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
 import generalCashApprovalService from '../../../services/generalCashApprovalService';
 import { formatPKR } from '../../../utils/currency';
 import { formatDate } from '../../../utils/dateUtils';
+import {
+  canApproveCashApprovalRow,
+  isCashApprovalDeptApproved
+} from '../../../utils/departmentApprovalListActions';
 
 const statusColor = (status) => {
   if (status === 'Draft') return 'default';
@@ -41,6 +56,9 @@ const GeneralCashApprovalsList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [actionLoadingId, setActionLoadingId] = useState('');
+  const [rejectDialog, setRejectDialog] = useState({ open: false, row: null });
+  const [rejectReason, setRejectReason] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +80,45 @@ const GeneralCashApprovalsList = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleApprove = async (row) => {
+    try {
+      setActionLoadingId(row._id);
+      await generalCashApprovalService.approve(row._id);
+      toast.success('Approved');
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Approve failed');
+    } finally {
+      setActionLoadingId('');
+    }
+  };
+
+  const openRejectDialog = (row) => {
+    setRejectReason('');
+    setRejectDialog({ open: true, row });
+  };
+
+  const handleReject = async () => {
+    const row = rejectDialog.row;
+    if (!row) return;
+    if (!rejectReason.trim()) {
+      toast.error('Rejection reason is required');
+      return;
+    }
+    try {
+      setActionLoadingId(row._id);
+      await generalCashApprovalService.reject(row._id, rejectReason.trim());
+      toast.success('Rejected');
+      setRejectDialog({ open: false, row: null });
+      setRejectReason('');
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Reject failed');
+    } finally {
+      setActionLoadingId('');
+    }
+  };
 
   return (
     <Box sx={{ p: 3 }}>
@@ -133,11 +190,46 @@ const GeneralCashApprovalsList = () => {
                     </TableCell>
                     <TableCell>{formatDate(row.approvalDate || row.createdAt)}</TableCell>
                     <TableCell align="right">
-                      <Tooltip title="View">
-                        <IconButton size="small" onClick={() => navigate(`/general/cash-approvals/${row._id}`)}>
-                          <ViewIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                      <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                        {isCashApprovalDeptApproved(row) && (
+                          <Tooltip title="Manager / HOD approval completed">
+                            <CheckCircleIcon fontSize="small" color="success" sx={{ mx: 0.5 }} />
+                          </Tooltip>
+                        )}
+                        {canApproveCashApprovalRow(row, user) && (
+                          <>
+                            <Tooltip title="Approve">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  disabled={actionLoadingId === row._id}
+                                  onClick={() => handleApprove(row)}
+                                >
+                                  <CheckCircleIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Reject">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  disabled={actionLoadingId === row._id}
+                                  onClick={() => openRejectDialog(row)}
+                                >
+                                  <CancelIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </>
+                        )}
+                        <Tooltip title="View">
+                          <IconButton size="small" onClick={() => navigate(`/general/cash-approvals/${row._id}`)}>
+                            <ViewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 ))
@@ -146,6 +238,42 @@ const GeneralCashApprovalsList = () => {
           </Table>
         </TableContainer>
       )}
+
+      <Dialog
+        open={rejectDialog.open}
+        onClose={() => !actionLoadingId && setRejectDialog({ open: false, row: null })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reject cash approval</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {rejectDialog.row?.caNumber ? `CA # ${rejectDialog.row.caNumber}` : 'Provide a reason for rejection.'}
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            label="Rejection reason"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectDialog({ open: false, row: null })} disabled={Boolean(actionLoadingId)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleReject}
+            disabled={Boolean(actionLoadingId) || !rejectReason.trim()}
+          >
+            Reject
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

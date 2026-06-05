@@ -26,20 +26,32 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Grid
+  Grid,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import {
   Add as AddIcon,
   Visibility as ViewIcon,
   Search as SearchIcon,
   Refresh as RefreshIcon,
-  ExpandMore as ExpandMoreIcon
+  ExpandMore as ExpandMoreIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { useAuth } from '../../../contexts/AuthContext';
 import utilityBillService from '../../../services/utilityBillService';
 import centralizedStoreService from '../../../services/centralizedStoreService';
 import NarrationTableCell from '../../../components/common/NarrationTableCell';
 import { getBillNarrationDisplay } from '../../../utils/documentNarrationDisplay';
+import {
+  canApproveUtilityBillRow,
+  isUtilityBillDeptApproved
+} from '../../../utils/departmentApprovalListActions';
 
 const sortBillsByDate = (a, b) => {
   const ta = a.billDate ? new Date(a.billDate).getTime() : 0;
@@ -63,12 +75,16 @@ const getBillCategories = (bill) => {
 
 const CentralizedStoreBills = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [bills, setBills] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState('');
+  const [actionLoadingId, setActionLoadingId] = useState('');
+  const [rejectDialog, setRejectDialog] = useState({ open: false, bill: null });
+  const [rejectReason, setRejectReason] = useState('');
 
   const loadCategories = useCallback(async () => {
     try {
@@ -163,6 +179,45 @@ const CentralizedStoreBills = () => {
   const clearFilters = () => {
     setSearchTerm('');
     setFilterCategoryId('');
+  };
+
+  const handleApprove = async (bill) => {
+    try {
+      setActionLoadingId(bill._id);
+      await utilityBillService.approveUtilityBill(bill._id);
+      toast.success('Bill approved');
+      await fetchBills();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Approve failed');
+    } finally {
+      setActionLoadingId('');
+    }
+  };
+
+  const openRejectDialog = (bill) => {
+    setRejectReason('');
+    setRejectDialog({ open: true, bill });
+  };
+
+  const handleReject = async () => {
+    const bill = rejectDialog.bill;
+    if (!bill) return;
+    if (!rejectReason.trim()) {
+      toast.error('Rejection reason is required');
+      return;
+    }
+    try {
+      setActionLoadingId(bill._id);
+      await utilityBillService.rejectUtilityBill(bill._id, rejectReason.trim());
+      toast.success('Bill rejected');
+      setRejectDialog({ open: false, bill: null });
+      setRejectReason('');
+      await fetchBills();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Reject failed');
+    } finally {
+      setActionLoadingId('');
+    }
   };
 
   if (loading && bills.length === 0) {
@@ -332,14 +387,49 @@ const CentralizedStoreBills = () => {
                             </TableCell>
                             <TableCell>{formatDate(bill.dueDate)}</TableCell>
                             <TableCell align="right">
-                              <Tooltip title="View bill">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => navigate(`/admin/centralized-store/bills/${bill._id}`)}
-                                >
-                                  <ViewIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
+                              <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                                {isUtilityBillDeptApproved(bill) && (
+                                  <Tooltip title="Manager / HOD approval completed">
+                                    <CheckCircleIcon fontSize="small" color="success" sx={{ mx: 0.5 }} />
+                                  </Tooltip>
+                                )}
+                                {canApproveUtilityBillRow(bill, user) && (
+                                  <>
+                                    <Tooltip title="Approve">
+                                      <span>
+                                        <IconButton
+                                          size="small"
+                                          color="success"
+                                          disabled={actionLoadingId === bill._id}
+                                          onClick={() => handleApprove(bill)}
+                                        >
+                                          <CheckCircleIcon fontSize="small" />
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                    <Tooltip title="Reject">
+                                      <span>
+                                        <IconButton
+                                          size="small"
+                                          color="error"
+                                          disabled={actionLoadingId === bill._id}
+                                          onClick={() => openRejectDialog(bill)}
+                                        >
+                                          <CancelIcon fontSize="small" />
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                  </>
+                                )}
+                                <Tooltip title="View bill">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => navigate(`/admin/centralized-store/bills/${bill._id}`)}
+                                  >
+                                    <ViewIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Stack>
                             </TableCell>
                           </TableRow>
                         );
@@ -352,6 +442,42 @@ const CentralizedStoreBills = () => {
           ))}
         </Stack>
       )}
+
+      <Dialog
+        open={rejectDialog.open}
+        onClose={() => !actionLoadingId && setRejectDialog({ open: false, bill: null })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reject bill</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {rejectDialog.bill?.billId ? `Bill ${rejectDialog.bill.billId}` : 'Provide a reason for rejection.'}
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            label="Rejection reason"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectDialog({ open: false, bill: null })} disabled={Boolean(actionLoadingId)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleReject}
+            disabled={Boolean(actionLoadingId) || !rejectReason.trim()}
+          >
+            Reject
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
