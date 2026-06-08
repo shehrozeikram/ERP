@@ -84,6 +84,114 @@ const FinalSettlementForm = () => {
     );
   });
 
+  const parseAmount = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const computeSettlementTotals = (values) => {
+    const e = values.earnings || {};
+    const d = values.deductions || {};
+    const totalEarnings =
+      parseAmount(e.basicSalary) +
+      parseAmount(e.houseRent) +
+      parseAmount(e.medicalAllowance) +
+      parseAmount(e.transportAllowance) +
+      parseAmount(e.otherAllowances) +
+      parseAmount(e.overtime) +
+      parseAmount(e.bonus) +
+      parseAmount(e.gratuity) +
+      parseAmount(e.leaveEncashment) +
+      parseAmount(e.otherEarnings);
+    const totalDeductions =
+      parseAmount(d.noticePeriodDeduction) +
+      parseAmount(d.loanDeductions) +
+      parseAmount(d.advanceDeductions) +
+      parseAmount(d.taxDeductions) +
+      parseAmount(d.otherDeductions);
+
+    return {
+      totalEarnings,
+      totalDeductions,
+      grossSettlementAmount: totalEarnings,
+      netSettlementAmount: Math.max(0, totalEarnings - totalDeductions)
+    };
+  };
+
+  const buildSettlementPayload = (values, loans, shortfallDays) => {
+    const e = values.earnings || {};
+    const d = values.deductions || {};
+    const totals = computeSettlementTotals(values);
+    const leaveBalance = values.leaveBalance || {};
+
+    const earnings = {
+      basicSalary: parseAmount(e.basicSalary),
+      houseRent: parseAmount(e.houseRent),
+      medicalAllowance: parseAmount(e.medicalAllowance),
+      conveyanceAllowance: parseAmount(e.transportAllowance),
+      otherAllowances: parseAmount(e.otherAllowances) + parseAmount(e.otherEarnings),
+      overtime: parseAmount(e.overtime),
+      bonus: parseAmount(e.bonus),
+      gratuity: parseAmount(e.gratuity),
+      leaveEncashment: parseAmount(e.leaveEncashment),
+      providentFund: 0,
+      eobi: 0
+    };
+
+    const deductions = {
+      incomeTax: parseAmount(d.taxDeductions),
+      providentFund: 0,
+      eobi: 0,
+      loanDeductions: parseAmount(d.loanDeductions),
+      noticePeriodDeduction: parseAmount(d.noticePeriodDeduction),
+      otherDeductions: parseAmount(d.otherDeductions) + parseAmount(d.advanceDeductions)
+    };
+
+    return {
+      employeeId: values.employeeId,
+      settlementType: values.settlementType,
+      reason: values.reason,
+      lastWorkingDate: values.lastWorkingDate,
+      settlementDate: values.settlementDate,
+      noticePeriod: values.noticePeriod,
+      noticePeriodServed: values.noticePeriodServed,
+      noticePeriodShortfall: shortfallDays,
+      paymentMethod: values.paymentMethod,
+      bankDetails: values.bankDetails,
+      notes: values.notes,
+      basicSalary: parseAmount(values.basicSalary) || earnings.basicSalary,
+      grossSalary: parseAmount(values.grossSalary),
+      netSalary: parseAmount(values.netSalary),
+      earnings,
+      deductions,
+      grossSettlementAmount: totals.grossSettlementAmount,
+      netSettlementAmount: totals.netSettlementAmount,
+      leaveBalance: {
+        annual: parseAmount(leaveBalance.annual),
+        sick: parseAmount(leaveBalance.sick),
+        casual: parseAmount(leaveBalance.casual),
+        other: parseAmount(leaveBalance.other),
+        total:
+          parseAmount(leaveBalance.annual) +
+          parseAmount(leaveBalance.sick) +
+          parseAmount(leaveBalance.casual) +
+          parseAmount(leaveBalance.other)
+      },
+      loans: (loans || []).map((loan) => ({
+        loanId: loan._id || loan.loanId,
+        loanType: loan.loanType,
+        originalAmount: loan.loanAmount || loan.originalAmount || 0,
+        outstandingBalance: loan.outstandingBalance || 0,
+        settledAmount: loan.settledAmount || 0,
+        settlementType: loan.settlementType || 'pending'
+      }))
+    };
+  };
+
+  const amountInputProps = {
+    startAdornment: <InputAdornment position="start">₨</InputAdornment>
+  };
+
   // Form validation schema
   const validationSchema = Yup.object({
     employeeId: Yup.string().required('Employee is required'),
@@ -131,6 +239,7 @@ const FinalSettlementForm = () => {
       basicSalary: 0,
       grossSalary: 0,
       netSalary: 0,
+      dailyRate: 0,
       earnings: {
         basicSalary: 0,
         houseRent: 0,
@@ -159,24 +268,12 @@ const FinalSettlementForm = () => {
     },
     validationSchema,
     onSubmit: async (values) => {
-      
       try {
         setLoading(true);
-        
-        // Prepare settlement data with required fields
-        const settlementData = {
-          ...values,
-          employeeName: selectedEmployee?.name || '',
-          department: selectedEmployee?.department || '',
-          designation: selectedEmployee?.designation || '',
-          employee: selectedEmployee?._id || '',
-          basicSalary: selectedEmployee?.salary?.basic || 0,
-          grossSalary: selectedEmployee?.salary?.gross || 0,
-          netSalary: selectedEmployee?.salary?.net || 0
-        };
-        
 
-        
+        const shortfallDays = Math.max(0, values.noticePeriod - values.noticePeriodServed);
+        const settlementData = buildSettlementPayload(values, employeeLoans, shortfallDays);
+
         if (id) {
           // Update existing settlement
           await finalSettlementService.updateSettlement(id, settlementData);
@@ -210,16 +307,6 @@ const FinalSettlementForm = () => {
       }
     }
   });
-
-  // Recalculate notice period deduction when notice period values change
-  useEffect(() => {
-    if (selectedEmployee) {
-      const basicSalary = selectedEmployee.salary?.basic || (selectedEmployee.salary?.gross || 70000) * 0.6666;
-      const dailyRate = basicSalary / 30;
-      const noticeDeduction = noticePeriodShortfall > 0 ? dailyRate * noticePeriodShortfall : 0;
-      formik.setFieldValue('deductions.noticePeriodDeduction', noticeDeduction);
-    }
-  }, [formik.values.noticePeriod, formik.values.noticePeriodServed, selectedEmployee]);
 
   // Load employees
   const fetchEmployees = async () => {
@@ -324,6 +411,11 @@ const FinalSettlementForm = () => {
       formik.setFieldValue('earnings.bonus', 0);
       formik.setFieldValue('earnings.overtime', 0);
       formik.setFieldValue('earnings.otherEarnings', 0);
+
+      formik.setFieldValue('basicSalary', basicSalary);
+      formik.setFieldValue('grossSalary', grossSalary);
+      formik.setFieldValue('netSalary', employee.salary?.net || grossSalary);
+      formik.setFieldValue('dailyRate', dailyRate);
       
       // Auto-populate leave balance
       const leaveBalance = employee.leaveBalance || {};
@@ -360,6 +452,10 @@ const FinalSettlementForm = () => {
       const response = await finalSettlementService.getSettlement(id);
       const settlement = response.data;
       
+      const earnings = settlement.earnings || {};
+      const deductions = settlement.deductions || {};
+      const leaveBalance = settlement.leaveBalance || {};
+
       formik.setValues({
         employeeId: settlement.employeeId,
         settlementType: settlement.settlementType,
@@ -369,8 +465,41 @@ const FinalSettlementForm = () => {
         noticePeriod: settlement.noticePeriod,
         noticePeriodServed: settlement.noticePeriodServed,
         paymentMethod: settlement.paymentMethod,
-        bankDetails: settlement.bankDetails,
-        notes: settlement.notes || ''
+        bankDetails: settlement.bankDetails || {
+          bankName: '',
+          accountNumber: '',
+          accountTitle: ''
+        },
+        notes: settlement.notes || '',
+        basicSalary: settlement.basicSalary || 0,
+        grossSalary: settlement.grossSalary || 0,
+        netSalary: settlement.netSalary || 0,
+        dailyRate: (settlement.basicSalary || earnings.basicSalary || 0) / 30,
+        earnings: {
+          basicSalary: earnings.basicSalary || 0,
+          houseRent: earnings.houseRent || 0,
+          medicalAllowance: earnings.medicalAllowance || 0,
+          transportAllowance: earnings.conveyanceAllowance || 0,
+          otherAllowances: earnings.otherAllowances || 0,
+          leaveEncashment: earnings.leaveEncashment || 0,
+          gratuity: earnings.gratuity || 0,
+          bonus: earnings.bonus || 0,
+          overtime: earnings.overtime || 0,
+          otherEarnings: 0
+        },
+        deductions: {
+          noticePeriodDeduction: deductions.noticePeriodDeduction || 0,
+          loanDeductions: deductions.loanDeductions || 0,
+          advanceDeductions: 0,
+          taxDeductions: deductions.incomeTax || 0,
+          otherDeductions: deductions.otherDeductions || 0
+        },
+        leaveBalance: {
+          annual: leaveBalance.annual || 0,
+          sick: leaveBalance.sick || 0,
+          casual: leaveBalance.casual || 0,
+          other: leaveBalance.other || 0
+        }
       });
       
       // Get employee name from firstName + lastName or fullName virtual
@@ -413,29 +542,6 @@ const FinalSettlementForm = () => {
       loadSettlementData();
     }
   }, [id]);
-
-  // Update loan deductions when employee loans are fetched
-  useEffect(() => {
-    if (employeeLoans.length > 0) {
-      const totalLoanAmount = employeeLoans.reduce((sum, loan) => {
-        const outstanding = loan.outstandingBalance || 0;
-        return sum + outstanding;
-      }, 0);
-      formik.setFieldValue('deductions.loanDeductions', totalLoanAmount);
-    } else {
-      formik.setFieldValue('deductions.loanDeductions', 0);
-    }
-  }, [employeeLoans]);
-
-  // Update notice period deduction when notice period values change
-  useEffect(() => {
-    if (selectedEmployee && formik.values.noticePeriod && formik.values.noticePeriodServed) {
-      const shortfall = Math.max(0, formik.values.noticePeriod - formik.values.noticePeriodServed);
-      const basicSalary = selectedEmployee.salary?.basic || 50000;
-      const noticeDeduction = shortfall > 0 ? (basicSalary / 30) * shortfall : 0;
-      formik.setFieldValue('deductions.noticePeriodDeduction', noticeDeduction);
-    }
-  }, [formik.values.noticePeriod, formik.values.noticePeriodServed, selectedEmployee]);
 
   // Handle next step
   const handleNext = () => {
@@ -496,81 +602,11 @@ const FinalSettlementForm = () => {
   // Calculate notice period shortfall
   const noticePeriodShortfall = Math.max(0, formik.values.noticePeriod - formik.values.noticePeriodServed);
 
-  // Calculate estimated settlement amount
-  const calculateEstimatedAmount = () => {
-    if (!selectedEmployee) return 0;
-    
-    const grossSalary = selectedEmployee.salary?.gross || 70000;
-    const basicSalary = selectedEmployee.salary?.basic || (grossSalary * 0.6666);
-    
-    // Calculate salary components based on standard structure
-    const medicalAllowance = grossSalary * 0.10; // 10% of gross (tax exempt)
-    const houseRentAllowance = grossSalary * 0.2334; // 23.34% of gross
-    const otherAllowances = grossSalary - basicSalary - medicalAllowance - houseRentAllowance;
-    
-    // Basic calculation
-    let estimatedAmount = grossSalary;
-    
-    // Add leave encashment (based on basic salary)
-    const dailyRate = basicSalary / 30;
-    const leaveEncashment = dailyRate * Math.min(30, 30); // Assuming 30 days max
-    estimatedAmount += leaveEncashment;
-    
-    // Add gratuity (if applicable - typically 1 month basic salary per year of service)
-    const yearsOfService = selectedEmployee.dateOfJoining ? 
-      Math.floor((new Date() - new Date(selectedEmployee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365)) : 0;
-    const gratuity = basicSalary * Math.min(yearsOfService, 5); // Max 5 years
-    
-    // Subtract notice period deduction
-    const noticeDeduction = dailyRate * noticePeriodShortfall;
-    estimatedAmount -= noticeDeduction;
-    
-    // Subtract loan deductions
-    const totalLoans = employeeLoans.reduce((sum, loan) => sum + (loan.outstandingBalance || 0), 0);
-    estimatedAmount -= totalLoans;
-    
-    return Math.max(0, estimatedAmount);
-  };
+  const settlementTotals = computeSettlementTotals(formik.values);
 
-  // Calculate detailed salary breakdown
-  const calculateSalaryBreakdown = () => {
-    if (!selectedEmployee) return null;
-    
-    const grossSalary = selectedEmployee.salary?.gross || 70000;
-    const basicSalary = selectedEmployee.salary?.basic || (grossSalary * 0.6666);
-    
-    // Calculate salary components
-    const medicalAllowance = grossSalary * 0.10; // 10% of gross (tax exempt)
-    const houseRentAllowance = grossSalary * 0.2334; // 23.34% of gross
-    const otherAllowances = grossSalary - basicSalary - medicalAllowance - houseRentAllowance;
-    
-    // Calculate leave encashment
-    const dailyRate = basicSalary / 30;
-    const leaveEncashment = dailyRate * Math.min(30, 30);
-    
-    // Calculate gratuity
-    const yearsOfService = selectedEmployee.dateOfJoining ? 
-      Math.floor((new Date() - new Date(selectedEmployee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365)) : 0;
-    const gratuity = basicSalary * Math.min(yearsOfService, 5);
-    
-    // Calculate deductions
-    const noticeDeduction = dailyRate * noticePeriodShortfall;
-    const totalLoans = employeeLoans.reduce((sum, loan) => sum + (loan.outstandingBalance || 0), 0);
-    
-    return {
-      grossSalary,
-      basicSalary,
-      medicalAllowance,
-      houseRentAllowance,
-      otherAllowances,
-      dailyRate,
-      leaveEncashment,
-      gratuity,
-      noticeDeduction,
-      totalLoans,
-      netSettlement: Math.max(0, grossSalary + leaveEncashment + gratuity - noticeDeduction - totalLoans)
-    };
-  };
+  const yearsOfService = selectedEmployee?.dateOfJoining
+    ? Math.floor((new Date() - new Date(selectedEmployee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365))
+    : 0;
 
   // Render step content
   const renderStepContent = (step) => {
@@ -809,199 +845,65 @@ const FinalSettlementForm = () => {
         );
 
       case 2:
-        const salaryBreakdown = calculateSalaryBreakdown();
         return (
           <Grid container spacing={3}>
-            {selectedEmployee && salaryBreakdown && (
+            {!selectedEmployee ? (
+              <Grid item xs={12}>
+                <Alert severity="info">Select an employee in step 1 to configure salary calculations.</Alert>
+              </Grid>
+            ) : (
               <>
-                {/* Salary Summary Cards */}
                 <Grid item xs={12}>
                   <Typography variant="h6" gutterBottom>
-                    Salary Breakdown
+                    Salary Calculations
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    All amounts are editable. The final settlement updates as you change values.
                   </Typography>
                 </Grid>
 
-                <Grid item xs={12} md={3}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" color="primary">
-                        Gross Salary
-                      </Typography>
-                      <Typography variant="h4">
-                        {formatPKR(salaryBreakdown.grossSalary)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                <Grid item xs={12} md={3}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" color="secondary">
-                        Basic Salary
-                      </Typography>
-                      <Typography variant="h4">
-                        {formatPKR(salaryBreakdown.basicSalary)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        (66.66% of Gross)
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                <Grid item xs={12} md={3}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" color="success.main">
-                        Medical Allowance
-                      </Typography>
-                      <Typography variant="h4">
-                        {formatPKR(salaryBreakdown.medicalAllowance)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        (10% of Gross - Tax Exempt)
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                <Grid item xs={12} md={3}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" color="info.main">
-                        House Rent Allowance
-                      </Typography>
-                      <Typography variant="h4">
-                        {formatPKR(salaryBreakdown.houseRentAllowance)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        (23.34% of Gross)
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                {/* Detailed Salary Components */}
-                <Grid item xs={12}>
-                  <Typography variant="h6" gutterBottom>
-                    Salary Components
-                  </Typography>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
+                <Grid item xs={12} md={4}>
                   <TextField
                     fullWidth
-                    label="Basic Salary"
-                    value={formatPKR(salaryBreakdown.basicSalary)}
-                    InputProps={{ readOnly: true }}
-                    helperText="66.66% of Gross Salary"
+                    type="number"
+                    name="grossSalary"
+                    label="Gross Salary"
+                    value={formik.values.grossSalary}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
                   />
                 </Grid>
 
-                <Grid item xs={12} md={6}>
+                <Grid item xs={12} md={4}>
                   <TextField
                     fullWidth
-                    label="Medical Allowance"
-                    value={formatPKR(salaryBreakdown.medicalAllowance)}
-                    InputProps={{ readOnly: true }}
-                    helperText="10% of Gross Salary (Tax Exempt)"
+                    type="number"
+                    name="basicSalary"
+                    label="Basic Salary (Reference)"
+                    value={formik.values.basicSalary}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                    helperText="Stored on settlement record"
                   />
                 </Grid>
 
-                <Grid item xs={12} md={6}>
+                <Grid item xs={12} md={4}>
                   <TextField
                     fullWidth
-                    label="House Rent Allowance"
-                    value={formatPKR(salaryBreakdown.houseRentAllowance)}
-                    InputProps={{ readOnly: true }}
-                    helperText="23.34% of Gross Salary"
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Other Allowances"
-                    value={formatPKR(salaryBreakdown.otherAllowances)}
-                    InputProps={{ readOnly: true }}
-                    helperText="Remaining amount"
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
+                    type="number"
+                    name="dailyRate"
                     label="Daily Rate"
-                    value={formatPKR(salaryBreakdown.dailyRate)}
-                    InputProps={{ readOnly: true }}
-                    helperText="Basic Salary ÷ 30 days"
+                    value={formik.values.dailyRate}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                    helperText="Basic salary ÷ 30 (reference)"
                   />
                 </Grid>
 
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Years of Service"
-                    value={selectedEmployee.dateOfJoining ? 
-                      Math.floor((new Date() - new Date(selectedEmployee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365)) : 0}
-                    InputProps={{ readOnly: true }}
-                    helperText="For gratuity calculation"
-                  />
-                </Grid>
-
-                {/* Settlement Calculations */}
                 <Grid item xs={12}>
-                  <Typography variant="h6" gutterBottom>
-                    Settlement Calculations
-                  </Typography>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Leave Encashment"
-                    value={formatPKR(salaryBreakdown.leaveEncashment)}
-                    InputProps={{ readOnly: true }}
-                    helperText="30 days × Daily Rate"
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Gratuity"
-                    value={formatPKR(salaryBreakdown.gratuity)}
-                    InputProps={{ readOnly: true }}
-                    helperText={`${Math.min(selectedEmployee.dateOfJoining ? 
-                      Math.floor((new Date() - new Date(selectedEmployee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365)) : 0, 5)} years × Basic Salary`}
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Notice Period Deduction"
-                    value={formatPKR(salaryBreakdown.noticeDeduction)}
-                    InputProps={{ readOnly: true }}
-                    helperText={`${noticePeriodShortfall} days × Daily Rate`}
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Total Loan Deductions"
-                    value={formatPKR(salaryBreakdown.totalLoans)}
-                    InputProps={{ readOnly: true }}
-                    helperText="Outstanding loan balance"
-                  />
-                </Grid>
-
-                {/* Manual Override Fields */}
-                <Grid item xs={12}>
-                  <Typography variant="h6" gutterBottom>
-                    Manual Adjustments
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="subtitle1" gutterBottom>
+                    Earnings
                   </Typography>
                 </Grid>
 
@@ -1009,14 +911,71 @@ const FinalSettlementForm = () => {
                   <TextField
                     fullWidth
                     type="number"
+                    name="earnings.basicSalary"
+                    label="Basic Salary"
+                    value={formik.values.earnings.basicSalary}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.medicalAllowance"
+                    label="Medical Allowance"
+                    value={formik.values.earnings.medicalAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.houseRent"
+                    label="House Rent Allowance"
+                    value={formik.values.earnings.houseRent}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.transportAllowance"
+                    label="Transport / Conveyance Allowance"
+                    value={formik.values.earnings.transportAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.otherAllowances"
+                    label="Other Allowances"
+                    value={formik.values.earnings.otherAllowances}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
                     name="earnings.leaveEncashment"
-                    label="Leave Encashment (Override)"
+                    label="Leave Encashment"
                     value={formik.values.earnings.leaveEncashment}
                     onChange={formik.handleChange}
-                    helperText={`Auto-calculated: ${formatPKR(salaryBreakdown.leaveEncashment)}`}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
                   />
                 </Grid>
 
@@ -1025,13 +984,11 @@ const FinalSettlementForm = () => {
                     fullWidth
                     type="number"
                     name="earnings.gratuity"
-                    label="Gratuity (Override)"
+                    label="Gratuity"
                     value={formik.values.earnings.gratuity}
                     onChange={formik.handleChange}
-                    helperText={`Auto-calculated: ${formatPKR(salaryBreakdown.gratuity)}`}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
+                    helperText={`${Math.min(yearsOfService, 5)} years of service`}
                   />
                 </Grid>
 
@@ -1043,9 +1000,19 @@ const FinalSettlementForm = () => {
                     label="Bonus"
                     value={formik.values.earnings.bonus}
                     onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.overtime"
+                    label="Overtime"
+                    value={formik.values.earnings.overtime}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
                   />
                 </Grid>
 
@@ -1057,10 +1024,15 @@ const FinalSettlementForm = () => {
                     label="Other Earnings"
                     value={formik.values.earnings.otherEarnings}
                     onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
                   />
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="subtitle1" gutterBottom>
+                    Deductions
+                  </Typography>
                 </Grid>
 
                 <Grid item xs={12} md={6}>
@@ -1068,13 +1040,11 @@ const FinalSettlementForm = () => {
                     fullWidth
                     type="number"
                     name="deductions.noticePeriodDeduction"
-                    label="Notice Period Deduction (Override)"
+                    label="Notice Period Deduction"
                     value={formik.values.deductions.noticePeriodDeduction}
                     onChange={formik.handleChange}
-                    helperText={`Auto-calculated: ${formatPKR(salaryBreakdown.noticeDeduction)}`}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
+                    helperText={`${noticePeriodShortfall} days shortfall`}
                   />
                 </Grid>
 
@@ -1083,13 +1053,11 @@ const FinalSettlementForm = () => {
                     fullWidth
                     type="number"
                     name="deductions.loanDeductions"
-                    label="Loan Deductions (Override)"
+                    label="Loan Deductions"
                     value={formik.values.deductions.loanDeductions}
                     onChange={formik.handleChange}
-                    helperText={`Auto-calculated: ${formatPKR(salaryBreakdown.totalLoans)}`}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
+                    helperText={loansLoading ? 'Loading loans...' : `${employeeLoans.length} active loan(s)`}
                   />
                 </Grid>
 
@@ -1101,9 +1069,7 @@ const FinalSettlementForm = () => {
                     label="Advance Deductions"
                     value={formik.values.deductions.advanceDeductions}
                     onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
                   />
                 </Grid>
 
@@ -1115,9 +1081,7 @@ const FinalSettlementForm = () => {
                     label="Tax Deductions"
                     value={formik.values.deductions.taxDeductions}
                     onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
                   />
                 </Grid>
 
@@ -1129,13 +1093,43 @@ const FinalSettlementForm = () => {
                     label="Other Deductions"
                     value={formik.values.deductions.otherDeductions}
                     onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">₨</InputAdornment>
-                    }}
+                    InputProps={amountInputProps}
                   />
                 </Grid>
 
-                {/* Final Settlement Summary */}
+                <Grid item xs={12}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="body2" color="text.secondary">
+                            Total Earnings
+                          </Typography>
+                          <Typography variant="h6" color="success.main">
+                            {formatPKR(settlementTotals.totalEarnings)}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="body2" color="text.secondary">
+                            Total Deductions
+                          </Typography>
+                          <Typography variant="h6" color="error.main">
+                            {formatPKR(settlementTotals.totalDeductions)}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="body2" color="text.secondary">
+                            Net Settlement
+                          </Typography>
+                          <Typography variant="h6">
+                            {formatPKR(settlementTotals.netSettlementAmount)}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
                 <Grid item xs={12}>
                   <Card sx={{ backgroundColor: 'primary.light', color: 'white' }}>
                     <CardContent>
@@ -1143,10 +1137,10 @@ const FinalSettlementForm = () => {
                         Final Settlement Amount
                       </Typography>
                       <Typography variant="h3">
-                        {formatPKR(salaryBreakdown.netSettlement)}
+                        {formatPKR(settlementTotals.netSettlementAmount)}
                       </Typography>
                       <Typography variant="body2" sx={{ mt: 1 }}>
-                        Gross Salary + Leave Encashment + Gratuity - Deductions
+                        Total Earnings − Total Deductions
                       </Typography>
                     </CardContent>
                   </Card>
@@ -1294,13 +1288,13 @@ const FinalSettlementForm = () => {
               <Card variant="outlined">
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
-                    Estimated Settlement Amount
+                    Settlement Amount
                   </Typography>
                   <Typography variant="h4" color="primary">
-                    {formatPKR(calculateEstimatedAmount())}
+                    {formatPKR(settlementTotals.netSettlementAmount)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    Final amount will be calculated during processing
+                    Gross: {formatPKR(settlementTotals.grossSettlementAmount)} · Deductions: {formatPKR(settlementTotals.totalDeductions)}
                   </Typography>
                 </CardContent>
               </Card>

@@ -86,16 +86,86 @@ function isActiveEmployee(employee) {
   return employee?.isActive === true && employee?.employmentStatus === 'Active';
 }
 
+const LEFT_EMPLOYMENT_STATUSES = ['Resigned', 'Terminated', 'Retired'];
+
+function isEmployeeLeft(employee) {
+  return LEFT_EMPLOYMENT_STATUSES.includes(employee?.employmentStatus);
+}
+
+/** Best available leave date: terminationDate, else last record update for left employees. */
+function getEmployeeSeparationDate(employee) {
+  if (employee?.terminationDate) {
+    const date = new Date(employee.terminationDate);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  if (employee?.updatedAt) {
+    const date = new Date(employee.updatedAt);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return null;
+}
+
+function getTurnoverPeriodStart(period, now = new Date()) {
+  switch (period) {
+    case 'month':
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    case '3months':
+      return new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    case '6months':
+      return new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    case 'year':
+      return new Date(now.getFullYear(), 0, 1);
+    case 'all':
+    default:
+      return null;
+  }
+}
+
+function getTurnoverPeriodLabel(period) {
+  const labels = {
+    month: 'This month',
+    '3months': 'Last 3 months',
+    '6months': 'Last 6 months',
+    year: 'This year',
+    all: 'All time'
+  };
+  return labels[period] || labels.month;
+}
+
+function isSeparationInPeriod(separationDate, period, now = new Date()) {
+  if (period === 'all') return true;
+  if (!separationDate) return false;
+  const periodStart = getTurnoverPeriodStart(period, now);
+  return separationDate >= periodStart && separationDate <= now;
+}
+
+function getEmployeesLeftInPeriod(employees, period, now = new Date()) {
+  return employees.filter((employee) => {
+    if (!isEmployeeLeft(employee)) return false;
+    if (period === 'all') return true;
+    const separationDate = getEmployeeSeparationDate(employee);
+    return isSeparationInPeriod(separationDate, period, now);
+  });
+}
+
+function computeTurnoverMetrics(employees, period = 'month') {
+  const now = new Date();
+  const activeEmployees = employees.filter(isActiveEmployee);
+  const leftInPeriod = getEmployeesLeftInPeriod(employees, period, now);
+  const leftCount = leftInPeriod.length;
+  const denominator = period === 'all'
+    ? (employees.length + activeEmployees.length) / 2
+    : activeEmployees.length;
+  const turnoverRate = denominator > 0
+    ? Number(((leftCount / denominator) * 100).toFixed(2))
+    : 0;
+
+  return { turnoverRate, employeesLeftInPeriod: leftCount };
+}
+
 function computeEmployeeStats(employees, departments) {
   const now = new Date();
   const activeEmployees = employees.filter(isActiveEmployee);
-  const employeesLeftCount = employees.filter((emp) =>
-    ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus)
-  ).length;
-  const averageTotalEmployees = (employees.length + activeEmployees.length) / 2;
-  const turnoverRate = averageTotalEmployees > 0
-    ? Number(((employeesLeftCount / averageTotalEmployees) * 100).toFixed(2))
-    : 0;
 
   const totalBasicSalary = employees.reduce((sum, emp) => sum + (emp.salary?.basic || 0), 0);
   const totalGrossSalary = employees.reduce((sum, emp) => {
@@ -124,7 +194,6 @@ function computeEmployeeStats(employees, departments) {
     }).length,
     resignations: employees.filter((emp) => emp.employmentStatus === 'Resigned').length,
     disciplinaryCases: 0,
-    turnoverRate,
     avgBasicSalary: employees.length > 0 ? totalBasicSalary / employees.length : 0,
     avgGrossSalary: employees.length > 0 ? totalGrossSalary / employees.length : 0,
     totalBasicSalary,
@@ -141,7 +210,6 @@ const HRDashboard = () => {
     newThisYear: 0,
     resignations: 0,
     disciplinaryCases: 0,
-    turnoverRate: 0,
     avgSalary: 0,
     totalSalary: 0,
     avgBasicSalary: 0,
@@ -170,6 +238,7 @@ const HRDashboard = () => {
   const [hireListDialogOpen, setHireListDialogOpen] = useState(false);
   const [statusListDialog, setStatusListDialog] = useState({ open: false, type: 'resignations' });
   const [newHireFilter, setNewHireFilter] = useState('month');
+  const [turnoverPeriod, setTurnoverPeriod] = useState('month');
   const [employeesWithHireDate, setEmployeesWithHireDate] = useState([]);
   const [allEmployees, setAllEmployees] = useState([]);
   const [probationCompletedEmployees, setProbationCompletedEmployees] = useState([]);
@@ -616,11 +685,12 @@ const HRDashboard = () => {
       return bDate - aDate;
     });
 
-  const employeesLeftList = allEmployees
-    .filter(emp => ['Resigned', 'Terminated', 'Retired'].includes(emp.employmentStatus))
+  const turnoverMetrics = computeTurnoverMetrics(allEmployees, turnoverPeriod);
+
+  const employeesLeftList = getEmployeesLeftInPeriod(allEmployees, turnoverPeriod)
     .sort((a, b) => {
-      const aDate = getEmployeeHireDate(a) || new Date(0);
-      const bDate = getEmployeeHireDate(b) || new Date(0);
+      const aDate = getEmployeeSeparationDate(a) || new Date(0);
+      const bDate = getEmployeeSeparationDate(b) || new Date(0);
       return bDate - aDate;
     });
 
@@ -719,12 +789,35 @@ const HRDashboard = () => {
             onClick={() => setStatusListDialog({ open: true, type: 'left' })}
           >
             <CardContent>
-              <Typography color="textSecondary" gutterBottom>
-                Turnover Rate
-              </Typography>
-              <Typography variant="h4">
-                {stats.turnoverRate ?? 0}%
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                <Box>
+                  <Typography color="textSecondary" gutterBottom>
+                    Turnover Rate
+                  </Typography>
+                  <Typography variant="h4">
+                    {turnoverMetrics.turnoverRate}%
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary" display="block">
+                    {turnoverMetrics.employeesLeftInPeriod} left · {getTurnoverPeriodLabel(turnoverPeriod)}
+                  </Typography>
+                </Box>
+                <FormControl
+                  size="small"
+                  onClick={(e) => e.stopPropagation()}
+                  sx={{ minWidth: 110 }}
+                >
+                  <Select
+                    value={turnoverPeriod}
+                    onChange={(e) => setTurnoverPeriod(e.target.value)}
+                  >
+                    <MenuItem value="month">This Month</MenuItem>
+                    <MenuItem value="3months">3 Months</MenuItem>
+                    <MenuItem value="6months">6 Months</MenuItem>
+                    <MenuItem value="year">This Year</MenuItem>
+                    <MenuItem value="all">All Time</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
             </CardContent>
           </Card>
         </Grid>
@@ -888,7 +981,7 @@ const HRDashboard = () => {
           {statusListDialog.type === 'disciplinary'
             ? `Disciplinary Cases (${filteredStatusEmployees.length})`
             : statusListDialog.type === 'left'
-              ? `Employees Left (${employeesLeftList.length})`
+              ? `Employees Left — ${getTurnoverPeriodLabel(turnoverPeriod)} (${employeesLeftList.length})`
               : `Resignations (${filteredStatusEmployees.length})`}
           <IconButton
             onClick={() => setStatusListDialog(prev => ({ ...prev, open: false }))}
@@ -909,6 +1002,10 @@ const HRDashboard = () => {
                 const hireLabel = hd
                   ? hd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
                   : '—';
+                const separationDate = getEmployeeSeparationDate(emp);
+                const leftLabel = separationDate
+                  ? separationDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                  : '—';
                 const reason = (emp.terminationReason || '').trim();
                 return (
                   <ListItem key={emp._id} disablePadding sx={{ mb: 0.5 }}>
@@ -924,7 +1021,12 @@ const HRDashboard = () => {
                           <>
                             {emp.placementDepartment?.name || emp.department?.name || '—'}
                             {' · '}
-                            <Chip component="span" size="small" label={`Hire: ${hireLabel}`} sx={{ height: 20, ml: 0.5 }} />
+                            <Chip component="span" size="small" label={emp.employmentStatus} sx={{ height: 20, ml: 0.5 }} />
+                            {statusListDialog.type === 'left' ? (
+                              <Chip component="span" size="small" label={`Left: ${leftLabel}`} sx={{ height: 20, ml: 0.5 }} />
+                            ) : (
+                              <Chip component="span" size="small" label={`Hire: ${hireLabel}`} sx={{ height: 20, ml: 0.5 }} />
+                            )}
                             {reason ? (
                               <Chip component="span" size="small" label={reason} sx={{ height: 20, ml: 0.5 }} />
                             ) : null}

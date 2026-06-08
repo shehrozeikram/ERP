@@ -206,9 +206,19 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
       settlementDate,
       noticePeriod,
       noticePeriodServed,
+      noticePeriodShortfall: clientNoticeShortfall,
       paymentMethod,
       bankDetails,
-      notes
+      notes,
+      basicSalary: clientBasicSalary,
+      grossSalary: clientGrossSalary,
+      netSalary: clientNetSalary,
+      earnings: clientEarnings,
+      deductions: clientDeductions,
+      grossSettlementAmount: clientGrossSettlement,
+      netSettlementAmount: clientNetSettlement,
+      leaveBalance: clientLeaveBalance,
+      loans: clientLoans
     } = req.body;
 
     // Get employee details with populated department and position
@@ -228,60 +238,64 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
       status: { $in: ['active', 'approved'] }
     });
 
-    // Calculate notice period shortfall
-    const noticePeriodShortfall = Math.max(0, noticePeriod - noticePeriodServed);
+    const noticePeriodShortfall = clientNoticeShortfall != null
+      ? clientNoticeShortfall
+      : Math.max(0, (noticePeriod || 0) - (noticePeriodServed || 0));
 
-    // Calculate salary components (you might want to get this from the latest payroll)
-    const basicSalary = employee.salary?.basic || 0;
-    const grossSalary = employee.salary?.gross || 0;
-    const netSalary = employee.salary?.net || 0;
+    const basicSalary = clientBasicSalary ?? employee.salary?.basic ?? 0;
+    const grossSalary = clientGrossSalary ?? employee.salary?.gross ?? 0;
+    const netSalary = clientNetSalary ?? employee.salary?.net ?? 0;
 
-    // Calculate earnings
-    const earnings = {
-      basicSalary: basicSalary,
+    const defaultEarnings = {
+      basicSalary,
       houseRent: employee.salary?.houseRent || 0,
       medicalAllowance: employee.salary?.medicalAllowance || 0,
       conveyanceAllowance: employee.salary?.conveyanceAllowance || 0,
       otherAllowances: employee.salary?.otherAllowances || 0,
-      overtime: 0, // Calculate based on actual overtime
-      bonus: 0, // Calculate based on company policy
-      gratuity: 0, // Calculate based on years of service
-      leaveEncashment: 0, // Calculate based on leave balance
-      providentFund: 0, // Calculate based on company policy
-      eobi: 0 // Calculate based on company policy
+      overtime: 0,
+      bonus: 0,
+      gratuity: 0,
+      leaveEncashment: 0,
+      providentFund: 0,
+      eobi: 0
     };
 
-    // Calculate deductions
-    const deductions = {
-      incomeTax: 0, // Calculate based on tax slabs
-      providentFund: 0, // Calculate based on company policy
-      eobi: 0, // Calculate based on company policy
-      loanDeductions: 0, // Will be calculated from loans
-      noticePeriodDeduction: 0, // Calculate based on shortfall
+    const defaultDeductions = {
+      incomeTax: 0,
+      providentFund: 0,
+      eobi: 0,
+      loanDeductions: 0,
+      noticePeriodDeduction: 0,
       otherDeductions: 0
     };
 
-    // Calculate notice period deduction
-    if (noticePeriodShortfall > 0) {
+    if (noticePeriodShortfall > 0 && !clientDeductions) {
       const dailyRate = basicSalary / 30;
-      deductions.noticePeriodDeduction = dailyRate * noticePeriodShortfall;
+      defaultDeductions.noticePeriodDeduction = dailyRate * noticePeriodShortfall;
     }
 
-    // Prepare loan settlements
-    const loans = activeLoans.map(loan => ({
-      loanId: loan._id,
-      loanType: loan.loanType,
-      originalAmount: loan.loanAmount,
-      outstandingBalance: loan.outstandingBalance,
-      settledAmount: 0,
-      settlementType: 'pending'
-    }));
+    const earnings = clientEarnings
+      ? { ...defaultEarnings, ...clientEarnings }
+      : defaultEarnings;
 
-    // Calculate initial amounts
-    const totalEarnings = Object.values(earnings).reduce((sum, val) => sum + (val || 0), 0);
-    const totalDeductions = Object.values(deductions).reduce((sum, val) => sum + (val || 0), 0);
-    const grossSettlementAmount = totalEarnings;
-    const netSettlementAmount = grossSettlementAmount - totalDeductions;
+    const deductions = clientDeductions
+      ? { ...defaultDeductions, ...clientDeductions }
+      : defaultDeductions;
+
+    const loans = Array.isArray(clientLoans) && clientLoans.length > 0
+      ? clientLoans
+      : activeLoans.map(loan => ({
+        loanId: loan._id,
+        loanType: loan.loanType,
+        originalAmount: loan.loanAmount,
+        outstandingBalance: loan.outstandingBalance,
+        settledAmount: 0,
+        settlementType: 'pending'
+      }));
+
+    const sumValues = (obj) => Object.values(obj).reduce((sum, val) => sum + (Number(val) || 0), 0);
+    const grossSettlementAmount = clientGrossSettlement ?? sumValues(earnings);
+    const netSettlementAmount = clientNetSettlement ?? (grossSettlementAmount - sumValues(deductions));
 
     const settlement = new FinalSettlement({
       employee: employee._id,
@@ -302,6 +316,7 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
       earnings,
       deductions,
       loans,
+      leaveBalance: clientLeaveBalance,
       grossSettlementAmount,
       netSettlementAmount,
       paymentMethod,

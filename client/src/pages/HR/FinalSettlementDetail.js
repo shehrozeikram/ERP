@@ -41,11 +41,18 @@ import {
   Person as PersonIcon,
   AccountBalance as MoneyIcon,
   Schedule as TimeIcon,
-  Description as DescriptionIcon
+  Description as DescriptionIcon,
+  Print as PrintIcon,
+  Download as DownloadIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import finalSettlementService from '../../services/finalSettlementService';
+import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import {
+  downloadFinalSettlementPdf,
+  printFinalSettlementPdf
+} from '../../utils/finalSettlementDocumentUtils';
 
 const FinalSettlementDetail = () => {
   const navigate = useNavigate();
@@ -56,11 +63,22 @@ const FinalSettlementDetail = () => {
   const [commentDialog, setCommentDialog] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [company, setCompany] = useState({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
     loadSettlement();
+    loadCompanyProfile();
   }, [id]);
+
+  const loadCompanyProfile = async () => {
+    try {
+      const response = await api.get('/finance/company-profile');
+      setCompany(response.data.data || {});
+    } catch {
+      setCompany({});
+    }
+  };
 
   const loadSettlement = async () => {
     try {
@@ -138,6 +156,16 @@ const FinalSettlementDetail = () => {
     }
   };
 
+  const handleDownloadPdf = () => {
+    if (!settlement) return;
+    downloadFinalSettlementPdf(settlement, company);
+  };
+
+  const handlePrint = () => {
+    if (!settlement) return;
+    printFinalSettlementPdf(settlement, company);
+  };
+
   const handleAddComment = async () => {
     if (!newComment.trim()) return;
     
@@ -202,7 +230,21 @@ const FinalSettlementDetail = () => {
             {String(settlement.employeeName || '')} - {String(settlement.employeeId || '')}
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={handlePrint}
+          >
+            Print
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadPdf}
+          >
+            Download PDF
+          </Button>
           <Button
             variant="outlined"
             startIcon={<BackIcon />}
