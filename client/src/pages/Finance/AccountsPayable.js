@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -32,9 +32,6 @@ import {
   DialogContent,
   DialogActions,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
   Tabs,
   Tab,
   Stack,
@@ -279,10 +276,6 @@ const AccountsPayable = () => {
   });
 
   useEffect(() => {
-    fetchAccountsPayable();
-  }, [filters, pagination.currentPage]);
-
-  useEffect(() => {
     if (!paymentDialogOpen) return;
     let cancelled = false;
     fetchFinanceAuthorityCandidates()
@@ -367,7 +360,7 @@ const AccountsPayable = () => {
   };
   useEffect(() => { fetchPosForBilling(); }, [viewDialogOpen]);
 
-  const fetchAccountsPayable = async () => {
+  const fetchAccountsPayable = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -391,7 +384,12 @@ const AccountsPayable = () => {
           ...prev,
           ...response.data.data.pagination
         }));
-        setSummary(response.data.data.summary || summary);
+        setSummary(response.data.data.summary || {
+          totalOutstanding: 0,
+          totalOverdue: 0,
+          totalPaid: 0,
+          totalBills: 0
+        });
       }
     } catch (error) {
       console.error('Error fetching accounts payable:', error);
@@ -399,7 +397,11 @@ const AccountsPayable = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, pagination.currentPage, pagination.limit]);
+
+  useEffect(() => {
+    fetchAccountsPayable();
+  }, [fetchAccountsPayable]);
 
   const handleFilterChange = (field) => (event) => {
     setFilters(prev => ({

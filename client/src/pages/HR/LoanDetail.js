@@ -41,7 +41,6 @@ import {
   ArrowBack as BackIcon,
   CheckCircle as ApproveIcon,
   Cancel as RejectIcon,
-  Payment as PaymentIcon,
   AccountBalance as DisburseIcon,
   Edit as EditIcon,
   Schedule as ScheduleIcon,
@@ -49,11 +48,39 @@ import {
   Description as DescriptionIcon,
   ExpandMore as ExpandMoreIcon,
   Add as AddIcon,
-  Comment as CommentIcon
+  Comment as CommentIcon,
+  Pause as PauseIcon,
+  PlayArrow as ResumeIcon,
+  EditNote as AdjustIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { loanService } from '../../services/loanService';
 import { formatPKR } from '../../utils/currency';
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+/** Loans that can have payroll deductions paused or adjusted */
+const DEDUCTION_MANAGE_STATUSES = ['Approved', 'Active', 'Disbursed'];
+
+const buildConsecutivePauseMonths = (startMonth, startYear, monthCount) => {
+  const result = [];
+  let m = Number(startMonth);
+  let y = Number(startYear);
+  const count = Math.min(Math.max(1, Number(monthCount) || 1), 36);
+
+  for (let i = 0; i < count; i++) {
+    result.push({ month: m, year: y });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return result;
+};
 
 const LoanDetail = () => {
   const navigate = useNavigate();
@@ -68,20 +95,28 @@ const LoanDetail = () => {
   const [approvalDialog, setApprovalDialog] = useState(false);
   const [rejectionDialog, setRejectionDialog] = useState(false);
   const [disbursementDialog, setDisbursementDialog] = useState(false);
-  const [paymentDialog, setPaymentDialog] = useState(false);
   const [noteDialog, setNoteDialog] = useState(false);
-  
+  const [pauseDialog, setPauseDialog] = useState(false);
+  const [adjustDialog, setAdjustDialog] = useState(false);
+
   // Form states
   const [rejectionReason, setRejectionReason] = useState('');
   const [disbursementData, setDisbursementData] = useState({
     disbursementMethod: 'Bank Transfer',
     bankAccount: ''
   });
-  const [paymentData, setPaymentData] = useState({
-    amount: '',
-    paymentMethod: 'Salary Deduction'
-  });
   const [noteContent, setNoteContent] = useState('');
+
+  const now = new Date();
+  const [pauseData, setPauseData] = useState({
+    month: now.getMonth() + 1,
+    year: now.getFullYear(),
+    monthCount: 1,
+    reason: ''
+  });
+  const [pauseSubmitting, setPauseSubmitting] = useState(false);
+  const [adjustData, setAdjustData] = useState({ newAmount: '', reason: '' });
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
   useEffect(() => {
     fetchLoan();
@@ -133,18 +168,6 @@ const LoanDetail = () => {
     }
   };
 
-  const handlePayment = async () => {
-    try {
-      await loanService.processPayment(id, paymentData);
-      setSuccess('Payment processed successfully');
-      setPaymentDialog(false);
-      setPaymentData({ amount: '', paymentMethod: 'Salary Deduction' });
-      fetchLoan();
-    } catch (error) {
-      setError(error.message || 'Failed to process payment');
-    }
-  };
-
   const handleAddNote = async () => {
     try {
       await loanService.addNote(id, noteContent);
@@ -154,6 +177,70 @@ const LoanDetail = () => {
       fetchLoan();
     } catch (error) {
       setError(error.message || 'Failed to add note');
+    }
+  };
+
+  const openPauseDialog = () => {
+    const current = new Date();
+    setPauseData({
+      month: current.getMonth() + 1,
+      year: current.getFullYear(),
+      monthCount: 1,
+      reason: ''
+    });
+    setPauseDialog(true);
+  };
+
+  const handlePauseMonth = async () => {
+    try {
+      setPauseSubmitting(true);
+      setError('');
+      const result = await loanService.pauseMonths(id, {
+        startMonth: pauseData.month,
+        startYear: pauseData.year,
+        monthCount: pauseData.monthCount,
+        reason: pauseData.reason
+      });
+
+      const addedCount = result.added?.length || pauseData.monthCount;
+      const skippedCount = result.skipped?.length || 0;
+      let message = result.message || `Loan paused for ${addedCount} month(s). Schedule extended.`;
+      if (skippedCount > 0 && !result.message) {
+        message += ` ${skippedCount} month(s) could not be paused.`;
+      }
+      setSuccess(message);
+      setPauseDialog(false);
+      fetchLoan();
+    } catch (error) {
+      setError(error.message || 'Failed to pause loan');
+    } finally {
+      setPauseSubmitting(false);
+    }
+  };
+
+  const handleResumeMonth = async (month, year) => {
+    try {
+      const result = await loanService.resumeMonth(id, month, year);
+      setSuccess(result.message || `Loan deduction resumed for ${MONTH_NAMES[month - 1]} ${year}`);
+      fetchLoan();
+    } catch (error) {
+      setError(error.message || 'Failed to resume loan');
+    }
+  };
+
+  const handleAdjustInstallment = async () => {
+    try {
+      setAdjustSubmitting(true);
+      setError('');
+      const result = await loanService.adjustInstallment(id, adjustData.newAmount, adjustData.reason);
+      setSuccess(result.message || `EMI updated to Rs ${Number(adjustData.newAmount).toLocaleString()}`);
+      setAdjustDialog(false);
+      setAdjustData({ newAmount: '', reason: '' });
+      fetchLoan();
+    } catch (error) {
+      setError(error.message || 'Failed to adjust installment');
+    } finally {
+      setAdjustSubmitting(false);
     }
   };
 
@@ -240,6 +327,14 @@ const LoanDetail = () => {
             </Box>
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" color="text.secondary">
+                Remaining Installments
+              </Typography>
+              <Typography variant="h6">
+                {loan.remainingInstallments ?? loan.loanSchedule?.filter((i) => ['Pending', 'Overdue', 'Partial'].includes(i.status)).length ?? '—'}
+              </Typography>
+            </Box>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary">
                 Total Payable
               </Typography>
               <Typography variant="h6" color="error">
@@ -316,6 +411,7 @@ const LoanDetail = () => {
                       size="small"
                       color={
                         installment.status === 'Paid' ? 'success' :
+                        installment.status === 'Paused' ? 'warning' :
                         installment.status === 'Overdue' ? 'error' :
                         installment.status === 'Partial' ? 'warning' : 'default'
                       }
@@ -329,6 +425,118 @@ const LoanDetail = () => {
       </CardContent>
     </Card>
   );
+
+  const renderDeductionManagement = () => {
+    const canManageDeductions = DEDUCTION_MANAGE_STATUSES.includes(loan.status);
+    const paused = loan.pausedMonths || [];
+
+    if (!canManageDeductions && paused.length === 0) {
+      return (
+        <Card sx={{ mb: 3, borderLeft: 4, borderColor: 'grey.400' }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Salary Deduction Management
+            </Typography>
+            <Alert severity="info">
+              Pause months or adjust EMI after the loan is <strong>Approved</strong> or <strong>Disbursed</strong>.
+              Current status: <strong>{loan.status}</strong>
+            </Alert>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card sx={{ mb: 3, borderLeft: 4, borderColor: 'primary.main' }}>
+        <CardContent>
+          <Box display="flex" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={2} mb={2}>
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Salary Deduction Management
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Adjust EMI</strong> — permanently change monthly deduction; remaining installments recalculate automatically.
+                <br />
+                <strong>Pause Months</strong> — no payroll deduction that month; loan schedule extends with extra installment(s) at the end.
+              </Typography>
+              <Alert severity="success" sx={{ mt: 1.5 }}>
+                Payroll deducts the current EMI each month (except paused months). When payroll is marked <strong>Paid</strong>, the loan schedule updates automatically.
+              </Alert>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Current EMI: <strong>{formatPKR(loan.monthlyInstallment)}</strong>
+                {' · '}
+                Remaining installments: <strong>{loan.remainingInstallments ?? '—'}</strong>
+              </Typography>
+            </Box>
+            {canManageDeductions && (
+              <Box display="flex" flexWrap="wrap" gap={1}>
+                <Button size="small" variant="contained" color="warning" startIcon={<PauseIcon />} onClick={openPauseDialog}>
+                  Pause Months
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="info"
+                  startIcon={<AdjustIcon />}
+                  onClick={() => {
+                    setAdjustData({ newAmount: loan.monthlyInstallment || '', reason: '' });
+                    setAdjustDialog(true);
+                  }}
+                >
+                  Adjust EMI
+                </Button>
+              </Box>
+            )}
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            <PauseIcon sx={{ mr: 0.5, verticalAlign: 'middle', fontSize: 20, color: 'warning.main' }} />
+            Paused Deduction Months
+          </Typography>
+          {paused.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No months paused — full EMI is deducted each payroll month.
+            </Typography>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Month / Year</TableCell>
+                    <TableCell>Reason</TableCell>
+                    <TableCell>Paused At</TableCell>
+                    {canManageDeductions && <TableCell align="right">Action</TableCell>}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {paused.map((p, i) => (
+                    <TableRow key={i}>
+                      <TableCell>
+                        <Chip label={`${MONTH_NAMES[p.month - 1]} ${p.year}`} color="warning" size="small" />
+                      </TableCell>
+                      <TableCell>{p.reason || '—'}</TableCell>
+                      <TableCell>{p.pausedAt ? new Date(p.pausedAt).toLocaleDateString() : '—'}</TableCell>
+                      {canManageDeductions && (
+                        <TableCell align="right">
+                          <Tooltip title="Resume deductions for this month">
+                            <Button size="small" color="success" startIcon={<ResumeIcon />} onClick={() => handleResumeMonth(p.month, p.year)}>
+                              Resume
+                            </Button>
+                          </Tooltip>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   const renderGuarantorInfo = () => (
     <Card sx={{ mb: 3 }}>
@@ -459,21 +667,6 @@ const LoanDetail = () => {
       );
     }
 
-    if (['Active', 'Disbursed'].includes(loan.status)) {
-      buttons.push(
-        <Button
-          key="payment"
-          variant="contained"
-          color="secondary"
-          startIcon={<PaymentIcon />}
-          onClick={() => setPaymentDialog(true)}
-          sx={{ mr: 1 }}
-        >
-          Process Payment
-        </Button>
-      );
-    }
-
     if (loan.status === 'Pending') {
       buttons.push(
         <Button
@@ -538,6 +731,7 @@ const LoanDetail = () => {
       </Box>
 
       {renderLoanSummary()}
+      {renderDeductionManagement()}
       {renderLoanSchedule()}
       {renderGuarantorInfo()}
       {renderNotes()}
@@ -630,57 +824,6 @@ const LoanDetail = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Payment Dialog */}
-      <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)}>
-        <DialogTitle>Process Payment</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                type="number"
-                label="Payment Amount"
-                value={paymentData.amount}
-                onChange={(e) => setPaymentData(prev => ({
-                  ...prev,
-                  amount: e.target.value
-                }))}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Payment Method</InputLabel>
-                <Select
-                  value={paymentData.paymentMethod}
-                  label="Payment Method"
-                  onChange={(e) => setPaymentData(prev => ({
-                    ...prev,
-                    paymentMethod: e.target.value
-                  }))}
-                >
-                  {loanService.getPaymentMethodOptions().map(option => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
-          <Button 
-            onClick={handlePayment} 
-            color="secondary" 
-            variant="contained"
-            disabled={!paymentData.amount || paymentData.amount <= 0}
-          >
-            Process Payment
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       {/* Note Dialog */}
       <Dialog open={noteDialog} onClose={() => setNoteDialog(false)}>
         <DialogTitle>Add Note</DialogTitle>
@@ -697,13 +840,156 @@ const LoanDetail = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNoteDialog(false)}>Cancel</Button>
-          <Button 
-            onClick={handleAddNote} 
-            color="primary" 
+          <Button
+            onClick={handleAddNote}
+            color="primary"
             variant="contained"
             disabled={!noteContent.trim()}
           >
             Add Note
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Pause Months Dialog */}
+      <Dialog open={pauseDialog} onClose={() => setPauseDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <PauseIcon sx={{ mr: 1, verticalAlign: 'middle', color: 'warning.main' }} />
+          Pause Loan Deduction
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            No payroll deduction for the selected month(s). Matching schedule month(s) are marked <strong>Paused</strong> and the same repayment is added at the end of the loan.
+          </Alert>
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Start Month</InputLabel>
+                <Select
+                  value={pauseData.month}
+                  label="Start Month"
+                  onChange={(e) => setPauseData((p) => ({ ...p, month: Number(e.target.value) }))}
+                >
+                  {MONTH_NAMES.map((name, idx) => (
+                    <MenuItem key={idx + 1} value={idx + 1}>{name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Start Year"
+                value={pauseData.year}
+                onChange={(e) => setPauseData((p) => ({ ...p, year: Number(e.target.value) }))}
+                inputProps={{ min: 2020, max: 2099 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Number of Months to Pause"
+                value={pauseData.monthCount}
+                onChange={(e) => setPauseData((p) => ({
+                  ...p,
+                  monthCount: Math.min(36, Math.max(1, Number(e.target.value) || 1))
+                }))}
+                inputProps={{ min: 1, max: 36 }}
+                helperText="Consecutive months from the start date (max 36)"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Months that will be paused:
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {buildConsecutivePauseMonths(pauseData.month, pauseData.year, pauseData.monthCount).map((p) => (
+                  <Chip
+                    key={`${p.month}-${p.year}`}
+                    label={`${MONTH_NAMES[p.month - 1]} ${p.year}`}
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Reason (optional)"
+                value={pauseData.reason}
+                onChange={(e) => setPauseData((p) => ({ ...p, reason: e.target.value }))}
+                multiline
+                rows={2}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPauseDialog(false)} disabled={pauseSubmitting}>Cancel</Button>
+          <Button
+            onClick={handlePauseMonth}
+            color="warning"
+            variant="contained"
+            disabled={pauseSubmitting || !pauseData.monthCount}
+          >
+            {pauseSubmitting
+              ? 'Pausing...'
+              : `Pause ${pauseData.monthCount} Month${pauseData.monthCount > 1 ? 's' : ''}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Adjust EMI Dialog */}
+      <Dialog open={adjustDialog} onClose={() => setAdjustDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <AdjustIcon sx={{ mr: 1, verticalAlign: 'middle', color: 'info.main' }} />
+          Adjust Monthly EMI
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Lower EMI → more remaining months. Higher EMI → fewer remaining months.
+            The loan schedule and payroll deduction update automatically.
+            Current EMI: <strong>{formatPKR(loan?.monthlyInstallment)}</strong>
+            {' · '}
+            Outstanding: <strong>{formatPKR(loan?.outstandingBalance)}</strong>
+          </Alert>
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                type="number"
+                label="New Monthly Installment (Rs)"
+                value={adjustData.newAmount}
+                onChange={(e) => setAdjustData((d) => ({ ...d, newAmount: e.target.value }))}
+                inputProps={{ min: 0 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Reason"
+                value={adjustData.reason}
+                onChange={(e) => setAdjustData((d) => ({ ...d, reason: e.target.value }))}
+                multiline
+                rows={2}
+                placeholder="e.g., Hardship reduction, agreed restructuring..."
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAdjustDialog(false)} disabled={adjustSubmitting}>Cancel</Button>
+          <Button
+            onClick={handleAdjustInstallment}
+            color="info"
+            variant="contained"
+            disabled={adjustSubmitting || !adjustData.newAmount || Number(adjustData.newAmount) <= 0}
+          >
+            {adjustSubmitting ? 'Updating...' : 'Update EMI & Schedule'}
           </Button>
         </DialogActions>
       </Dialog>

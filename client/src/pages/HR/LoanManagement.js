@@ -37,7 +37,6 @@ import {
   Delete as DeleteIcon,
   CheckCircle as ApproveIcon,
   Cancel as RejectIcon,
-  Payment as PaymentIcon,
   AccountBalance as DisburseIcon,
   FilterList as FilterIcon,
   Refresh as RefreshIcon,
@@ -66,9 +65,6 @@ const LoanManagement = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [stats, setStats] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, loanId: null });
-  const [paymentDialog, setPaymentDialog] = useState({ open: false, loan: null });
-  const [paymentData, setPaymentData] = useState({ amount: '', paymentMethod: 'Salary Deduction' });
-
   useEffect(() => {
     fetchLoans();
     fetchStats();
@@ -123,23 +119,6 @@ const LoanManagement = () => {
       fetchLoans();
     } catch (error) {
       setError(error.message || 'Failed to delete loan');
-    }
-  };
-
-  const handleProcessPayment = async () => {
-    try {
-      if (!paymentData.amount || paymentData.amount <= 0) {
-        setError('Please enter a valid payment amount');
-        return;
-      }
-
-      await loanService.processPayment(paymentDialog.loan._id, paymentData);
-      setPaymentDialog({ open: false, loan: null });
-      setPaymentData({ amount: '', paymentMethod: 'Salary Deduction' });
-      fetchLoans();
-      fetchStats();
-    } catch (error) {
-      setError(error.message || 'Failed to process payment');
     }
   };
 
@@ -523,17 +502,6 @@ const LoanManagement = () => {
                           </Tooltip>
                         )}
                         
-                        {['Active', 'Disbursed'].includes(loan.status) && (
-                          <Tooltip title="Process Payment">
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              onClick={() => setPaymentDialog({ open: true, loan })}
-                            >
-                              <PaymentIcon />
-                            </IconButton>
-                          </Tooltip>
-                        )}
                       </Box>
                     </TableCell>
                   </TableRow>
@@ -572,65 +540,6 @@ const LoanManagement = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Process Payment Dialog */}
-      <Dialog open={paymentDialog.open} onClose={() => setPaymentDialog({ open: false, loan: null })} maxWidth="sm" fullWidth>
-        <DialogTitle>Process Loan Payment</DialogTitle>
-        <DialogContent>
-          {paymentDialog.loan && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                {paymentDialog.loan.employee?.firstName} {paymentDialog.loan.employee?.lastName}
-              </Typography>
-              <Typography variant="body2" color="textSecondary" gutterBottom>
-                Loan Type: {paymentDialog.loan.loanType}
-              </Typography>
-              <Typography variant="body2" color="textSecondary" gutterBottom>
-                Outstanding Balance: {formatPKR(paymentDialog.loan.outstandingBalance)}
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                Monthly EMI: {formatPKR(paymentDialog.loan.monthlyInstallment)}
-              </Typography>
-            </Box>
-          )}
-          
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                type="number"
-                label="Payment Amount"
-                value={paymentData.amount}
-                onChange={(e) => setPaymentData({ ...paymentData, amount: e.target.value })}
-                placeholder="Enter payment amount"
-                helperText={`Maximum: ${formatPKR(paymentDialog.loan?.outstandingBalance || 0)}`}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Payment Method</InputLabel>
-                <Select
-                  value={paymentData.paymentMethod}
-                  label="Payment Method"
-                  onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
-                >
-                  <MenuItem value="Salary Deduction">Salary Deduction</MenuItem>
-                  <MenuItem value="Direct Payment">Direct Payment</MenuItem>
-                  <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
-                  <MenuItem value="Cash">Cash</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentDialog({ open: false, loan: null })}>
-            Cancel
-          </Button>
-          <Button onClick={handleProcessPayment} color="primary" variant="contained">
-            Process Payment
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };

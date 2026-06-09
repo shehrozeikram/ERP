@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Loan = require('../models/hr/Loan');
+const { assertPauseAllowed } = require('../utils/loanPauseSchedule');
 const Employee = require('../models/hr/Employee');
 const { authMiddleware } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permissions');
@@ -435,6 +436,240 @@ router.patch('/:id/payment', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error processing payment:', error);
     res.status(500).json({ message: 'Error processing payment', error: error.message });
+  }
+});
+
+/** Build list of { month, year } from start + count (consecutive calendar months). */
+const buildConsecutivePauseMonths = (startMonth, startYear, monthCount) => {
+  const result = [];
+  let m = Number(startMonth);
+  let y = Number(startYear);
+  const count = Math.min(Math.max(1, Number(monthCount) || 1), 36);
+
+  for (let i = 0; i < count; i++) {
+    result.push({ month: m, year: y });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return result;
+};
+
+// Pause loan deduction for one or more consecutive months
+router.patch('/:id/pause-months', authMiddleware, async (req, res) => {
+  try {
+    const { startMonth, startYear, monthCount = 1, months: explicitMonths, reason } = req.body;
+
+    let toPause = [];
+    if (Array.isArray(explicitMonths) && explicitMonths.length > 0) {
+      toPause = explicitMonths.map((entry) => ({
+        month: Number(entry.month),
+        year: Number(entry.year)
+      }));
+    } else if (startMonth && startYear) {
+      toPause = buildConsecutivePauseMonths(startMonth, startYear, monthCount);
+    } else {
+      return res.status(400).json({
+        message: 'Provide startMonth + startYear + monthCount, or a months array'
+      });
+    }
+
+    const invalid = toPause.find((p) => !p.month || !p.year || p.month < 1 || p.month > 12);
+    if (invalid) {
+      return res.status(400).json({ message: 'Each entry needs a valid month (1–12) and year' });
+    }
+
+    const loan = await Loan.findById(req.params.id);
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    if (!['Approved', 'Active', 'Disbursed'].includes(loan.status)) {
+      return res.status(400).json({ message: 'Can only pause approved, active, or disbursed loans' });
+    }
+
+    const added = [];
+    const skipped = [];
+
+    for (const { month, year } of toPause) {
+      const exists = loan.pausedMonths.some((p) => p.month === month && p.year === year);
+      if (exists) {
+        skipped.push({ month, year, reason: 'Already paused' });
+        continue;
+      }
+      try {
+        assertPauseAllowed(loan, month, year);
+      } catch (pauseError) {
+        skipped.push({ month, year, reason: pauseError.message });
+        continue;
+      }
+      loan.pausedMonths.push({
+        month,
+        year,
+        reason: reason || '',
+        pausedBy: req.user.id,
+        pausedAt: new Date()
+      });
+      added.push({ month, year });
+    }
+
+    if (added.length === 0) {
+      return res.status(400).json({
+        message: 'No months could be paused',
+        skipped
+      });
+    }
+
+    const scheduleResult = loan.reconcileScheduleWithPauses();
+    loan.updatedBy = req.user.id;
+    await loan.save();
+
+    res.json({
+      message: `Loan paused for ${added.length} month(s). Schedule extended — ${scheduleResult.totalInstallments} total installment(s).`,
+      added,
+      skipped,
+      scheduleResult,
+      loan
+    });
+  } catch (error) {
+    console.error('Error pausing loan months:', error);
+    res.status(500).json({ message: 'Error pausing loan months', error: error.message });
+  }
+});
+
+// Pause loan deduction for a specific month
+router.patch('/:id/pause-month', authMiddleware, async (req, res) => {
+  try {
+    const { month, year, reason } = req.body;
+
+    if (!month || !year || month < 1 || month > 12) {
+      return res.status(400).json({ message: 'Valid month (1–12) and year are required' });
+    }
+
+    const loan = await Loan.findById(req.params.id);
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    if (!['Approved', 'Active', 'Disbursed'].includes(loan.status)) {
+      return res.status(400).json({ message: 'Can only pause approved, active, or disbursed loans' });
+    }
+
+    // Prevent duplicate
+    const alreadyPaused = loan.pausedMonths.some(
+      (p) => p.month === Number(month) && p.year === Number(year)
+    );
+    if (alreadyPaused) {
+      return res.status(400).json({ message: `Loan is already paused for ${month}/${year}` });
+    }
+
+    try {
+      assertPauseAllowed(loan, Number(month), Number(year));
+    } catch (pauseError) {
+      return res.status(400).json({ message: pauseError.message });
+    }
+
+    loan.pausedMonths.push({
+      month: Number(month),
+      year: Number(year),
+      reason: reason || '',
+      pausedBy: req.user.id,
+      pausedAt: new Date()
+    });
+
+    const scheduleResult = loan.reconcileScheduleWithPauses();
+    loan.updatedBy = req.user.id;
+    await loan.save();
+
+    res.json({
+      message: `Loan paused for ${month}/${year}. Schedule extended with ${scheduleResult.totalInstallments} total installment(s).`,
+      scheduleResult,
+      loan
+    });
+  } catch (error) {
+    console.error('Error pausing loan month:', error);
+    res.status(500).json({ message: 'Error pausing loan month', error: error.message });
+  }
+});
+
+// Resume loan (remove pause for a specific month)
+router.patch('/:id/resume-month', authMiddleware, async (req, res) => {
+  try {
+    const { month, year } = req.body;
+
+    if (!month || !year) {
+      return res.status(400).json({ message: 'Month and year are required' });
+    }
+
+    const loan = await Loan.findById(req.params.id);
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    const before = loan.pausedMonths.length;
+    loan.pausedMonths = loan.pausedMonths.filter(
+      (p) => !(p.month === Number(month) && p.year === Number(year))
+    );
+
+    if (loan.pausedMonths.length === before) {
+      return res.status(400).json({ message: `Loan was not paused for ${month}/${year}` });
+    }
+
+    const scheduleResult = loan.reconcileScheduleWithPauses();
+    loan.updatedBy = req.user.id;
+    await loan.save();
+
+    res.json({
+      message: `Loan resumed for ${month}/${year}. Schedule updated — ${scheduleResult.totalInstallments} installment(s) remaining.`,
+      scheduleResult,
+      loan
+    });
+  } catch (error) {
+    console.error('Error resuming loan month:', error);
+    res.status(500).json({ message: 'Error resuming loan month', error: error.message });
+  }
+});
+
+// Adjust installment amount (permanent change to monthlyInstallment with reason log)
+router.patch('/:id/adjust-installment', authMiddleware, async (req, res) => {
+  try {
+    const { newAmount, reason } = req.body;
+
+    if (newAmount == null || Number(newAmount) < 0) {
+      return res.status(400).json({ message: 'Valid new installment amount is required' });
+    }
+
+    const loan = await Loan.findById(req.params.id);
+    if (!loan) return res.status(404).json({ message: 'Loan not found' });
+
+    if (!['Approved', 'Active', 'Disbursed'].includes(loan.status)) {
+      return res.status(400).json({ message: 'Can only adjust installment of approved, active, or disbursed loans' });
+    }
+
+    const oldAmount = loan.monthlyInstallment;
+    let recalcResult;
+
+    try {
+      recalcResult = loan.recalculateScheduleFromNewEmi(Number(newAmount));
+    } catch (recalcError) {
+      return res.status(400).json({ message: recalcError.message });
+    }
+
+    loan.updatedBy = req.user.id;
+    loan.notes.push({
+      content: `EMI adjusted from Rs ${Math.round(oldAmount).toLocaleString()} to Rs ${Math.round(newAmount).toLocaleString()}. Remaining installments: ${recalcResult.remainingMonths} (total term ${recalcResult.newTerm} months).${reason ? ` Reason: ${reason}` : ''}`,
+      addedBy: req.user.id,
+      addedAt: new Date()
+    });
+
+    await loan.save();
+
+    res.json({
+      message: `EMI updated to Rs ${Number(newAmount).toLocaleString()}. Schedule recalculated with ${recalcResult.remainingMonths} remaining installment(s).`,
+      previousAmount: oldAmount,
+      newAmount: Number(newAmount),
+      recalcResult,
+      loan
+    });
+  } catch (error) {
+    console.error('Error adjusting installment:', error);
+    res.status(500).json({ message: 'Error adjusting installment', error: error.message });
   }
 });
 

@@ -123,6 +123,51 @@ export const loanService = {
     }
   },
 
+  // Pause loan deduction for a specific month
+  pauseMonth: async (id, month, year, reason = '') => {
+    try {
+      const response = await api.patch(`${LOAN_API_BASE}/${id}/pause-month`, { month, year, reason });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Pause loan deduction for multiple consecutive months
+  pauseMonths: async (id, { startMonth, startYear, monthCount = 1, reason = '' }) => {
+    try {
+      const response = await api.patch(`${LOAN_API_BASE}/${id}/pause-months`, {
+        startMonth,
+        startYear,
+        monthCount,
+        reason
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Resume loan (remove pause for a specific month)
+  resumeMonth: async (id, month, year) => {
+    try {
+      const response = await api.patch(`${LOAN_API_BASE}/${id}/resume-month`, { month, year });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Permanently adjust monthly installment
+  adjustInstallment: async (id, newAmount, reason = '') => {
+    try {
+      const response = await api.patch(`${LOAN_API_BASE}/${id}/adjust-installment`, { newAmount, reason });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
   // Delete loan (only if pending)
   deleteLoan: async (id) => {
     try {

@@ -7,7 +7,19 @@ const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const Payroll = require('../models/hr/Payroll');
+const PayrollMonthlyApproval = require('../models/hr/PayrollMonthlyApproval');
 const Employee = require('../models/hr/Employee');
+const User = require('../models/User');
+const {
+  populateMonthlyApproval,
+  syncAuthorityStatus,
+  getOrCreateMonthlyApproval,
+  assertMonthlyPayrollAuthoritiesApproved,
+  getRequiredPayrollAuthoritySlots,
+  matchUserToFinanceSlots,
+  PAYROLL_AUTHORITY_SLOT_CONFIG,
+  getApprovedAuthorityKeys
+} = require('../utils/payrollMonthlyApproval');
 const FinanceHelper = require('../utils/financeHelper');
 const Payslip = require('../models/hr/Payslip');
 const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected, calculateTaxWithSeparateArrears } = require('../utils/taxCalculator');
@@ -29,6 +41,11 @@ const {
   getEmployeeEobiDeduction,
   resolveEmployeeIncomeTax
 } = require('../utils/allowanceHelpers');
+const {
+  applyJoiningProration,
+  buildProrationRemarksSuffix,
+  adjustAttendanceForJoiningProration
+} = require('../utils/payrollJoiningProration');
 
 const router = express.Router();
 
@@ -83,32 +100,52 @@ const getCurrentMonthEmployeeArrears = (employee) => {
 };
 
 /** Shared current-payroll math for General Payroll overview and employee detail preview. */
-const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = null) => {
-  const grossSalary = Number(gross) || 0;
+const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = null, month = null, year = null) => {
+  const payrollMonth = month || new Date().getMonth() + 1;
+  const payrollYear = year || new Date().getFullYear();
+  const prorationResult = applyJoiningProration(employee, payrollMonth, payrollYear, gross);
+
+  if (prorationResult.skipPayroll) {
+    return { skipPayroll: true, proration: prorationResult.proration };
+  }
+
+  const grossSalary = prorationResult.grossSalary;
+  const effectiveAllowances = prorationResult.allowances;
+  const proration = prorationResult.proration;
   const basic = grossSalary * 0.6666;
   const medical = grossSalary * 0.1;
   const houseRent = grossSalary * 0.2334;
 
-  const additionalAllowances = additionalAllowancesTotal(employee.allowances);
+  const additionalAllowances = additionalAllowancesTotal(effectiveAllowances);
 
   const { employeeArrears, arrearsDetails } = getCurrentMonthEmployeeArrears(employee);
   const mainSalary = grossSalary + additionalAllowances;
   const taxCalculation = calculatePayrollTaxWithSettings({
     grossSalary,
-    allowances: employee.allowances,
+    allowances: effectiveAllowances,
     arrears: employeeArrears,
     employeeId: employee._id,
     settings: taxSettings
   });
-  const { tax: resolvedTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
-  const eobiDeduction = getEmployeeEobiDeduction(employee);
+  // Tax is calculated on already-prorated gross/allowances — no second multiply needed.
+  // calculateMonthlyTax annualises its input, so passing prorated income gives correct tax
+  // for the partial month. Multiplying again by factor would double-prorate.
+  let { tax: resolvedTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
+  // EOBI is a flat monthly amount — prorate it for the partial first month.
+  let eobiDeduction = getEmployeeEobiDeduction(employee);
+  if (proration.factor < 1) {
+    eobiDeduction = Math.round(eobiDeduction * proration.factor);
+  }
   const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
-  const netSalary = taxCalculation.totalNetSalary - eobiDeduction - (resolvedTax - taxCalculation.totalTax);
+  const netSalary = Math.round(
+    totalEarnings - resolvedTax - eobiDeduction
+  );
 
   return {
     basic,
     medical,
     houseRent,
+    grossSalary,
     additionalAllowances,
     employeeArrears,
     arrearsDetails,
@@ -117,7 +154,10 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
     taxCalculation,
     resolvedTax,
     eobiDeduction,
-    netSalary
+    netSalary,
+    proration,
+    effectiveAllowances,
+    skipPayroll: false
   };
 };
 
@@ -134,11 +174,26 @@ const resolveEmployeeGrossSalary = async (employee) => {
 };
 
 const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
+  if (figures.skipPayroll) {
+    return {
+      skipPayroll: true,
+      reason:
+        figures.proration?.reason || 'Employee not yet joined in this payroll period',
+      proration: figures.proration
+    };
+  }
+
   const { taxCalculation, eobiDeduction, resolvedTax } = figures;
   const finalTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
+  const proratedGross = figures.grossSalary ?? gross;
+  const workingDays = figures.proration?.workingDaysFromJoining || 26;
+  const previewMonth = new Date().getMonth() + 1;
+  const previewYear = new Date().getFullYear();
   return {
+    month: previewMonth,
+    year: previewYear,
     basicSalary: Math.round(figures.basic),
-    grossSalary: Math.round(gross),
+    grossSalary: Math.round(proratedGross),
     additionalAllowances: Math.round(figures.additionalAllowances),
     arrears: Math.round(figures.employeeArrears),
     arrearsDetails: figures.arrearsDetails,
@@ -150,7 +205,7 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
     ),
     monthlyTax: finalTax,
     netSalary: Math.round(figures.netSalary),
-    allowances: payrollAllowancesFromEmployee(employee.allowances),
+    allowances: payrollAllowancesFromEmployee(figures.effectiveAllowances || employee.allowances),
     overtimeHours: 0,
     overtimeAmount: 0,
     performanceBonus: 0,
@@ -164,12 +219,16 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
     attendanceDeduction: 0,
     leaveDeduction: 0,
     otherDeductions: 0,
-    totalDeductions: Math.round(taxCalculation.totalTax + eobiDeduction),
-    totalWorkingDays: 26,
-    presentDays: 26,
+    totalDeductions: Math.round(finalTax + eobiDeduction),
+    totalWorkingDays: workingDays,
+    presentDays: workingDays,
     absentDays: 0,
     leaveDays: 0,
-    dailyRate: Math.round(gross / 26),
+    dailyRate: workingDays > 0 ? Math.round(proratedGross / workingDays) : 0,
+    proration: figures.proration?.isProrated ? figures.proration : undefined,
+    remarks: figures.proration?.isProrated
+      ? `First month prorated${buildProrationRemarksSuffix(figures.proration)}`
+      : undefined,
     leaveDeductions: {
       unpaidLeave: 0,
       sickLeave: 0,
@@ -703,7 +762,7 @@ router.get('/monthly',
 
     // Select only essential fields for list view to improve performance
     const query = Payroll.find(matchStage)
-      .select('month year basicSalary grossSalary netSalary status employee createdAt')
+      .select('month year basicSalary grossSalary netSalary status employee createdAt remarks')
       .populate({
         path: 'employee',
         select: 'firstName lastName employeeId placementProject placementDepartment',
@@ -744,6 +803,218 @@ router.get('/monthly',
   })
 );
 
+// @route   GET /api/payroll/hr-authority-candidates
+// @desc    Active HR users for GM HR payroll approval picker
+// @access  Private (HR and Admin)
+router.get('/hr-authority-candidates',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 150, 1), 200);
+    const search = String(req.query.search || '').trim();
+    const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const andClauses = [
+      { isActive: true },
+      {
+        $or: [
+          { department: { $regex: /hr|human\s*resource/i } },
+          { role: { $in: ['hr_manager', 'admin', 'super_admin'] } }
+        ]
+      }
+    ];
+    if (search) {
+      const rx = new RegExp(escapeRx(search), 'i');
+      andClauses.push({
+        $or: [
+          { firstName: rx },
+          { lastName: rx },
+          { email: rx },
+          { employeeId: rx },
+          { department: rx }
+        ]
+      });
+    }
+
+    let users = await User.find({ $and: andClauses })
+      .select('firstName lastName email employeeId department role digitalSignature')
+      .sort({ firstName: 1, lastName: 1 })
+      .limit(limit)
+      .lean();
+
+    if (users.length < 2) {
+      const broadClauses = [{ isActive: true }];
+      if (search) {
+        const rx = new RegExp(escapeRx(search), 'i');
+        broadClauses.push({
+          $or: [
+            { firstName: rx },
+            { lastName: rx },
+            { email: rx },
+            { employeeId: rx },
+            { department: rx }
+          ]
+        });
+      }
+      users = await User.find(broadClauses.length > 1 ? { $and: broadClauses } : broadClauses[0])
+        .select('firstName lastName email employeeId department role digitalSignature')
+        .sort({ firstName: 1, lastName: 1 })
+        .limit(limit)
+        .lean();
+    }
+
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json({ success: true, data: users });
+  })
+);
+
+// @route   GET /api/payroll/monthly-approval/:month/:year
+// @desc    Get monthly payroll approval authority configuration for a period
+// @access  Private (HR and Admin)
+router.get('/monthly-approval/:month/:year',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const month = parseInt(req.params.month, 10);
+    const year = parseInt(req.params.year, 10);
+    if (!month || month < 1 || month > 12 || !year) {
+      return res.status(400).json({ success: false, message: 'Invalid month or year' });
+    }
+
+    const doc = await getOrCreateMonthlyApproval(month, year);
+    const populated = await populateMonthlyApproval(PayrollMonthlyApproval.findById(doc._id));
+
+    res.json({
+      success: true,
+      data: populated
+    });
+  })
+);
+
+// @route   PUT /api/payroll/monthly-approval/:month/:year/authorities
+// @desc    Configure approval authorities for a monthly payroll period
+// @access  Private (HR and Admin)
+router.put('/monthly-approval/:month/:year/authorities',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const month = parseInt(req.params.month, 10);
+    const year = parseInt(req.params.year, 10);
+    if (!month || month < 1 || month > 12 || !year) {
+      return res.status(400).json({ success: false, message: 'Invalid month or year' });
+    }
+
+    const fa = req.body?.financeApprovalAuthorities || {};
+    const authorities = {
+      accountsOfficerUser: req.user.id,
+      accountsManagerUser: null,
+      financeControllerUser: fa.financeControllerUser || fa.gmHrUser || null
+    };
+    const ids = Object.values(authorities).map((id) => String(id || '')).filter(Boolean);
+    if (ids.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select GM HR. You are assigned as Deputy Manager Payroll HR.'
+      });
+    }
+    if (new Set(ids).size !== ids.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Each approval authority must be a different user'
+      });
+    }
+
+    const doc = await getOrCreateMonthlyApproval(month, year);
+    doc.financeApprovalAuthorities = authorities;
+    const keepKeys = PAYROLL_AUTHORITY_SLOT_CONFIG
+      .filter((slot) => String(authorities?.[slot.key] || '').trim())
+      .map((slot) => slot.key);
+    doc.financeAuthorityApprovals = (Array.isArray(doc.financeAuthorityApprovals) ? doc.financeAuthorityApprovals : [])
+      .filter((approval) => keepKeys.includes(String(approval?.authorityKey || '').trim()));
+    doc.financeAuthoritiesAssignedBy = req.user.id;
+    doc.financeAuthoritiesAssignedAt = new Date();
+    syncAuthorityStatus(doc);
+    await doc.save();
+
+    const populated = await populateMonthlyApproval(PayrollMonthlyApproval.findById(doc._id));
+    res.json({
+      success: true,
+      message: 'Monthly payroll approval authorities saved',
+      data: populated
+    });
+  })
+);
+
+// @route   PATCH /api/payroll/monthly-approval/:month/:year/authority-approve
+// @desc    Record current user's approval for monthly payroll period
+// @access  Private (HR and Admin)
+router.patch('/monthly-approval/:month/:year/authority-approve',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const month = parseInt(req.params.month, 10);
+    const year = parseInt(req.params.year, 10);
+    if (!month || month < 1 || month > 12 || !year) {
+      return res.status(400).json({ success: false, message: 'Invalid month or year' });
+    }
+
+    const doc = await PayrollMonthlyApproval.findOne({ month, year });
+    if (!doc) {
+      return res.status(400).json({
+        success: false,
+        message: 'Configure approval authorities for this month before approving'
+      });
+    }
+
+    const slots = getRequiredPayrollAuthoritySlots(doc);
+    if (!slots.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Approval authorities are not configured for this month'
+      });
+    }
+
+    const matchedSlots = matchUserToFinanceSlots(slots, req.user);
+    if (!matchedSlots.length) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned as an approval authority for this monthly payroll'
+      });
+    }
+
+    const approvals = Array.isArray(doc.financeAuthorityApprovals) ? [...doc.financeAuthorityApprovals] : [];
+    const approvedKeys = getApprovedAuthorityKeys(doc);
+    const pendingMatchedSlots = matchedSlots.filter((slot) => !approvedKeys.has(slot.key));
+    if (!pendingMatchedSlots.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already recorded your approval for this month'
+      });
+    }
+
+    const now = new Date();
+    pendingMatchedSlots.forEach((slot) => {
+      approvals.push({
+        authorityKey: slot.key,
+        authorityLabel: slot.label,
+        approver: req.user.id,
+        decision: 'approved',
+        approvedAt: now,
+        comments: req.body?.comments || ''
+      });
+    });
+    doc.financeAuthorityApprovals = approvals;
+    syncAuthorityStatus(doc);
+    await doc.save();
+
+    const remaining = slots.filter((slot) => !getApprovedAuthorityKeys(doc).has(slot.key)).length;
+    const populated = await populateMonthlyApproval(PayrollMonthlyApproval.findById(doc._id));
+    res.json({
+      success: true,
+      message: remaining === 0
+        ? 'All approval authorities have approved. Draft payrolls can now be approved.'
+        : `Your approval was recorded. ${remaining} approval(s) remaining.`,
+      data: populated
+    });
+  })
+);
+
 // @route   GET /api/payroll/stats
 // @desc    Get payroll statistics
 // @access  Private (HR and Admin)
@@ -777,7 +1048,7 @@ router.get('/current-overview',
         employmentStatus: 'Active',
         'salary.gross': { $exists: true, $gt: 0 }
       })
-        .select('firstName lastName employeeId salary allowances arrears eobi manualTax placementDepartment placementProject department')
+        .select('firstName lastName employeeId salary allowances arrears eobi manualTax hireDate appointmentDate placementDepartment placementProject department')
         .populate('placementDepartment', 'name code')
         .populate('placementProject', 'name')
         .populate('department', 'name');
@@ -836,9 +1107,20 @@ router.get('/current-overview',
 
       const taxSettings = await loadPayrollTaxSettings();
 
+      const overviewMonth = new Date().getMonth() + 1;
+      const overviewYear = new Date().getFullYear();
+
       for (const employee of activeEmployees) {
         const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
-        const figures = computeEmployeeCurrentPayrollFigures(employee, gross, taxSettings);
+        const figures = computeEmployeeCurrentPayrollFigures(
+          employee,
+          gross,
+          taxSettings,
+          overviewMonth,
+          overviewYear
+        );
+        if (figures.skipPayroll) continue;
+
         const { taxCalculation, resolvedTax } = figures;
         const monthlyTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
         const taxableIncome =
@@ -858,8 +1140,9 @@ router.get('/current-overview',
           lastName: employee.lastName,
           employeeId: employee.employeeId,
           basicSalary: Math.round(figures.basic),
-          grossSalary: Math.round(gross),
+          grossSalary: Math.round(figures.grossSalary ?? gross),
           additionalAllowances: Math.round(figures.additionalAllowances),
+          proration: figures.proration?.isProrated ? figures.proration : undefined,
           arrears: Math.round(figures.employeeArrears),
           totalEarnings: Math.round(figures.totalEarnings),
           medicalAllowance: Math.round(figures.medical),
@@ -923,8 +1206,10 @@ router.get('/employee/:employeeId',
       // Get employee details
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
+        .populate('placementDepartment', 'name code')
+        .populate('placementDesignation', 'title level')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax');
+        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax hireDate appointmentDate placementDepartment placementDesignation department position');
 
       if (!employee) {
         return res.status(404).json({
@@ -950,6 +1235,8 @@ router.get('/employee/:employeeId',
             lastName: employee.lastName,
             employeeId: employee.employeeId,
             department: employee.department,
+            placementDepartment: employee.placementDepartment,
+            placementDesignation: employee.placementDesignation,
             position: employee.position
           },
           currentPayroll: buildEmployeeCurrentPayrollPayload(employee, gross, figures),
@@ -984,8 +1271,10 @@ router.get('/view/employee/:employeeId',
       // Get employee details
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
+        .populate('placementDepartment', 'name code')
+        .populate('placementDesignation', 'title level')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax');
+        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax hireDate appointmentDate placementDepartment placementDesignation department position');
 
       if (!employee) {
         return res.status(404).json({
@@ -1011,6 +1300,8 @@ router.get('/view/employee/:employeeId',
             lastName: employee.lastName,
             employeeId: employee.employeeId,
             department: employee.department,
+            placementDepartment: employee.placementDepartment,
+            placementDesignation: employee.placementDesignation,
             position: employee.position
           },
           currentPayroll: buildEmployeeCurrentPayrollPayload(employee, gross, figures),
@@ -1087,6 +1378,8 @@ router.post(
         data: { approved: 0, skipped: 0, errors: [], month, year }
       });
     }
+
+    await assertMonthlyPayrollAuthoritiesApproved(month, year);
 
     let approved = 0;
     const approveErrors = [];
@@ -1206,7 +1499,7 @@ router.post('/', [
     const activeEmployees = await Employee.find({
       employmentStatus: 'Active',
       'salary.gross': { $exists: true, $gt: 0 }
-    }).select('firstName lastName employeeId salary allowances arrears department position providentFund eobi manualTax');
+    }).select('firstName lastName employeeId salary allowances arrears department position providentFund eobi manualTax hireDate appointmentDate');
 
     if (activeEmployees.length === 0) {
       return res.status(404).json({
@@ -1278,15 +1571,35 @@ router.post('/', [
         try {
           // Get current salary (with latest increment applied)
           const currentSalaryResult = await incrementService.getEmployeeCurrentSalary(employee._id);
-          const grossSalary = currentSalaryResult.success ? currentSalaryResult.data.currentSalary : employee.salary.gross;
-          
+          const monthlyGross = currentSalaryResult.success
+            ? currentSalaryResult.data.currentSalary
+            : employee.salary.gross;
+
+          const prorationResult = applyJoiningProration(employee, month, year, monthlyGross);
+          if (prorationResult.skipPayroll) {
+            return {
+              success: false,
+              skip: true,
+              employee: {
+                employeeId: employee.employeeId,
+                name: `${employee.firstName} ${employee.lastName}`
+              },
+              reason: prorationResult.proration?.reason
+                || 'Employee not yet joined in this payroll period'
+            };
+          }
+
+          const grossSalary = prorationResult.grossSalary;
+          const proration = prorationResult.proration;
+          const effectiveAllowances = prorationResult.allowances;
+
           // 🔧 SALARY BREAKDOWN CALCULATION (66.66% basic, 10% medical, 23.34% house rent)
           const basicSalary = Math.round(grossSalary * 0.6666);
           const medicalAllowance = Math.round(grossSalary * 0.10);
           const houseRentAllowance = Math.round(grossSalary * 0.2334);
           
-          // Calculate additional allowances from employee master data
-          const additionalAllowances = additionalAllowancesTotal(employee.allowances);
+          // Calculate additional allowances from employee master data (prorated in join month)
+          const additionalAllowances = additionalAllowancesTotal(effectiveAllowances);
           
           // Get current month arrears from employee record
           let employeeArrears = 0;
@@ -1313,31 +1626,38 @@ router.post('/', [
           // Arrears: taxed at 100% (full amount)
           const taxCalculation = calculatePayrollTaxWithSettings({
             grossSalary,
-            allowances: employee.allowances,
+            allowances: effectiveAllowances,
             arrears: employeeArrears,
             employeeId: employee._id,
             settings: taxSettings
           });
-          const { tax: monthlyTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
-          
+          // Tax is calculated on already-prorated gross/allowances — do NOT multiply by factor again.
+          // calculateMonthlyTax annualises its input, so prorated income already gives correct slab tax.
+          let { tax: monthlyTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
+
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
           const providentFundEnabled = isProvidentFundEnabledForEmployee(employee);
           const providentFund = calculateProvidentFundForEmployee(employee, basicSalary);
-          const eobi = getEmployeeEobiDeduction(employee);
+          // EOBI is a flat monthly fee — prorate it for the partial first month.
+          let eobi = getEmployeeEobiDeduction(employee);
+          if (proration.factor < 1) {
+            eobi = Math.round(eobi * proration.factor);
+          }
           
-          // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS
+          // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS (respects pauses & overrides)
           const loanModel = require('../models/hr/Loan');
           const activeLoans = await loanModel.find({
             employee: employee._id,
             status: { $in: ['Active', 'Disbursed', 'Approved'] }
           });
-          
+
           const loanDeductions = activeLoans.reduce((total, loan) => {
+            if (loan.pausedMonths?.some((p) => p.month === month && p.year === year)) return total;
             return total + (loan.monthlyInstallment || 0);
           }, 0);
           
           // 🔧 USE PRE-FETCHED BULK ATTENDANCE DATA (Major performance boost)
-          const attendanceData = bulkAttendanceData[employee.employeeId] || {
+          const rawAttendanceData = bulkAttendanceData[employee.employeeId] || {
             presentDays: workingDays,
             absentDays: 0,
             leaveDays: 0,
@@ -1345,6 +1665,11 @@ router.post('/', [
             dailyRate: grossSalary / workingDays,
             attendanceDeduction: 0
           };
+          const attendanceData = adjustAttendanceForJoiningProration(
+            rawAttendanceData,
+            proration,
+            grossSalary
+          );
           
           const {
             presentDays,
@@ -1362,10 +1687,8 @@ router.post('/', [
           const healthInsurance = 0;
           const otherDeductions = 0;
           
-          // 🔧 NET SALARY = Total Earnings - Total Deductions (using separate tax calculation)
-          // taxCalculation.totalNetSalary already includes tax deduction, so subtract other deductions
-          // Note: Provident Fund is NOT deducted from net salary (display only)
-          const netSalary = taxCalculation.totalNetSalary - eobi - healthInsurance - loanDeductions - attendanceDeduction - otherDeductions;
+          // Net = Total Earnings − all deductions (Provident Fund is display-only, not deducted)
+          const netSalary = totalEarnings - monthlyTax - eobi - healthInsurance - loanDeductions - attendanceDeduction - otherDeductions;
 
           if (netSalary < 0) {
             return {
@@ -1386,7 +1709,7 @@ router.post('/', [
             basicSalary,
             houseRentAllowance,
             medicalAllowance,
-            allowances: payrollAllowancesFromEmployee(employee.allowances),
+            allowances: payrollAllowancesFromEmployee(effectiveAllowances),
             overtimeHours: 0,
             overtimeRate: 0,
             overtimeAmount: 0,
@@ -1420,7 +1743,7 @@ router.post('/', [
               usesAllowanceTaxPolicy: taxCalculation.usesAllowanceTaxPolicy
             },
             currency: 'PKR',
-            remarks: `Monthly payroll generated for ${month}/${year}`,
+            remarks: `Monthly payroll generated for ${month}/${year}${buildProrationRemarksSuffix(proration)}`,
             createdBy: req.user.id,
             status: 'Draft'
           };
@@ -1507,6 +1830,12 @@ router.post('/', [
           totalGrossSalary += totals.totalEarnings;
           totalNetSalary += totals.netSalary;
           totalTax += totals.monthlyTax;
+        } else if (result.status === 'fulfilled' && !result.value.success && result.value.skip) {
+          skippedEmployees.push({
+            employeeId: result.value.employee.employeeId,
+            name: result.value.employee.name,
+            reason: result.value.reason || 'Not eligible for this payroll period'
+          });
         } else if (result.status === 'fulfilled' && !result.value.success) {
           // Handle individual employee errors
           errors.push({
@@ -2203,6 +2532,8 @@ router.patch('/:id/approve',
         message: 'Only draft payrolls can be approved'
       });
     }
+
+    await assertMonthlyPayrollAuthoritiesApproved(payroll.month, payroll.year);
 
     await payroll.approve(req.user.id);
 
@@ -2930,6 +3261,41 @@ router.get('/demo-attendance-integration',
         message: 'Failed to run attendance integration demo',
         error: error.message
       });
+    }
+  })
+);
+
+// @route   POST /api/payroll/preview-payslip
+// @desc    Generate and download payslip PDF from preview payload (no database record)
+// @access  Private (HR and Admin)
+router.post('/preview-payslip',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      const payslipData = {
+        ...req.body,
+        createdBy: {
+          firstName: req.user?.firstName || req.user?.name || 'System'
+        }
+      };
+
+      if (!payslipData.payslipNumber || !payslipData.employeeId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payslip preview data'
+        });
+      }
+
+      await generatePayslipPDF(payslipData, res);
+    } catch (error) {
+      console.error('Error generating preview payslip PDF:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to generate payslip PDF',
+          error: error.message
+        });
+      }
     }
   })
 );

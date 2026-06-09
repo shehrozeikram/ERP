@@ -55,6 +55,30 @@ const additionalAllowancesTotal = (allowances) => {
   );
 };
 
+/** Scale active allowance amounts for first-month joining proration. */
+const prorateEmployeeAllowances = (allowances, factor) => {
+  if (!allowances || factor >= 1) return allowances || {};
+  const scale = (entry) => {
+    if (entry == null) return entry;
+    if (typeof entry === 'number') {
+      return Math.round(entry * factor);
+    }
+    if (!entry.isActive) return { ...entry };
+    return {
+      ...entry,
+      amount: Math.round((Number(entry.amount) || 0) * factor)
+    };
+  };
+  const keys = ['conveyance', 'food', 'vehicle', 'fuel', 'vehicleFuel', 'medical', 'houseRent', 'special', 'other'];
+  const out = { ...allowances };
+  keys.forEach((key) => {
+    if (out[key] !== undefined) {
+      out[key] = scale(out[key]);
+    }
+  });
+  return out;
+};
+
 /**
  * Normalize allowances for API persistence (clears legacy vehicleFuel).
  * @param {object|null|undefined} src
@@ -306,6 +330,7 @@ module.exports = {
   vehicleAllowanceAmount,
   fuelAllowanceAmount,
   additionalAllowancesTotal,
+  prorateEmployeeAllowances,
   buildAllowancesPayload,
   payrollAllowancesFromEmployee,
   mergePayrollAllowances,

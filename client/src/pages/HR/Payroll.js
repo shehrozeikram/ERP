@@ -56,6 +56,8 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
 import api from '../../services/authService';
 import { PageLoading } from '../../components/LoadingSpinner';
+import MonthlyPayrollApprovalSection from '../../components/HR/MonthlyPayrollApprovalSection';
+import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
 
 // Months array moved outside component to prevent recreation on every render
 const months = [
@@ -117,6 +119,25 @@ const Payroll = () => {
   const [exportYear, setExportYear] = useState(new Date().getFullYear());
   const [exportLoadingKey, setExportLoadingKey] = useState(null);
   const [bulkApproveLoadingKey, setBulkApproveLoadingKey] = useState(null);
+  const [monthlyApprovals, setMonthlyApprovals] = useState({});
+  const [monthlyApprovalLoadingKeys, setMonthlyApprovalLoadingKeys] = useState(new Set());
+
+  const fetchMonthlyApproval = useCallback(async (month, year) => {
+    const key = `${month}-${year}`;
+    setMonthlyApprovalLoadingKeys((prev) => new Set(prev).add(key));
+    try {
+      const response = await api.get(`/payroll/monthly-approval/${month}/${year}`);
+      setMonthlyApprovals((prev) => ({ ...prev, [key]: response.data?.data }));
+    } catch (fetchError) {
+      console.error('Error loading monthly payroll approval:', fetchError);
+    } finally {
+      setMonthlyApprovalLoadingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, []);
 
   // Define functions with useCallback to avoid dependency issues
   const fetchPayrolls = useCallback(async () => {
@@ -977,21 +998,31 @@ Do you want to:
   };
 
   const toggleMonthExpansion = (monthKey) => {
-    setExpandedMonths(prev => {
+    setExpandedMonths((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(monthKey)) {
         newSet.delete(monthKey);
       } else {
         newSet.add(monthKey);
-        // Reset pagination to first page when expanding
-        setEmployeeDetailsPage(prev => ({
-          ...prev,
+        setEmployeeDetailsPage((prevPages) => ({
+          ...prevPages,
           [monthKey]: 0
         }));
+        const [month, year] = monthKey.split('-').map(Number);
+        if (month && year) fetchMonthlyApproval(month, year);
       }
       return newSet;
     });
   };
+
+  useEffect(() => {
+    paginatedMonthlyPayrolls.forEach((monthly) => {
+      const key = `${monthly.month}-${monthly.year}`;
+      if (!monthlyApprovals[key] && !monthlyApprovalLoadingKeys.has(key)) {
+        fetchMonthlyApproval(monthly.month, monthly.year);
+      }
+    });
+  }, [paginatedMonthlyPayrolls, monthlyApprovals, monthlyApprovalLoadingKeys, fetchMonthlyApproval]);
 
   const toggleGeneralPayrollExpansion = () => {
     setGeneralPayrollExpanded(prev => !prev);
@@ -1044,12 +1075,20 @@ Do you want to:
   const countDraftPayrolls = (payrollList) =>
     (payrollList || []).filter((p) => String(p?.status || '').toLowerCase() === 'draft').length;
 
+  const canApproveDraftsForMonth = (month, year) =>
+    monthlyApprovals[`${month}-${year}`]?.authorityStatus === 'approved';
+
   const bulkApprovePayrolls = async (month, year, periodLabel, options = {}) => {
     const { silent = false } = options;
     const monthNum = Number(month);
     const yearNum = Number(year);
     if (!monthNum || monthNum < 1 || monthNum > 12 || !yearNum) {
       setError('Select a valid month and year to approve payrolls.');
+      return;
+    }
+
+    if (!canApproveDraftsForMonth(monthNum, yearNum)) {
+      setError('All monthly payroll approval authorities must approve before draft payrolls can be approved.');
       return;
     }
 
@@ -1748,9 +1787,12 @@ Do you want to:
                         <TableRow key={employee._id}>
                           <TableCell>
                             <Box>
-                              <Typography variant="subtitle2">
-                                {employee.firstName} {employee.lastName}
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                <Typography variant="subtitle2">
+                                  {employee.firstName} {employee.lastName}
+                                </Typography>
+                                <PayrollProrationBadge payroll={{ proration: employee.proration }} />
+                              </Box>
                               <Typography variant="caption" color="textSecondary">
                                 {employee.employeeId}
                               </Typography>
@@ -2089,6 +2131,13 @@ Do you want to:
                   const monthKey = `${monthly.month}-${monthly.year}`;
                   const isExpanded = expandedMonths.has(monthKey);
                   const draftCount = countDraftPayrolls(monthly.payrolls);
+                  const approvalDoc = monthlyApprovals[monthKey];
+                  const approvalLoading = monthlyApprovalLoadingKeys.has(monthKey);
+                  const canApproveDrafts = canApproveDraftsForMonth(monthly.month, monthly.year);
+                  const bulkApproveBlocked = draftCount > 0 && !canApproveDrafts;
+                  const bulkApproveTooltip = bulkApproveBlocked
+                    ? 'Configure approval authorities and complete all sign-offs first'
+                    : `Approve all ${draftCount} draft payroll(s)`;
                   
                   return (
                     <React.Fragment key={monthKey}>
@@ -2121,12 +2170,16 @@ Do you want to:
                         <TableCell align="center">
                           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
                             {draftCount > 0 && (
-                              <Tooltip title={`Approve all ${draftCount} draft payroll(s)`}>
+                              <Tooltip title={bulkApproveTooltip}>
                                 <span>
                                   <IconButton
                                     size="small"
                                     color="success"
-                                    disabled={bulkApproveLoadingKey === monthKey}
+                                    disabled={
+                                      bulkApproveLoadingKey === monthKey
+                                      || approvalLoading
+                                      || bulkApproveBlocked
+                                    }
                                     onClick={() =>
                                       bulkApprovePayrolls(
                                         monthly.month,
@@ -2177,6 +2230,20 @@ Do you want to:
                         <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
                           <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                             <Box sx={{ margin: 1 }}>
+                              <MonthlyPayrollApprovalSection
+                                month={monthly.month}
+                                year={monthly.year}
+                                periodLabel={`${monthly.monthName} ${monthly.year}`}
+                                draftCount={draftCount}
+                                approvalDoc={approvalDoc}
+                                loading={approvalLoading}
+                                onRefresh={() => fetchMonthlyApproval(monthly.month, monthly.year)}
+                                onUpdated={(doc) => {
+                                  if (doc) {
+                                    setMonthlyApprovals((prev) => ({ ...prev, [monthKey]: doc }));
+                                  }
+                                }}
+                              />
                               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                                 <Typography variant="h6" component="div">
                                   Employee Details - {monthly.monthName} {monthly.year}
@@ -2201,7 +2268,11 @@ Do you want to:
                                           <DoneAllIcon />
                                         )
                                       }
-                                      disabled={bulkApproveLoadingKey === monthKey}
+                                      disabled={
+                                        bulkApproveLoadingKey === monthKey
+                                        || approvalLoading
+                                        || bulkApproveBlocked
+                                      }
                                       onClick={() =>
                                         bulkApprovePayrolls(
                                           monthly.month,
@@ -2299,9 +2370,12 @@ Do you want to:
                                       <TableRow key={payroll._id}>
                                         <TableCell>
                                           <Box>
-                                            <Typography variant="subtitle2">
-                                              {payroll.employee?.firstName} {payroll.employee?.lastName}
-                                            </Typography>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                              <Typography variant="subtitle2">
+                                                {payroll.employee?.firstName} {payroll.employee?.lastName}
+                                              </Typography>
+                                              <PayrollProrationBadge payroll={payroll} />
+                                            </Box>
                                             <Typography variant="caption" color="textSecondary">
                                               {formatEmployeeId(payroll.employee?.employeeId)}
                                             </Typography>

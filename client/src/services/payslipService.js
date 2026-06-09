@@ -89,6 +89,14 @@ export const markPayslipAsPaid = async (id, paymentData) => {
   }
 };
 
+// Download payslip PDF from in-app preview data (no saved payroll/payslip record)
+export const downloadPayslipPreviewPDF = async (pdfPayload) => {
+  const response = await api.post('/payroll/preview-payslip', pdfPayload, {
+    responseType: 'blob'
+  });
+  return response.data;
+};
+
 // Download payslip as PDF
 export const downloadPayslipPDF = async (id) => {
   try {
@@ -226,6 +234,7 @@ export default {
   generatePayslip,
   approvePayslip,
   markPayslipAsPaid,
+  downloadPayslipPreviewPDF,
   downloadPayslipPDF,
   bulkGeneratePayslips,
   getPayslipStats,

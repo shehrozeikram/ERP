@@ -19,10 +19,6 @@ import {
   Alert,
   Button,
   Divider,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   IconButton,
   Tooltip,
   Avatar
@@ -41,6 +37,19 @@ import {
 import { format } from 'date-fns';
 import api from '../../services/api';
 import leaveService from '../../services/leaveService';
+import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
+import PayslipReviewModal from '../../components/HR/PayslipReviewModal';
+import {
+  buildPayslipPreviewData,
+  buildPayslipCreatePayload,
+  formatPayslipEmployeeId,
+  getEmployeeDepartmentLabel,
+  getEmployeePositionLabel,
+  previewToPayslipPdfPayload,
+  downloadBlobFile,
+  buildPayslipPdfFilename
+} from '../../utils/payslipPreviewUtils';
+import { downloadPayslipPreviewPDF } from '../../services/payslipService';
 
 // Months array for month name lookup
 const months = [
@@ -65,6 +74,7 @@ const EmployeePayrollDetails = () => {
   const [error, setError] = useState(null);
   const [employeeData, setEmployeeData] = useState(null);
   const [payslipModal, setPayslipModal] = useState({ open: false, data: null });
+  const [payslipDownloadLoading, setPayslipDownloadLoading] = useState(false);
   const [employeeLoans, setEmployeeLoans] = useState([]);
   const [leaveBalance, setLeaveBalance] = useState(null);
   const [leaveLoading, setLeaveLoading] = useState(false);
@@ -198,79 +208,6 @@ const EmployeePayrollDetails = () => {
     }
   };
 
-  const generatePayslip = async (payroll) => {
-    try {
-      // Create payslip data from payroll - simplified version
-      const payslipData = {
-        employeeId: employee.employeeId,
-        month: payroll.month,
-        year: payroll.year,
-        earnings: {
-          basicSalary: payroll.basicSalary || 0,
-          houseRent: payroll.houseRentAllowance || 0,
-          medicalAllowance: payroll.medicalAllowance || 0,
-          conveyanceAllowance: 0,
-          specialAllowance: 0,
-          otherAllowances: 0,
-          overtime: payroll.overtimeAmount || 0,
-          bonus: payroll.performanceBonus || 0,
-          incentives: 0,
-          arrears: 0,
-          otherEarnings: 0
-        },
-        deductions: {
-          providentFund: payroll.providentFund || 0,
-          eobi: payroll.eobi || 0,
-          incomeTax: payroll.incomeTax || 0,
-          loanDeduction: 0,
-          advanceDeduction: 0,
-          lateDeduction: 0,
-          absentDeduction: 0,
-          otherDeductions: 0
-        },
-        attendance: {
-          totalDays: payroll.totalWorkingDays || 26,
-          presentDays: payroll.presentDays || 26,
-          absentDays: payroll.absentDays || 0,
-          lateDays: 0,
-          overtimeHours: 0
-        },
-        notes: `Generated from payroll for ${months.find(m => m.value === payroll.month.toString().padStart(2, '0'))?.label} ${payroll.year}`
-      };
-
-      console.log('Creating payslip with data:', payslipData);
-
-      // Create payslip using the payslip creation endpoint
-      const response = await api.post('/payslips', payslipData);
-      
-      if (response.data.success) {
-        console.log('Payslip created successfully:', response.data.data);
-        
-        // Now generate the PDF for the created payslip
-        const pdfResponse = await api.get(`/payslips/${response.data.data._id}/download`, {
-          responseType: 'blob'
-        });
-        
-        // Create blob and download
-        const blob = new Blob([pdfResponse.data], { type: 'application/pdf' });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `payslip-${employee.firstName}-${employee.lastName}-${payroll.month}-${payroll.year}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        
-        alert('Payslip generated and downloaded successfully!');
-      }
-    } catch (error) {
-      console.error('Error generating payslip:', error);
-      console.error('Error details:', error.response?.data);
-      alert(`Failed to generate payslip: ${error.response?.data?.message || error.message}`);
-    }
-  };
-
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
@@ -315,6 +252,63 @@ const EmployeePayrollDetails = () => {
 
   const { employee, currentPayroll, existingPayrolls } = employeeData;
 
+  const openPayslipPreview = (payroll, totalsOverride = {}) => {
+    if (!employee || !payroll) return;
+    const preview = buildPayslipPreviewData({
+      employee,
+      payroll,
+      loanDeductions: totalsOverride.loanDeductions ?? calculateLoanDeductions(),
+      advanceLeaveDeduction: totalsOverride.advanceLeaveDeduction ?? calculateAdvanceLeaveDeduction(),
+      totalDeductions: totalsOverride.totalDeductions,
+      netSalary: totalsOverride.netSalary
+    });
+    setPayslipModal({ open: true, data: preview });
+  };
+
+  const handleDownloadPayslipPreview = async () => {
+    if (!payslipModal.data) return;
+
+    try {
+      setPayslipDownloadLoading(true);
+      const pdfPayload = previewToPayslipPdfPayload(payslipModal.data);
+      const blob = await downloadPayslipPreviewPDF(pdfPayload);
+      downloadBlobFile(blob, buildPayslipPdfFilename(payslipModal.data));
+    } catch (error) {
+      console.error('Error downloading payslip PDF:', error);
+      alert(`Failed to download payslip PDF: ${error.response?.data?.message || error.message}`);
+    } finally {
+      setPayslipDownloadLoading(false);
+    }
+  };
+
+  const generatePayslip = async (payroll) => {
+    try {
+      const payslipData = buildPayslipCreatePayload({ employee, payroll });
+      const response = await api.post('/payslips', payslipData);
+
+      if (response.data.success) {
+        const pdfResponse = await api.get(`/payslips/${response.data.data._id}/download`, {
+          responseType: 'blob'
+        });
+
+        const blob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `payslip-${employee.firstName}-${employee.lastName}-${payroll.month}-${payroll.year}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+
+        alert('Payslip generated and downloaded successfully!');
+      }
+    } catch (error) {
+      console.error('Error generating payslip:', error);
+      alert(`Failed to generate payslip: ${error.response?.data?.message || error.message}`);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -330,68 +324,17 @@ const EmployeePayrollDetails = () => {
         <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
           Employee Payroll Details
         </Typography>
+        <PayrollProrationBadge payroll={currentPayroll} />
         <Button
           variant="contained"
           color="primary"
           startIcon={<ViewIcon />}
-          onClick={() => {
-            // Show payslip in popup
-            const payslipData = {
-              employee: {
-                firstName: employee?.firstName || 'Atif',
-                lastName: employee?.lastName || 'Mahmood',
-                employeeId: employee?.employeeId || '6031',
-                department: employeeData?.department || 'IT Development',
-                designation: employeeData?.position || 'Developer'
-              },
-              period: {
-                month: currentPayroll.month || 8,
-                year: currentPayroll.year || 2025,
-                monthName: months.find(m => m.value === String(currentPayroll.month || 8).padStart(2, '0'))?.label || 'August'
-              },
-              payslipNumber: `PS${currentPayroll.year || 2025}${String(currentPayroll.month || 8).padStart(2, '0')}${employee?.employeeId || '6031'}`,
-              issueDate: new Date().toLocaleDateString(),
-              earnings: {
-                basicSalary: currentPayroll.basicSalary || 0,
-                houseRent: currentPayroll.houseRentAllowance || 0,
-                medicalAllowance: currentPayroll.medicalAllowance || 0,
-                conveyanceAllowance: currentPayroll.allowances?.conveyance?.amount || 0,
-                foodAllowance: currentPayroll.allowances?.food?.amount || 0,
-                vehicleAllowance: vehicleAllowanceAmount(currentPayroll.allowances),
-                fuelAllowance: fuelAllowanceAmount(currentPayroll.allowances),
-                vehicleFuelAllowance: vehicleAllowanceAmount(currentPayroll.allowances) + fuelAllowanceAmount(currentPayroll.allowances),
-                specialAllowance: currentPayroll.allowances?.special?.amount || 0,
-                otherAllowances: currentPayroll.allowances?.other?.amount || 0,
-                overtime: currentPayroll.overtimeAmount || 0,
-                bonus: currentPayroll.performanceBonus || 0,
-                otherBonus: currentPayroll.otherBonus || 0,
-                arrears: currentPayroll.arrears || 0
-              },
-              deductions: {
-                eobi: currentPayroll.eobi || 0,
-                incomeTax: currentPayroll.incomeTax || 0,
-                providentFund: currentPayroll.providentFund || 0,
-                healthInsurance: currentPayroll.healthInsurance || 0,
-                loanDeductions: currentPayroll.loanDeductions || 0,
-                attendanceDeduction: currentPayroll.attendanceDeduction || 0,
-                leaveDeduction: currentPayroll.leaveDeduction || 0,
-                otherDeductions: currentPayroll.otherDeductions || 0
-              },
-              attendance: {
-                totalDays: currentPayroll.totalWorkingDays || 26,
-                presentDays: currentPayroll.presentDays || 26,
-                absentDays: currentPayroll.absentDays || 0,
-                leaveDays: currentPayroll.leaveDays || 0
-              },
-              totals: {
-                grossSalary: currentPayroll.totalEarnings || 0,
-                totalDeductions: calculateTotalDeductions(),
-                netSalary: calculateNetSalary()
-              }
-            };
-
-            setPayslipModal({ open: true, data: payslipData });
-          }}
+          onClick={() =>
+            openPayslipPreview(currentPayroll, {
+              totalDeductions: calculateTotalDeductions(),
+              netSalary: calculateNetSalary()
+            })
+          }
           sx={{ ml: 'auto' }}
         >
           Review
@@ -409,19 +352,22 @@ const EmployeePayrollDetails = () => {
               {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
             </Avatar>
             <Box>
-              <Typography variant="h5" gutterBottom>
-                {employee.firstName} {employee.lastName}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
+                <Typography variant="h5">
+                  {employee.firstName} {employee.lastName}
+                </Typography>
+                <PayrollProrationBadge payroll={currentPayroll} />
+              </Box>
               <Typography variant="body1" color="textSecondary">
-                ID: {formatEmployeeId(employee.employeeId)}
+                ID: {formatPayslipEmployeeId(employee.employeeId)}
               </Typography>
             </Box>
           </Box>
           <Typography variant="body2" color="textSecondary">
-            <strong>Department:</strong> {employee.placementDepartment?.name || employee.department?.name || employee.department}
+            <strong>Department:</strong> {getEmployeeDepartmentLabel(employee)}
           </Typography>
           <Typography variant="body2" color="textSecondary">
-            <strong>Position:</strong> {employee.position?.title || employee.position}
+            <strong>Position:</strong> {getEmployeePositionLabel(employee)}
           </Typography>
         </CardContent>
       </Card>
@@ -921,9 +867,12 @@ const EmployeePayrollDetails = () => {
                     <TableRow key={payroll._id} hover>
                       <TableCell>
                         <Box>
-                          <Typography variant="subtitle2">
-                            {months.find(month => month.value === payroll.month.toString().padStart(2, '0'))?.label || `Month ${payroll.month}`} {payroll.year}
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                            <Typography variant="subtitle2">
+                              {months.find(month => month.value === payroll.month.toString().padStart(2, '0'))?.label || `Month ${payroll.month}`} {payroll.year}
+                            </Typography>
+                            <PayrollProrationBadge payroll={payroll} />
+                          </Box>
                           <Typography variant="caption" color="textSecondary">
                             Payroll Period
                           </Typography>
@@ -986,322 +935,14 @@ const EmployeePayrollDetails = () => {
         </CardContent>
       </Card>
 
-      {/* Payslip Review Modal */}
-      <Dialog 
-        open={payslipModal.open} 
+      <PayslipReviewModal
+        open={payslipModal.open}
+        data={payslipModal.data}
+        employeeLoans={employeeLoans}
         onClose={() => setPayslipModal({ open: false, data: null })}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: { 
-            minHeight: '80vh',
-            borderRadius: 2
-          }
-        }}
-      >
-        <DialogTitle sx={{ 
-          textAlign: 'center', 
-          borderBottom: '2px solid #f0f0f0',
-          pb: 2,
-          mb: 2
-        }}>
-          <Typography variant="h4" sx={{ fontWeight: 600, color: '#2c3e50' }}>
-            SARDAR GROUP OF COMPANIES
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 600, color: '#2c3e50', mt: 1 }}>
-            PAY SLIP
-          </Typography>
-          <Typography variant="subtitle1" sx={{ mt: 1, color: '#666' }}>
-            For the month of {payslipModal.data?.period?.monthName} {payslipModal.data?.period?.year}
-          </Typography>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
-            <Typography variant="body2">
-              <strong>Payslip No:</strong> {payslipModal.data?.payslipNumber}
-            </Typography>
-            <Typography variant="body2">
-              <strong>Issue Date:</strong> {payslipModal.data?.issueDate}
-            </Typography>
-          </Box>
-        </DialogTitle>
-
-        <DialogContent sx={{ p: 3 }}>
-          {/* Employee Information */}
-          <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: '#2c3e50' }}>
-            Employee Information
-          </Typography>
-          <TableContainer component={Paper} sx={{ mb: 3 }}>
-            <Table size="small">
-              <TableBody>
-                <TableRow>
-                  <TableCell><strong>Name:</strong></TableCell>
-                  <TableCell>{payslipModal.data?.employee?.firstName} {payslipModal.data?.employee?.lastName}</TableCell>
-                  <TableCell><strong>Department:</strong></TableCell>
-                  <TableCell>{payslipModal.data?.employee?.department}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell><strong>Employee ID:</strong></TableCell>
-                  <TableCell>{payslipModal.data?.employee?.employeeId}</TableCell>
-                  <TableCell><strong>Designation:</strong></TableCell>
-                  <TableCell>{payslipModal.data?.employee?.designation}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          {/* Earnings & Deductions */}
-          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#2c3e50' }}>
-            Earnings & Deductions
-          </Typography>
-          <Grid container spacing={2} sx={{ mb: 3 }}>
-            {/* Earnings Column */}
-            <Grid item xs={12} md={6}>
-              <TableContainer component={Paper}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: '#f5f5f5' }}>
-                    <TableRow>
-                      <TableCell><strong>EARNINGS</strong></TableCell>
-                      <TableCell align="right"><strong>AMOUNT</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell>Basic Salary</TableCell>
-                      <TableCell align="right">Rs {payslipModal.data?.earnings?.basicSalary?.toLocaleString()}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>House Rent Allowance</TableCell>
-                      <TableCell align="right">Rs {payslipModal.data?.earnings?.houseRent?.toLocaleString()}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Medical Allowance</TableCell>
-                      <TableCell align="right">Rs {payslipModal.data?.earnings?.medicalAllowance?.toLocaleString()}</TableCell>
-                    </TableRow>
-                    {(payslipModal.data?.earnings?.conveyanceAllowance || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Conveyance Allowance</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.conveyanceAllowance?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.foodAllowance || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Food Allowance</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.foodAllowance?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.vehicleAllowance || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Vehicle Allowance</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.vehicleAllowance?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.fuelAllowance || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Fuel Allowance</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.fuelAllowance?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.specialAllowance || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Special Allowance</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.specialAllowance?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.otherAllowances || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Other Allowances</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.otherAllowances?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(currentPayroll.allowances?.medical?.amount || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Medical Allowance (from allowances)</TableCell>
-                        <TableCell align="right">Rs {(currentPayroll.allowances?.medical?.amount || 0).toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(currentPayroll.allowances?.houseRent?.amount || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>House Rent Allowance (from allowances)</TableCell>
-                        <TableCell align="right">Rs {(currentPayroll.allowances?.houseRent?.amount || 0).toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.overtime || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Overtime</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.overtime?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.bonus || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Performance Bonus</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.bonus?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.otherBonus || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Other Bonus</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.otherBonus?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.earnings?.arrears || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Arrears</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.earnings?.arrears?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Grid>
-
-            {/* Deductions Column */}
-            <Grid item xs={12} md={6}>
-              <TableContainer component={Paper}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: '#f5f5f5' }}>
-                    <TableRow>
-                      <TableCell><strong>DEDUCTIONS</strong></TableCell>
-                      <TableCell align="right"><strong>AMOUNT</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {(payslipModal.data?.deductions?.eobi || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>EOBI</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.eobi?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.deductions?.incomeTax || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Income Tax</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.incomeTax?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.deductions?.providentFund || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Provident Fund</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.providentFund?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.deductions?.healthInsurance || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Health Insurance</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.healthInsurance?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {/* Individual Loan Deductions in Payslip */}
-                    {employeeLoans
-                      .filter(loan => ['Active', 'Disbursed', 'Approved'].includes(loan.status))
-                      .map((loan) => (
-                        <TableRow key={loan._id}>
-                          <TableCell>{loan.loanType} Loan Deduction ({loan.status})</TableCell>
-                          <TableCell align="right">Rs {(loan.monthlyInstallment || 0).toLocaleString()}</TableCell>
-                        </TableRow>
-                      ))}
-                    {(payslipModal.data?.deductions?.loanDeductions || 0) > 0 && (
-                      <TableRow>
-                        <TableCell><strong>Total Loan Deductions</strong></TableCell>
-                        <TableCell align="right"><strong>Rs {payslipModal.data?.deductions?.loanDeductions?.toLocaleString()}</strong></TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.deductions?.attendanceDeduction || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Attendance Deduction</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.attendanceDeduction?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.deductions?.leaveDeduction || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Leave Deduction</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.leaveDeduction?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.deductions?.otherDeductions || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Other Deductions</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.otherDeductions?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Grid>
-          </Grid>
-
-          {/* Summary */}
-          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#2c3e50' }}>
-            Summary of Earnings and Deductions
-          </Typography>
-          <TableContainer component={Paper} sx={{ mb: 3 }}>
-            <Table size="small">
-              <TableBody>
-                <TableRow>
-                  <TableCell><strong>Total Earnings</strong></TableCell>
-                  <TableCell align="right"><strong>Rs {payslipModal.data?.totals?.grossSalary?.toLocaleString()}</strong></TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell><strong>Total Deductions</strong></TableCell>
-                  <TableCell align="right"><strong>Rs {payslipModal.data?.totals?.totalDeductions?.toLocaleString()}</strong></TableCell>
-                </TableRow>
-                <TableRow sx={{ bgcolor: '#e8f5e8' }}>
-                  <TableCell><strong>Net Salary</strong></TableCell>
-                  <TableCell align="right"><strong>Rs {payslipModal.data?.totals?.netSalary?.toLocaleString()}</strong></TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          {/* Attendance Summary */}
-          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#2c3e50' }}>
-            Attendance Summary
-          </Typography>
-          <TableContainer component={Paper} sx={{ mb: 3 }}>
-            <Table size="small">
-              <TableBody>
-                <TableRow>
-                  <TableCell><strong>Total Working Days:</strong></TableCell>
-                  <TableCell>{payslipModal.data?.attendance?.totalDays}</TableCell>
-                  <TableCell><strong>Present Days:</strong></TableCell>
-                  <TableCell>{payslipModal.data?.attendance?.presentDays}</TableCell>
-                  <TableCell><strong>Absent Days:</strong></TableCell>
-                  <TableCell>{payslipModal.data?.attendance?.absentDays}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          {/* Notes */}
-          <Typography variant="body2" sx={{ mb: 3, fontStyle: 'italic', color: '#666' }}>
-            Monthly payroll generated for {payslipModal.data?.period?.month}/{payslipModal.data?.period?.year}
-          </Typography>
-        </DialogContent>
-
-        <DialogActions sx={{ borderTop: '2px solid #f0f0f0', p: 2 }}>
-          <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="caption" sx={{ color: '#666' }}>
-              Generated by: Sardar Umer • {new Date().toLocaleDateString()}
-            </Typography>
-            <Box>
-              <Button 
-                onClick={() => setPayslipModal({ open: false, data: null })}
-                variant="outlined"
-                sx={{ mr: 1 }}
-              >
-                Close
-              </Button>
-              <Button 
-                variant="contained"
-                startIcon={<DownloadIcon />}
-                onClick={() => {
-                  // Generate PDF download functionality here
-                  console.log('PDF download would be triggered here');
-                }}
-              >
-                Download PDF
-              </Button>
-            </Box>
-          </Box>
-        </DialogActions>
-      </Dialog>
+        onDownload={handleDownloadPayslipPreview}
+        downloadLoading={payslipDownloadLoading}
+      />
     </Box>
   );
 };

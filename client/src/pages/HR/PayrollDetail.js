@@ -43,6 +43,7 @@ import { format } from 'date-fns';
 import { formatPKR } from '../../utils/currency';
 import { vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 import api from '../../services/api';
+import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
 
 const PayrollDetail = () => {
   const { id } = useParams();
@@ -54,6 +55,7 @@ const PayrollDetail = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [monthlyApproval, setMonthlyApproval] = useState(null);
   
   // Modal states for attendance history
   const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
@@ -81,6 +83,18 @@ const PayrollDetail = () => {
       const response = await api.get(`/payroll/${id}`);
       const payrollData = response.data.data;
       setPayroll(payrollData);
+
+      if (payrollData?.month && payrollData?.year) {
+        try {
+          const approvalResponse = await api.get(
+            `/payroll/monthly-approval/${payrollData.month}/${payrollData.year}`
+          );
+          setMonthlyApproval(approvalResponse.data?.data || null);
+        } catch (approvalError) {
+          console.error('Error fetching monthly payroll approval:', approvalError);
+          setMonthlyApproval(null);
+        }
+      }
       
       // Also fetch employee details
       if (payrollData.employee) {
@@ -108,8 +122,9 @@ const PayrollDetail = () => {
       setActionLoading(true);
       await api.patch(`/payroll/${id}/approve`);
       await fetchPayrollDetail();
-    } catch (error) {
-      console.error('Error approving payroll:', error);
+    } catch (approveError) {
+      console.error('Error approving payroll:', approveError);
+      setError(approveError.response?.data?.message || 'Failed to approve payroll');
     } finally {
       setActionLoading(false);
     }
@@ -396,6 +411,7 @@ const PayrollDetail = () => {
           <Typography variant="h4">
             Payroll Details
           </Typography>
+          <PayrollProrationBadge payroll={payroll} />
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
@@ -432,7 +448,15 @@ const PayrollDetail = () => {
               color="success"
               startIcon={<ApproveIcon />}
               onClick={handleApprove}
-              disabled={actionLoading}
+              disabled={
+                actionLoading
+                || monthlyApproval?.authorityStatus !== 'approved'
+              }
+              title={
+                monthlyApproval?.authorityStatus !== 'approved'
+                  ? 'Monthly payroll approval authorities must all approve first'
+                  : ''
+              }
             >
               Approve
             </Button>

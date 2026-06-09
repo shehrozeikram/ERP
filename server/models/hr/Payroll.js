@@ -4,28 +4,48 @@ const {
   vehicleFuelTotal,
   vehicleAllowanceAmount,
   fuelAllowanceAmount,
-  payrollAllowancesFromEmployee
+  payrollAllowancesFromEmployee,
+  additionalAllowancesTotal,
+  getEmployeeEobiDeduction
 } = require('../../utils/allowanceHelpers');
+const {
+  applyJoiningProration,
+  buildProrationRemarksSuffix,
+  adjustAttendanceForJoiningProration
+} = require('../../utils/payrollJoiningProration');
 
 // Helper function to calculate loan deductions from active loans
-const calculateLoanDeductions = async (employeeId) => {
+/**
+ * Effective deduction for a single loan in a given month/year.
+ * Returns 0 if the loan is paused; returns override amount if set; otherwise normal EMI.
+ */
+const effectiveLoanDeduction = (loan, month, year) => {
+  const m = Number(month);
+  const y = Number(year);
+
+  // Paused → skip
+  if (loan.pausedMonths && loan.pausedMonths.some((p) => p.month === m && p.year === y)) {
+    return 0;
+  }
+
+  return loan.monthlyInstallment || 0;
+};
+
+const calculateLoanDeductions = async (employeeId, month, year) => {
   try {
     const Loan = mongoose.model('Loan');
     const activeLoans = await Loan.find({
       employee: employeeId,
       status: { $in: ['Active', 'Disbursed', 'Approved'] }
     });
-    
-    console.log(`🔍 Found ${activeLoans.length} active loans for employee ${employeeId}`);
-    activeLoans.forEach(loan => {
-      console.log(`   - ${loan.loanType} Loan: ${loan.status} status, EMI: ${loan.monthlyInstallment}`);
-    });
-    
+
+    const nowMonth = month || new Date().getMonth() + 1;
+    const nowYear = year || new Date().getFullYear();
+
     const totalDeductions = activeLoans.reduce((total, loan) => {
-      return total + (loan.monthlyInstallment || 0);
+      return total + effectiveLoanDeduction(loan, nowMonth, nowYear);
     }, 0);
-    
-    console.log(`💰 Total loan deductions calculated: ${totalDeductions}`);
+
     return totalDeductions;
   } catch (error) {
     console.error('Error calculating loan deductions:', error);
@@ -770,32 +790,55 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     throw new Error('Payroll already exists for this month');
   }
 
-  // Get employee salary structure
-  const basicSalary = employee.salary.basic || 0;
+  const monthlyGross =
+    Number(employee.salary?.gross) ||
+    (Number(employee.salary?.basic) || 0) + additionalAllowancesTotal(employee.allowances);
+
+  const prorationResult = applyJoiningProration(employee, month, year, monthlyGross);
+  if (prorationResult.skipPayroll) {
+    throw new Error(
+      prorationResult.proration?.reason || 'Employee not yet joined in this payroll period'
+    );
+  }
+
+  const proration = prorationResult.proration;
+  const grossSalary = prorationResult.grossSalary;
+  const factor = proration.factor;
+
+  // Get employee salary structure (prorated in join month)
+  const basicSalary = Math.round((employee.salary.basic || grossSalary * 0.6666) * (factor < 1 ? factor : 1));
   
   // Calculate attendance (26 working days per month - excluding Sundays)
-  const totalWorkingDays = attendanceData.totalWorkingDays || 26; // Default: 26 working days
-  const presentDays = attendanceData.presentDays || totalWorkingDays;
-  const absentDays = attendanceData.absentDays || 0;
-  const leaveDays = attendanceData.leaveDays || 0;
+  let totalWorkingDays = attendanceData.totalWorkingDays || 26;
+  let presentDays = attendanceData.presentDays || totalWorkingDays;
+  let absentDays = attendanceData.absentDays || 0;
+  let leaveDays = attendanceData.leaveDays || 0;
   
-  // Get employee allowances (only active ones)
-  const payrollAllowances = payrollAllowancesFromEmployee(employee.allowances);
-
-  // Calculate gross salary (basic + all active allowances)
-  const totalAllowances = Object.values(payrollAllowances).reduce((sum, allowance) => {
-    return sum + (allowance.isActive ? allowance.amount : 0);
-  }, 0);
-  
-  const grossSalary = basicSalary + totalAllowances;
+  // Get employee allowances (only active ones, prorated in join month)
+  const payrollAllowances = payrollAllowancesFromEmployee(prorationResult.allowances);
   
   // Calculate automatic allowances based on gross salary
   const automaticMedicalAllowance = Math.round(grossSalary * 0.10); // 10% of gross salary
   const automaticHouseRentAllowance = Math.round(grossSalary * 0.2334); // 23.34% of gross salary
   
-  // Calculate daily rate for attendance deduction (26-day basis)
-  const dailyRate = grossSalary / 26; // Simple: Gross Salary ÷ 26
-  const attendanceDeduction = absentDays * dailyRate; // Deduct for each absent day
+  const adjustedAttendance = adjustAttendanceForJoiningProration(
+    {
+      totalWorkingDays,
+      presentDays,
+      absentDays,
+      leaveDays,
+      dailyRate: grossSalary / totalWorkingDays,
+      attendanceDeduction: absentDays * (grossSalary / totalWorkingDays)
+    },
+    proration,
+    grossSalary
+  );
+  totalWorkingDays = adjustedAttendance.totalWorkingDays;
+  presentDays = adjustedAttendance.presentDays;
+  absentDays = adjustedAttendance.absentDays;
+  leaveDays = adjustedAttendance.leaveDays;
+  const dailyRate = adjustedAttendance.dailyRate;
+  const attendanceDeduction = adjustedAttendance.attendanceDeduction;
 
   // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses + Arrears)
   const additionalAllowances = 
@@ -842,7 +885,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
 
   // Get loan deductions
   // Calculate total loan deductions from active loans
-  const loanDeductions = await calculateLoanDeductions(employee._id);
+  const loanDeductions = await calculateLoanDeductions(employee._id, month, year);
 
   // Create payroll object
   const payrollData = {
@@ -879,7 +922,13 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     attendanceDeduction: attendanceDeduction,
     grossSalary: grossSalary,
     totalEarnings: totalEarnings,
+    eobi: (() => {
+      let eobi = getEmployeeEobiDeduction(employee);
+      if (factor < 1) eobi = Math.round(eobi * factor);
+      return eobi;
+    })(),
     currency: employee.currency || 'PKR',
+    remarks: `Monthly payroll generated for ${month}/${year}${buildProrationRemarksSuffix(proration)}`,
     status: 'Draft',
     createdBy: attendanceData.createdBy || 'system'
   };

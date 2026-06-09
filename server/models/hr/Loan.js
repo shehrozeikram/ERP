@@ -147,9 +147,17 @@ const loanSchema = new mongoose.Schema({
     },
     status: {
       type: String,
-      enum: ['Pending', 'Paid', 'Overdue', 'Partial'],
+      enum: ['Pending', 'Paid', 'Overdue', 'Partial', 'Paused'],
       default: 'Pending'
     },
+    isPauseExtension: {
+      type: Boolean,
+      default: false
+    },
+    pauseMonth: { type: Number, min: 1, max: 12 },
+    pauseYear: { type: Number },
+    pauseCalendarMonth: { type: Number, min: 1, max: 12 },
+    pauseCalendarYear: { type: Number },
     paymentDate: {
       type: Date
     },
@@ -238,6 +246,23 @@ const loanSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
+  /**
+   * Paused months: deduction is skipped for payroll in these month/year combinations.
+   * The installment is NOT forgiven — the loan term effectively extends by the paused months
+   * (or it's caught up later). Records are kept for audit.
+   */
+  pausedMonths: [{
+    month: { type: Number, required: true, min: 1, max: 12 },
+    year: { type: Number, required: true },
+    reason: { type: String, trim: true, maxlength: 300 },
+    pausedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    pausedAt: { type: Date, default: Date.now }
+  }],
+  /** When true, pre-save will not overwrite monthlyInstallment from loanAmount/term. */
+  emiManuallyAdjusted: {
+    type: Boolean,
+    default: false
+  },
   // Audit fields
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -266,8 +291,8 @@ loanSchema.virtual('progressPercentage').get(function() {
 
 // Virtual for remaining installments
 loanSchema.virtual('remainingInstallments').get(function() {
-  return this.loanSchedule.filter(installment => 
-    ['Pending', 'Overdue', 'Partial'].includes(installment.status)
+  return this.loanSchedule.filter(installment =>
+    ['Pending', 'Overdue', 'Partial', 'Paused'].includes(installment.status)
   ).length;
 });
 
@@ -281,8 +306,18 @@ loanSchema.virtual('nextDueDate').get(function() {
 
 // Pre-save middleware to calculate loan details
 loanSchema.pre('save', function(next) {
-  // Always calculate for new documents or when loan details are modified
-  if (this.isNew || this.isModified('loanAmount') || this.isModified('interestRate') || this.isModified('loanTerm')) {
+  if (this.isModified('loanAmount') || this.isModified('interestRate')) {
+    this.emiManuallyAdjusted = false;
+  }
+
+  const shouldAutoCalcEmi =
+    !this.emiManuallyAdjusted &&
+    (this.isNew ||
+      this.isModified('loanAmount') ||
+      this.isModified('interestRate') ||
+      this.isModified('loanTerm'));
+
+  if (shouldAutoCalcEmi) {
     // Calculate monthly installment using EMI formula
     const principal = this.loanAmount;
     const rate = this.interestRate / 100 / 12; // Monthly interest rate
@@ -352,6 +387,93 @@ loanSchema.methods.generateLoanSchedule = function() {
   
   this.loanSchedule = schedule;
   return schedule;
+};
+
+/**
+ * Recalculate pending schedule when EMI is permanently adjusted.
+ * Paid/partial installments are kept; remaining months auto increase or decrease.
+ */
+loanSchema.methods.recalculateScheduleFromNewEmi = function(newEmi) {
+  const {
+    calculateRemainingMonths,
+    getRemainingPrincipal,
+    getNextDueDate,
+    buildPendingSchedule,
+    sumUnpaidScheduleAmount
+  } = require('../../utils/loanEmiRecalculation');
+
+  const previousEmi = this.monthlyInstallment;
+  const previousTerm = this.loanSchedule?.length || this.loanTerm || 0;
+  const emi = Math.round(Number(newEmi));
+
+  if (!emi || emi <= 0) {
+    throw new Error('EMI must be greater than zero');
+  }
+
+  const remainingPrincipal = getRemainingPrincipal(this);
+
+  if (remainingPrincipal <= 0) {
+    this.monthlyInstallment = emi;
+    this.emiManuallyAdjusted = true;
+    return {
+      previousEmi,
+      newEmi: emi,
+      previousTerm,
+      newTerm: this.loanSchedule?.length || 0,
+      remainingMonths: 0,
+      outstandingBalance: 0
+    };
+  }
+
+  const remainingMonths = calculateRemainingMonths(
+    remainingPrincipal,
+    emi,
+    this.interestRate
+  );
+
+  const keptSchedule = (this.loanSchedule || []).filter((i) =>
+    ['Paid', 'Partial'].includes(i.status)
+  );
+
+  const startNumber =
+    keptSchedule.length > 0
+      ? Math.max(...keptSchedule.map((i) => i.installmentNumber)) + 1
+      : 1;
+
+  const newPending = buildPendingSchedule({
+    principal: remainingPrincipal,
+    emi,
+    interestRate: this.interestRate,
+    months: remainingMonths,
+    startInstallmentNumber: startNumber,
+    startDueDate: getNextDueDate(this, keptSchedule)
+  });
+
+  this.loanSchedule = [...keptSchedule, ...newPending];
+  this.monthlyInstallment = emi;
+  this.loanTerm = this.loanSchedule.length;
+  this.emiManuallyAdjusted = true;
+  this.outstandingBalance = sumUnpaidScheduleAmount(this.loanSchedule);
+  this.totalPayable = (this.totalPaid || 0) + this.outstandingBalance;
+
+  if ((this.pausedMonths || []).length > 0) {
+    const { reconcileScheduleWithPauses } = require('../../utils/loanPauseSchedule');
+    reconcileScheduleWithPauses(this);
+  }
+
+  return {
+    previousEmi,
+    newEmi: emi,
+    previousTerm,
+    newTerm: this.loanTerm,
+    remainingMonths: newPending.length,
+    outstandingBalance: this.outstandingBalance
+  };
+};
+
+loanSchema.methods.reconcileScheduleWithPauses = function() {
+  const { reconcileScheduleWithPauses } = require('../../utils/loanPauseSchedule');
+  return reconcileScheduleWithPauses(this);
 };
 
 // Method to process payment
