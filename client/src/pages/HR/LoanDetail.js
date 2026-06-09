@@ -51,11 +51,13 @@ import {
   Comment as CommentIcon,
   Pause as PauseIcon,
   PlayArrow as ResumeIcon,
-  EditNote as AdjustIcon
+  EditNote as AdjustIcon,
+  PictureAsPdf as PdfIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { loanService } from '../../services/loanService';
 import { formatPKR } from '../../utils/currency';
+import { downloadLoanDetailPDF } from '../../utils/loanDetailPDF';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -263,6 +265,15 @@ const LoanDetail = () => {
       month: 'long',
       day: 'numeric'
     });
+  };
+
+  const handleDownloadPDF = () => {
+    try {
+      downloadLoanDetailPDF(loan);
+      setSuccess('Loan PDF downloaded successfully');
+    } catch (err) {
+      setError(err.message || 'Failed to download PDF');
+    }
   };
 
   const renderLoanSummary = () => (
@@ -701,17 +712,27 @@ const LoanDetail = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box display="flex" alignItems="center" mb={3}>
+      <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2} mb={3}>
+        <Box display="flex" alignItems="center">
+          <Button
+            startIcon={<BackIcon />}
+            onClick={() => navigate('/hr/loans')}
+            sx={{ mr: 2 }}
+          >
+            Back
+          </Button>
+          <Typography variant="h4" component="h1">
+            Loan Details
+          </Typography>
+        </Box>
         <Button
-          startIcon={<BackIcon />}
-          onClick={() => navigate('/hr/loans')}
-          sx={{ mr: 2 }}
+          variant="outlined"
+          color="primary"
+          startIcon={<PdfIcon />}
+          onClick={handleDownloadPDF}
         >
-          Back
+          Download PDF
         </Button>
-        <Typography variant="h4" component="h1">
-          Loan Details
-        </Typography>
       </Box>
 
       {error && (

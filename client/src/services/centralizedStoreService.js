@@ -13,8 +13,16 @@ const centralizedStoreService = {
     const res = await api.put('/admin/centralized-store', body);
     return res.data;
   },
+  addSiteOption: async (name) => {
+    const res = await api.post('/admin/centralized-store/site-options', { name });
+    return res.data;
+  },
   seedDefaults: async () => {
     const res = await api.post('/admin/centralized-store/seed-defaults');
+    return res.data;
+  },
+  importUtility2026: async (replace = false) => {
+    const res = await api.post('/admin/centralized-store/import-utility-2026', { replace });
     return res.data;
   },
   createCategory: async (body) => {

@@ -6,6 +6,17 @@ const Employee = require('../models/hr/Employee');
 const { authMiddleware } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permissions');
 
+const EMPLOYEE_DETAIL_POPULATE = {
+  path: 'employee',
+  select: 'employeeId firstName lastName email phone department position placementDepartment placementDesignation',
+  populate: [
+    { path: 'department', select: 'name code' },
+    { path: 'placementDepartment', select: 'name code' },
+    { path: 'position', select: 'title' },
+    { path: 'placementDesignation', select: 'title' }
+  ]
+};
+
 // Get all loans with pagination and filters
 router.get('/', authMiddleware, async (req, res) => {
   try {
@@ -118,7 +129,7 @@ router.get('/employee/:employeeId', authMiddleware, async (req, res) => {
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const loan = await Loan.findById(req.params.id)
-      .populate('employee', 'employeeId firstName lastName email phone')
+      .populate(EMPLOYEE_DETAIL_POPULATE)
       .populate('approvedBy', 'firstName lastName')
       .populate('disbursedBy', 'firstName lastName')
       .populate('createdBy', 'firstName lastName')

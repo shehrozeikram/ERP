@@ -1,5 +1,17 @@
 const mongoose = require('mongoose');
 
+const DEFAULT_SITE_OPTIONS = [
+  'SGC',
+  'President Personal',
+  'Head Office',
+  'Jagha',
+  'Boly.pk',
+  'Hamza',
+  'Edu.Head Office',
+  'SGC Health',
+  'Tenacious'
+];
+
 /** Singleton-style config for the admin centralized store. */
 const utilityCentralStoreSchema = new mongoose.Schema({
   name: {
@@ -17,6 +29,11 @@ const utilityCentralStoreSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  /** Selectable site names for store items (admin can add more). */
+  siteOptions: {
+    type: [String],
+    default: () => [...DEFAULT_SITE_OPTIONS]
+  },
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -26,10 +43,20 @@ const utilityCentralStoreSchema = new mongoose.Schema({
 utilityCentralStoreSchema.statics.getOrCreate = async function (userId) {
   let store = await this.findOne();
   if (!store) {
-    store = await this.create({ name: 'Centralized Store', updatedBy: userId });
+    store = await this.create({
+      name: 'Centralized Store',
+      siteOptions: [...DEFAULT_SITE_OPTIONS],
+      updatedBy: userId
+    });
+  } else if (!store.siteOptions?.length) {
+    store.siteOptions = [...DEFAULT_SITE_OPTIONS];
+    store.updatedBy = userId;
+    await store.save();
   }
   return store;
 };
+
+utilityCentralStoreSchema.statics.DEFAULT_SITE_OPTIONS = DEFAULT_SITE_OPTIONS;
 
 /**
  * Returns the next unique catalog item code (CSI-######).

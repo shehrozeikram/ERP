@@ -6,8 +6,13 @@ const permissions = require('../middleware/permissions');
 const UtilityCentralStore = require('../models/hr/UtilityCentralStore');
 const UtilityStoreCategory = require('../models/hr/UtilityStoreCategory');
 const UtilityStoreItem = require('../models/hr/UtilityStoreItem');
+const Department = require('../models/hr/Department');
 const Account = require('../models/finance/Account');
 const FinanceHelper = require('../utils/financeHelper');
+const { importUtilityBills2026 } = require('../utils/importUtilityBills2026');
+
+const loadDepartments = () =>
+  Department.find({ isActive: true }).select('name code').sort({ name: 1 }).lean();
 
 const getActorId = (req) => req.user?._id || req.user?.id;
 
@@ -66,13 +71,17 @@ router.get(
         .limit(500)
         .lean();
 
+      const departments = await loadDepartments();
+
       res.json({
         success: true,
         data: {
           store,
           categories,
           items,
-          expenseAccounts
+          expenseAccounts,
+          departments,
+          siteOptions: store.siteOptions || []
         }
       });
     } catch (error) {
@@ -94,7 +103,43 @@ router.get(
         .lean();
       const items = await populateItem(UtilityStoreItem.find().sort({ sortOrder: 1, name: 1 }));
 
-      res.json({ success: true, data: { store, categories, items } });
+      const departments = await loadDepartments();
+
+      res.json({
+        success: true,
+        data: {
+          store,
+          categories,
+          items,
+          departments,
+          siteOptions: store.siteOptions || []
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+router.post(
+  '/site-options',
+  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  async (req, res) => {
+    try {
+      const name = String(req.body.name || '').trim();
+      if (!name) {
+        return res.status(400).json({ success: false, message: 'Site name is required' });
+      }
+      const store = await UtilityCentralStore.getOrCreate(getActorId(req));
+      const options = [...(store.siteOptions || [])];
+      if (!options.some((s) => s.toLowerCase() === name.toLowerCase())) {
+        options.push(name);
+        options.sort((a, b) => a.localeCompare(b));
+        store.siteOptions = options;
+        store.updatedBy = getActorId(req);
+        await store.save();
+      }
+      res.json({ success: true, data: { siteOptions: store.siteOptions } });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -262,6 +307,29 @@ router.delete(
     try {
       await UtilityStoreItem.findByIdAndDelete(req.params.id);
       res.json({ success: true, message: 'Item deleted' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+/** Import IESCO, SNGPL, PTCL-Nayatel, CDA Water from bundled 2026 utility bills data */
+router.post(
+  '/import-utility-2026',
+  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'),
+  async (req, res) => {
+    try {
+      const replace = Boolean(req.body?.replace);
+      const result = await importUtilityBills2026({
+        actorId: getActorId(req),
+        replace
+      });
+      const itemCount = result.itemsCreated + result.itemsUpdated;
+      res.json({
+        success: true,
+        message: `Imported 2026 utility data. ${result.categoriesCreated} category(ies), ${itemCount} item(s) saved.`,
+        data: result
+      });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }

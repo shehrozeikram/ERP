@@ -28,6 +28,7 @@
     "clean:admin-audit-local": "node scripts/clean-admin-audit-local-only.js --yes",
     "clean:monthly-payroll-dev": "node scripts/clean-monthly-payroll-dev-only.js",
     "seed:admin-utility-bill-local": "node scripts/seed-admin-utility-bill-local-only.js --yes",
+    "seed:utility-2026": "node scripts/seed-centralized-store-utility-2026.js --yes",
     "clean:finance-procurement:keep-masters": "node scripts/clean-finance-procurement-keep-masters.js --yes",
     "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js",
     "import:procurement-vendors": "node server/scripts/import-procurement-vendors-xlsx.js",

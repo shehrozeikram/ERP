@@ -1254,7 +1254,7 @@ const UtilityBillForm = () => {
                           <TableCell>Category</TableCell>
                           <TableCell>Item</TableCell>
                           <TableCell>Description</TableCell>
-                          {isCentralizedStoreBill && <TableCell>Site</TableCell>}
+                          {isCentralizedStoreBill && <TableCell>Account</TableCell>}
                           {isCentralizedStoreBill && <TableCell>Location</TableCell>}
                           {!isCentralizedStoreBill && <TableCell>Location</TableCell>}
                           <TableCell>Due date</TableCell>
