@@ -1,18 +1,26 @@
 const OrgChartNode = require('../models/hr/OrgChartNode');
+const { getDims } = require('./orgChartLayout');
 
-const toClientNode = (doc) => ({
-  id: doc._id.toString(),
-  _id: doc._id.toString(),
-  parent: doc.parent ? doc.parent.toString() : null,
-  isRoot: !!doc.isRoot,
-  title: doc.title,
-  name: doc.name || '',
-  type: doc.type,
-  isVacant: !!doc.isVacant,
-  sortOrder: doc.sortOrder ?? 0,
-  legacyId: doc.legacyId || '',
-  isActive: doc.isActive !== false
-});
+const toClientNode = (doc) => {
+  const dims = getDims(doc);
+  return {
+    id: doc._id.toString(),
+    _id: doc._id.toString(),
+    parent: doc.parent ? doc.parent.toString() : null,
+    isRoot: !!doc.isRoot,
+    title: doc.title,
+    name: doc.name || '',
+    type: doc.type,
+    isVacant: !!doc.isVacant,
+    sortOrder: doc.sortOrder ?? 0,
+    posX: doc.posX,
+    posY: doc.posY,
+    width: doc.width || dims.width,
+    height: doc.height || dims.height,
+    legacyId: doc.legacyId || '',
+    isActive: doc.isActive !== false
+  };
+};
 
 const sortChildren = (node) => {
   if (!node.children) return;
@@ -71,10 +79,12 @@ const deleteNodeCascade = async (nodeId) => {
   return ids.size;
 };
 
-const seedFromNestedTree = async (tree, userId) => {
+const seedFromNestedTree = async (tree, userId, layoutPositions = {}) => {
   await OrgChartNode.deleteMany({});
 
   const insertNode = async (node, parentId, sortOrder, isRoot = false) => {
+    const dims = getDims(node);
+    const layout = layoutPositions[node.id] || {};
     const doc = await OrgChartNode.create({
       parent: parentId,
       isRoot,
@@ -83,6 +93,10 @@ const seedFromNestedTree = async (tree, userId) => {
       type: node.type || 'staff',
       isVacant: !!node.isVacant,
       sortOrder,
+      posX: layout.posX ?? null,
+      posY: layout.posY ?? null,
+      width: layout.width || dims.width,
+      height: layout.height || dims.height,
       legacyId: node.id || '',
       createdBy: userId,
       updatedBy: userId

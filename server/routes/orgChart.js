@@ -12,6 +12,12 @@ const {
   seedFromNestedTree,
   countNodes
 } = require('../utils/orgChartTree');
+const {
+  getDims,
+  needsLayout,
+  applyLayoutToDatabase,
+  computeLayoutFromTree
+} = require('../utils/orgChartLayout');
 
 const router = express.Router();
 const perm = (action) => permissions.checkSubRolePermission('hr', 'organizational_development', action);
@@ -41,7 +47,29 @@ router.get('/tree', perm('read'), asyncHandler(async (req, res) => {
 // GET /api/hr/org-chart/nodes — flat list for editor
 router.get('/nodes', perm('read'), asyncHandler(async (req, res) => {
   const flat = await loadFlatNodes();
-  res.json({ success: true, data: flat.map(toClientNode), count: flat.length });
+  res.json({
+    success: true,
+    data: flat.map(toClientNode),
+    count: flat.length,
+    needsLayout: needsLayout(flat)
+  });
+}));
+
+// GET /api/hr/org-chart/canvas — flat nodes for Visio-style canvas
+router.get('/canvas', perm('read'), asyncHandler(async (req, res) => {
+  const flat = await loadFlatNodes();
+  if (!flat.length) {
+    return res.json({ success: true, empty: true, data: [], count: 0 });
+  }
+  const tree = buildTreeFromFlat(flat);
+  res.json({
+    success: true,
+    empty: false,
+    data: flat.map(toClientNode),
+    tree,
+    count: flat.length,
+    needsLayout: needsLayout(flat)
+  });
 }));
 
 // GET /api/hr/org-chart/meta
@@ -68,9 +96,10 @@ router.post('/nodes', perm('create'), nodeValidators, asyncHandler(async (req, r
     return res.status(400).json({ success: false, errors: errors.array() });
   }
 
-  const { title, name, type, isVacant, parentId } = req.body;
+  const { title, name, type, isVacant, parentId, posX, posY } = req.body;
   let parent = null;
   let sortOrder = 0;
+  const dims = getDims({ type });
 
   if (parentId) {
     parent = await OrgChartNode.findById(parentId);
@@ -100,6 +129,10 @@ router.post('/nodes', perm('create'), nodeValidators, asyncHandler(async (req, r
     type,
     isVacant: !!isVacant,
     sortOrder,
+    posX: typeof posX === 'number' ? posX : null,
+    posY: typeof posY === 'number' ? posY : null,
+    width: dims.width,
+    height: dims.height,
     createdBy: getActorId(req),
     updatedBy: getActorId(req)
   });
@@ -178,6 +211,41 @@ router.patch('/nodes/:id/move', perm('update'), asyncHandler(async (req, res) =>
   await doc.save();
 
   res.json({ success: true, data: toClientNode(doc) });
+}));
+
+// PATCH /api/hr/org-chart/nodes/:id/position — Visio-style free placement
+router.patch('/nodes/:id/position', perm('update'), asyncHandler(async (req, res) => {
+  const { posX, posY, width, height } = req.body;
+  const doc = await OrgChartNode.findById(req.params.id);
+  if (!doc || !doc.isActive) {
+    return res.status(404).json({ success: false, message: 'Node not found' });
+  }
+
+  if (typeof posX === 'number') doc.posX = posX;
+  if (typeof posY === 'number') doc.posY = posY;
+  if (typeof width === 'number' && width >= 80) doc.width = width;
+  if (typeof height === 'number' && height >= 40) doc.height = height;
+  doc.updatedBy = getActorId(req);
+  await doc.save();
+
+  res.json({ success: true, data: toClientNode(doc) });
+}));
+
+// POST /api/hr/org-chart/auto-layout — arrange all nodes like Visio org chart wizard
+router.post('/auto-layout', perm('update'), asyncHandler(async (req, res) => {
+  const flat = await loadFlatNodes();
+  if (!flat.length) {
+    return res.status(400).json({ success: false, message: 'No nodes to layout' });
+  }
+  const tree = buildTreeFromFlat(flat);
+  await applyLayoutToDatabase(flat, tree, getActorId(req));
+  const updated = await loadFlatNodes();
+  res.json({
+    success: true,
+    message: 'Auto layout applied',
+    data: updated.map(toClientNode),
+    count: updated.length
+  });
 }));
 
 // PATCH /api/hr/org-chart/nodes/:id/reorder — swap with sibling
@@ -267,9 +335,13 @@ router.post('/seed', perm('create'), asyncHandler(async (req, res) => {
     });
   }
 
-  const root = await seedFromNestedTree(defaultTree, getActorId(req));
+  const layoutByLegacyId = computeLayoutFromTree(defaultTree);
+  const root = await seedFromNestedTree(defaultTree, getActorId(req), layoutByLegacyId);
   const flat = await loadFlatNodes();
   const tree = buildTreeFromFlat(flat);
+  if (needsLayout(flat)) {
+    await applyLayoutToDatabase(flat, tree, getActorId(req));
+  }
 
   res.json({
     success: true,

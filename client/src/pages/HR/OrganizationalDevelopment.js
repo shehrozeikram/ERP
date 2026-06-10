@@ -242,9 +242,9 @@ const OrganizationalDevelopment = () => {
                       sx={{ justifyContent: 'flex-start', p: 2 }}
                     >
                       <Box sx={{ textAlign: 'left' }}>
-                        <Typography variant="subtitle2">Org Chart Editor</Typography>
+                        <Typography variant="subtitle2">Visio-style Editor</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          Add, move, and edit Project / Department / Staff nodes
+                          Drag shapes, connect lines — like Microsoft Visio
                         </Typography>
                       </Box>
                     </Button>

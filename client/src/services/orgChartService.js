@@ -9,6 +9,18 @@ const orgChartService = {
     const res = await api.get('/hr/org-chart/nodes');
     return res.data;
   },
+  getCanvas: async () => {
+    const res = await api.get('/hr/org-chart/canvas');
+    return res.data;
+  },
+  updatePosition: async (id, body) => {
+    const res = await api.patch(`/hr/org-chart/nodes/${id}/position`, body);
+    return res.data;
+  },
+  autoLayout: async () => {
+    const res = await api.post('/hr/org-chart/auto-layout');
+    return res.data;
+  },
   getMeta: async () => {
     const res = await api.get('/hr/org-chart/meta');
     return res.data;

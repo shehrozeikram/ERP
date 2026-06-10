@@ -40,6 +40,22 @@ const orgChartNodeSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  posX: {
+    type: Number,
+    default: null
+  },
+  posY: {
+    type: Number,
+    default: null
+  },
+  width: {
+    type: Number,
+    default: 160
+  },
+  height: {
+    type: Number,
+    default: 64
+  },
   legacyId: {
     type: String,
     trim: true,
