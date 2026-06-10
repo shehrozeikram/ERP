@@ -31,7 +31,6 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useData } from '../../../contexts/DataContext';
 import generalCashApprovalService from '../../../services/generalCashApprovalService';
 import {
   approverSearchOnInputChange,
@@ -84,12 +83,13 @@ const GeneralCashApprovalForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { departments, fetchDepartments } = useData();
   const isEdit = Boolean(id);
 
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [departmentOptions, setDepartmentOptions] = useState([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
   const [lines, setLines] = useState([emptyLine()]);
   const [header, setHeader] = useState({
     purpose: '',
@@ -154,11 +154,26 @@ const GeneralCashApprovalForm = () => {
     }
   };
 
+  const loadDepartments = async () => {
+    setDepartmentsLoading(true);
+    try {
+      const res = await generalCashApprovalService.getDepartments();
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setDepartmentOptions(list);
+    } catch (err) {
+      setDepartmentOptions([]);
+      const msg = err.response?.data?.message || 'Could not load departments';
+      toast.error(msg);
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchDepartments?.();
+    loadDepartments();
     loadApproverOptions('');
     loadAdvanceEmployees('');
-  }, [fetchDepartments]);
+  }, []);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -393,16 +408,22 @@ const GeneralCashApprovalForm = () => {
                 label="Department"
                 value={header.requestingDepartment || ''}
                 onChange={(e) => setHeader({ ...header, requestingDepartment: e.target.value })}
+                disabled={departmentsLoading}
               >
                 <MenuItem value="">
-                  <em>Select department</em>
+                  <em>{departmentsLoading ? 'Loading departments...' : 'Select department'}</em>
                 </MenuItem>
-                {(departments || []).map((d) => (
+                {departmentOptions.map((d) => (
                   <MenuItem key={d._id || d.name} value={d.name}>
                     {d.name}
                   </MenuItem>
                 ))}
               </Select>
+              {!departmentsLoading && departmentOptions.length === 0 && (
+                <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                  No departments available. Contact HR to add active departments.
+                </Typography>
+              )}
             </FormControl>
           </Grid>
           <Grid item xs={12} md={3}>

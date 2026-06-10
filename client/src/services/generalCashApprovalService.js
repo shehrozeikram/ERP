@@ -1,6 +1,11 @@
 import api from './api';
 
 const generalCashApprovalService = {
+  getDepartments: async () => {
+    const response = await api.get('/cash-approvals/general/departments');
+    return response.data;
+  },
+
   getApproverCandidates: async (params = {}) => {
     const response = await api.get('/cash-approvals/general/approver-candidates', { params });
     return response.data;

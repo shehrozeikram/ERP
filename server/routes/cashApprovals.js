@@ -33,6 +33,7 @@ const {
 } = require('../utils/generalCashApproval');
 const { queryApproverCandidateUsers } = require('../utils/utilityBillApproverEligibility');
 const Employee = require('../models/hr/Employee');
+const Department = require('../models/hr/Department');
 const {
   listEmployeesForAdvancePicker,
   resolveGeneralAdvanceRecipient,
@@ -632,6 +633,18 @@ router.get('/finance/advance-payment/outstanding', authMiddleware, asyncHandler(
     outstanding: getCaOpenAdvanceAmount(ca)
   })).filter((r) => r.outstanding > 0);
   res.json({ success: true, data: rows });
+}));
+
+// GET /api/cash-approvals/general/departments
+router.get('/general/departments', authMiddleware, asyncHandler(async (req, res) => {
+  if (!hasGeneralModuleAccess(req.user)) {
+    return res.status(403).json({ success: false, message: 'General module access required' });
+  }
+  const departments = await Department.find({ isActive: true })
+    .select('name code')
+    .sort({ name: 1 })
+    .lean();
+  res.json({ success: true, data: departments });
 }));
 
 // GET /api/cash-approvals/general/approver-candidates
