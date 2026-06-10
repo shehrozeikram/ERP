@@ -173,7 +173,7 @@ def extract_nodes(page) -> list[dict]:
     return nodes
 
 
-def ensure_root_nodes(nodes: list[dict]) -> tuple[dict, dict | None]:
+def ensure_root_nodes(nodes: list[dict]) -> tuple[dict, dict | None, dict]:
     president = {
         "id": "president-sardar-tanveer-ilyas",
         "title": "President",
@@ -204,32 +204,38 @@ def ensure_root_nodes(nodes: list[dict]) -> tuple[dict, dict | None]:
         "root_kind": "patron",
     }
     patron["col"] = column_key(patron)
+    steering = {
+        "id": "president-steering-committee-chairman",
+        "title": "President Steering Committee for Strategic Direction, Evaluation & Monitoring and Chairman of the Board",
+        "name": "Vice Admiral Ahmad Tasnim (Retd)",
+        "x0": 2793,
+        "y0": 360,
+        "x1": 3147,
+        "y1": 420,
+        "cx": 2970,
+        "vacant": False,
+        "parent_id": president["id"],
+        "section": "center",
+        "root_kind": "steering",
+    }
+    steering["col"] = column_key(steering)
 
-    if not any(n["id"] == president["id"] for n in nodes):
-        nodes.insert(0, president)
-    else:
-        for n in nodes:
-            if n["id"] == president["id"]:
-                n.update({k: president[k] for k in president if k != "id"})
-                break
+    for root_node in (president, patron, steering):
+        existing = next((n for n in nodes if n["id"] == root_node["id"]), None)
+        if existing is None:
+            nodes.insert(0, root_node)
+        else:
+            existing.update({k: root_node[k] for k in root_node if k != "id"})
 
-    if not any(n["id"] == patron["id"] for n in nodes):
-        nodes.append(patron)
-    else:
-        for n in nodes:
-            if n["id"] == patron["id"]:
-                n.update({k: patron[k] for k in patron if k != "id"})
-                break
-
-    return president, patron
+    return president, patron, steering
 
 
 def same_column(a: dict, b: dict) -> bool:
     return abs(a["col"] - b["col"]) <= COLUMN_TOLERANCE
 
 
-def assign_parents(nodes: list[dict], president: dict, patron: dict | None) -> None:
-    skip = {president["id"], patron["id"] if patron else ""}
+def assign_parents(nodes: list[dict], president: dict, patron: dict | None, steering: dict | None = None) -> None:
+    skip = {president["id"], patron["id"] if patron else "", steering["id"] if steering else ""}
     by_col: dict[int, list[dict]] = defaultdict(list)
     for node in nodes:
         if node["id"] in skip:
@@ -336,8 +342,8 @@ def assign_parents(nodes: list[dict], president: dict, patron: dict | None) -> N
 
 
 def build_tree(nodes: list[dict]) -> dict:
-    president, patron = ensure_root_nodes(nodes)
-    assign_parents(nodes, president, patron)
+    president, patron, steering = ensure_root_nodes(nodes)
+    assign_parents(nodes, president, patron, steering)
 
     children: dict[str, list[dict]] = defaultdict(list)
     for node in nodes:
@@ -346,7 +352,7 @@ def build_tree(nodes: list[dict]) -> dict:
 
     def node_type(title: str) -> str:
         lower = title.lower()
-        if lower == "president" or ("patron-in-chief" in lower and "education" in lower):
+        if lower == "president" or ("patron-in-chief" in lower and "education" in lower) or "steering committee" in lower:
             return "patron"
         if any(
             key in lower
@@ -380,8 +386,15 @@ def build_tree(nodes: list[dict]) -> dict:
             return "management"
         return "staff"
 
+    def child_sort_key(item: dict) -> tuple:
+        priority = {
+            "patron-in-chief-education": 0,
+            "president-steering-committee-chairman": 1,
+        }
+        return (priority.get(item["id"], 99), item["x0"], item["y0"])
+
     def to_tree(node: dict) -> dict:
-        kids = sorted(children.get(node["id"], []), key=lambda item: (item["x0"], item["y0"]))
+        kids = sorted(children.get(node["id"], []), key=child_sort_key)
         return {
             "id": node["id"],
             "title": node["title"],

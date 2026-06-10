@@ -15,6 +15,10 @@ export const buildConnectorPath = (parent, child, boundsMinX = 0, boundsMinY = 0
   const y1 = boundsMinY + parent.posY + parent.height;
   const x2 = boundsMinX + child.posX + child.width / 2;
   const y2 = boundsMinY + child.posY;
+  // Straight vertical line when stacked in the same column
+  if (Math.abs(x1 - x2) < 8) {
+    return buildStraightPath(x1, y1, x2, y2);
+  }
   const midY = y1 + Math.max(28, (y2 - y1) * 0.5);
   return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
 };

@@ -6,768 +6,192 @@
   "isVacant": false,
   "children": [
     {
-      "id": "pcs-manager-350",
-      "title": "PCS Manager",
-      "name": "currently work CEO",
-      "type": "management",
+      "id": "patron-in-chief-education",
+      "title": "Patron-in-Chief (Education)",
+      "name": "Admiral Abdul Aziz Mirza (Retd)",
+      "type": "patron",
       "isVacant": false,
-      "children": [
-        {
-          "id": "contract-manager-355",
-          "title": "Contract Manager",
-          "name": "",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "sr-estimator-356",
-              "title": "Sr. Estimator",
-              "name": "",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "estimator-357",
-                  "title": "Estimator",
-                  "name": "Sattar",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "sr-planning-engr-348",
-      "title": "Sr. Planning Engr.",
-      "name": "",
-      "type": "management",
-      "isVacant": true,
-      "children": [
-        {
-          "id": "planning-engr-352",
-          "title": "Planning Engr.",
-          "name": "Fut.",
-          "type": "staff",
-          "isVacant": true,
-          "children": [
-            {
-              "id": "risk-mgt-engr-351",
-              "title": "Risk Mgt Engr.",
-              "name": "",
-              "type": "staff",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "supervisor-58",
-      "title": "Supervisor",
-      "name": "M. Akram",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "supervisor-402",
-          "title": "Supervisor",
-          "name": "Shafique",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "ceo-241",
-      "title": "CEO",
-      "name": "",
-      "type": "management",
-      "isVacant": true,
       "children": []
     },
     {
-      "id": "sr-architect-343",
-      "title": "Sr. Architect",
-      "name": "Umair",
-      "type": "management",
+      "id": "president-steering-committee-chairman",
+      "title": "President Steering Committee for Strategic Direction, Evaluation & Monitoring and Chairman of the Board",
+      "name": "Vice Admiral Ahmad Tasnim (Retd)",
+      "type": "patron",
       "isVacant": false,
       "children": [
         {
-          "id": "draftsman-353",
-          "title": "Draftsman",
-          "name": "Sajad Ali",
-          "type": "staff",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "sr-pm-supervision-347",
-      "title": "Sr. PM Supervision",
-      "name": "Zia ullah Khan",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "office-engr-345",
-          "title": "Office Engr.",
-          "name": "Asfandyar Khan",
-          "type": "staff",
+          "id": "project-management-company",
+          "title": "Project Management Company",
+          "name": "",
+          "type": "project",
           "isVacant": false,
           "children": [
             {
-              "id": "sr-sqs-344",
-              "title": "Sr.SQS",
-              "name": "Shahzad",
+              "id": "ceo-241",
+              "title": "CEO",
+              "name": "",
               "type": "management",
-              "isVacant": false,
+              "isVacant": true,
               "children": [
                 {
-                  "id": "q-surveyor-346",
-                  "title": "Q. Surveyor",
-                  "name": "Satar",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "am-store-keeper-146",
-      "title": "AM Store Keeper",
-      "name": "Raja Tariq",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "am-store-147",
-          "title": "AM Store/",
-          "name": "Procurement Zahid Ahmed",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "assistant-manager-218",
-              "title": "Assistant Manager",
-              "name": "Muhammad Usman",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "intern-148",
-                  "title": "Intern",
-                  "name": "Ayaz (Royal Crete)",
-                  "type": "staff",
+                  "id": "pcs-manager-350",
+                  "title": "PCS Manager",
+                  "name": "currently work CEO",
+                  "type": "management",
                   "isVacant": false,
                   "children": [
                     {
-                      "id": "intern-378",
-                      "title": "Intern",
-                      "name": "Suliman",
-                      "type": "staff",
+                      "id": "contract-manager-355",
+                      "title": "Contract Manager",
+                      "name": "",
+                      "type": "management",
                       "isVacant": false,
                       "children": [
                         {
-                          "id": "non-permanent-149",
-                          "title": "Non Permanent",
-                          "name": "Store Helper (1)",
+                          "id": "sr-estimator-356",
+                          "title": "Sr. Estimator",
+                          "name": "",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "estimator-357",
+                              "title": "Estimator",
+                              "name": "Sattar",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "sr-planning-engr-348",
+                      "title": "Sr. Planning Engr.",
+                      "name": "",
+                      "type": "management",
+                      "isVacant": true,
+                      "children": [
+                        {
+                          "id": "planning-engr-352",
+                          "title": "Planning Engr.",
+                          "name": "Fut.",
+                          "type": "staff",
+                          "isVacant": true,
+                          "children": [
+                            {
+                              "id": "risk-mgt-engr-351",
+                              "title": "Risk Mgt Engr.",
+                              "name": "",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "sr-pm-supervision-347",
+                  "title": "Sr. PM Supervision",
+                  "name": "Zia ullah Khan",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": [
+                    {
+                      "id": "sr-architect-343",
+                      "title": "Sr. Architect",
+                      "name": "Umair",
+                      "type": "management",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "draftsman-353",
+                          "title": "Draftsman",
+                          "name": "Sajad Ali",
                           "type": "staff",
                           "isVacant": false,
                           "children": []
                         }
                       ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "cm-road-earthwork-342",
-      "title": "CM Road & Earthwork",
-      "name": "Abrar Ullah",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "cm-mechnical-349",
-          "title": "CM Mechnical",
-          "name": "Malik Zahid",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "cm-electrical-388",
-              "title": "CM Electrical",
-              "name": "",
-              "type": "staff",
-              "isVacant": true,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "gm-admin-112",
-      "title": "GM Admin &",
-      "name": "Procurement M. Nawaz Janjua",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "land-acquisition-0",
-          "title": "Land Acquisition",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "am-land-47",
-              "title": "AM Land",
-              "name": "DSP Abdul Saleem (Retd)",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "land-inspector-nazir-49",
-                  "title": "Land Inspector Nazir",
-                  "name": "Ahmad Roacky",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
+                    },
                     {
-                      "id": "police-coordinator-53",
-                      "title": "Police Coordinator",
-                      "name": "Malik Nasrullah",
+                      "id": "office-engr-344",
+                      "title": "Office Engr.",
+                      "name": "Asfandyar Khan",
                       "type": "management",
                       "isVacant": false,
                       "children": [
                         {
-                          "id": "revenue-officer-48",
-                          "title": "Revenue Officer",
-                          "name": "",
+                          "id": "sr-sqs-345",
+                          "title": "Sr. SQS",
+                          "name": "Shahzad",
                           "type": "management",
-                          "isVacant": true,
+                          "isVacant": false,
                           "children": [
                             {
-                              "id": "revenue-staff-50",
-                              "title": "Revenue Staff",
-                              "name": "Patwari M. Ashfaq (Retd)",
+                              "id": "q-surveyor-346",
+                              "title": "Q. Surveyor",
+                              "name": "Satar",
                               "type": "staff",
                               "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "revenue-staff-163",
-                                  "title": "Revenue Staff",
-                                  "name": "Patwari M. Naseer (Retd)",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "revenue-staff-51",
-                                      "title": "Revenue Staff",
-                                      "name": "Girdawar M. Khan (Retd)",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "assistant-52",
-                                          "title": "Assistant",
-                                          "name": "",
-                                          "type": "staff",
-                                          "isVacant": true,
-                                          "children": [
-                                            {
-                                              "id": "autocad-operator-54",
-                                              "title": "AutoCAD Operator",
-                                              "name": "M. Arshad",
-                                              "type": "staff",
-                                              "isVacant": false,
-                                              "children": [
-                                                {
-                                                  "id": "supervisor-275",
-                                                  "title": "Supervisor",
-                                                  "name": "Tufail Ahmad",
-                                                  "type": "management",
-                                                  "isVacant": false,
-                                                  "children": [
-                                                    {
-                                                      "id": "s-guard-318",
-                                                      "title": "S.Guard",
-                                                      "name": "Amanat Ali",
-                                                      "type": "staff",
-                                                      "isVacant": false,
-                                                      "children": [
-                                                        {
-                                                          "id": "land-security-174",
-                                                          "title": "Land Security",
-                                                          "name": "Non Permanent (3)",
-                                                          "type": "department",
-                                                          "isVacant": false,
-                                                          "children": []
-                                                        }
-                                                      ]
-                                                    }
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "children": []
                             }
                           ]
                         }
                       ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "security-55",
-          "title": "Security",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "hos-56",
-              "title": "HOS",
-              "name": "Zubair Sheikh in Security matter report to GM Admin",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "security-supervisor-384",
-                  "title": "Security Supervisor",
-                  "name": "Arshad",
-                  "type": "department",
-                  "isVacant": false,
-                  "children": [
+                    },
                     {
-                      "id": "assistant-manager-178",
-                      "title": "Assistant Manager",
-                      "name": "Security Rehan Hamid",
+                      "id": "cm-road-earthwork-358",
+                      "title": "CM Road & Earthwork",
+                      "name": "Abrar Ullah",
                       "type": "management",
                       "isVacant": false,
                       "children": [
                         {
-                          "id": "supervisor-124",
-                          "title": "Supervisor",
-                          "name": "Amjad Ashraf",
+                          "id": "cm-mechnical-359",
+                          "title": "CM Mechnical",
+                          "name": "Malik Zahid",
                           "type": "management",
                           "isVacant": false,
                           "children": [
                             {
-                              "id": "assistant-supervisor-59",
-                              "title": "Assistant Supervisor",
-                              "name": "Mehmood Khan",
+                              "id": "cm-electrical-360",
+                              "title": "CM Electrical",
+                              "name": "",
                               "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "supervisor-403",
-                                  "title": "Supervisor",
-                                  "name": "Shafique",
-                                  "type": "management",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "ass-supervisor-273",
-                                      "title": "Ass. Supervisor",
-                                      "name": "Aman Ullah Ghazi",
-                                      "type": "management",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "guards-11-253",
-                                          "title": "Guards (11)",
-                                          "name": "",
-                                          "type": "staff",
-                                          "isVacant": false,
-                                          "children": [
-                                            {
-                                              "id": "sas-security-agency-274",
-                                              "title": "SAS Security Agency",
-                                              "name": "Supervisor 6 Guard 74",
-                                              "type": "department",
-                                              "isVacant": false,
-                                              "children": [
-                                                {
-                                                  "id": "driver-4-175",
-                                                  "title": "Driver (4)",
-                                                  "name": "",
-                                                  "type": "staff",
-                                                  "isVacant": false,
-                                                  "children": []
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "isVacant": true,
+                              "children": []
                             }
                           ]
                         }
                       ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "procurement-187",
-          "title": "Procurement",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "manager-201",
-              "title": "Manager",
-              "name": "M. Talha",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "manager-389",
-                  "title": "Manager",
-                  "name": "M. Talha",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
+                    },
                     {
-                      "id": "manager-193",
-                      "title": "Manager",
-                      "name": "Nadeem",
+                      "id": "qa-qc-engineer-349",
+                      "title": "QA/QC Engineer",
+                      "name": "Tahir Akbar",
                       "type": "management",
                       "isVacant": false,
                       "children": [
                         {
-                          "id": "assistant-manager-190",
-                          "title": "Assistant Manager",
-                          "name": "Haris",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "sr-manager-192",
-                              "title": "Sr. Manager",
-                              "name": "Mishal Younas",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "sr-executive-191",
-                                  "title": "Sr. Executive",
-                                  "name": "Hamza",
-                                  "type": "management",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "helper-purchase-272",
-                                      "title": "Helper purchase",
-                                      "name": "M. Tariq",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "assistant-sup-196",
-                                          "title": "Assistant Sup.",
-                                          "name": "Gull Rehman",
-                                          "type": "staff",
-                                          "isVacant": false,
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "store-111",
-          "title": "Store",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "officer-admin-114",
-              "title": "Officer Admin",
-              "name": "Saqib Javed",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "dr-1-116",
-                  "title": "DR (1)",
-                  "name": "Driver (8) Office Boy (2)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "non-permanent-117",
-                      "title": "Non Permanent",
-                      "name": "Support Staff (7)",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "admin-113",
-          "title": "Admin",
-          "name": "",
-          "type": "staff",
-          "isVacant": false,
-          "children": []
-        },
-        {
-          "id": "workshop-136",
-          "title": "Workshop",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "am-coordination-364",
-              "title": "AM Coordination",
-              "name": "Chi. Inzimam",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "in-charge-workshop-184",
-                  "title": "In charge Workshop",
-                  "name": "Muhammad Asad Chughtaie",
-                  "type": "department",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "am-189",
-                      "title": "AM",
-                      "name": "Farhad",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "coordinator-mushtaq-168",
-                          "title": "Coordinator Mushtaq",
-                          "name": "Subhani",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "supervisor-115",
-                              "title": "Supervisor",
-                              "name": "Raja M. Asif",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "supervisor-197",
-                                  "title": "Supervisor",
-                                  "name": "Rehan Noor Report to Asad Chughtaie",
-                                  "type": "management",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "mechanic-1-137",
-                                      "title": "Mechanic (1)",
-                                      "name": "",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "non-permanent-150",
-                                          "title": "Non Permanent",
-                                          "name": "Helper Mechanic (1)",
-                                          "type": "staff",
-                                          "isVacant": false,
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "information-technology-118",
-          "title": "Information Technology",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "sr-manager-10",
-              "title": "Sr. Manager",
-              "name": "Nasir",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "it-technician-119",
-                  "title": "IT Technician",
-                  "name": "Jalil Akhtar",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "it-intern-363",
-                      "title": "IT Intern",
-                      "name": "Danyal Babar",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "vigilance-120",
-          "title": "Vigilance",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "manager-394",
-              "title": "Manager",
-              "name": "Hassan Akhtar",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "deputy-manager-270",
-                  "title": "Deputy Manager",
-                  "name": "Abdul Rasheed",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "am-88",
-                      "title": "AM",
-                      "name": "M. Yameen",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "inspector-121",
-                          "title": "Inspector",
-                          "name": "M. Altaf",
+                          "id": "material-eng-354",
+                          "title": "Material Eng.",
+                          "name": "Tayab Sabir",
                           "type": "staff",
                           "isVacant": false,
                           "children": [
                             {
-                              "id": "inspector-122",
-                              "title": "Inspector",
-                              "name": "M. Zahoor",
+                              "id": "officer-hse-362",
+                              "title": "Officer HSE",
+                              "name": "Tariq Aziz Baig",
                               "type": "staff",
                               "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "inspector-123",
-                                  "title": "Inspector",
-                                  "name": "Ali Khan",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "inspector-57",
-                                      "title": "Inspector",
-                                      "name": "Gultaj",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "inspector-125",
-                                          "title": "Inspector",
-                                          "name": "M. Asif",
-                                          "type": "staff",
-                                          "isVacant": false,
-                                          "children": [
-                                            {
-                                              "id": "inspector-126",
-                                              "title": "Inspector",
-                                              "name": "M. Faisal",
-                                              "type": "staff",
-                                              "isVacant": false,
-                                              "children": [
-                                                {
-                                                  "id": "inspector-281",
-                                                  "title": "Inspector",
-                                                  "name": "Saeed Ur Rehman",
-                                                  "type": "staff",
-                                                  "isVacant": false,
-                                                  "children": []
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
+                              "children": []
                             }
                           ]
                         }
@@ -778,413 +202,535 @@
               ]
             }
           ]
-        }
-      ]
-    },
-    {
-      "id": "legal-wing-383",
-      "title": "Legal Wing",
-      "name": "Di rect Report to HOD L egal",
-      "type": "department",
-      "isVacant": false,
-      "children": [
+        },
         {
-          "id": "law-officer-in-17",
-          "title": "Law Officer (In-",
-          "name": "House) Asjid Iftikhar",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "law-officer-field-16",
-              "title": "Law Officer (Field)",
-              "name": "Jawad",
-              "type": "management",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "supervisor-358",
-      "title": "Supervisor",
-      "name": "Mr. Ijaz",
-      "type": "management",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "qa-qc-engineer-340",
-      "title": "QA/QC Engineer",
-      "name": "Tahir AKbar",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "material-eng-341",
-          "title": "Material Eng.",
-          "name": "Tayab Sabir",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "officer-hse-128",
-              "title": "Officer HSE",
-              "name": "Tariq Aziz Baig",
-              "type": "management",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "customer-care-404",
-      "title": "Customer Care",
-      "name": "",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "manager-customer-405",
-          "title": "Manager Customer",
-          "name": "Care Sohail Burki",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "officer-transfer-366",
-      "title": "Officer Transfer",
-      "name": "(FO) Miss Mahnoor",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "executive-bo-43",
-          "title": "Executive (BO)",
-          "name": "Asad Niaz",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "transfer-26",
-      "title": "Transfer &",
-      "name": "Possession",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "am-41",
-          "title": "AM",
+          "id": "business-project-1-taj-residencia",
+          "title": "Business Project-1 TAJ RESIDENCIA",
           "name": "",
-          "type": "staff",
-          "isVacant": true,
+          "type": "project",
+          "isVacant": false,
           "children": [
             {
-              "id": "executive-customer-33",
-              "title": "Executive Customer",
-              "name": "Services(FO) Mr. Sadiq",
+              "id": "coo-projects-business-development-taj",
+              "title": "COO PROJECTS & Business Development",
+              "name": "",
               "type": "management",
+              "isVacant": true,
+              "children": []
+            },
+            {
+              "id": "gm-admin-procurement-taj",
+              "title": "GM Admin & Procurement",
+              "name": "M. Nawaz Janjua",
+              "type": "management",
+              "isVacant": false,
+              "children": []
+            },
+            {
+              "id": "taj-procurement-dept",
+              "title": "Procurement",
+              "name": "",
+              "type": "department",
               "isVacant": false,
               "children": [
                 {
-                  "id": "coordinator-bo-39",
-                  "title": "Coordinator (BO)",
-                  "name": "Rooma Shahid",
+                  "id": "taj-procurement-manager-talha",
+                  "title": "Manager",
+                  "name": "M. Talha",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-procurement-manager-nadeem",
+                  "title": "Manager",
+                  "name": "Nadeem",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-procurement-am-haris",
+                  "title": "Assistant Manager",
+                  "name": "Haris",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-procurement-sr-manager-mishal",
+                  "title": "Sr. Manager",
+                  "name": "Mishal Younas",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-procurement-sr-executive-hamza",
+                  "title": "Sr. Executive",
+                  "name": "Hamza",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-procurement-helper-tariq",
+                  "title": "Helper purchase",
+                  "name": "M. Tariq",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-procurement-assistant-sup-gull",
+                  "title": "Assistant Sup.",
+                  "name": "Gull Rehman",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "taj-store-dept",
+              "title": "Store",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-store-am-keeper-raja",
+                  "title": "AM Store Keeper",
+                  "name": "Raja Tariq",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-store-am-procurement-zahid",
+                  "title": "AM Store / Procurement",
+                  "name": "Zahid Ahmed",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-store-am-usman",
+                  "title": "Assistant Manager",
+                  "name": "Muhammad Usman",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-store-intern-ayaz",
+                  "title": "Intern",
+                  "name": "Ayaz (Royal Crete)",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-store-intern-suliman",
+                  "title": "Intern",
+                  "name": "Suliman",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-store-helper-np",
+                  "title": "Non Permanent Store Helper",
+                  "name": "(1)",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "taj-admin-dept",
+              "title": "Admin",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-admin-officer-saqib",
+                  "title": "Officer Admin",
+                  "name": "Saqib Javed",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-admin-dr-drivers",
+                  "title": "DR (1), Driver (8), Office Boy (2)",
+                  "name": "",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-admin-supervisor-ijaz",
+                  "title": "Supervisor",
+                  "name": "Mr. Ijaz",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-admin-support-staff-np",
+                  "title": "Non Permanent Support Staff",
+                  "name": "(7)",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "taj-workshop-dept",
+              "title": "Workshop",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-workshop-incharge-asad",
+                  "title": "In charge Workshop",
+                  "name": "Muhammad Asad Chughtaie",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-workshop-am-farhad",
+                  "title": "AM",
+                  "name": "Farhad",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-workshop-coordinator-mushtaq",
+                  "title": "Coordinator",
+                  "name": "Mushtaq Subhani",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-workshop-supervisor-asif",
+                  "title": "Supervisor",
+                  "name": "Raja M. Asif",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-workshop-supervisor-rehan",
+                  "title": "Supervisor",
+                  "name": "Rehan Noor",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-workshop-mechanic",
+                  "title": "Mechanic",
+                  "name": "(1)",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-workshop-helper-mechanic-np",
+                  "title": "Non Permanent Helper Mechanic",
+                  "name": "(1)",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "taj-am-coordination",
+              "title": "AM Coordination",
+              "name": "Chi. Inzimam",
+              "type": "management",
+              "isVacant": false,
+              "children": []
+            },
+            {
+              "id": "taj-information-technology",
+              "title": "Information Technology",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-it-sr-manager",
+                  "title": "Sr. Manager",
+                  "name": "Nasir",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-it-technician",
+                  "title": "IT Technician",
+                  "name": "Jalil Akhtar",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                },
+                {
+                  "id": "taj-it-intern",
+                  "title": "IT Intern",
+                  "name": "Danyal Babar",
+                  "type": "staff",
+                  "isVacant": false,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "taj-hr-dept",
+              "title": "HR",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-executive-hr",
+                  "title": "Executive HR – TAJ",
+                  "name": "Zubair Ilyas",
                   "type": "management",
                   "isVacant": false,
                   "children": []
                 }
               ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "executive-38",
-      "title": "Executive",
-      "name": "Rameez",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "executive-possession-34",
-          "title": "Executive Possession",
-          "name": "Mr. Najaf",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "post-sales-298",
-      "title": "Post Sales",
-      "name": "Operation",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "manager-ops-30",
-          "title": "Manager Ops",
-          "name": "Waseem",
-          "type": "management",
-          "isVacant": false,
-          "children": [
+            },
             {
-              "id": "accounts-27",
-              "title": "Accounts",
-              "name": "",
-              "type": "department",
+              "id": "taj-agm-muhammad-amjad",
+              "title": "AGM",
+              "name": "Muhammad Amjad",
+              "type": "management",
               "isVacant": false,
               "children": [
                 {
-                  "id": "am-accounts-35",
-                  "title": "AM Accounts",
-                  "name": "Mr. Arsalan",
+                  "id": "taj-post-sales-operation",
+                  "title": "Post Sales Operation",
+                  "name": "",
                   "type": "department",
                   "isVacant": false,
                   "children": [
                     {
-                      "id": "accounts-executive-36",
-                      "title": "Accounts Executive",
-                      "name": "Arum Shaheen",
-                      "type": "department",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "hr-172",
-      "title": "HR",
-      "name": "HR Executive report s to HR Department at Head Office",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "executive-hr-taj-143",
-          "title": "Executive HR – TAJ",
-          "name": "Zubair Ilyas",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "agm-173",
-      "title": "AGM",
-      "name": "Muhammad Amjad",
-      "type": "management",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "land-verification-377",
-      "title": "Land Verification",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "in-charge-team-305",
-          "title": "In charge Team",
-          "name": "Maj. Amjad Hussain",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "deputy-manager-145",
-              "title": "Deputy Manager",
-              "name": "Abdul Qadir Khan",
-              "type": "management",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "sales-ops-370",
-      "title": "Sales Ops.",
-      "name": "Inventory &",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "am-31",
-          "title": "AM",
-          "name": "Zeeshan Ahmad",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "executive-sales-ops-42",
-              "title": "Executive Sales Ops.",
-              "name": "& Inventory Mubarak Khusro",
-              "type": "department",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "sales-5",
-      "title": "Sales",
-      "name": "",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "general-manager-18",
-          "title": "General Manager",
-          "name": "",
-          "type": "management",
-          "isVacant": true,
-          "children": [
-            {
-              "id": "general-manager-19",
-              "title": "General Manager",
-              "name": "",
-              "type": "management",
-              "isVacant": true,
-              "children": [
-                {
-                  "id": "sr-manager-sales-22",
-                  "title": "Sr. Manager Sales",
-                  "name": "Umair Khan",
-                  "type": "department",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "manager-sales-21",
-                      "title": "Manager Sales",
-                      "name": "Samra Yaqoob",
-                      "type": "department",
+                      "id": "taj-manager-ops-waseem",
+                      "title": "Manager Ops",
+                      "name": "Waseem",
+                      "type": "management",
                       "isVacant": false,
                       "children": [
                         {
-                          "id": "am-23",
-                          "title": "AM",
-                          "name": "Syeda Fakhra",
-                          "type": "staff",
+                          "id": "taj-legal-wing",
+                          "title": "Legal Wing",
+                          "name": "",
+                          "type": "department",
                           "isVacant": false,
                           "children": [
                             {
-                              "id": "sales-executive-24",
-                              "title": "Sales Executive",
-                              "name": "Shakeel",
-                              "type": "department",
+                              "id": "taj-law-officer-inhouse",
+                              "title": "Law Officer (In-House)",
+                              "name": "Asjid Iftikhar",
+                              "type": "management",
                               "isVacant": false,
+                              "children": []
+                            },
+                            {
+                              "id": "taj-law-officer-field",
+                              "title": "Law Officer (Field)",
+                              "name": "Jawad",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "id": "taj-customer-care-dept",
+                          "title": "Customer Care",
+                          "name": "",
+                          "type": "department",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-manager-customer-care",
+                              "title": "Manager Customer Care",
+                              "name": "Sohail Burki",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "id": "taj-transfer-possession-dept",
+                          "title": "Transfer & Possession",
+                          "name": "",
+                          "type": "department",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-transfer-am-vacant",
+                              "title": "AM",
+                              "name": "",
+                              "type": "management",
+                              "isVacant": true,
                               "children": [
                                 {
-                                  "id": "sales-executive-164",
-                                  "title": "Sales Executive",
-                                  "name": "Kashif Khan",
-                                  "type": "department",
+                                  "id": "taj-officer-transfer-mahnoor",
+                                  "title": "Officer Transfer (FO)",
+                                  "name": "Miss Mahnoor",
+                                  "type": "management",
                                   "isVacant": false,
                                   "children": [
                                     {
-                                      "id": "sales-executive-25",
-                                      "title": "Sales Executive",
-                                      "name": "Maryam shaheen",
-                                      "type": "department",
+                                      "id": "taj-executive-bo-asad",
+                                      "title": "Executive (BO)",
+                                      "name": "Asad Niaz",
+                                      "type": "staff",
                                       "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "front-desk-officer-230",
-                                          "title": "Front Desk Officer",
-                                          "name": "Kanwal",
-                                          "type": "management",
-                                          "isVacant": false,
-                                          "children": [
-                                            {
-                                              "id": "officer-194",
-                                              "title": "Officer",
-                                              "name": "Miss Manahil",
-                                              "type": "management",
-                                              "isVacant": false,
-                                              "children": [
-                                                {
-                                                  "id": "operator-229",
-                                                  "title": "Operator",
-                                                  "name": "Yasir Saleem",
-                                                  "type": "staff",
-                                                  "isVacant": false,
-                                                  "children": []
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "id": "taj-exec-customer-services-sadiq",
+                                  "title": "Executive Customer Services(FO)",
+                                  "name": "Mr. Sadiq",
+                                  "type": "management",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-coordinator-bo-rooma",
+                                      "title": "Coordinator (BO)",
+                                      "name": "Rooma Shahid",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "id": "taj-executive-rameez",
+                                  "title": "Executive",
+                                  "name": "Rameez",
+                                  "type": "management",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-executive-possession-najaf",
+                                      "title": "Executive Possession",
+                                      "name": "Mr. Najaf",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
                                     }
                                   ]
                                 }
                               ]
                             }
                           ]
+                        },
+                        {
+                          "id": "taj-accounts-dept",
+                          "title": "Accounts",
+                          "name": "",
+                          "type": "department",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-am-accounts-arsalan",
+                              "title": "AM Accounts",
+                              "name": "Mr. Arsalan",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": []
+                            },
+                            {
+                              "id": "taj-accounts-executive-arum",
+                              "title": "Accounts Executive",
+                              "name": "Arum Shaheen",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "id": "taj-sales-ops-inventory-dept",
+                          "title": "Sales Ops. Inventory &",
+                          "name": "",
+                          "type": "department",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-sales-ops-am-zeeshan",
+                              "title": "AM",
+                              "name": "Zeeshan Ahmad",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": []
+                            },
+                            {
+                              "id": "taj-sales-ops-executive-mubarak",
+                              "title": "Executive Sales Ops. & Inventory",
+                              "name": "Mubarak Khusro",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": []
+                            }
+                          ]
                         }
                       ]
                     }
                   ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "master-record-284",
-      "title": "Master Record/",
-      "name": "Archiving",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "am-37",
-          "title": "AM",
-          "name": "Kubra Ali",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "executive-32",
-              "title": "Executive",
-              "name": "Sania",
-              "type": "management",
-              "isVacant": false,
-              "children": [
+                },
                 {
-                  "id": "officer-365",
-                  "title": "Officer",
-                  "name": "Miss Rohila",
-                  "type": "management",
+                  "id": "taj-master-record-archiving",
+                  "title": "Master Record/ Archiving",
+                  "name": "",
+                  "type": "department",
                   "isVacant": false,
                   "children": [
                     {
-                      "id": "record-assistant-299",
+                      "id": "taj-master-record-am-kubra",
+                      "title": "AM",
+                      "name": "Kubra Ali",
+                      "type": "management",
+                      "isVacant": false,
+                      "children": []
+                    },
+                    {
+                      "id": "taj-master-record-executive-sania",
+                      "title": "Executive",
+                      "name": "Sania",
+                      "type": "staff",
+                      "isVacant": false,
+                      "children": []
+                    },
+                    {
+                      "id": "taj-master-record-officer-rohila",
+                      "title": "Officer",
+                      "name": "Miss Rohila",
+                      "type": "staff",
+                      "isVacant": false,
+                      "children": []
+                    },
+                    {
+                      "id": "taj-master-record-assistant-nasir",
                       "title": "Record Assistant",
                       "name": "Nasir Saleem",
                       "type": "staff",
@@ -1200,2143 +746,83 @@
       ]
     },
     {
-      "id": "security-and-cctv-61",
-      "title": "Security and CCTV",
-      "name": "",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "taj-security-will-also-report-375",
-          "title": "Taj security will also report",
-          "name": "to manager facilities",
-          "type": "department",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "architectural-design-167",
-      "title": "Architectural Design",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "assistant-manger-232",
-          "title": "Assistant Manger",
-          "name": "Rizwan",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "cad-operator-233",
-              "title": "CAD Operator",
-              "name": "Adil",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "visualizer-202",
-                  "title": "Visualizer",
-                  "name": "Haroon",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "dm-64",
-      "title": "DM",
-      "name": "Bilal Kiayani",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "horticulture-368",
-          "title": "Horticulture",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "supervisor-63",
-              "title": "Supervisor",
-              "name": "Muhammad Imtiaz",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "gardner-62",
-                  "title": "Gardner",
-                  "name": "Permanent (15) Non Permanent (08)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "horticulture-373",
-      "title": "Horticulture",
-      "name": "",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "plumbing-water-296",
-          "title": "Plumbing & Water",
-          "name": "Managerment",
-          "type": "staff",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "town-planning-building-contorl-171",
-      "title": "Town Planning/ Building contorl",
-      "name": "",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "sr-town-planner-170",
-          "title": "Sr. Town Planner",
-          "name": "Ch. Atique",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "sr-building-291",
-              "title": "Sr. Building",
-              "name": "Inspector Faraz Ahmad",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "building-inspector-290",
-                  "title": "Building Inspector",
-                  "name": "Amir Nazir",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "building-inspector-399",
-                      "title": "Building Inspector",
-                      "name": "Amjad",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "building-inspector-400",
-                          "title": "Building Inspector",
-                          "name": "Aqib Javeed",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": []
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "help-desk-369",
-      "title": "Help Desk",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "supervisor-97",
-          "title": "Supervisor",
-          "name": "Semab Akhtar",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "permanent-130",
-              "title": "Permanent",
-              "name": "Complaint Attendant (1)",
-              "type": "staff",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "maintenance-and-60",
-      "title": "Maintenance and",
-      "name": "services department",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "supervisor-257",
-          "title": "Supervisor",
-          "name": "Mr.Omais",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "non-permanent-151",
-              "title": "Non Permanent",
-              "name": "Complaint Attendant(2)",
-              "type": "staff",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "general-cleaning-292",
-      "title": "General Cleaning",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "supervisor-road-131",
-          "title": "Supervisor (Road",
-          "name": "Cleaning) Zafar",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "non-permanent-132",
-              "title": "Non Permanent",
-              "name": "Road Cleaner (5)",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "garbage-collector-2-359",
-                  "title": "Garbage Collector (2)",
-                  "name": "",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "technical-374",
-      "title": "Technical &",
-      "name": "Maintenance",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "electrical-295",
-          "title": "Electrical",
-          "name": "",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "assistant-103",
-              "title": "Assistant",
-              "name": "Supervisor Noor Ahmed",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "electracian-200",
-                  "title": "Electracian",
-                  "name": "M.Ameen",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "non-permanent-104",
-                      "title": "Non Permanent",
-                      "name": "Electrician (5) AC Technician (1)",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "civil-294",
-      "title": "Civil",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "masson-3-199",
-          "title": "Masson (3)",
-          "name": "No- Permanent",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "labor-129",
-              "title": "Labor",
-              "name": "No- Permanent (01)",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "no-permanent-256",
-                  "title": "No- Permanent",
-                  "name": "Painter(1) Helper  (1) Scaffolder (2)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "design-services-286",
-      "title": "Design Services,",
-      "name": "Building Control & Enforcement",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "hod-287",
-          "title": "HOD",
-          "name": "Asim Ajaz",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "mep-autocad-288",
-              "title": "MEP Autocad",
-              "name": "Operator Riasat Ali",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "document-289",
-                  "title": "Document",
-                  "name": "Controler Qurat ul Ain",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "trainee-autocad-324",
-                      "title": "Trainee AutoCAD",
-                      "name": "Operator Muneeb Faraz",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "admin-367",
-      "title": "Admin",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "dispenser-297",
-          "title": "Dispenser",
-          "name": "Liaqat Ali",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "horse-care-taker-1-328",
-              "title": "Horse Care taker (1)",
-              "name": "",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "mosque-293",
-                  "title": "Mosque",
-                  "name": "",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "khateeb-imam-3-99",
-                      "title": "Khateeb/Imam (3)",
-                      "name": "",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "moazzan-1-100",
-                          "title": "Moazzan (1)",
-                          "name": "",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "caretaker-khadim-133",
-                              "title": "Caretaker/Khadim",
-                              "name": "(1)",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "cleaner-1-134",
-                                  "title": "Cleaner (1)",
-                                  "name": "",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": []
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "sr-sup-mep-244",
-      "title": "Sr. Sup. MEP",
-      "name": "Sami ullah Shoukat",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "lab-technician-308",
-          "title": "Lab Technician",
-          "name": "Waseem Akram",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "lab-helper-380",
-              "title": "Lab Helper",
-              "name": "Haroon Sharif",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "non-permanent-127",
-                  "title": "Non Permanent",
-                  "name": "Lab Helper (2)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "billing-and-285",
-      "title": "Billing and",
-      "name": "Recovery",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "electrical-eng-198",
-          "title": "Electrical Eng",
-          "name": "Hasnain Tahir",
-          "type": "staff",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "cm-civil-185",
-      "title": "CM Civil",
-      "name": "Shah Nazar Khan",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "supervisor-245",
-          "title": "Supervisor",
-          "name": "Syed Zaheer Hussain",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "trainee-eng-246",
-              "title": "Trainee Eng.",
-              "name": "(Geranium) Usama khalid",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "site-242",
-                  "title": "Site",
-                  "name": "Supervisor(Geranium) M.Haroon",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "civil-supervisor-271",
-                      "title": "Civil Supervisor",
-                      "name": "Saif ullah Niazi",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "civil-supervisor-393",
-                          "title": "Civil Supervisor",
-                          "name": "Waqar Younas",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "watchman-392",
-                              "title": "Watchman",
-                              "name": "07",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "call-center-29",
-      "title": "Call Center",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "site-engineer-110",
-      "title": "Site Engineer",
-      "name": "Tosif Ahmad",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "foreman-243",
-          "title": "Foreman",
-          "name": "Zafar Iqbal",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "foreman-186",
-              "title": "Foreman",
-              "name": "Pervaiz Iqbal",
-              "type": "staff",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "taj-execution-team-382",
-      "title": "TAJ Execution Team",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "gm-construction-107",
-          "title": "GM Construction",
-          "name": "Syed Sadaqat Rasool",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "foreman-108",
-              "title": "Foreman",
-              "name": "Riffat Iqbal",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "non-permanent-109",
-                  "title": "Non Permanent",
-                  "name": "Plumber (2) Helper (1)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "supervisor-98",
-      "title": "Supervisor",
-      "name": "Tanveer Ahmed",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "junior-engineer-277",
-          "title": "Junior Engineer",
-          "name": "Ahmad Baig",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "electrician-182",
-              "title": "Electrician",
-              "name": "Tariq Iqbal",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "electrician-183",
-                  "title": "Electrician",
-                  "name": "Talha Arif",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "electrician-401",
-                      "title": "Electrician",
-                      "name": "Mehboob Elahi",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "non-permanent-144",
-                          "title": "Non Permanent",
-                          "name": "Staff Electrician (1)",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": []
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "coordinator-235",
-      "title": "Coordinator",
-      "name": "Mr. Awais",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "chief-surveyor-337",
-          "title": "Chief Surveyor",
-          "name": "Amir Rafique",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "asst-surveyor-135",
-              "title": "Asst Surveyor",
-              "name": "Shafqat Hussain",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "asst-surveyor-338",
-                  "title": "Asst Surveyor",
-                  "name": "Ajmal",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "non-permanent-339",
-                      "title": "Non- Permanent",
-                      "name": "Helper (1)",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "farm-house-258",
-      "title": "Farm House",
-      "name": "Site Enigneer Aftab",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "supervisor-334",
-          "title": "Supervisor",
-          "name": "Saqib Javid",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "external-project-332",
-      "title": "External Project",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "other-project-335",
-          "title": "Other Project",
-          "name": "",
-          "type": "staff",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "am-20",
-      "title": "AM",
-      "name": "Talha Mobeen",
-      "type": "staff",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "sr-manager-67",
-      "title": "Sr. Manager",
-      "name": "Accounts Receivable M. Imran",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "manager-receivable-44",
-          "title": "Manager Receivable",
-          "name": "Mr. Hassan",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "am-receivable-69",
-              "title": "AM Receivable",
-              "name": "Arslan",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "am-receivable-70",
-                  "title": "AM Receivable",
-                  "name": "Umar Farooq",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "executive-finance-71",
-                      "title": "Executive Finance",
-                      "name": "(Receivable) Zakria",
-                      "type": "department",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "recovery-28",
-                          "title": "Recovery",
-                          "name": "",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "manager-recovery-376",
-                              "title": "Manager Recovery",
-                              "name": "Mr. Zahid Akbar",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "recovery-officer-45",
-                                  "title": "Recovery Officer",
-                                  "name": "Urwa til Woqsa",
-                                  "type": "management",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "recovery-officer-46",
-                                      "title": "Recovery Officer",
-                                      "name": "Sadia",
-                                      "type": "management",
-                                      "isVacant": false,
-                                      "children": []
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "creative-head-395",
-      "title": "Creative Head",
-      "name": "Miss Sumbal Bint E Ehsan",
-      "type": "management",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "sr-manager-f-a-68",
-      "title": "Sr. Manager F&A",
-      "name": "Iftikhar Rasheed",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "am-finance-74",
-          "title": "AM Finance",
-          "name": "(Payable) Mansoor",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "am-f-a-73",
-              "title": "AM F&A",
-              "name": "M. Yasir",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "am-payable-75",
-                  "title": "AM (Payable)",
-                  "name": "Zakir Hussain",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "finance-officer-76",
-                      "title": "Finance Officer",
-                      "name": "(Payable) Najeeb Abbasi",
-                      "type": "department",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "land-management-217",
-                          "title": "Land Management",
-                          "name": "",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "officer-finance-taj-72",
-                              "title": "Officer Finance – Taj",
-                              "name": "(Receivable) Miss Arum",
-                              "type": "department",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "officer-finance-taj-165",
-                                  "title": "Officer Finance - Taj",
-                                  "name": "(Receivable) Behlol Ahmed",
-                                  "type": "department",
-                                  "isVacant": false,
-                                  "children": []
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "gm-finance-66",
-      "title": "GM Finance",
-      "name": "Faisal Farooq",
-      "type": "department",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "commcraft-224",
-      "title": "Commcraft",
-      "name": "",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "director-s-m-223",
-          "title": "Director S&M",
-          "name": "Mansoor Zareen",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "director-141",
-              "title": "Director",
-              "name": "Operations/Key Account Manager Ghayyas Abbasi",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "lead-designer-234",
-                  "title": "Lead Designer",
-                  "name": "Irfan Tariq",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "manager-creative-142",
-                      "title": "Manager Creative &",
-                      "name": "Digital Marketing Asfandyar Khan",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "content-writer-321",
-                          "title": "Content Writer",
-                          "name": "Ehtisham",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "junior-animation-282",
-                              "title": "Junior Animation",
-                              "name": "Creator Ayaz Ali",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "video-editor-336",
-                                  "title": "Video Editor",
-                                  "name": "Aftab Tanveer",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": []
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "executive-f-a-205",
-      "title": "Executive F&A –",
-      "name": "Tenacious Rashid Hamid",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "executive-40",
-          "title": "Executive",
-          "name": "Maria Jeelani",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "manager-f-a-taj-203",
-      "title": "Manager F&A - Taj",
-      "name": "vacant",
-      "type": "management",
-      "isVacant": true,
-      "children": [
-        {
-          "id": "dm-f-a-taj-204",
-          "title": "DM F&A - Taj",
-          "name": "Imran Baig",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "finance-officer-taj-77",
-              "title": "Finance Officer - Taj",
-              "name": "(Payable) Qamar Rashid",
-              "type": "department",
-              "isVacant": false,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "finance-65",
-      "title": "Finance",
-      "name": "",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "director-finance-169",
-          "title": "Director Finance",
-          "name": "",
-          "type": "department",
-          "isVacant": true,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "am-corporate-tax-78",
-      "title": "AM Corporate & Tax",
-      "name": "",
-      "type": "staff",
-      "isVacant": true,
-      "children": []
-    },
-    {
-      "id": "security-85",
-      "title": "Security",
-      "name": "Head Office",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "security-officer-259",
-          "title": "Security Officer",
-          "name": "M. Islam",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "deputy-manager-322",
-              "title": "Deputy Manager",
-              "name": "Irshad Baig",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "mess-supervisor-90",
-                  "title": "Mess Supervisor",
-                  "name": "Mirza Ghulam",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "gardner-94",
-                      "title": "Gardner",
-                      "name": "(1)",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "cook-4-93",
-                          "title": "Cook (4)",
-                          "name": "",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "farm-house-91",
-                              "title": "Farm House",
-                              "name": "Guard (Army Retd) (20)",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "telephone-opt-92",
-                                  "title": "Telephone OPt",
-                                  "name": "(02)",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": []
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "inspector-vigilance-179",
-      "title": "Inspector Vigilance",
-      "name": "Aziz  Rehman",
-      "type": "department",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "cleaner-95",
-          "title": "Cleaner",
-          "name": "(1)",
-          "type": "staff",
-          "isVacant": false,
-          "children": []
-        }
-      ]
-    },
-    {
-      "id": "coordinator-159",
-      "title": "Coordinator",
-      "name": "Amir Munir",
-      "type": "management",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "avp-taj-chro-6",
-      "title": "AVP TAJ/CHRO",
-      "name": "Fahad Fareed",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "vigilance-216",
-          "title": "Vigilance",
-          "name": "Head Office",
-          "type": "department",
-          "isVacant": false,
-          "children": []
-        },
-        {
-          "id": "administration-14",
-          "title": "Administration",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "sr-manager-387",
-              "title": "Sr. Manager",
-              "name": "Safeer Ahmad",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "executive-87",
-                  "title": "Executive",
-                  "name": "M.Ali",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "azhar-mehmood-360",
-                      "title": "Azhar Mehmood",
-                      "name": "Sr. Executive",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "supervisor-86",
-                          "title": "Supervisor",
-                          "name": "Kamran",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "admin-officer-89",
-                              "title": "Admin officer",
-                              "name": "Umar Mustafa",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "coordinator-280",
-                                  "title": "Coordinator",
-                                  "name": "Amjad Qureshi",
-                                  "type": "management",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "dispatch-rider-3-160",
-                                      "title": "Dispatch Rider (3)",
-                                      "name": "",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "driver-4-106",
-                                          "title": "Driver (4)",
-                                          "name": "",
-                                          "type": "staff",
-                                          "isVacant": false,
-                                          "children": [
-                                            {
-                                              "id": "support-staff-105",
-                                              "title": "Support Staff",
-                                              "name": "Office Boy (23) Janitor (12) Watch Man (11)",
-                                              "type": "staff",
-                                              "isVacant": false,
-                                              "children": [
-                                                {
-                                                  "id": "so-to-hamza-252",
-                                                  "title": "SO To Hamza",
-                                                  "name": "Tanveer Nadir Ali Khan Direct Reporting",
-                                                  "type": "staff",
-                                                  "isVacant": false,
-                                                  "children": []
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "human-resource-7",
-          "title": "Human Resource",
-          "name": "",
-          "type": "department",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "general-manager-385",
-              "title": "General Manager",
-              "name": "HR Kashif Mehmood",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "deputy-manager-1",
-                  "title": "Deputy Manager",
-                  "name": "Talent Acquisition Mubasher Aziz",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "deputy-manager-2",
-                      "title": "Deputy Manager",
-                      "name": "Payroll M. Ahsan",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "executive-hr-ops-3",
-                          "title": "Executive HR Ops",
-                          "name": "M. Sameer",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "executive-hr-84",
-                              "title": "Executive HR",
-                              "name": "Miss Krishma",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "coordinator-262",
-      "title": "Coordinator",
-      "name": "Roavial Ahmad",
-      "type": "management",
-      "isVacant": false,
-      "children": []
-    },
-    {
-      "id": "patron-in-chief-education",
-      "title": "Patron-in-Chief (Education)",
-      "name": "Admiral Abdul Aziz Mirza (Retd)",
-      "type": "patron",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "director-audit-80",
-          "title": "Director Audit",
-          "name": "Muhammad Naveed",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "internal-audit-79",
-              "title": "Internal Audit",
-              "name": "",
-              "type": "department",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "am-pre-audit-82",
-                  "title": "AM Pre Audit",
-                  "name": "Anwar Ali",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "am-pre-audit-taj-236",
-                      "title": "AM Pre Audit-Taj",
-                      "name": "Bilal",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "am-pre-audit-civil-361",
-                          "title": "AM Pre Audit-Civil",
-                          "name": "Abdur Rehman",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "am-83",
-                              "title": "AM",
-                              "name": "Hassam Shahid",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "ass-manager-audit-81",
-                                  "title": "Ass. Manager Audit",
-                                  "name": "",
-                                  "type": "management",
-                                  "isVacant": true,
-                                  "children": []
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "acting-principal-225",
-          "title": "Acting Principal",
-          "name": "Miss Rubina",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        },
-        {
-          "id": "principal-226",
-          "title": "Principal",
-          "name": "Abdul Waheed",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "lecturer-computer-261",
-              "title": "Lecturer Computer",
-              "name": "Ms. Sadaf Jamil",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "lecturer-manager-254",
-                  "title": "Lecturer/ Manager",
-                  "name": "Academics Mr.Zaheer",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "receptionist-330",
-                      "title": "Receptionist",
-                      "name": "Seemab Zia",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "coordinator-ged-372",
-                          "title": "Coordinator GED",
-                          "name": "Waqar",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "lecturer-english-379",
-                              "title": "Lecturer English",
-                              "name": "Shumaila Noreen",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "am-11",
-                                  "title": "AM",
-                                  "name": "Munnum Direct reporting to PSO to PSC",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "lecturer-physics-381",
-                                      "title": "Lecturer Physics",
-                                      "name": "Warda Ilyas",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "office-boy-1-371",
-                                          "title": "Office Boy 1",
-                                          "name": "Guard 1",
-                                          "type": "staff",
-                                          "isVacant": false,
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "avp-education-4",
-          "title": "AVP-Education",
-          "name": "Mirza Waheed Baig",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        },
-        {
-          "id": "am-coordination-101",
-          "title": "AM Coordination &",
-          "name": "Affiliation Anjum Qureshi",
-          "type": "management",
-          "isVacant": false,
-          "children": []
-        },
-        {
-          "id": "principal-391",
-          "title": "Principal",
-          "name": "Sher Hamad khan",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "lecturer-314",
-              "title": "Lecturer",
-              "name": "Sara Karim",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "lecturer-english-315",
-                  "title": "Lecturer English",
-                  "name": "Usman Bhatti",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "lecturer-islamyat-316",
-                      "title": "Lecturer  Islamyat",
-                      "name": "Hina Shafiq",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "coordinator-102",
-                          "title": "Coordinator",
-                          "name": "Muqaddas Eman",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "receptionist-228",
-                              "title": "Receptionist",
-                              "name": "Nadia Khanum",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "web-developer-264",
-                                  "title": "Web Developer",
-                                  "name": "Miss Iqra",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "lecturer-law-306",
-                                      "title": "Lecturer Law",
-                                      "name": "Babar Abbasi",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "officer-admin-176",
-                                          "title": "Officer Admin &",
-                                          "name": "Account Faisal AKbar",
-                                          "type": "management",
-                                          "isVacant": false,
-                                          "children": [
-                                            {
-                                              "id": "support-staffs-227",
-                                              "title": "Support Staffs",
-                                              "name": "Security Guard 2 Janitor 1",
-                                              "type": "staff",
-                                              "isVacant": false,
-                                              "children": []
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "manager-181",
-          "title": "Manager",
-          "name": "Coordination Maj.(R) Faheem",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "coordinator-260",
-              "title": "Coordinator",
-              "name": "M. Rasheed",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "sher-awan-263",
-                  "title": "Sher Awan",
-                  "name": "In charge Admission",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "com-opt-graphic-255",
-                      "title": "Com. Opt./Graphic",
-                      "name": "Designer Mr.Mohsin",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "office-boy-276",
-                          "title": "Office Boy",
-                          "name": "M.Zeeshan",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": []
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "executive-director-208",
-          "title": "Executive Director",
-          "name": "Dr. Sardar Mehmood",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "hod-legal-15",
-              "title": "HOD Legal",
-              "name": "Arsheed Khan",
-              "type": "department",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "legal-177",
-                  "title": "Legal",
-                  "name": "",
-                  "type": "department",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "legal-advisor-166",
-                      "title": "Legal Advisor",
-                      "name": "Syed Asghar Ali Sherazi",
-                      "type": "department",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "hod-it-9",
-              "title": "HOD IT",
-              "name": "Alamzeb",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "information-technology-8",
-                  "title": "Information Technology",
-                  "name": "",
-                  "type": "department",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "manager-329",
-                      "title": "Manager",
-                      "name": "Bilal Munir",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "administrator-12",
-                          "title": "Administrator",
-                          "name": "Fahad",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "technician-13",
-                              "title": "Technician",
-                              "name": "Shoaib",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "web-developer-278",
-                                  "title": "Web Developer",
-                                  "name": "Muhammad Adeel",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "electrician-323",
-                                      "title": "Electrician",
-                                      "name": "Shah Fahad",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "technician-266",
-                                          "title": "Technician",
-                                          "name": "Irfan",
-                                          "type": "management",
-                                          "isVacant": false,
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "coordinator-406",
-              "title": "Coordinator",
-              "name": "M. Ramzan",
-              "type": "management",
-              "isVacant": false,
-              "children": []
-            },
-            {
-              "id": "principal-219",
-              "title": "Principal",
-              "name": "Miss. Nazia",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "director-admin-237",
-                  "title": "Director Admin/",
-                  "name": "Lecturer Zahid",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "vice-principal-lecturer-238",
-                      "title": "Vice Principal/Lecturer",
-                      "name": "Ahamd Shahid",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "exam-coordinator-239",
-                          "title": "Exam Coordinator/",
-                          "name": "Lecturer Arsalan Ahmad",
-                          "type": "management",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "asst-manager-focal-248",
-                              "title": "Asst. Manager/ Focal",
-                              "name": "Person Ali Afzal",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "librarian-249",
-                                  "title": "Librarian",
-                                  "name": "Miss Maimona",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "nursing-lecturer-267",
-                                      "title": "Nursing Lecturer",
-                                      "name": "Mr.Asad",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "clenical-instructor-268",
-                                          "title": "Clenical Instructor",
-                                          "name": "Mr.Ahmad Rasool",
-                                          "type": "staff",
-                                          "isVacant": false,
-                                          "children": [
-                                            {
-                                              "id": "lecturer-english-269",
-                                              "title": "Lecturer English",
-                                              "name": "Aneesa Batool",
-                                              "type": "staff",
-                                              "isVacant": false,
-                                              "children": [
-                                                {
-                                                  "id": "lab-assistant-250",
-                                                  "title": "Lab Assistant",
-                                                  "name": "Miss Zonisba",
-                                                  "type": "staff",
-                                                  "isVacant": false,
-                                                  "children": [
-                                                    {
-                                                      "id": "lecturer-nursing-396",
-                                                      "title": "Lecturer Nursing",
-                                                      "name": "Miss Zoya",
-                                                      "type": "staff",
-                                                      "isVacant": false,
-                                                      "children": [
-                                                        {
-                                                          "id": "lecturer-nursing-397",
-                                                          "title": "Lecturer Nursing",
-                                                          "name": "Mr.Danish",
-                                                          "type": "staff",
-                                                          "isVacant": false,
-                                                          "children": [
-                                                            {
-                                                              "id": "admin-supervisor-251",
-                                                              "title": "Admin Supervisor",
-                                                              "name": "Naheem Akram",
-                                                              "type": "management",
-                                                              "isVacant": false,
-                                                              "children": [
-                                                                {
-                                                                  "id": "support-staff-240",
-                                                                  "title": "Support Staff",
-                                                                  "name": "Office Boy 2 S. Guard 3 Janitor 2 Aya 1",
-                                                                  "type": "staff",
-                                                                  "isVacant": false,
-                                                                  "children": []
-                                                                }
-                                                              ]
-                                                            }
-                                                          ]
-                                                        }
-                                                      ]
-                                                    }
-                                                  ]
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "hod-207",
-              "title": "HOD",
-              "name": "Hassan Faheem",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "director-247",
-                  "title": "Director",
-                  "name": "Usman Tanveer",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "sales-engineer-209",
-                      "title": "Sales Engineer",
-                      "name": "Eng. Waris",
-                      "type": "department",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "solar-engineer-231",
-                          "title": "Solar Engineer",
-                          "name": "",
-                          "type": "management",
-                          "isVacant": true,
-                          "children": []
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "director-admin-206",
-              "title": "Director Admin",
-              "name": "Mr.Faran Anwar",
-              "type": "management",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "manager-180",
-                  "title": "Manager",
-                  "name": "Raja Qamar Zaman",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "deputy-manager-188",
-                      "title": "Deputy Manager",
-                      "name": "Inam Gilani",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "sr-manager-138",
-      "title": "Sr. Manager",
-      "name": "Waqar Chughtai",
-      "type": "management",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "deputy-manager-210",
-          "title": "Deputy Manager",
-          "name": "Farrakh Munir",
-          "type": "management",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "sales-executive-211",
-              "title": "Sales Executive",
-              "name": "Umair Gulshad",
-              "type": "department",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "crane-operator-140",
-                  "title": "Crane operator",
-                  "name": "M. Fareed",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "office-assistant-212",
-                      "title": "Office assistant",
-                      "name": "Ghulam Mustafa",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "operator-386",
-                          "title": "Operator",
-                          "name": "Nadeem",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "support-staff-213",
-                              "title": "Support Staff",
-                              "name": "M. Shahzad",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "ios-developer-331",
-      "title": "ios Developer",
-      "name": "",
-      "type": "staff",
-      "isVacant": false,
-      "children": [
-        {
-          "id": "ios-developer-214",
-          "title": "ios Developer",
-          "name": "Sardar Shehroz",
-          "type": "staff",
-          "isVacant": false,
-          "children": [
-            {
-              "id": "larval-developer-265",
-              "title": "Larval Developer",
-              "name": "Haris Satti Working on j aga.com",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "backend-developer-215",
-                  "title": "Backend Developer",
-                  "name": "Atif Mahmood",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "deo-398",
-                      "title": "DEO",
-                      "name": "Hamza Arif",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "political-team-307",
+      "id": "political-team",
       "title": "Political Team",
       "name": "",
       "type": "project",
       "isVacant": false,
       "children": [
         {
-          "id": "officer-195",
+          "id": "political-team-officer",
           "title": "Officer",
-          "name": "Glulam Ullah Baloch",
+          "name": "Ghulam Ullah Baloch",
           "type": "management",
           "isVacant": false,
-          "children": [
-            {
-              "id": "media-secretary-158",
-              "title": "Media Secretary",
-              "name": "M. Naveed",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "assistant-162",
-                  "title": "Assistant",
-                  "name": "Umar Farooq",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "typist-309",
-                      "title": "Typist",
-                      "name": "Naeem Afzal",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "internal-auditor-310",
-                          "title": "Internal Auditor",
-                          "name": "Sardar Iftikahar",
-                          "type": "department",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "manager-311",
-                              "title": "Manager",
-                              "name": "Imran Yaseen",
-                              "type": "management",
-                              "isVacant": false,
-                              "children": [
-                                {
-                                  "id": "qari-312",
-                                  "title": "Qari",
-                                  "name": "Ateq U Din",
-                                  "type": "staff",
-                                  "isVacant": false,
-                                  "children": [
-                                    {
-                                      "id": "guard-313",
-                                      "title": "Guard",
-                                      "name": "Ishaq",
-                                      "type": "staff",
-                                      "isVacant": false,
-                                      "children": [
-                                        {
-                                          "id": "deputy-manager-317",
-                                          "title": "Deputy Manager",
-                                          "name": "Media Kaleem Arbab",
-                                          "type": "management",
-                                          "isVacant": false,
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
+          "children": []
+        },
+        {
+          "id": "political-team-media-secretary",
+          "title": "Media Secretary",
+          "name": "M. Naveed",
+          "type": "management",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "political-team-assistant",
+          "title": "Assistant",
+          "name": "Umar Farooq",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "political-team-typist",
+          "title": "Typist",
+          "name": "Naeem Afzal",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "political-team-internal-auditor",
+          "title": "Internal Auditor",
+          "name": "Sardar Iftikahar",
+          "type": "management",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "political-team-manager",
+          "title": "Manager",
+          "name": "Imran Yaseen",
+          "type": "management",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "political-team-qari",
+          "title": "Qari",
+          "name": "Ateq U Din",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "political-team-guard",
+          "title": "Guard",
+          "name": "Ishaq",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "political-team-deputy-manager-media",
+          "title": "Deputy Manager Media",
+          "name": "Kaleem Arbab",
+          "type": "management",
+          "isVacant": false,
+          "children": []
         }
       ]
     },
@@ -3353,25 +839,23 @@
           "name": "Kamran Yousaf",
           "type": "management",
           "isVacant": false,
-          "children": [
-            {
-              "id": "assistant-221",
-              "title": "Assistant",
-              "name": "Hafiz Zafar",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "assistant-222",
-                  "title": "Assistant",
-                  "name": "Bilal Yousaf",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                }
-              ]
-            }
-          ]
+          "children": []
+        },
+        {
+          "id": "research-assistant-hafiz-zafar",
+          "title": "Assistant",
+          "name": "Hafiz Zafar",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "research-assistant-bilal-yousaf",
+          "title": "Assistant",
+          "name": "Bilal Yousaf",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
         }
       ]
     },
@@ -3388,158 +872,145 @@
           "name": "Raza",
           "type": "management",
           "isVacant": false,
-          "children": [
-            {
-              "id": "video-editor-156",
-              "title": "Video Editor",
-              "name": "Saad Saeed",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "content-writer-155",
-                  "title": "Content Writer",
-                  "name": "Yousaf Saeed",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "photographer-157",
-                      "title": "Photographer",
-                      "name": "Ehtisham Mehmood",
-                      "type": "staff",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "photographer-283",
-                          "title": "Photographer",
-                          "name": "Irfan",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "non-liner-video-304",
-                              "title": "Non liner video",
-                              "name": "editor Jamal Rasheed",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
+          "children": []
+        },
+        {
+          "id": "video-editor-156",
+          "title": "Video Editor",
+          "name": "Saad Saeed",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "content-writer-157",
+          "title": "Content Writer",
+          "name": "Yousaf Saeed",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "photographer-ehtisham",
+          "title": "Photographer",
+          "name": "Ehtisham Mehmood",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "photographer-irfan",
+          "title": "Photographer",
+          "name": "Irfan",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "non-liner-video-editor-158",
+          "title": "Non liner video editor",
+          "name": "Jamal Rasheed",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
         }
       ]
     },
     {
-      "id": "president-secretariat-327",
+      "id": "president-secretariat",
       "title": "President Secretariat",
       "name": "",
       "type": "project",
       "isVacant": false,
       "children": [
         {
-          "id": "principal-secretary-to-139",
-          "title": "Principal secretary to",
-          "name": "President Lt. COL Ishfaq Ahmad",
+          "id": "principal-secretary-president",
+          "title": "Principal secretary to President",
+          "name": "Lt. COL Ishfaq Ahmad",
           "type": "management",
           "isVacant": false,
-          "children": [
-            {
-              "id": "assistant-161",
-              "title": "Assistant",
-              "name": "",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "sr-manager-coord-320",
-                  "title": "Sr. Manager Coord.",
-                  "name": "",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "manager-operation-319",
-                      "title": "Manager Operation",
-                      "name": "Afif Saghir",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": []
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
+          "children": []
+        },
+        {
+          "id": "president-secretariat-assistant",
+          "title": "Assistant",
+          "name": "",
+          "type": "staff",
+          "isVacant": true,
+          "children": []
+        },
+        {
+          "id": "president-secretariat-sr-manager-coord",
+          "title": "Sr. Manager Coord.",
+          "name": "",
+          "type": "management",
+          "isVacant": true,
+          "children": []
+        },
+        {
+          "id": "president-secretariat-manager-operation",
+          "title": "Manager Operation",
+          "name": "Afif Saghir",
+          "type": "management",
+          "isVacant": false,
+          "children": []
         }
       ]
     },
     {
-      "id": "ceo-secretariat-326",
+      "id": "ceo-secretariat",
       "title": "CEO Secretariat",
       "name": "",
       "type": "project",
       "isVacant": false,
       "children": [
         {
-          "id": "coordinator-303",
+          "id": "ceo-secretariat-coordinator",
           "title": "Coordinator",
-          "name": "Wajahat Haleem Direct Reporting to CEO",
+          "name": "Wajahat Haleem",
           "type": "management",
           "isVacant": false,
-          "children": [
-            {
-              "id": "architect-300",
-              "title": "Architect",
-              "name": "Hasnain",
-              "type": "staff",
-              "isVacant": false,
-              "children": [
-                {
-                  "id": "supervisor-325",
-                  "title": "Supervisor",
-                  "name": "Faisal Abbasi",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": [
-                    {
-                      "id": "site-engineer-96",
-                      "title": "Site Engineer",
-                      "name": "Junaid",
-                      "type": "management",
-                      "isVacant": false,
-                      "children": [
-                        {
-                          "id": "carpenter-362",
-                          "title": "Carpenter",
-                          "name": "Bacha Rehman",
-                          "type": "staff",
-                          "isVacant": false,
-                          "children": [
-                            {
-                              "id": "care-taker-279",
-                              "title": "Care Taker",
-                              "name": "Ibrar",
-                              "type": "staff",
-                              "isVacant": false,
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
+          "children": []
+        },
+        {
+          "id": "ceo-secretariat-architect",
+          "title": "Architect",
+          "name": "Hasnain",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "ceo-secretariat-supervisor",
+          "title": "Supervisor",
+          "name": "Faisal Abbasi",
+          "type": "management",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "ceo-secretariat-site-engineer",
+          "title": "Site Engineer",
+          "name": "Junaid",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "ceo-secretariat-carpenter",
+          "title": "Carpenter",
+          "name": "Bacha Rehman",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
+        },
+        {
+          "id": "ceo-secretariat-care-taker",
+          "title": "Care Taker",
+          "name": "Ibrar",
+          "type": "staff",
+          "isVacant": false,
+          "children": []
         }
       ]
     }
