@@ -556,6 +556,7 @@ export const MODULES = {
         subItems: [
           { name: 'OD Dashboard', path: '/hr/organizational-development' },
           { name: 'Organizational Chart', path: '/hr/organizational-development/org-chart' },
+          { name: 'Org Chart Editor', path: '/hr/organizational-development/org-chart/edit' },
           { name: 'Job Analysis', path: '/hr/organizational-development/job-analysis' },
           { name: 'Succession Planning', path: '/hr/organizational-development/succession' },
           { name: 'Performance Management', path: '/hr/organizational-development/performance' },
@@ -1309,6 +1310,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/hr/talent-acquisition': 'talent_acquisition',
       '/hr/learning': 'learning_development',
       '/hr/organizational-development': 'organizational_development',
+      '/hr/organizational-development/org-chart': 'organizational_development',
+      '/hr/organizational-development/org-chart/edit': 'organizational_development',
       '/hr/fbr-tax': 'fbr_tax_management',
       '/hr/evaluation-appraisal': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -10,7 +10,9 @@ import {
   Stack,
   Chip,
   InputAdornment,
-  Divider
+  Divider,
+  CircularProgress,
+  Alert
 } from '@mui/material';
 import {
   ArrowBack,
@@ -21,32 +23,55 @@ import {
   UnfoldLess,
   Search,
   Print,
-  AccountTree
+  AccountTree,
+  Edit
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import SGC_ORG_CHART from '../../data/sgcOrgChartData';
+import orgChartService from '../../services/orgChartService';
 import OrgChartTree from '../../components/HR/OrgChart/OrgChartTree';
 import OrgChartCanvas from '../../components/HR/OrgChart/OrgChartCanvas';
 import { getOrgNodeSx } from '../../components/HR/OrgChart/orgChartTheme';
-
-const collectIds = (node, depth = 0, maxDepth = Infinity, ids = []) => {
-  if (depth >= maxDepth && node.children?.length) {
-    ids.push(node.id);
-  }
-  (node.children || []).forEach((child) => collectIds(child, depth + 1, maxDepth, ids));
-  return ids;
-};
-
-const countNodes = (node) =>
-  1 + (node.children || []).reduce((sum, child) => sum + countNodes(child), 0);
+import { collectIds, countNodes } from '../../components/HR/OrgChart/orgChartHelpers';
 
 const OrganizationalChart = () => {
   const navigate = useNavigate();
   const [scale, setScale] = useState(0.35);
   const [searchTerm, setSearchTerm] = useState('');
-  const [collapsedSet, setCollapsedSet] = useState(() => new Set(collectIds(SGC_ORG_CHART, 0, 2)));
+  const [loading, setLoading] = useState(true);
+  const [fromDb, setFromDb] = useState(false);
+  const [chart, setChart] = useState(null);
+  const [collapsedSet, setCollapsedSet] = useState(new Set());
 
-  const totalNodes = useMemo(() => countNodes(SGC_ORG_CHART), []);
+  const loadChart = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await orgChartService.getTree();
+      if (!res.empty && res.data) {
+        setChart(res.data);
+        setFromDb(true);
+        setCollapsedSet(new Set(collectIds(res.data, 0, 2)));
+      } else {
+        setChart(SGC_ORG_CHART);
+        setFromDb(false);
+        setCollapsedSet(new Set(collectIds(SGC_ORG_CHART, 0, 2)));
+      }
+    } catch {
+      setChart(SGC_ORG_CHART);
+      setFromDb(false);
+      setCollapsedSet(new Set(collectIds(SGC_ORG_CHART, 0, 2)));
+      toast.error('Using bundled chart — open Editor to save to database');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadChart();
+  }, [loadChart]);
+
+  const totalNodes = useMemo(() => countNodes(chart), [chart]);
 
   const handleToggle = useCallback((id) => {
     setCollapsedSet((prev) => {
@@ -58,9 +83,16 @@ const OrganizationalChart = () => {
   }, []);
 
   const expandAll = () => setCollapsedSet(new Set());
-  const collapseDeep = () => setCollapsedSet(new Set(collectIds(SGC_ORG_CHART, 0, 2)));
-
+  const collapseDeep = () => chart && setCollapsedSet(new Set(collectIds(chart, 0, 2)));
   const handlePrint = () => window.print();
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 320 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -131,11 +163,27 @@ const OrganizationalChart = () => {
             </Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Sardar Group of Companies — official organogram (01 June 2026). Scroll to pan, use zoom controls. Red = vacant.
+            {fromDb
+              ? 'Live organogram from database. Use Editor to add or rearrange positions.'
+              : 'Showing bundled reference chart — open Editor to import or build your own.'}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Chip
+            label={fromDb ? 'Database' : 'Reference only'}
+            size="small"
+            color={fromDb ? 'success' : 'warning'}
+            variant="outlined"
+          />
           <Chip label={`${totalNodes} positions`} size="small" color="primary" variant="outlined" />
+          <Button
+            size="small"
+            startIcon={<Edit />}
+            onClick={() => navigate('/hr/organizational-development/org-chart/edit')}
+            variant="contained"
+          >
+            Edit chart
+          </Button>
           <Button size="small" startIcon={<UnfoldMore />} onClick={expandAll} variant="outlined">
             Expand All
           </Button>
@@ -147,6 +195,13 @@ const OrganizationalChart = () => {
           </Button>
         </Stack>
       </Box>
+
+      {!fromDb && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          No saved org chart yet. Click <strong>Edit chart</strong> to create from scratch or import the default
+          organogram.
+        </Alert>
+      )}
 
       <Paper sx={{ p: 2, mb: 2 }} elevation={0} variant="outlined">
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
@@ -197,7 +252,7 @@ const OrganizationalChart = () => {
         </Stack>
       </Paper>
 
-      {!SGC_ORG_CHART?.title && (
+      {!chart?.title && (
         <Typography color="error" sx={{ mb: 2 }}>
           Organizational chart data failed to load.
         </Typography>
@@ -205,12 +260,12 @@ const OrganizationalChart = () => {
 
       <OrgChartCanvas scale={scale}>
         <Box sx={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', pb: 4 }}>
-          <Box sx={{ ...getOrgNodeSx(SGC_ORG_CHART, false), mb: 0, minWidth: 280 }}>
+          <Box sx={{ ...getOrgNodeSx(chart, false), mb: 0, minWidth: 280 }}>
             <Typography sx={{ fontWeight: 'inherit', fontSize: 'inherit', color: 'inherit' }}>
-              {SGC_ORG_CHART.title}
+              {chart.title}
             </Typography>
             <Typography sx={{ fontSize: '0.85em', color: 'inherit', mt: 0.25 }}>
-              {SGC_ORG_CHART.name}
+              {chart.name}
             </Typography>
           </Box>
 
@@ -228,7 +283,7 @@ const OrganizationalChart = () => {
                 flexWrap: 'nowrap'
               }}
             >
-              {(SGC_ORG_CHART.children || []).length > 1 && (
+              {(chart.children || []).length > 1 && (
                 <Box
                   sx={{
                     position: 'absolute',
@@ -240,7 +295,7 @@ const OrganizationalChart = () => {
                   }}
                 />
               )}
-              {(SGC_ORG_CHART.children || []).map((child) => (
+              {(chart.children || []).map((child) => (
                 <Box
                   key={child.id}
                   sx={{

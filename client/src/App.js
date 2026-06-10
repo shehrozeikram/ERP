@@ -283,6 +283,7 @@ import TrainingProgramForm from './pages/HR/TrainingProgramForm';
 import TrainingProgramDetail from './pages/HR/TrainingProgramDetail';
 import OrganizationalDevelopment from './pages/HR/OrganizationalDevelopment';
 import OrganizationalChart from './pages/HR/OrganizationalChart';
+import OrganizationalChartEditor from './pages/HR/OrganizationalChartEditor';
 import JobAnalysis from './pages/HR/JobAnalysis';
 import SuccessionPlanning from './pages/HR/SuccessionPlanning';
 import JobApplication from './pages/Public/JobApplication';
@@ -1006,6 +1007,10 @@ function App() {
             <Route 
               path="/hr/organizational-development/org-chart" 
               element={<ProtectedRoute><OrganizationalChart /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/organizational-development/org-chart/edit" 
+              element={<ProtectedRoute><OrganizationalChartEditor /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/organizational-development/job-analysis" 

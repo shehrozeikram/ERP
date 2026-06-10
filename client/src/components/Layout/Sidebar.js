@@ -167,6 +167,8 @@ const Sidebar = () => {
       '/hr/talent-acquisition': 'talent_acquisition',
       '/hr/learning': 'learning_development',
       '/hr/organizational-development': 'organizational_development',
+      '/hr/organizational-development/org-chart': 'organizational_development',
+      '/hr/organizational-development/org-chart/edit': 'organizational_development',
       '/hr/fbr-tax': 'fbr_tax_management',
       '/hr/evaluation-appraisal/dashboard': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',

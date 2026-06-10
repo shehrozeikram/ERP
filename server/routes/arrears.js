@@ -7,6 +7,23 @@ const Payroll = require('../models/hr/Payroll');
 
 const router = express.Router();
 
+const DEFAULT_ARREARS = {
+  salaryAdjustment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
+  bonusPayment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
+  overtimePayment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
+  allowanceAdjustment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
+  deductionReversal: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
+  other: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() }
+};
+
+/** Update only arrears — avoid full employee.save() re-validating unrelated fields (e.g. spouseName). */
+const saveEmployeeArrears = async (employeeId, arrearsField, entry, { initialize = false } = {}) => {
+  const update = initialize
+    ? { arrears: { ...DEFAULT_ARREARS, [arrearsField]: entry } }
+    : { [`arrears.${arrearsField}`]: entry };
+  await Employee.findByIdAndUpdate(employeeId, { $set: update }, { runValidators: false });
+};
+
 // @route   GET /api/hr/arrears/:employeeId
 // @desc    Get all arrears for a specific employee
 // @access  Private (HR and Admin)
@@ -112,20 +129,7 @@ router.post('/',
                         arrearsType === 'deductionreversal' ? 'deductionReversal' :
                         'other';
 
-    // Initialize arrears object if it doesn't exist
-    if (!employee.arrears) {
-      employee.arrears = {
-        salaryAdjustment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
-        bonusPayment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
-        overtimePayment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
-        allowanceAdjustment: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
-        deductionReversal: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() },
-        other: { isActive: false, amount: 0, month: 0, year: 0, description: '', status: 'Pending', createdDate: new Date() }
-      };
-    }
-
-    // Update the specific arrears field
-    employee.arrears[arrearsField] = {
+    const arrearsEntry = {
       isActive: true,
       amount: parseFloat(amount),
       month: parseInt(month),
@@ -135,7 +139,9 @@ router.post('/',
       createdDate: new Date()
     };
 
-    await employee.save();
+    await saveEmployeeArrears(employeeId, arrearsField, arrearsEntry, {
+      initialize: !employee.arrears
+    });
 
     res.json({
       success: true,
@@ -211,8 +217,16 @@ router.put('/:id',
         
         // Update the timestamp
         arrearsEntry.updatedDate = new Date();
-        
-        await employee.save();
+
+        const $set = {};
+        if (amount !== undefined) $set[`arrears.${arrearsType}.amount`] = arrearsEntry.amount;
+        if (status !== undefined) $set[`arrears.${arrearsType}.status`] = arrearsEntry.status;
+        if (description !== undefined) $set[`arrears.${arrearsType}.description`] = arrearsEntry.description;
+        if (month !== undefined) $set[`arrears.${arrearsType}.month`] = arrearsEntry.month;
+        if (year !== undefined) $set[`arrears.${arrearsType}.year`] = arrearsEntry.year;
+        $set[`arrears.${arrearsType}.updatedDate`] = arrearsEntry.updatedDate;
+
+        await Employee.findByIdAndUpdate(employeeId, { $set }, { runValidators: false });
 
         // Generate new composite ID if month or year changed
         const newId = month !== undefined || year !== undefined 
@@ -274,17 +288,19 @@ router.delete('/:id',
     await payroll.save();
 
     // Update employee's arrears object structure
-    const employee = await Employee.findById(employeeId);
-    if (employee && employee.arrears) {
-      // Find and deactivate the specific arrears entry
-      Object.keys(employee.arrears).forEach(key => {
+    const employee = await Employee.findById(employeeId).select('arrears').lean();
+    if (employee?.arrears) {
+      const $set = {};
+      Object.keys(employee.arrears).forEach((key) => {
         const arrearsEntry = employee.arrears[key];
         if (arrearsEntry.isActive && arrearsEntry.month === payroll.month && arrearsEntry.year === payroll.year) {
-          arrearsEntry.isActive = false;
-          arrearsEntry.status = 'Cancelled';
+          $set[`arrears.${key}.isActive`] = false;
+          $set[`arrears.${key}.status`] = 'Cancelled';
         }
       });
-      await employee.save();
+      if (Object.keys($set).length) {
+        await Employee.findByIdAndUpdate(employeeId, { $set }, { runValidators: false });
+      }
     }
 
     res.json({

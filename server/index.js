@@ -91,6 +91,7 @@ const utilityBillRoutes = require('./routes/utilityBills');
 const centralizedStoreRoutes = require('./routes/centralizedStore');
 const itRoutes = require('./routes/it');
 const arrearsRoutes = require('./routes/arrears');
+const orgChartRoutes = require('./routes/orgChart');
 const rentalAgreementRoutes = require('./routes/rentalAgreements');
 const tajRentalAgreementRoutes = require('./routes/tajRentalAgreements');
 const rentalManagementRoutes = require('./routes/rentalManagement');
@@ -630,6 +631,7 @@ app.use('/api/attendance-proxy', attendanceProxyRoutes);
 app.use('/api/utility-bills', authMiddleware, activityLogger, utilityBillRoutes);
 app.use('/api/admin/centralized-store', authMiddleware, activityLogger, centralizedStoreRoutes);
 app.use('/api/hr/arrears', authMiddleware, activityLogger, arrearsRoutes);
+app.use('/api/hr/org-chart', authMiddleware, activityLogger, orgChartRoutes);
 // Register file routes separately (without authMiddleware, handles auth internally with query token)
 app.use('/api/rental-agreements', rentalAgreementRoutes.fileRouter);
 app.use('/api/rental-agreements', authMiddleware, activityLogger, rentalAgreementRoutes);

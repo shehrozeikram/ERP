@@ -65,28 +65,26 @@ const taxableAndExemptPartsForAllowance = (amount, policy) => {
   return { taxable: amt - exempt, exempt };
 };
 
-/** Legacy: 10% medical exemption on gross + all allowances combined. */
+/** Legacy: 10% medical exemption on total earnings (salary + allowances + arrears). */
 const calculateTaxLegacy = (mainSalary, arrears = 0) => {
-  const mainTaxableIncome = mainSalary - mainSalary * 0.1;
-  const mainTax = calculateMonthlyTax(mainTaxableIncome);
-  const arrearsTax = arrears > 0 ? calculateMonthlyTax(arrears) : 0;
-  const totalTax = mainTax + arrearsTax;
-  const mainNetSalary = mainSalary - mainTax;
-  const arrearsNetAmount = arrears - arrearsTax;
+  const totalIncome = mainSalary + arrears;
+  const salaryMedicalExempt = Math.round(totalIncome * 0.1);
+  const totalTaxableIncome = totalIncome - salaryMedicalExempt;
+  const totalTax = calculateMonthlyTax(totalTaxableIncome);
 
   return {
     mainSalary,
     arrears,
-    mainTaxableIncome: Math.round(mainTaxableIncome),
-    arrearsTaxableIncome: Math.round(arrears),
-    mainTax: Math.round(mainTax),
-    arrearsTax: Math.round(arrearsTax),
+    mainTaxableIncome: Math.round(totalTaxableIncome),
+    arrearsTaxableIncome: 0,
+    mainTax: Math.round(totalTax),
+    arrearsTax: 0,
     totalTax: Math.round(totalTax),
-    mainNetSalary: Math.round(mainNetSalary),
-    arrearsNetAmount: Math.round(arrearsNetAmount),
-    totalNetSalary: Math.round(mainNetSalary + arrearsNetAmount),
-    salaryMedicalExempt: Math.round(mainSalary * 0.1),
-    allowanceTaxable: Math.round(mainSalary),
+    mainNetSalary: Math.round(totalIncome - totalTax),
+    arrearsNetAmount: 0,
+    totalNetSalary: Math.round(totalIncome - totalTax),
+    salaryMedicalExempt,
+    allowanceTaxable: Math.round(totalTaxableIncome),
     allowanceExempt: 0,
     usesAllowanceTaxPolicy: false
   };
@@ -113,8 +111,11 @@ const calculatePayrollTaxWithSettings = ({
   }
 
   const salaryExemptPercent = config.salaryMedicalExemptPercent;
-  const salaryExempt = Math.round((gross * salaryExemptPercent) / 100);
-  const salaryTaxable = gross - salaryExempt;
+  const mainSalary = gross + totalAllowances;
+  const totalIncome = mainSalary + arrearsAmt;
+  const salaryExempt = Math.round((totalIncome * salaryExemptPercent) / 100);
+  const mainTaxableIncome = totalIncome - salaryExempt;
+  const totalTax = calculateMonthlyTax(mainTaxableIncome);
 
   let allowanceTaxable = 0;
   let allowanceExempt = 0;
@@ -135,26 +136,17 @@ const calculatePayrollTaxWithSettings = ({
     };
   });
 
-  const mainTaxableIncome = salaryTaxable + allowanceTaxable;
-  const mainTax = calculateMonthlyTax(mainTaxableIncome);
-  const arrearsTax = arrearsAmt > 0 ? calculateMonthlyTax(arrearsAmt) : 0;
-  const totalTax = mainTax + arrearsTax;
-
-  const mainSalary = gross + totalAllowances;
-  const mainNetSalary = mainSalary - mainTax;
-  const arrearsNetAmount = arrearsAmt - arrearsTax;
-
   return {
     mainSalary,
     arrears: arrearsAmt,
     mainTaxableIncome: Math.round(mainTaxableIncome),
-    arrearsTaxableIncome: Math.round(arrearsAmt),
-    mainTax: Math.round(mainTax),
-    arrearsTax: Math.round(arrearsTax),
+    arrearsTaxableIncome: 0,
+    mainTax: Math.round(totalTax),
+    arrearsTax: 0,
     totalTax: Math.round(totalTax),
-    mainNetSalary: Math.round(mainNetSalary),
-    arrearsNetAmount: Math.round(arrearsNetAmount),
-    totalNetSalary: Math.round(mainNetSalary + arrearsNetAmount),
+    mainNetSalary: Math.round(totalIncome - totalTax),
+    arrearsNetAmount: 0,
+    totalNetSalary: Math.round(totalIncome - totalTax),
     salaryMedicalExempt: salaryExempt,
     allowanceTaxable: Math.round(allowanceTaxable),
     allowanceExempt: Math.round(allowanceExempt),

@@ -228,7 +228,23 @@ const OrganizationalDevelopment = () => {
                       <Box sx={{ textAlign: 'left' }}>
                         <Typography variant="subtitle2">Organizational Chart</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          View and manage organizational structure
+                          View the live organogram
+                        </Typography>
+                      </Box>
+                    </Button>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      startIcon={<AccountTree />}
+                      onClick={() => navigate('/hr/organizational-development/org-chart/edit')}
+                      sx={{ justifyContent: 'flex-start', p: 2 }}
+                    >
+                      <Box sx={{ textAlign: 'left' }}>
+                        <Typography variant="subtitle2">Org Chart Editor</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Add, move, and edit Project / Department / Staff nodes
                         </Typography>
                       </Box>
                     </Button>
