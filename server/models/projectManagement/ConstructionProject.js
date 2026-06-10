@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const BUDGET_CATEGORIES = [
   'Civil Works', 'Finishes', 'Electrical', 'Plumbing',
+  'Sewerage', 'Gas', 'Water supply',
   'Labor', 'Consultancy', 'Materials', 'Contingency', 'Miscellaneous'
 ];
 
