@@ -20,12 +20,20 @@ import {
   GridOn,
   AutoFixHigh,
   Image,
-  PictureAsPdf
+  PictureAsPdf,
+  LinkOff
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import { exportOrgChartToPng, exportOrgChartToPdf } from '../../../utils/orgChartExport';
 import { getOrgNodeSx } from './orgChartTheme';
-import { buildConnectorPath, getCanvasBounds, snapToGrid, GRID_SIZE } from './orgChartConnectors';
+import {
+  buildConnectorPath,
+  buildStraightPath,
+  getCanvasBounds,
+  getNodePort,
+  snapToGrid,
+  GRID_SIZE
+} from './orgChartConnectors';
 import OrgChartStencilPanel from './OrgChartStencilPanel';
 import OrgChartPropertiesPanel from './OrgChartPropertiesPanel';
 import { flattenTree } from './orgChartHelpers';
@@ -39,7 +47,8 @@ const OrgChartVisioWorkspace = ({
   onNodePositionChange,
   onNodeCreate,
   onNodeUpdate,
-  onNodeMove,
+  onNodeConnect,
+  onNodeDisconnect,
   onNodeDelete,
   onAutoLayout,
   loading = false,
@@ -49,9 +58,11 @@ const OrgChartVisioWorkspace = ({
   const diagramRef = useRef(null);
   const [nodes, setNodes] = useState({});
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedConnector, setSelectedConnector] = useState(null);
   const [tool, setTool] = useState('select');
   const [placeType, setPlaceType] = useState(null);
   const [connectFrom, setConnectFrom] = useState(null);
+  const [connectDrag, setConnectDrag] = useState(null);
   const [zoom, setZoom] = useState(0.85);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [showGrid, setShowGrid] = useState(true);
@@ -62,32 +73,6 @@ const OrgChartVisioWorkspace = ({
   const [exporting, setExporting] = useState(false);
 
   const hasDiagram = Object.values(nodes).some((n) => n.posX != null && n.posY != null);
-
-  const handleExportPng = async () => {
-    if (!diagramRef.current || exporting) return;
-    setExporting(true);
-    try {
-      const name = await exportOrgChartToPng(diagramRef.current);
-      toast.success(`Exported ${name}`);
-    } catch (err) {
-      toast.error(err.message || 'PNG export failed');
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleExportPdf = async () => {
-    if (!diagramRef.current || exporting) return;
-    setExporting(true);
-    try {
-      const name = await exportOrgChartToPdf(diagramRef.current);
-      toast.success(`Exported ${name}`);
-    } catch (err) {
-      toast.error(err.message || 'PDF export failed');
-    } finally {
-      setExporting(false);
-    }
-  };
 
   useEffect(() => {
     const map = {};
@@ -131,11 +116,19 @@ const OrgChartVisioWorkspace = ({
       if (!child.parent) return;
       const parent = nodes[child.parent];
       if (!parent || parent.posX == null || child.posX == null) return;
-      const d = buildConnectorPath(parent, child);
-      if (d) lines.push({ id: `${parent.id}-${child.id}`, d });
+      const d = buildConnectorPath(parent, child, bounds.minX, bounds.minY);
+      if (!d) return;
+      lines.push({
+        id: `${parent.id}-${child.id}`,
+        d,
+        parentId: parent.id,
+        childId: child.id,
+        parentTitle: parent.title,
+        childTitle: child.title
+      });
     });
     return lines;
-  }, [nodes]);
+  }, [nodes, bounds.minX, bounds.minY]);
 
   const screenToCanvas = useCallback(
     (clientX, clientY) => {
@@ -148,6 +141,61 @@ const OrgChartVisioWorkspace = ({
     },
     [pan, zoom, bounds.minX, bounds.minY]
   );
+
+  const screenToDiagram = useCallback(
+    (clientX, clientY) => {
+      const el = viewportRef.current;
+      if (!el) return { x: 0, y: 0 };
+      const rect = el.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left - pan.x) / zoom,
+        y: (clientY - rect.top - pan.y) / zoom
+      };
+    },
+    [pan, zoom]
+  );
+
+  const findNodeAtDiagramPoint = useCallback(
+    (dx, dy) => {
+      const x = dx - bounds.minX;
+      const y = dy - bounds.minY;
+      return Object.values(nodes).find(
+        (n) =>
+          n.posX != null &&
+          x >= n.posX &&
+          x <= n.posX + n.width &&
+          y >= n.posY &&
+          y <= n.posY + n.height
+      );
+    },
+    [nodes, bounds.minX, bounds.minY]
+  );
+
+  const handleExportPng = async () => {
+    if (!diagramRef.current || exporting) return;
+    setExporting(true);
+    try {
+      const name = await exportOrgChartToPng(diagramRef.current);
+      toast.success(`Exported ${name}`);
+    } catch (err) {
+      toast.error(err.message || 'PNG export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!diagramRef.current || exporting) return;
+    setExporting(true);
+    try {
+      const name = await exportOrgChartToPdf(diagramRef.current);
+      toast.success(`Exported ${name}`);
+    } catch (err) {
+      toast.error(err.message || 'PDF export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleWheel = useCallback((e) => {
     e.preventDefault();
@@ -162,6 +210,28 @@ const OrgChartVisioWorkspace = ({
     return () => el.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
+  const clearConnectorSelection = () => setSelectedConnector(null);
+
+  const handleRemoveConnector = async (connector) => {
+    const target = connector || selectedConnector;
+    if (!target) return;
+    await onNodeDisconnect?.(target.childId);
+    setSelectedConnector(null);
+  };
+
+  const tryConnect = async (parentId, childId) => {
+    if (!parentId || !childId || parentId === childId) return;
+    const child = nodes[childId];
+    if (child?.isRoot) {
+      toast.error('Cannot connect lines to the root shape');
+      return;
+    }
+    await onNodeConnect?.(childId, parentId);
+    setConnectFrom(null);
+    setConnectDrag(null);
+    setTool('select');
+  };
+
   const isCanvasBackground = (e) =>
     e.target === viewportRef.current || e.target?.dataset?.canvasBg === 'true';
 
@@ -173,8 +243,14 @@ const OrgChartVisioWorkspace = ({
       return;
     }
 
-    if (tool === 'pan' || e.button === 1 || (e.button === 0 && isCanvasBackground(e) && tool !== 'place')) {
+    if (tool === 'disconnect') return;
+
+    if (tool === 'pan' || e.button === 1 || (e.button === 0 && isCanvasBackground(e) && tool !== 'place' && !connectDrag)) {
       setPanning({ startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y });
+      if (tool === 'select') {
+        setSelectedId(null);
+        clearConnectorSelection();
+      }
       return;
     }
 
@@ -199,6 +275,13 @@ const OrgChartVisioWorkspace = ({
       });
       return;
     }
+
+    if (connectDrag) {
+      const pt = screenToDiagram(e.clientX, e.clientY);
+      setConnectDrag((prev) => ({ ...prev, currentX: pt.x, currentY: pt.y }));
+      return;
+    }
+
     if (dragging && !readOnly) {
       const { x, y } = screenToCanvas(e.clientX, e.clientY);
       setNodes((prev) => ({
@@ -212,7 +295,18 @@ const OrgChartVisioWorkspace = ({
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e) => {
+    if (connectDrag) {
+      const pt = screenToDiagram(e.clientX, e.clientY);
+      const target = findNodeAtDiagramPoint(pt.x, pt.y);
+      if (target && target.id !== connectDrag.parentId) {
+        tryConnect(connectDrag.parentId, target.id);
+      } else {
+        setConnectDrag(null);
+      }
+      return;
+    }
+
     if (dragging && !readOnly) {
       setNodes((prev) => {
         const n = prev[dragging.id];
@@ -231,14 +325,15 @@ const OrgChartVisioWorkspace = ({
       return;
     }
 
+    if (tool === 'disconnect') return;
+
     if (tool === 'connect') {
       if (!connectFrom) {
         setConnectFrom(node.id);
         setSelectedId(node.id);
+        clearConnectorSelection();
       } else if (connectFrom !== node.id) {
-        onNodeMove?.(node.id, connectFrom);
-        setConnectFrom(null);
-        setTool('select');
+        tryConnect(connectFrom, node.id);
       }
       return;
     }
@@ -246,6 +341,7 @@ const OrgChartVisioWorkspace = ({
     if (tool === 'place') return;
 
     setSelectedId(node.id);
+    clearConnectorSelection();
     const { x, y } = screenToCanvas(e.clientX, e.clientY);
     setDragging({
       id: node.id,
@@ -254,9 +350,54 @@ const OrgChartVisioWorkspace = ({
     });
   };
 
+  const handlePortMouseDown = (e, node, port) => {
+    e.stopPropagation();
+    if (readOnly || tool === 'pan' || tool === 'place') return;
+
+    clearConnectorSelection();
+    setSelectedId(node.id);
+
+    if (port === 'bottom') {
+      const p = getNodePort(node, 'bottom', bounds.minX, bounds.minY);
+      setConnectDrag({
+        parentId: node.id,
+        startX: p.x,
+        startY: p.y,
+        currentX: p.x,
+        currentY: p.y
+      });
+      setTool('connect');
+    } else if (port === 'top' && connectFrom) {
+      tryConnect(connectFrom, node.id);
+    }
+  };
+
+  const handleConnectorClick = (e, line) => {
+    e.stopPropagation();
+    if (readOnly) return;
+
+    if (tool === 'disconnect') {
+      handleRemoveConnector(line);
+      return;
+    }
+
+    setSelectedConnector({ parentId: line.parentId, childId: line.childId });
+    setSelectedId(null);
+  };
+
   const handlePickType = (type) => {
     setPlaceType(type);
     setTool(type ? 'place' : 'select');
+    setConnectFrom(null);
+    setConnectDrag(null);
+  };
+
+  const handleToolChange = (_, value) => {
+    if (!value) return;
+    setTool(value);
+    setConnectFrom(null);
+    setConnectDrag(null);
+    if (value !== 'select') clearConnectorSelection();
   };
 
   const handleSaveProps = async () => {
@@ -276,8 +417,16 @@ const OrgChartVisioWorkspace = ({
 
   const handleParentChange = async (parentId) => {
     if (!selectedId) return;
-    await onNodeMove?.(selectedId, parentId);
+    if (!parentId) {
+      await onNodeDisconnect?.(selectedId);
+    } else {
+      await onNodeConnect?.(selectedId, parentId);
+    }
   };
+
+  const selectedConnectorMeta = selectedConnector
+    ? connectors.find((c) => c.parentId === selectedConnector.parentId && c.childId === selectedConnector.childId)
+    : null;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bgcolor: '#FAFAFA' }}>
@@ -293,24 +442,25 @@ const OrgChartVisioWorkspace = ({
           borderBottom: 1,
           borderColor: 'divider',
           bgcolor: '#EAE9E8',
-          flexShrink: 0
+          flexShrink: 0,
+          flexWrap: 'wrap'
         }}
       >
         {!readOnly && (
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={tool}
-            onChange={(_, v) => v && setTool(v)}
-          >
+          <ToggleButtonGroup size="small" exclusive value={tool} onChange={handleToolChange}>
             <ToggleButton value="select">
-              <Tooltip title="Select / Move (Visio pointer)">
+              <Tooltip title="Select / move shapes">
                 <NearMe fontSize="small" />
               </Tooltip>
             </ToggleButton>
             <ToggleButton value="connect">
-              <Tooltip title="Connector — click manager, then report">
+              <Tooltip title="Add line — click manager, then report (or drag from blue dot)">
                 <DeviceHub fontSize="small" />
+              </Tooltip>
+            </ToggleButton>
+            <ToggleButton value="disconnect">
+              <Tooltip title="Remove line — click a connector">
+                <LinkOff fontSize="small" />
               </Tooltip>
             </ToggleButton>
             <ToggleButton value="pan">
@@ -348,60 +498,60 @@ const OrgChartVisioWorkspace = ({
         </Tooltip>
 
         {!readOnly && onAutoLayout && (
+          <Button size="small" variant="outlined" startIcon={<AutoFixHigh />} onClick={onAutoLayout} sx={{ ml: 0.5 }}>
+            Auto arrange
+          </Button>
+        )}
+
+        {!readOnly && selectedConnectorMeta && (
           <Button
             size="small"
-            variant="outlined"
-            startIcon={<AutoFixHigh />}
-            onClick={onAutoLayout}
-            sx={{ ml: 1 }}
+            color="error"
+            variant="contained"
+            startIcon={<LinkOff />}
+            onClick={() => handleRemoveConnector(selectedConnectorMeta)}
           >
-            Auto arrange
+            Remove line
           </Button>
         )}
 
         {showExport && hasDiagram && (
           <>
             <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<Image />}
-              onClick={handleExportPng}
-              disabled={exporting}
-            >
+            <Button size="small" variant="outlined" startIcon={<Image />} onClick={handleExportPng} disabled={exporting}>
               PNG
             </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<PictureAsPdf />}
-              onClick={handleExportPdf}
-              disabled={exporting}
-            >
+            <Button size="small" variant="outlined" startIcon={<PictureAsPdf />} onClick={handleExportPdf} disabled={exporting}>
               PDF
             </Button>
           </>
         )}
 
         {tool === 'place' && placeType && (
-          <Typography variant="caption" color="primary" sx={{ ml: 1 }}>
+          <Typography variant="caption" color="primary">
             Click canvas to place {placeType}
           </Typography>
         )}
-        {tool === 'connect' && (
-          <Typography variant="caption" color="primary" sx={{ ml: 1 }}>
-            {connectFrom ? 'Now click the report (subordinate)' : 'Click the manager first'}
+        {tool === 'connect' && !connectDrag && (
+          <Typography variant="caption" color="primary">
+            {connectFrom ? 'Click the report (subordinate)' : 'Click manager, or drag blue dot to report'}
+          </Typography>
+        )}
+        {tool === 'disconnect' && (
+          <Typography variant="caption" color="error">
+            Click a line to remove it
+          </Typography>
+        )}
+        {selectedConnectorMeta && tool === 'select' && (
+          <Typography variant="caption" color="text.secondary">
+            Line: {selectedConnectorMeta.childTitle} → {selectedConnectorMeta.parentTitle}
           </Typography>
         )}
       </Paper>
 
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {!readOnly && (
-          <OrgChartStencilPanel
-            activeType={placeType}
-            onPickType={handlePickType}
-            disabled={loading}
-          />
+          <OrgChartStencilPanel activeType={placeType} onPickType={handlePickType} disabled={loading} />
         )}
 
         <Box
@@ -414,12 +564,19 @@ const OrgChartVisioWorkspace = ({
           sx={{
             flex: 1,
             overflow: 'hidden',
-            cursor: tool === 'pan' || panning ? 'grab' : tool === 'place' ? 'crosshair' : 'default',
+            cursor:
+              tool === 'pan' || panning
+                ? 'grab'
+                : tool === 'place'
+                  ? 'crosshair'
+                  : tool === 'connect' || connectDrag
+                    ? 'crosshair'
+                    : tool === 'disconnect'
+                      ? 'not-allowed'
+                      : 'default',
             position: 'relative',
             bgcolor: '#FFFFFF',
-            backgroundImage: showGrid
-              ? 'radial-gradient(circle, #D0D0D0 1px, transparent 1px)'
-              : 'none',
+            backgroundImage: showGrid ? 'radial-gradient(circle, #D0D0D0 1px, transparent 1px)' : 'none',
             backgroundSize: `${GRID_SIZE * zoom}px ${GRID_SIZE * zoom}px`,
             backgroundPosition: `${pan.x}px ${pan.y}px`
           }}
@@ -442,18 +599,43 @@ const OrgChartVisioWorkspace = ({
             <svg
               width={bounds.width}
               height={bounds.height}
-              style={{ position: 'absolute', left: bounds.minX, top: bounds.minY, pointerEvents: 'none' }}
+              style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }}
             >
-              {connectors.map((line) => (
+              {connectors.map((line) => {
+                const selected =
+                  selectedConnector?.parentId === line.parentId &&
+                  selectedConnector?.childId === line.childId;
+                return (
+                  <g key={line.id}>
+                    <path
+                      d={line.d}
+                      fill="none"
+                      stroke="transparent"
+                      strokeWidth={14}
+                      style={{ pointerEvents: readOnly ? 'none' : 'stroke', cursor: tool === 'disconnect' ? 'not-allowed' : 'pointer' }}
+                      onMouseDown={(e) => handleConnectorClick(e, line)}
+                    />
+                    <path
+                      d={line.d}
+                      fill="none"
+                      stroke={selected ? '#0078D4' : '#555'}
+                      strokeWidth={selected ? 3 : 2}
+                      strokeLinecap="square"
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  </g>
+                );
+              })}
+              {connectDrag && (
                 <path
-                  key={line.id}
-                  d={line.d}
+                  d={buildStraightPath(connectDrag.startX, connectDrag.startY, connectDrag.currentX, connectDrag.currentY)}
                   fill="none"
-                  stroke="#555"
+                  stroke="#0078D4"
                   strokeWidth={2}
-                  strokeLinecap="square"
+                  strokeDasharray="6 4"
+                  style={{ pointerEvents: 'none' }}
                 />
-              ))}
+              )}
             </svg>
 
             {Object.values(nodes)
@@ -472,7 +654,7 @@ const OrgChartVisioWorkspace = ({
                       width: node.width,
                       minHeight: node.height,
                       ...getOrgNodeSx(node, isSelected || isConnect),
-                      cursor: readOnly ? 'pointer' : tool === 'connect' ? 'crosshair' : 'move',
+                      cursor: readOnly ? 'pointer' : tool === 'connect' ? 'crosshair' : tool === 'disconnect' ? 'default' : 'move',
                       userSelect: 'none',
                       display: 'flex',
                       flexDirection: 'column',
@@ -480,6 +662,49 @@ const OrgChartVisioWorkspace = ({
                       zIndex: isSelected ? 2 : 1
                     }}
                   >
+                    {!readOnly && (
+                      <>
+                        <Box
+                          data-connection-port="true"
+                          className="org-chart-port"
+                          onMouseDown={(e) => handlePortMouseDown(e, node, 'top')}
+                          sx={{
+                            position: 'absolute',
+                            top: -5,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            bgcolor: '#fff',
+                            border: '2px solid #0078D4',
+                            cursor: 'crosshair',
+                            zIndex: 3,
+                            '&:hover': { bgcolor: '#0078D4' }
+                          }}
+                        />
+                        <Box
+                          data-connection-port="true"
+                          className="org-chart-port"
+                          onMouseDown={(e) => handlePortMouseDown(e, node, 'bottom')}
+                          sx={{
+                            position: 'absolute',
+                            bottom: -5,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            bgcolor: '#0078D4',
+                            border: '2px solid #fff',
+                            boxShadow: '0 0 0 1px #0078D4',
+                            cursor: 'crosshair',
+                            zIndex: 3,
+                            '&:hover': { transform: 'translateX(-50%) scale(1.2)' }
+                          }}
+                        />
+                      </>
+                    )}
                     <Typography sx={{ fontWeight: 'inherit', fontSize: 'inherit', color: 'inherit', lineHeight: 1.2 }}>
                       {node.title}
                     </Typography>
@@ -507,6 +732,11 @@ const OrgChartVisioWorkspace = ({
               setPlaceType(draftProps?.type === 'department' ? 'management' : 'staff');
               setTool('place');
             }}
+            onDisconnectLine={
+              draftProps?.parent && !draftProps?.isRoot
+                ? () => onNodeDisconnect?.(selectedId)
+                : null
+            }
             readOnly={readOnly}
             saving={saving}
           />

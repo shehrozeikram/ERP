@@ -141,13 +141,23 @@ const OrganizationalChartEditor = () => {
     await loadCanvas(false);
   };
 
-  const handleNodeMove = async (id, parentId) => {
+  const handleNodeConnect = async (childId, parentId) => {
     try {
-      await orgChartService.moveNode(id, { parentId });
-      toast.success('Connection updated');
+      await orgChartService.connectNode(childId, parentId);
+      toast.success('Line added');
       await loadCanvas(false);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Connect failed');
+      toast.error(err.response?.data?.message || 'Could not add line');
+    }
+  };
+
+  const handleNodeDisconnect = async (childId) => {
+    try {
+      await orgChartService.disconnectNode(childId);
+      toast.success('Line removed');
+      await loadCanvas(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not remove line');
     }
   };
 
@@ -256,7 +266,8 @@ const OrganizationalChartEditor = () => {
             onNodePositionChange={handlePositionChange}
             onNodeCreate={handleNodeCreate}
             onNodeUpdate={handleNodeUpdate}
-            onNodeMove={handleNodeMove}
+            onNodeConnect={handleNodeConnect}
+            onNodeDisconnect={handleNodeDisconnect}
             onNodeDelete={handleNodeDelete}
             onAutoLayout={handleAutoLayout}
           />

@@ -3,15 +3,23 @@ export const GRID_SIZE = 20;
 export const snapToGrid = (value, grid = GRID_SIZE) =>
   Math.round(value / grid) * grid;
 
-export const buildConnectorPath = (parent, child) => {
+export const getNodePort = (node, port, boundsMinX = 0, boundsMinY = 0) => {
+  const x = boundsMinX + node.posX + node.width / 2;
+  const y = boundsMinY + node.posY + (port === 'bottom' ? node.height : 0);
+  return { x, y };
+};
+
+export const buildConnectorPath = (parent, child, boundsMinX = 0, boundsMinY = 0) => {
   if (parent.posX == null || child.posX == null) return '';
-  const x1 = parent.posX + parent.width / 2;
-  const y1 = parent.posY + parent.height;
-  const x2 = child.posX + child.width / 2;
-  const y2 = child.posY;
+  const x1 = boundsMinX + parent.posX + parent.width / 2;
+  const y1 = boundsMinY + parent.posY + parent.height;
+  const x2 = boundsMinX + child.posX + child.width / 2;
+  const y2 = boundsMinY + child.posY;
   const midY = y1 + Math.max(28, (y2 - y1) * 0.5);
   return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
 };
+
+export const buildStraightPath = (x1, y1, x2, y2) => `M ${x1} ${y1} L ${x2} ${y2}`;
 
 export const getCanvasBounds = (nodes, padding = 120) => {
   const list = Object.values(nodes).filter((n) => n.posX != null && n.posY != null);

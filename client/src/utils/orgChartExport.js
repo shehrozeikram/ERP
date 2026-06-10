@@ -17,6 +17,9 @@ const captureDiagram = async (sourceEl) => {
     useCORS: true,
     onclone: (_doc, clonedEl) => {
       clonedEl.style.transform = 'none';
+      clonedEl.querySelectorAll('[data-connection-port]').forEach((el) => {
+        el.style.display = 'none';
+      });
       let parent = clonedEl.parentElement;
       while (parent && parent !== _doc.body) {
         parent.style.overflow = 'visible';

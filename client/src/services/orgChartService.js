@@ -37,6 +37,14 @@ const orgChartService = {
     const res = await api.patch(`/hr/org-chart/nodes/${id}/move`, body);
     return res.data;
   },
+  connectNode: async (childId, parentId) => {
+    const res = await api.patch(`/hr/org-chart/nodes/${childId}/move`, { parentId });
+    return res.data;
+  },
+  disconnectNode: async (childId) => {
+    const res = await api.patch(`/hr/org-chart/nodes/${childId}/move`, { parentId: null, disconnect: true });
+    return res.data;
+  },
   reorderNode: async (id, direction) => {
     const res = await api.patch(`/hr/org-chart/nodes/${id}/reorder`, { direction });
     return res.data;

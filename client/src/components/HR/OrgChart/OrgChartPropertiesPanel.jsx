@@ -14,7 +14,7 @@ import {
   Divider,
   Stack
 } from '@mui/material';
-import { Delete, Add } from '@mui/icons-material';
+import { Delete, Add, LinkOff } from '@mui/icons-material';
 import { NODE_TYPE_OPTIONS } from './orgChartHelpers';
 
 const OrgChartPropertiesPanel = ({
@@ -26,6 +26,7 @@ const OrgChartPropertiesPanel = ({
   onSave,
   onDelete,
   onAddChild,
+  onDisconnectLine,
   readOnly,
   saving
 }) => (
@@ -104,8 +105,11 @@ const OrgChartPropertiesPanel = ({
             <Select
               label="Reports to"
               value={parentId || ''}
-              onChange={(e) => onParentChange(e.target.value)}
+              onChange={(e) => onParentChange(e.target.value || null)}
             >
+              <MenuItem value="">
+                <em>No line (disconnect)</em>
+              </MenuItem>
               {parentOptions.map((opt) => (
                 <MenuItem key={opt.id} value={opt.id}>
                   {`${'  '.repeat(opt.depth)}${opt.title}${opt.name ? ` — ${opt.name}` : ''}`}
@@ -113,6 +117,12 @@ const OrgChartPropertiesPanel = ({
               ))}
             </Select>
           </FormControl>
+        )}
+
+        {onDisconnectLine && (
+          <Button variant="outlined" color="warning" startIcon={<LinkOff />} onClick={onDisconnectLine}>
+            Remove line to manager
+          </Button>
         )}
 
         {!readOnly && (

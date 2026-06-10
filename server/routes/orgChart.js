@@ -178,24 +178,27 @@ router.patch('/nodes/:id/move', perm('update'), asyncHandler(async (req, res) =>
   }
 
   const flat = await loadFlatNodes();
+  const disconnect = req.body.disconnect === true || parentId === null || parentId === '';
 
-  if (parentId) {
+  if (disconnect) {
+    doc.parent = null;
+  } else if (parentId) {
     if (parentId === nodeId) {
-      return res.status(400).json({ success: false, message: 'Cannot move a node under itself' });
+      return res.status(400).json({ success: false, message: 'Cannot connect a shape to itself' });
     }
     if (isDescendant(flat, nodeId, parentId)) {
-      return res.status(400).json({ success: false, message: 'Cannot move a node under its own descendant' });
+      return res.status(400).json({ success: false, message: 'Cannot connect — would create a circular line' });
     }
     const parent = await OrgChartNode.findById(parentId);
     if (!parent || !parent.isActive) {
-      return res.status(404).json({ success: false, message: 'Parent node not found' });
+      return res.status(404).json({ success: false, message: 'Parent shape not found' });
     }
     doc.parent = parent._id;
   }
 
   if (typeof sortOrder === 'number' && !Number.isNaN(sortOrder)) {
     doc.sortOrder = sortOrder;
-  } else if (parentId) {
+  } else if (parentId && !disconnect) {
     const maxSibling = await OrgChartNode.findOne({
       parent: doc.parent,
       isActive: true,
