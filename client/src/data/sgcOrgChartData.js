@@ -239,60 +239,66 @@ export const SGC_ORG_CHART = {
               "isVacant": false,
               "children": [
                 {
-                  "id": "taj-procurement-manager-talha",
-                  "title": "Manager",
-                  "name": "M. Talha",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-procurement-manager-nadeem",
-                  "title": "Manager",
-                  "name": "Nadeem",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-procurement-am-haris",
-                  "title": "Assistant Manager",
-                  "name": "Haris",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
                   "id": "taj-procurement-sr-manager-mishal",
                   "title": "Sr. Manager",
                   "name": "Mishal Younas",
                   "type": "management",
                   "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-procurement-sr-executive-hamza",
-                  "title": "Sr. Executive",
-                  "name": "Hamza",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-procurement-helper-tariq",
-                  "title": "Helper purchase",
-                  "name": "M. Tariq",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-procurement-assistant-sup-gull",
-                  "title": "Assistant Sup.",
-                  "name": "Gull Rehman",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
+                  "children": [
+                    {
+                      "id": "taj-procurement-manager-talha",
+                      "title": "Manager",
+                      "name": "M. Talha",
+                      "type": "management",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-procurement-manager-nadeem",
+                          "title": "Manager",
+                          "name": "Nadeem",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-procurement-am-haris",
+                              "title": "Assistant Manager",
+                              "name": "Haris",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-procurement-sr-executive-hamza",
+                                  "title": "Sr. Executive",
+                                  "name": "Hamza",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-procurement-assistant-sup-gull",
+                                      "title": "Assistant Sup.",
+                                      "name": "Gull Rehman",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": [
+                                        {
+                                          "id": "taj-procurement-helper-tariq",
+                                          "title": "Helper purchase",
+                                          "name": "M. Tariq",
+                                          "type": "staff",
+                                          "isVacant": false,
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             },
@@ -309,47 +315,52 @@ export const SGC_ORG_CHART = {
                   "name": "Raja Tariq",
                   "type": "management",
                   "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-store-am-procurement-zahid",
-                  "title": "AM Store / Procurement",
-                  "name": "Zahid Ahmed",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-store-am-usman",
-                  "title": "Assistant Manager",
-                  "name": "Muhammad Usman",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-store-intern-ayaz",
-                  "title": "Intern",
-                  "name": "Ayaz (Royal Crete)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-store-intern-suliman",
-                  "title": "Intern",
-                  "name": "Suliman",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-store-helper-np",
-                  "title": "Non Permanent Store Helper",
-                  "name": "(1)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
+                  "children": [
+                    {
+                      "id": "taj-store-am-procurement-zahid",
+                      "title": "AM Store / Procurement",
+                      "name": "Zahid Ahmed",
+                      "type": "management",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-store-am-usman",
+                          "title": "Assistant Manager",
+                          "name": "Muhammad Usman",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-store-intern-ayaz",
+                              "title": "Intern",
+                              "name": "Ayaz (Royal Crete)",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-store-intern-suliman",
+                                  "title": "Intern",
+                                  "name": "Suliman",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-store-helper-np",
+                                      "title": "Non Permanent Store Helper",
+                                      "name": "(1)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             },
@@ -407,55 +418,61 @@ export const SGC_ORG_CHART = {
                   "name": "Muhammad Asad Chughtaie",
                   "type": "management",
                   "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-workshop-am-farhad",
-                  "title": "AM",
-                  "name": "Farhad",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-workshop-coordinator-mushtaq",
-                  "title": "Coordinator",
-                  "name": "Mushtaq Subhani",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-workshop-supervisor-asif",
-                  "title": "Supervisor",
-                  "name": "Raja M. Asif",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-workshop-supervisor-rehan",
-                  "title": "Supervisor",
-                  "name": "Rehan Noor",
-                  "type": "management",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-workshop-mechanic",
-                  "title": "Mechanic",
-                  "name": "(1)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
-                },
-                {
-                  "id": "taj-workshop-helper-mechanic-np",
-                  "title": "Non Permanent Helper Mechanic",
-                  "name": "(1)",
-                  "type": "staff",
-                  "isVacant": false,
-                  "children": []
+                  "children": [
+                    {
+                      "id": "taj-workshop-am-farhad",
+                      "title": "AM",
+                      "name": "Farhad",
+                      "type": "management",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-workshop-coordinator-mushtaq",
+                          "title": "Coordinator",
+                          "name": "Mushtaq Subhani",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-workshop-supervisor-asif",
+                              "title": "Supervisor",
+                              "name": "Raja M. Asif",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-workshop-supervisor-rehan",
+                                  "title": "Supervisor",
+                                  "name": "Rehan Noor",
+                                  "type": "management",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-workshop-mechanic",
+                                      "title": "Mechanic",
+                                      "name": "(1)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": [
+                                        {
+                                          "id": "taj-workshop-helper-mechanic-np",
+                                          "title": "Non Permanent Helper Mechanic",
+                                          "name": "(1)",
+                                          "type": "staff",
+                                          "isVacant": false,
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             },
@@ -739,6 +756,604 @@ export const SGC_ORG_CHART = {
                       "title": "Record Assistant",
                       "name": "Nasir Saleem",
                       "type": "staff",
+                      "isVacant": false,
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "taj-sales-dept-new",
+              "title": "Sales",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-sales-gm",
+                  "title": "General Manager",
+                  "name": "Vacant",
+                  "type": "management",
+                  "isVacant": true,
+                  "children": [
+                    {
+                      "id": "taj-sales-sr-manager-umair",
+                      "title": "Sr. Manager Sales",
+                      "name": "Umair Khan",
+                      "type": "management",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-sales-manager-samra",
+                          "title": "Manager Sales",
+                          "name": "Samra Yaqoob",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-sales-am-fakhra",
+                              "title": "AM",
+                              "name": "Syeda Fakhra",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-sales-exec-shakeel",
+                                  "title": "Sales Executive",
+                                  "name": "Shakeel",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-sales-exec-kashif",
+                                      "title": "Sales Executive",
+                                      "name": "Kashif Khan",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": [
+                                        {
+                                          "id": "taj-sales-exec-maryam",
+                                          "title": "Sales Executive",
+                                          "name": "Maryam shaheen",
+                                          "type": "staff",
+                                          "isVacant": false,
+                                          "children": [
+                                            {
+                                              "id": "taj-sales-front-desk-kanwal",
+                                              "title": "Front Desk Officer",
+                                              "name": "Kanwal",
+                                              "type": "staff",
+                                              "isVacant": false,
+                                              "children": [
+                                                {
+                                                  "id": "taj-sales-officer-manahil",
+                                                  "title": "Officer",
+                                                  "name": "Miss Manahil",
+                                                  "type": "staff",
+                                                  "isVacant": false,
+                                                  "children": [
+                                                    {
+                                                      "id": "taj-sales-operator-yasir",
+                                                      "title": "Operator",
+                                                      "name": "Yasir Saleem",
+                                                      "type": "staff",
+                                                      "isVacant": false,
+                                                      "children": []
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "taj-arch-design-dept",
+              "title": "Architectural Design",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-arch-am-rizwan",
+                  "title": "Assistant Manger",
+                  "name": "Rizwan",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": [
+                    {
+                      "id": "taj-arch-cad-adil",
+                      "title": "CAD Operator",
+                      "name": "Adil",
+                      "type": "staff",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-arch-visualizer-haroon",
+                          "title": "Visualizer",
+                          "name": "Haroon",
+                          "type": "staff",
+                          "isVacant": false,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "taj-town-planning-dept",
+              "title": "Town Planning/ Building contorl",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-town-sr-planner-atique",
+                  "title": "Sr. Town Planner",
+                  "name": "Ch. Atique",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": [
+                    {
+                      "id": "taj-town-sr-inspector-faraz",
+                      "title": "Sr. Building Inspector",
+                      "name": "Faraz Ahmad",
+                      "type": "management",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-town-inspector-amir",
+                          "title": "Building Inspector",
+                          "name": "Amir Nazir",
+                          "type": "staff",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-town-inspector-amjad",
+                              "title": "Building Inspector",
+                              "name": "Amjad",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-town-inspector-aqib",
+                                  "title": "Building Inspector",
+                                  "name": "Aqib Javeed",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "taj-record-transfer-dept",
+              "title": "Record & Transfer/ Facility Management",
+              "name": "",
+              "type": "department",
+              "isVacant": false,
+              "children": [
+                {
+                  "id": "taj-record-manager-facilities",
+                  "title": "Manager Facilities",
+                  "name": "Maj. Zaheer Ahmad (Direct Reporting to GM Procurement)",
+                  "type": "management",
+                  "isVacant": false,
+                  "children": [
+                    {
+                      "id": "taj-record-security-cctv",
+                      "title": "Security and CCTV",
+                      "name": "",
+                      "type": "department",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-record-security-note",
+                          "title": "Taj security will also report to manager facilities",
+                          "name": "",
+                          "type": "staff",
+                          "isVacant": false,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "id": "taj-record-horticulture-dept",
+                      "title": "Horticulture",
+                      "name": "",
+                      "type": "department",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-record-horticulture-dm",
+                          "title": "DM",
+                          "name": "Bilal Kiayani",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-record-horticulture-subdept",
+                              "title": "Horticulture",
+                              "name": "",
+                              "type": "department",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-horticulture-sup",
+                                  "title": "Supervisor",
+                                  "name": "Muhammad Imtiaz",
+                                  "type": "management",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-horticulture-gardner",
+                                      "title": "Gardner",
+                                      "name": "Permanent (15), Non Permanent (08)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "taj-record-maint-services-dept",
+                      "title": "Maintenance and services department",
+                      "name": "",
+                      "type": "department",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-record-maint-sup-omais",
+                          "title": "Supervisor",
+                          "name": "Mr. Omais",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-record-plumbing-dept",
+                              "title": "Plumbing & Water Management",
+                              "name": "",
+                              "type": "department",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-plumbing-sup-semab",
+                                  "title": "Supervisor",
+                                  "name": "Semab Akhtar",
+                                  "type": "management",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-plumbing-np",
+                                      "title": "Non Permanent",
+                                      "name": "Water Bowser Helper (1), Plumber/Wall Man (1), Tube well Optr.(1), Pump operator(1)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "taj-record-help-desk-dept",
+                              "title": "Help Desk",
+                              "name": "",
+                              "type": "department",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-help-desk-perm",
+                                  "title": "Permanent Complaint Attendant",
+                                  "name": "(1)",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-help-desk-np",
+                                      "title": "Non Permanent Complaint Attendant",
+                                      "name": "(2)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "taj-record-cleaning-dept",
+                              "title": "General Cleaning",
+                              "name": "",
+                              "type": "department",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-cleaning-sup-zafar",
+                                  "title": "Supervisor (Road Cleaning)",
+                                  "name": "Zafar",
+                                  "type": "management",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-cleaning-np-road",
+                                      "title": "Non Permanent Road Cleaner",
+                                      "name": "(5)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": [
+                                        {
+                                          "id": "taj-record-cleaning-garbage",
+                                          "title": "Garbage Collector",
+                                          "name": "(2)",
+                                          "type": "staff",
+                                          "isVacant": false,
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "taj-record-tech-maint-dept",
+                      "title": "Technical & Maintenance",
+                      "name": "",
+                      "type": "department",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-record-electrical-dept",
+                          "title": "Electrical",
+                          "name": "",
+                          "type": "department",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-record-elec-asst-sup-noor",
+                              "title": "Assistant Supervisor",
+                              "name": "Noor Ahmed",
+                              "type": "management",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-elec-ameen",
+                                  "title": "Electracian",
+                                  "name": "M. Ameen",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-elec-np",
+                                      "title": "Non Permanent Electrician (5)",
+                                      "name": "AC Technician (1)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "id": "taj-record-civil-dept",
+                          "title": "Civil",
+                          "name": "",
+                          "type": "department",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-record-civil-masson",
+                              "title": "Masson (3)",
+                              "name": "No- Permanent",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-civil-labor",
+                                  "title": "Labor",
+                                  "name": "No- Permanent (01)",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-civil-np-painter",
+                                      "title": "No- Permanent",
+                                      "name": "Painter (1), Helper (1), Scaffolder (2)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": [
+                                        {
+                                          "id": "taj-record-civil-np-carpenter",
+                                          "title": "Non-Permanent",
+                                          "name": "Carpenter (2), Driver (1), Welder (1), Welder Helper (1)",
+                                          "type": "staff",
+                                          "isVacant": false,
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "taj-record-design-services-dept",
+                      "title": "Design Services, Building Control & Enforcement",
+                      "name": "",
+                      "type": "department",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-record-design-hod-asim",
+                          "title": "HOD",
+                          "name": "Asim Ajaz",
+                          "type": "management",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-record-design-mep-riasat",
+                              "title": "MEP Autocad Operator",
+                              "name": "Riasat Ali",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-design-doc-qurat",
+                                  "title": "Document Controler",
+                                  "name": "Qurat ul Ain",
+                                  "type": "staff",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-design-trainee-muneeb",
+                                      "title": "Trainee AutoCAD Operator",
+                                      "name": "Muneeb Faraz",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": []
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "taj-record-admin-dept",
+                      "title": "Admin",
+                      "name": "",
+                      "type": "department",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-record-admin-dispenser",
+                          "title": "Dispenser",
+                          "name": "Liaqat Ali",
+                          "type": "staff",
+                          "isVacant": false,
+                          "children": [
+                            {
+                              "id": "taj-record-admin-horse",
+                              "title": "Horse Care taker",
+                              "name": "(1)",
+                              "type": "staff",
+                              "isVacant": false,
+                              "children": [
+                                {
+                                  "id": "taj-record-admin-mosque-dept",
+                                  "title": "Mosque",
+                                  "name": "",
+                                  "type": "department",
+                                  "isVacant": false,
+                                  "children": [
+                                    {
+                                      "id": "taj-record-mosque-khateeb",
+                                      "title": "Khateeb/Imam",
+                                      "name": "(3)",
+                                      "type": "staff",
+                                      "isVacant": false,
+                                      "children": [
+                                        {
+                                          "id": "taj-record-mosque-moazzan",
+                                          "title": "Moazzan",
+                                          "name": "(1)",
+                                          "type": "staff",
+                                          "isVacant": false,
+                                          "children": [
+                                            {
+                                              "id": "taj-record-mosque-caretaker",
+                                              "title": "Caretaker/Khadim",
+                                              "name": "(1)",
+                                              "type": "staff",
+                                              "isVacant": false,
+                                              "children": [
+                                                {
+                                                  "id": "taj-record-mosque-cleaner",
+                                                  "title": "Cleaner",
+                                                  "name": "(1)",
+                                                  "type": "staff",
+                                                  "isVacant": false,
+                                                  "children": []
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "taj-record-billing-dept",
+                      "title": "Billing and Recovery",
+                      "name": "",
+                      "type": "department",
+                      "isVacant": false,
+                      "children": [
+                        {
+                          "id": "taj-record-billing-eng-hasnain",
+                          "title": "Electrical Eng",
+                          "name": "Hasnain Tahir",
+                          "type": "staff",
+                          "isVacant": false,
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "id": "taj-record-call-center",
+                      "title": "Call Center",
+                      "name": "",
+                      "type": "department",
                       "isVacant": false,
                       "children": []
                     }
