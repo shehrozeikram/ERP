@@ -13,7 +13,7 @@ const projectExpenseSchema = new mongoose.Schema({
 
   category: {
     type: String,
-    enum: ['Civil Works', 'Finishes', 'Electrical', 'Plumbing', 'Sewerage', 'Gas', 'Water supply', 'Labor', 'Consultancy', 'Materials', 'Contingency', 'Miscellaneous'],
+    enum: ['Civil Works', 'Finishes', 'Electrical', 'Plumbing', 'Sewerage', 'Water Supply & Gas', 'Labor', 'Consultancy', 'Materials', 'Contingency', 'Miscellaneous'],
     required: true
   },
   description: { type: String, required: true, trim: true },
