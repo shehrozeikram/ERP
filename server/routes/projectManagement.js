@@ -283,22 +283,66 @@ router.delete('/projects/:id', asyncHandler(async (req, res) => {
 router.get('/projects/:id/boq', asyncHandler(async (req, res) => {
   if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
 
-  const items = await BOQItem.find({ project: req.params.id })
-    .sort({ phase: 1, orderIndex: 1, createdAt: 1 })
-    .lean();
+  const { search, phase, category, page = 1, limit = 25 } = req.query;
+  const projectFilter = { project: req.params.id };
+  const filter = { ...projectFilter };
 
-  // Group by phase
-  const grouped = items.reduce((acc, item) => {
-    const ph = item.phase || 'General';
-    if (!acc[ph]) acc[ph] = [];
-    acc[ph].push(item);
-    return acc;
-  }, {});
+  if (phase) filter.phase = phase;
+  if (category) filter.category = category;
+  if (search) {
+    const re = { $regex: search, $options: 'i' };
+    filter.$or = [
+      { description: re },
+      { specification: re },
+      { itemCode: re },
+      { category: re },
+      { unit: re },
+      { phase: re }
+    ];
+  }
 
-  const totalEstimated = items.reduce((s, i) => s + (i.estimatedTotalCost || 0), 0);
-  const totalActual = items.reduce((s, i) => s + (i.actualTotalCost || 0), 0);
+  const skip = (Number(page) - 1) * Number(limit);
+  const [items, total, allItemsForTotals, phases, allItemsCount] = await Promise.all([
+    BOQItem.find(filter)
+      .sort({ phase: 1, orderIndex: 1, createdAt: 1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
+    BOQItem.countDocuments(filter),
+    BOQItem.find(projectFilter, 'estimatedTotalCost actualTotalCost').lean(),
+    BOQItem.distinct('phase', projectFilter),
+    BOQItem.countDocuments(projectFilter)
+  ]);
 
-  res.json({ success: true, data: { items, grouped, totalEstimated, totalActual } });
+  const computeEstTotal = (i) => (Number(i.estimatedQuantity) || 0) * (Number(i.estimatedUnitPrice) || 0);
+  const computeActualTotal = (i) => (Number(i.usedQuantity) || 0) * (Number(i.actualUnitPrice) || 0);
+
+  const itemsWithTotals = items.map((item) => {
+    const estimatedTotalCost = computeEstTotal(item);
+    const actualTotalCost = computeActualTotal(item);
+    return {
+      ...item,
+      estimatedTotalCost,
+      actualTotalCost,
+      quantityVariance: (Number(item.usedQuantity) || 0) - (Number(item.estimatedQuantity) || 0),
+      costVariance: actualTotalCost - estimatedTotalCost
+    };
+  });
+
+  const totalEstimated = allItemsForTotals.reduce((s, i) => s + computeEstTotal(i), 0);
+  const totalActual = allItemsForTotals.reduce((s, i) => s + computeActualTotal(i), 0);
+
+  res.json({
+    success: true,
+    data: {
+      items: itemsWithTotals,
+      totalEstimated,
+      totalActual,
+      allItemsCount,
+      phases: phases.map(p => p || 'General').sort((a, b) => a.localeCompare(b)),
+      pagination: { total, page: Number(page), limit: Number(limit) }
+    }
+  });
 }));
 
 // POST /api/project-management/projects/:id/boq — add single item
@@ -313,8 +357,15 @@ router.post('/projects/:id/boq', asyncHandler(async (req, res) => {
 
   const item = await BOQItem.create({
     project: req.params.id,
-    description, unit, estimatedQuantity, estimatedUnitPrice,
-    phase: phase || 'General', category, specification, itemCode, notes,
+    description,
+    unit,
+    estimatedQuantity: Number(estimatedQuantity),
+    estimatedUnitPrice: Number(estimatedUnitPrice),
+    phase: phase || 'General',
+    category,
+    specification,
+    itemCode,
+    notes,
     orderIndex: orderIndex || 0,
     createdBy: req.user?._id
   });
@@ -358,6 +409,11 @@ router.put('/projects/:id/boq/:itemId', asyncHandler(async (req, res) => {
 
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+
+  ['estimatedQuantity', 'estimatedUnitPrice', 'orderedQuantity', 'receivedQuantity', 'usedQuantity', 'actualUnitPrice']
+    .forEach((key) => {
+      if (updates[key] !== undefined) updates[key] = Number(updates[key]);
+    });
 
   const item = await BOQItem.findOneAndUpdate(
     { _id: req.params.itemId, project: req.params.id },

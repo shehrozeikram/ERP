@@ -43,12 +43,55 @@ const boqItemSchema = new mongoose.Schema({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-// Auto-compute totals and variances
+const applyBoqComputedFields = (doc) => {
+  const estimatedQuantity = Number(doc.estimatedQuantity) || 0;
+  const estimatedUnitPrice = Number(doc.estimatedUnitPrice) || 0;
+  const usedQuantity = Number(doc.usedQuantity) || 0;
+  const actualUnitPrice = Number(doc.actualUnitPrice) || 0;
+
+  doc.estimatedTotalCost = estimatedQuantity * estimatedUnitPrice;
+  doc.actualTotalCost = usedQuantity * actualUnitPrice;
+  doc.quantityVariance = usedQuantity - estimatedQuantity;
+  doc.costVariance = doc.actualTotalCost - doc.estimatedTotalCost;
+};
+
+boqItemSchema.statics.applyComputedFields = applyBoqComputedFields;
+
 boqItemSchema.pre('save', function (next) {
-  this.estimatedTotalCost = (this.estimatedQuantity || 0) * (this.estimatedUnitPrice || 0);
-  this.actualTotalCost = (this.usedQuantity || 0) * (this.actualUnitPrice || 0);
-  this.quantityVariance = (this.usedQuantity || 0) - (this.estimatedQuantity || 0);
-  this.costVariance = this.actualTotalCost - this.estimatedTotalCost;
+  applyBoqComputedFields(this);
+  next();
+});
+
+boqItemSchema.pre('insertMany', function (next, docs) {
+  docs.forEach(applyBoqComputedFields);
+  next();
+});
+
+boqItemSchema.pre('findOneAndUpdate', async function (next) {
+  const update = this.getUpdate() || {};
+  const $set = update.$set || update;
+  const affectsTotals = ['estimatedQuantity', 'estimatedUnitPrice', 'usedQuantity', 'actualUnitPrice']
+    .some((key) => $set[key] !== undefined);
+
+  if (!affectsTotals) return next();
+
+  const existing = await this.model.findOne(this.getQuery()).lean();
+  if (!existing) return next();
+
+  const merged = { ...existing, ...$set };
+  applyBoqComputedFields(merged);
+
+  if (!update.$set) {
+    update.$set = {};
+    Object.keys($set).forEach((key) => {
+      if (key !== '$set') update.$set[key] = $set[key];
+    });
+  }
+
+  update.$set.estimatedTotalCost = merged.estimatedTotalCost;
+  update.$set.actualTotalCost = merged.actualTotalCost;
+  update.$set.quantityVariance = merged.quantityVariance;
+  update.$set.costVariance = merged.costVariance;
   next();
 });
 

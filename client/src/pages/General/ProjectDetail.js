@@ -7,16 +7,19 @@ import {
   DialogActions, DialogContent, DialogTitle, Divider, FormControl, Grid,
   IconButton, InputLabel, LinearProgress, MenuItem, Paper, Select, Skeleton,
   Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, Tabs, TextField, Tooltip, Typography, Collapse
+  TableRow, Tabs, TextField, Tooltip, Typography, Collapse, InputAdornment
 } from '@mui/material';
 import {
   Add as AddIcon, ArrowBack as BackIcon, Assignment as TaskIcon,
   AttachMoney as MoneyIcon, BarChart as ChartIcon, CheckCircle as CheckIcon,
   Construction as ConstructionIcon, Delete as DeleteIcon, Edit as EditIcon,
   ExpandLess, ExpandMore, FiberManualRecord as DotIcon, Flag as FlagIcon,
-  PhotoCamera as PhotoIcon, Refresh as RefreshIcon, Warning as WarnIcon,
-  ShoppingCart as POIcon, Receipt as InvoiceIcon, Visibility as ViewIcon
+  PhotoCamera as PhotoIcon, Refresh as RefreshIcon, Search as SearchIcon,
+  Warning as WarnIcon, ShoppingCart as POIcon, Receipt as InvoiceIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
+import { usePagination } from '../../hooks/usePagination';
+import TablePaginationWrapper from '../../components/TablePaginationWrapper';
 import { Checkbox } from '@mui/material';
 import dayjs from 'dayjs';
 import { getImageUrl } from '../../utils/imageService';
@@ -68,6 +71,9 @@ const fmt = (v) =>
   new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 })
     .format(Number(v || 0));
 
+const boqEstTotal = (item) =>
+  (Number(item?.estimatedQuantity) || 0) * (Number(item?.estimatedUnitPrice) || 0);
+
 const pct = (spent, total) =>
   total > 0 ? Math.min(Math.round((spent / total) * 100), 100) : 0;
 
@@ -101,8 +107,23 @@ const BOQTab = ({ projectId }) => {
     phase: 'General', category: '', specification: '', notes: ''
   });
 
-  // PO creation state
-  const [selectedItems, setSelectedItems] = useState(new Set());
+  const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const [phaseFilter, setPhaseFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+
+  const pagination = usePagination({
+    defaultRowsPerPage: 25,
+    resetDependencies: [searchDebounced, phaseFilter, categoryFilter]
+  });
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // PO creation state — Map preserves item details across pages
+  const [selectedItems, setSelectedItems] = useState(new Map());
   const [poDialogOpen, setPoDialogOpen] = useState(false);
   const [poSaving, setPoSaving] = useState(false);
   const [vendors, setVendors] = useState([]);
@@ -116,25 +137,40 @@ const BOQTab = ({ projectId }) => {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      const params = {
+        ...pagination.getApiParams(),
+        ...(searchDebounced && { search: searchDebounced }),
+        ...(phaseFilter && { phase: phaseFilter }),
+        ...(categoryFilter && { category: categoryFilter })
+      };
       const [boqRes, posRes] = await Promise.all([
-        getBOQ(projectId),
+        getBOQ(projectId, params),
         getProjectPurchaseOrders(projectId).catch(() => ({ data: { data: [] } }))
       ]);
-      setData(boqRes.data?.data || null);
+      const boqData = boqRes.data?.data || null;
+      setData(boqData);
+      pagination.setTotal(boqData?.pagination?.total || 0);
       setProjectPOs(posRes.data?.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load BOQ');
     } finally { setLoading(false); }
-  }, [projectId]);
+  }, [projectId, pagination.page, pagination.rowsPerPage, searchDebounced, phaseFilter, categoryFilter]);
 
   useEffect(() => { load(); }, [load]);
 
-  const toggleSelectItem = (itemId) => {
+  const toggleSelectItem = (item) => {
     setSelectedItems(prev => {
-      const next = new Set(prev);
-      next.has(itemId) ? next.delete(itemId) : next.add(itemId);
+      const next = new Map(prev);
+      if (next.has(item._id)) next.delete(item._id);
+      else next.set(item._id, item);
       return next;
     });
+  };
+
+  const clearFilters = () => {
+    setSearch('');
+    setPhaseFilter('');
+    setCategoryFilter('');
   };
 
   const openCreatePO = async () => {
@@ -147,20 +183,16 @@ const BOQTab = ({ projectId }) => {
     } catch { /* leave empty */ }
     finally { setVendorsLoading(false); }
 
-    // Pre-fill PO items from selected BOQ rows
-    const allItems = data ? Object.values(data.grouped || {}).flat() : [];
     setPoItems(
-      allItems
-        .filter(i => selectedItems.has(i._id))
-        .map(i => ({
-          boqItemId: i._id,
-          description: i.description,
-          unit: i.unit,
-          quantity: Math.max(0, (i.estimatedQuantity || 0) - (i.orderedQuantity || 0)),
-          unitPrice: i.estimatedUnitPrice || 0,
-          taxRate: 0,
-          specification: i.specification || ''
-        }))
+      [...selectedItems.values()].map(i => ({
+        boqItemId: i._id,
+        description: i.description,
+        unit: i.unit,
+        quantity: Math.max(0, (i.estimatedQuantity || 0) - (i.orderedQuantity || 0)),
+        unitPrice: i.estimatedUnitPrice || 0,
+        taxRate: 0,
+        specification: i.specification || ''
+      }))
     );
     setPoForm({ vendorId: '', expectedDeliveryDate: '', deliveryAddress: '', notes: '' });
   };
@@ -198,7 +230,7 @@ const BOQTab = ({ projectId }) => {
       });
       setSuccess(`Purchase Order ${res.data?.data?.orderNumber || ''} created successfully`);
       setPoDialogOpen(false);
-      setSelectedItems(new Set());
+      setSelectedItems(new Map());
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create PO');
@@ -253,11 +285,9 @@ const BOQTab = ({ projectId }) => {
 
   const set = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
 
-  if (loading) return <Skeleton height={200} />;
-
-  const phases = data ? Object.keys(data.grouped || {}) : [];
-  const allItems = data ? Object.values(data.grouped || {}).flat() : [];
+  const items = data?.items || [];
   const poTotal = poItems.reduce((s, i) => s + (Number(i.quantity) * Number(i.unitPrice)), 0);
+  const phaseOptions = data?.phases?.length ? data.phases : ['General'];
 
   const PO_STATUS_COLOR = { Draft: 'default', Approved: 'success', Ordered: 'primary', 'Partially Received': 'info', Received: 'success', Cancelled: 'error' };
 
@@ -301,76 +331,148 @@ const BOQTab = ({ projectId }) => {
         </Grid>
       )}
 
-      {(!data?.items?.length) ? (
+      {/* Search & filters */}
+      <Card variant="outlined" sx={{ mb: 2 }}>
+        <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={5}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search description, spec, code, unit…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  )
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Phase</InputLabel>
+                <Select value={phaseFilter} label="Phase" onChange={(e) => setPhaseFilter(e.target.value)}>
+                  <MenuItem value="">All Phases</MenuItem>
+                  {phaseOptions.map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Category</InputLabel>
+                <Select value={categoryFilter} label="Category" onChange={(e) => setCategoryFilter(e.target.value)}>
+                  <MenuItem value="">All Categories</MenuItem>
+                  {BUDGET_CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={1}>
+              <Button fullWidth size="small" variant="outlined" onClick={clearFilters}>Clear</Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <Skeleton height={300} />
+      ) : !data?.allItemsCount ? (
         <EmptyState icon={ChartIcon} text="No BOQ items added yet"
           action={<Button variant="outlined" startIcon={<AddIcon />} onClick={openAdd}>Add First Item</Button>} />
+      ) : !items.length ? (
+        <EmptyState icon={ChartIcon} text="No BOQ items match your filters"
+          action={<Button variant="outlined" onClick={clearFilters}>Clear Filters</Button>} />
       ) : (
-        phases.map(phase => (
-          <Box key={phase} sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" fontWeight={700} color="primary.main" gutterBottom>{phase}</Typography>
-            <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'grey.50' }}>
-                    <TableCell padding="checkbox" />
-                    <TableCell><strong>Description</strong></TableCell>
-                    <TableCell><strong>Unit</strong></TableCell>
-                    <TableCell align="right"><strong>Est. Qty</strong></TableCell>
-                    <TableCell align="right"><strong>Est. Price</strong></TableCell>
-                    <TableCell align="right"><strong>Est. Total</strong></TableCell>
-                    <TableCell align="right"><strong>Ordered</strong></TableCell>
-                    <TableCell align="right"><strong>Used</strong></TableCell>
-                    <TableCell align="right"><strong>Variance</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {(data.grouped[phase] || []).map(item => (
-                    <TableRow key={item._id} hover selected={selectedItems.has(item._id)}>
-                      <TableCell padding="checkbox">
-                        <Checkbox
-                          size="small"
-                          checked={selectedItems.has(item._id)}
-                          onChange={() => toggleSelectItem(item._id)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">{item.description}</Typography>
-                        {item.specification && <Typography variant="caption" color="text.secondary">{item.specification}</Typography>}
-                        {item.linkedPurchaseOrders?.length > 0 && (
-                          <Chip size="small" icon={<POIcon />} label={`${item.linkedPurchaseOrders.length} PO`} variant="outlined" color="info" sx={{ mt: 0.5, fontSize: '0.65rem', height: 18 }} />
-                        )}
-                      </TableCell>
-                      <TableCell>{item.unit}</TableCell>
-                      <TableCell align="right">{item.estimatedQuantity?.toLocaleString()}</TableCell>
-                      <TableCell align="right">{fmt(item.estimatedUnitPrice)}</TableCell>
-                      <TableCell align="right"><strong>{fmt(item.estimatedTotalCost)}</strong></TableCell>
-                      <TableCell align="right">
-                        {item.orderedQuantity > 0
-                          ? <Typography variant="body2" color="info.main">{item.orderedQuantity?.toLocaleString()}</Typography>
-                          : '—'}
-                      </TableCell>
-                      <TableCell align="right">{item.usedQuantity?.toLocaleString() || '—'}</TableCell>
-                      <TableCell align="right">
-                        {item.costVariance !== 0 ? (
-                          <Typography variant="body2" color={item.costVariance > 0 ? 'error.main' : 'success.main'}>
-                            {item.costVariance > 0 ? '+' : ''}{fmt(item.costVariance)}
-                          </Typography>
-                        ) : '—'}
-                      </TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                          <IconButton size="small" onClick={() => openEdit(item)}><EditIcon fontSize="small" /></IconButton>
-                          <IconButton size="small" color="error" onClick={() => handleDelete(item._id)}><DeleteIcon fontSize="small" /></IconButton>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
-        ))
+        <TableContainer component={Paper} variant="outlined">
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'grey.50' }}>
+                <TableCell padding="checkbox" />
+                <TableCell width={56}><strong>Sr No</strong></TableCell>
+                <TableCell><strong>Phase</strong></TableCell>
+                <TableCell><strong>Category</strong></TableCell>
+                <TableCell><strong>Description</strong></TableCell>
+                <TableCell><strong>Unit</strong></TableCell>
+                <TableCell align="right"><strong>Est. Qty</strong></TableCell>
+                <TableCell align="right"><strong>Est. Price</strong></TableCell>
+                <TableCell align="right"><strong>Est. Total</strong></TableCell>
+                <TableCell align="right"><strong>Ordered</strong></TableCell>
+                <TableCell align="right"><strong>Used</strong></TableCell>
+                <TableCell align="right"><strong>Variance</strong></TableCell>
+                <TableCell align="right"><strong>Actions</strong></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {items.map((item, idx) => (
+                <TableRow key={item._id} hover selected={selectedItems.has(item._id)}>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={selectedItems.has(item._id)}
+                      onChange={() => toggleSelectItem(item)}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {pagination.page * pagination.rowsPerPage + idx + 1}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={item.phase || 'General'} size="small" variant="outlined" />
+                  </TableCell>
+                  <TableCell>
+                    {item.category
+                      ? <Chip label={item.category} size="small" variant="outlined" />
+                      : '—'}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">{item.description}</Typography>
+                    {item.specification && <Typography variant="caption" color="text.secondary">{item.specification}</Typography>}
+                    {item.linkedPurchaseOrders?.length > 0 && (
+                      <Chip size="small" icon={<POIcon />} label={`${item.linkedPurchaseOrders.length} PO`} variant="outlined" color="info" sx={{ mt: 0.5, fontSize: '0.65rem', height: 18 }} />
+                    )}
+                  </TableCell>
+                  <TableCell>{item.unit}</TableCell>
+                  <TableCell align="right">{item.estimatedQuantity?.toLocaleString()}</TableCell>
+                  <TableCell align="right">{fmt(item.estimatedUnitPrice)}</TableCell>
+                  <TableCell align="right"><strong>{fmt(boqEstTotal(item))}</strong></TableCell>
+                  <TableCell align="right">
+                    {item.orderedQuantity > 0
+                      ? <Typography variant="body2" color="info.main">{item.orderedQuantity?.toLocaleString()}</Typography>
+                      : '—'}
+                  </TableCell>
+                  <TableCell align="right">{item.usedQuantity?.toLocaleString() || '—'}</TableCell>
+                  <TableCell align="right">
+                    {(() => {
+                      const variance = (Number(item.usedQuantity) || 0) * (Number(item.actualUnitPrice) || 0) - boqEstTotal(item);
+                      return variance !== 0 ? (
+                        <Typography variant="body2" color={variance > 0 ? 'error.main' : 'success.main'}>
+                          {variance > 0 ? '+' : ''}{fmt(variance)}
+                        </Typography>
+                      ) : '—';
+                    })()}
+                  </TableCell>
+                  <TableCell align="right">
+                    <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                      <IconButton size="small" onClick={() => openEdit(item)}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => handleDelete(item._id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePaginationWrapper
+            page={pagination.page}
+            rowsPerPage={pagination.rowsPerPage}
+            total={pagination.total}
+            onPageChange={pagination.handleChangePage}
+            onRowsPerPageChange={pagination.handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+          />
+        </TableContainer>
       )}
 
       {/* Purchase Orders linked to this project */}

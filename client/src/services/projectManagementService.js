@@ -35,8 +35,8 @@ export const deleteMilestone = (projectId, milestoneId) =>
   api.delete(`${BASE}/projects/${projectId}/milestones/${milestoneId}`);
 
 // ─── BOQ ──────────────────────────────────────────────────────────────────────
-export const getBOQ = (projectId) =>
-  api.get(`${BASE}/projects/${projectId}/boq`);
+export const getBOQ = (projectId, params = {}) =>
+  api.get(`${BASE}/projects/${projectId}/boq`, { params });
 
 export const addBOQItem = (projectId, data) =>
   api.post(`${BASE}/projects/${projectId}/boq`, data);
