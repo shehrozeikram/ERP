@@ -26,6 +26,7 @@ import { getImageUrl } from '../../utils/imageService';
 import {
   getProjectById, updateProject, updateBudgetStatus,
   getBOQ, addBOQItem, updateBOQItem, deleteBOQItem,
+  updateBoqDiscount,
   getTasks, createTask, updateTask, deleteTask,
   getExpenses, addExpense, updateExpense, deleteExpense,
   getDPRList, submitDPR, deleteDPR,
@@ -71,8 +72,11 @@ const fmt = (v) =>
   new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 })
     .format(Number(v || 0));
 
-const boqEstTotal = (item) =>
-  (Number(item?.estimatedQuantity) || 0) * (Number(item?.estimatedUnitPrice) || 0);
+const boqTitle = (i) => String(i?.title || '').trim() || String(i?.description || '').split(/\r?\n/)[0]?.trim() || '—';
+const boqEstTotal = (i) => (Number(i?.estimatedQuantity) || 0) * (Number(i?.estimatedUnitPrice) || 0) || Number(i?.estimatedTotalCost) || 0;
+const boqDiscTotal = (i) => Math.min(Number(i?.discountAmount) || 0, boqEstTotal(i));
+const boqNetTotal = (i) => Number(i?.netEstimatedCost) || (boqEstTotal(i) - boqDiscTotal(i));
+const boqActTotal = (i) => (Number(i?.usedQuantity) || 0) * (Number(i?.actualUnitPrice) || 0) || Number(i?.actualTotalCost) || 0;
 
 const pct = (spent, total) =>
   total > 0 ? Math.min(Math.round((spent / total) * 100), 100) : 0;
@@ -103,7 +107,7 @@ const BOQTab = ({ projectId }) => {
   const [editItem, setEditItem] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '',
+    title: '', description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '', discountAmount: '',
     phase: 'General', category: '', specification: '', notes: ''
   });
 
@@ -133,6 +137,8 @@ const BOQTab = ({ projectId }) => {
 
   // POs already created for this project
   const [projectPOs, setProjectPOs] = useState([]);
+  const [wholeDiscount, setWholeDiscount] = useState('');
+  const [wholeDiscountSaving, setWholeDiscountSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -147,9 +153,9 @@ const BOQTab = ({ projectId }) => {
         getBOQ(projectId, params),
         getProjectPurchaseOrders(projectId).catch(() => ({ data: { data: [] } }))
       ]);
-      const boqData = boqRes.data?.data || null;
-      setData(boqData);
-      pagination.setTotal(boqData?.pagination?.total || 0);
+      setData(boqRes.data?.data ?? null);
+      setWholeDiscount(String(boqRes.data?.data?.boqDiscountAmount ?? ''));
+      pagination.setTotal(boqRes.data?.data?.pagination?.total || 0);
       setProjectPOs(posRes.data?.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load BOQ');
@@ -186,7 +192,7 @@ const BOQTab = ({ projectId }) => {
     setPoItems(
       [...selectedItems.values()].map(i => ({
         boqItemId: i._id,
-        description: i.description,
+        description: i.title || i.description,
         unit: i.unit,
         quantity: Math.max(0, (i.estimatedQuantity || 0) - (i.orderedQuantity || 0)),
         unitPrice: i.estimatedUnitPrice || 0,
@@ -239,15 +245,17 @@ const BOQTab = ({ projectId }) => {
 
   const openAdd = () => {
     setEditItem(null);
-    setForm({ description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '', phase: 'General', category: '', specification: '', notes: '' });
+    setForm({ title: '', description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '', discountAmount: '', phase: 'General', category: '', specification: '', notes: '' });
     setDialogOpen(true);
   };
 
   const openEdit = (item) => {
     setEditItem(item);
     setForm({
+      title: item.title || '',
       description: item.description, unit: item.unit,
       estimatedQuantity: item.estimatedQuantity, estimatedUnitPrice: item.estimatedUnitPrice,
+      discountAmount: item.discountAmount || '',
       phase: item.phase || 'General', category: item.category || '',
       specification: item.specification || '', notes: item.notes || '',
       usedQuantity: item.usedQuantity || '', actualUnitPrice: item.actualUnitPrice || ''
@@ -283,11 +291,32 @@ const BOQTab = ({ projectId }) => {
     }
   };
 
+  const handleSaveWholeDiscount = async () => {
+    setWholeDiscountSaving(true);
+    setError('');
+    try {
+      const res = await updateBoqDiscount(projectId, Number(wholeDiscount) || 0);
+      const payload = res.data?.data;
+      setData((prev) => (prev ? { ...prev, ...payload } : prev));
+      setWholeDiscount(String(payload?.boqDiscountAmount ?? ''));
+      setSuccess('Whole BOQ discount saved');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save BOQ discount');
+    } finally {
+      setWholeDiscountSaving(false);
+    }
+  };
+
   const set = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
 
   const items = data?.items || [];
   const poTotal = poItems.reduce((s, i) => s + (Number(i.quantity) * Number(i.unitPrice)), 0);
   const phaseOptions = data?.phases?.length ? data.phases : ['General'];
+  const totalEst = Number(data?.totalEstimated) || 0;
+  const itemDisc = Number(data?.totalDiscount) || 0;
+  const boqDisc = Number(data?.boqDiscountAmount) || 0;
+  const netEst = Number(data?.netEstimated) || 0;
+  const totalAct = Number(data?.totalActual) || 0;
 
   const PO_STATUS_COLOR = { Draft: 'default', Approved: 'success', Ordered: 'primary', 'Partially Received': 'info', Received: 'success', Cancelled: 'error' };
 
@@ -311,24 +340,45 @@ const BOQTab = ({ projectId }) => {
         }
       />
 
-      {/* Totals summary */}
-      {data && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          {[
-            { label: 'Estimated Total', val: data.totalEstimated, color: 'primary.main' },
-            { label: 'Actual Total', val: data.totalActual, color: 'warning.main' },
-            { label: 'Variance', val: data.totalActual - data.totalEstimated, color: data.totalActual > data.totalEstimated ? 'error.main' : 'success.main' }
-          ].map(({ label, val, color }) => (
-            <Grid item xs={12} sm={4} key={label}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1.5 }}>
-                  <Typography variant="caption" color="text.secondary">{label}</Typography>
-                  <Typography variant="h6" fontWeight={600} color={color}>{fmt(val)}</Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+      {data?.allItemsCount > 0 && (
+        <>
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            {[
+              { label: 'Gross Total', val: totalEst, color: 'text.primary' },
+              { label: 'Item Discount', val: itemDisc, color: 'success.main' },
+              { label: 'BOQ Discount', val: boqDisc, color: 'success.main' },
+              { label: 'Net Cost', val: netEst, color: 'primary.main' },
+              { label: 'Actual Total', val: totalAct, color: 'warning.main' },
+              { label: 'Variance', val: totalAct - netEst, color: totalAct > netEst ? 'error.main' : 'success.main' }
+            ].map(({ label, val, color }) => (
+              <Grid item xs={6} sm={4} md={2} key={label}>
+                <Card variant="outlined">
+                  <CardContent sx={{ py: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary">{label}</Typography>
+                    <Typography variant="h6" fontWeight={600} color={color}>{fmt(val)}</Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 3 }}>
+            <TextField
+              size="small"
+              type="number"
+              label="Whole BOQ discount (PKR)"
+              value={wholeDiscount}
+              onChange={(e) => setWholeDiscount(e.target.value)}
+              inputProps={{ min: 0 }}
+              sx={{ maxWidth: 280 }}
+            />
+            <Button variant="outlined" onClick={handleSaveWholeDiscount} disabled={wholeDiscountSaving}>
+              {wholeDiscountSaving ? 'Saving…' : 'Save BOQ discount'}
+            </Button>
+            <Typography variant="caption" color="text.secondary">
+              Applied on top of item discounts across the full BOQ
+            </Typography>
+          </Stack>
+        </>
       )}
 
       {/* Search & filters */}
@@ -339,7 +389,7 @@ const BOQTab = ({ projectId }) => {
               <TextField
                 fullWidth
                 size="small"
-                placeholder="Search description, spec, code, unit…"
+                placeholder="Search title, description, spec, code, unit…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 InputProps={{
@@ -391,13 +441,16 @@ const BOQTab = ({ projectId }) => {
               <TableRow sx={{ bgcolor: 'grey.50' }}>
                 <TableCell padding="checkbox" />
                 <TableCell width={56}><strong>Sr No</strong></TableCell>
+                <TableCell><strong>Title</strong></TableCell>
                 <TableCell><strong>Phase</strong></TableCell>
                 <TableCell><strong>Category</strong></TableCell>
                 <TableCell><strong>Description</strong></TableCell>
                 <TableCell><strong>Unit</strong></TableCell>
                 <TableCell align="right"><strong>Est. Qty</strong></TableCell>
                 <TableCell align="right"><strong>Est. Price</strong></TableCell>
-                <TableCell align="right"><strong>Est. Total</strong></TableCell>
+                <TableCell align="right"><strong>Gross</strong></TableCell>
+                <TableCell align="right"><strong>Discount</strong></TableCell>
+                <TableCell align="right"><strong>Net Cost</strong></TableCell>
                 <TableCell align="right"><strong>Ordered</strong></TableCell>
                 <TableCell align="right"><strong>Used</strong></TableCell>
                 <TableCell align="right"><strong>Variance</strong></TableCell>
@@ -420,6 +473,9 @@ const BOQTab = ({ projectId }) => {
                     </Typography>
                   </TableCell>
                   <TableCell>
+                    <Typography variant="body2" fontWeight={500}>{boqTitle(item)}</Typography>
+                  </TableCell>
+                  <TableCell>
                     <Chip label={item.phase || 'General'} size="small" variant="outlined" />
                   </TableCell>
                   <TableCell>
@@ -437,7 +493,13 @@ const BOQTab = ({ projectId }) => {
                   <TableCell>{item.unit}</TableCell>
                   <TableCell align="right">{item.estimatedQuantity?.toLocaleString()}</TableCell>
                   <TableCell align="right">{fmt(item.estimatedUnitPrice)}</TableCell>
-                  <TableCell align="right"><strong>{fmt(boqEstTotal(item))}</strong></TableCell>
+                  <TableCell align="right">{fmt(boqEstTotal(item))}</TableCell>
+                  <TableCell align="right">
+                    {boqDiscTotal(item) > 0
+                      ? <Typography variant="body2" color="success.main">−{fmt(boqDiscTotal(item))}</Typography>
+                      : '—'}
+                  </TableCell>
+                  <TableCell align="right"><strong>{fmt(boqNetTotal(item))}</strong></TableCell>
                   <TableCell align="right">
                     {item.orderedQuantity > 0
                       ? <Typography variant="body2" color="info.main">{item.orderedQuantity?.toLocaleString()}</Typography>
@@ -446,7 +508,7 @@ const BOQTab = ({ projectId }) => {
                   <TableCell align="right">{item.usedQuantity?.toLocaleString() || '—'}</TableCell>
                   <TableCell align="right">
                     {(() => {
-                      const variance = (Number(item.usedQuantity) || 0) * (Number(item.actualUnitPrice) || 0) - boqEstTotal(item);
+                      const variance = boqActTotal(item) - boqNetTotal(item);
                       return variance !== 0 ? (
                         <Typography variant="body2" color={variance > 0 ? 'error.main' : 'success.main'}>
                           {variance > 0 ? '+' : ''}{fmt(variance)}
@@ -515,7 +577,23 @@ const BOQTab = ({ projectId }) => {
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Grid container spacing={2}>
             <Grid item xs={12}>
-              <TextField fullWidth required label="Description" value={form.description} onChange={set('description')} />
+              <TextField fullWidth label="Title" value={form.title} onChange={set('title')} placeholder="Short name e.g. Inner Ceiling Paint" />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                required
+                label="Description"
+                value={form.description}
+                onChange={set('description')}
+                onBlur={() => {
+                  if (!form.title?.trim() && form.description?.trim()) {
+                    setForm((prev) => ({ ...prev, title: prev.description.split(/\r?\n/)[0]?.trim() || '' }));
+                  }
+                }}
+                multiline
+                rows={2}
+              />
             </Grid>
             <Grid item xs={6}>
               <TextField fullWidth label="Phase" value={form.phase} onChange={set('phase')} />
@@ -538,6 +616,16 @@ const BOQTab = ({ projectId }) => {
             <Grid item xs={4}>
               <TextField fullWidth label="Est. Unit Price" type="number" required value={form.estimatedUnitPrice} onChange={set('estimatedUnitPrice')} />
             </Grid>
+            <Grid item xs={4}>
+              <TextField fullWidth label="Discount (PKR)" type="number" value={form.discountAmount} onChange={set('discountAmount')} inputProps={{ min: 0 }} />
+            </Grid>
+            {(form.estimatedQuantity && form.estimatedUnitPrice) && (
+              <Grid item xs={12}>
+                <Typography variant="caption" color="text.secondary">
+                  Net cost: {fmt(Math.max(0, (Number(form.estimatedQuantity) || 0) * (Number(form.estimatedUnitPrice) || 0) - (Number(form.discountAmount) || 0)))}
+                </Typography>
+              </Grid>
+            )}
             {editItem && (
               <>
                 <Grid item xs={4}>

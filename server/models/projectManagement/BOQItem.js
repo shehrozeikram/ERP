@@ -14,6 +14,7 @@ const boqItemSchema = new mongoose.Schema({
 
   // Item details
   itemCode: { type: String, trim: true },
+  title: { type: String, trim: true, default: '' },
   description: { type: String, required: true, trim: true },
   specification: { type: String, trim: true },
   unit: { type: String, required: true, trim: true },
@@ -21,7 +22,9 @@ const boqItemSchema = new mongoose.Schema({
   // Estimation
   estimatedQuantity: { type: Number, required: true, min: 0 },
   estimatedUnitPrice: { type: Number, required: true, min: 0 },
+  discountAmount: { type: Number, default: 0, min: 0 },
   estimatedTotalCost: { type: Number, default: 0, min: 0 },
+  netEstimatedCost: { type: Number, default: 0, min: 0 },
 
   // Actuals (updated as procurement happens)
   orderedQuantity: { type: Number, default: 0, min: 0 },
@@ -43,19 +46,33 @@ const boqItemSchema = new mongoose.Schema({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
+const boqTitleFromDescription = (description) =>
+  String(description || '').split(/\r?\n/)[0]?.trim() || '';
+
+const applyBoqTitle = (doc) => {
+  const explicit = String(doc.title || '').trim();
+  doc.title = explicit || boqTitleFromDescription(doc.description);
+};
+
 const applyBoqComputedFields = (doc) => {
+  applyBoqTitle(doc);
   const estimatedQuantity = Number(doc.estimatedQuantity) || 0;
   const estimatedUnitPrice = Number(doc.estimatedUnitPrice) || 0;
   const usedQuantity = Number(doc.usedQuantity) || 0;
   const actualUnitPrice = Number(doc.actualUnitPrice) || 0;
 
-  doc.estimatedTotalCost = estimatedQuantity * estimatedUnitPrice;
+  const grossEstimated = estimatedQuantity * estimatedUnitPrice;
+  const discountAmount = Math.min(Number(doc.discountAmount) || 0, grossEstimated);
+  doc.discountAmount = discountAmount;
+  doc.estimatedTotalCost = grossEstimated;
+  doc.netEstimatedCost = grossEstimated - discountAmount;
   doc.actualTotalCost = usedQuantity * actualUnitPrice;
   doc.quantityVariance = usedQuantity - estimatedQuantity;
-  doc.costVariance = doc.actualTotalCost - doc.estimatedTotalCost;
+  doc.costVariance = doc.actualTotalCost - doc.netEstimatedCost;
 };
 
 boqItemSchema.statics.applyComputedFields = applyBoqComputedFields;
+boqItemSchema.statics.titleFromDescription = boqTitleFromDescription;
 
 boqItemSchema.pre('save', function (next) {
   applyBoqComputedFields(this);
@@ -70,10 +87,10 @@ boqItemSchema.pre('insertMany', function (next, docs) {
 boqItemSchema.pre('findOneAndUpdate', async function (next) {
   const update = this.getUpdate() || {};
   const $set = update.$set || update;
-  const affectsTotals = ['estimatedQuantity', 'estimatedUnitPrice', 'usedQuantity', 'actualUnitPrice']
+  const affectsComputed = ['title', 'description', 'estimatedQuantity', 'estimatedUnitPrice', 'discountAmount', 'usedQuantity', 'actualUnitPrice']
     .some((key) => $set[key] !== undefined);
 
-  if (!affectsTotals) return next();
+  if (!affectsComputed) return next();
 
   const existing = await this.model.findOne(this.getQuery()).lean();
   if (!existing) return next();
@@ -88,7 +105,10 @@ boqItemSchema.pre('findOneAndUpdate', async function (next) {
     });
   }
 
+  update.$set.title = merged.title;
+  update.$set.discountAmount = merged.discountAmount;
   update.$set.estimatedTotalCost = merged.estimatedTotalCost;
+  update.$set.netEstimatedCost = merged.netEstimatedCost;
   update.$set.actualTotalCost = merged.actualTotalCost;
   update.$set.quantityVariance = merged.quantityVariance;
   update.$set.costVariance = merged.costVariance;

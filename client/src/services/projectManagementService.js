@@ -47,6 +47,9 @@ export const bulkAddBOQItems = (projectId, items) =>
 export const updateBOQItem = (projectId, itemId, data) =>
   api.put(`${BASE}/projects/${projectId}/boq/${itemId}`, data);
 
+export const updateBoqDiscount = (projectId, boqDiscountAmount) =>
+  api.put(`${BASE}/projects/${projectId}/boq/discount`, { boqDiscountAmount });
+
 export const deleteBOQItem = (projectId, itemId) =>
   api.delete(`${BASE}/projects/${projectId}/boq/${itemId}`);
 
@@ -117,7 +120,7 @@ export const deleteProjectInvoice = (projectId, invoiceId) =>
 const projectManagementService = {
   getProjects, getProjectStats, getProjectById, createProject, updateProject, cancelProject,
   updateBudgetStatus, addMilestone, updateMilestone, deleteMilestone,
-  getBOQ, addBOQItem, bulkAddBOQItems, updateBOQItem, deleteBOQItem,
+  getBOQ, addBOQItem, bulkAddBOQItems, updateBOQItem, updateBoqDiscount, deleteBOQItem,
   getTasks, createTask, updateTask, deleteTask,
   getExpenses, addExpense, updateExpense, deleteExpense,
   getDPRList, getDPRById, submitDPR, deleteDPR,

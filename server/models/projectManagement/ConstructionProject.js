@@ -102,6 +102,9 @@ const constructionProjectSchema = new mongoose.Schema({
   totalActualSpent: { type: Number, default: 0, min: 0 },
   totalInvoiced: { type: Number, default: 0, min: 0 },
 
+  // Whole BOQ discount (applied after item-level discounts)
+  boqDiscountAmount: { type: Number, default: 0, min: 0 },
+
   // Milestones
   milestones: { type: [milestoneSchema], default: [] },
 
