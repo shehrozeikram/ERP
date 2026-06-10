@@ -327,7 +327,9 @@ const Sidebar = () => {
       '/it/reports': 'it_reports',
       
       // Taj Residencia Module
-      '/taj-residencia/complains-tickets': 'complains_tickets'
+      '/taj-residencia/complains-tickets': 'complains_tickets',
+      '/taj-residencia/land-acquisition/maps': 'land_acquisition_maps',
+      '/taj-residencia/land-acquisition': 'land_acquisition'
     };
     return pathToSubmoduleMap[path];
   };

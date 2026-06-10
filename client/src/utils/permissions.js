@@ -349,7 +349,9 @@ export const SUBMODULES = {
     'it_reports'
   ],
   [MODULE_KEYS.TAJ_RESIDENCIA]: [
-    'complains_tickets'
+    'complains_tickets',
+    'land_acquisition',
+    'land_acquisition_maps'
   ],
   [MODULE_KEYS.ASSET_TAGGING]: [
     'asset_tagging_dashboard',
@@ -962,6 +964,13 @@ export const MODULES = {
       {
         name: 'Complains & Tickets',
         path: '/taj-residencia/complains-tickets'
+      },
+      {
+        name: 'Land Acquisition',
+        path: '/taj-residencia/land-acquisition',
+        subItems: [
+          { name: 'Maps', path: '/taj-residencia/land-acquisition/maps' }
+        ]
       }
     ]
   },
@@ -1456,7 +1465,9 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/it/reports': 'it_reports',
       
       // Taj Residencia Module
-      '/taj-residencia/complains-tickets': 'complains_tickets'
+      '/taj-residencia/complains-tickets': 'complains_tickets',
+      '/taj-residencia/land-acquisition/maps': 'land_acquisition_maps',
+      '/taj-residencia/land-acquisition': 'land_acquisition'
     };
     
     // First try exact match

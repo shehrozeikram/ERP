@@ -212,6 +212,7 @@ import ITReports from './pages/IT/Reports';
 import TajResidenciaDashboard from './pages/TajResidencia/TajResidenciaDashboard';
 
 import ComplainsTickets from './pages/TajResidencia/ComplainsTickets';
+import LandAcquisition from './pages/TajResidencia/LandAcquisition';
 
 // Audit Module Components
 import AuditDashboard from './pages/Audit/AuditDashboard';
@@ -2011,6 +2012,15 @@ function App() {
             <Route 
               path="/taj-residencia/complains-tickets" 
               element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><ComplainsTickets /></ProtectedRoute>} 
+            />
+
+            <Route 
+              path="/taj-residencia/land-acquisition" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/maps" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
             />
 
             {/* Audit Module Routes */}
