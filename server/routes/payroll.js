@@ -42,12 +42,16 @@ const {
   resolveEmployeeIncomeTax
 } = require('../utils/allowanceHelpers');
 const {
-  applyJoiningProration,
-  buildProrationRemarksSuffix,
+  applyPayrollProration,
+  buildPayrollProrationRemarksSuffix,
   adjustAttendanceForJoiningProration
-} = require('../utils/payrollJoiningProration');
+} = require('../utils/payrollPartialSalaryPay');
 
 const router = express.Router();
+
+/** Fields required for payroll proration (joining + partial monthly pay) and salary math. */
+const PAYROLL_EMPLOYEE_SELECT =
+  'firstName lastName employeeId salary allowances arrears eobi manualTax hireDate appointmentDate partialSalaryPay placementDepartment placementProject placementDesignation department position providentFund';
 
 const isProvidentFundEnabledForEmployee = (employee) =>
   employee?.providentFund?.isActive === true;
@@ -103,7 +107,7 @@ const getCurrentMonthEmployeeArrears = (employee) => {
 const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = null, month = null, year = null) => {
   const payrollMonth = month || new Date().getMonth() + 1;
   const payrollYear = year || new Date().getFullYear();
-  const prorationResult = applyJoiningProration(employee, payrollMonth, payrollYear, gross);
+  const prorationResult = applyPayrollProration(employee, payrollMonth, payrollYear, gross);
 
   if (prorationResult.skipPayroll) {
     return { skipPayroll: true, proration: prorationResult.proration };
@@ -173,7 +177,12 @@ const resolveEmployeeGrossSalary = async (employee) => {
   return employee.salary?.gross || 0;
 };
 
-const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
+const resolvePayrollPreviewPeriod = (month, year) => ({
+  month: Math.min(12, Math.max(1, parseInt(month, 10) || new Date().getMonth() + 1)),
+  year: parseInt(year, 10) || new Date().getFullYear()
+});
+
+const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, year) => {
   if (figures.skipPayroll) {
     return {
       skipPayroll: true,
@@ -187,8 +196,7 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
   const finalTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
   const proratedGross = figures.grossSalary ?? gross;
   const workingDays = figures.proration?.workingDaysFromJoining || 26;
-  const previewMonth = new Date().getMonth() + 1;
-  const previewYear = new Date().getFullYear();
+  const { month: previewMonth, year: previewYear } = resolvePayrollPreviewPeriod(month, year);
   return {
     month: previewMonth,
     year: previewYear,
@@ -227,7 +235,7 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures) => {
     dailyRate: workingDays > 0 ? Math.round(proratedGross / workingDays) : 0,
     proration: figures.proration?.isProrated ? figures.proration : undefined,
     remarks: figures.proration?.isProrated
-      ? `First month prorated${buildProrationRemarksSuffix(figures.proration)}`
+      ? `Monthly payroll preview${buildPayrollProrationRemarksSuffix(figures.proration)}`
       : undefined,
     leaveDeductions: {
       unpaidLeave: 0,
@@ -1048,7 +1056,7 @@ router.get('/current-overview',
         employmentStatus: 'Active',
         'salary.gross': { $exists: true, $gt: 0 }
       })
-        .select('firstName lastName employeeId salary allowances arrears eobi manualTax hireDate appointmentDate placementDepartment placementProject department')
+        .select(PAYROLL_EMPLOYEE_SELECT)
         .populate('placementDepartment', 'name code')
         .populate('placementProject', 'name')
         .populate('department', 'name');
@@ -1107,8 +1115,10 @@ router.get('/current-overview',
 
       const taxSettings = await loadPayrollTaxSettings();
 
-      const overviewMonth = new Date().getMonth() + 1;
-      const overviewYear = new Date().getFullYear();
+      const { month: overviewMonth, year: overviewYear } = resolvePayrollPreviewPeriod(
+        req.query.month,
+        req.query.year
+      );
 
       for (const employee of activeEmployees) {
         const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
@@ -1168,6 +1178,8 @@ router.get('/current-overview',
       res.json({
         success: true,
         data: {
+          month: overviewMonth,
+          year: overviewYear,
           totalEmployees: activeEmployees.length,
           totalBasicSalary: Math.round(totalBasicSalary),
           totalGrossSalary: Math.round(totalGrossSalary),
@@ -1189,6 +1201,59 @@ router.get('/current-overview',
   })
 );
 
+const fetchEmployeePayrollDetailPayload = async (employeeId, req) => {
+  const employee = await Employee.findById(employeeId)
+    .populate('department', 'name code')
+    .populate('placementDepartment', 'name code')
+    .populate('placementDesignation', 'title level')
+    .populate('position', 'title level')
+    .select(PAYROLL_EMPLOYEE_SELECT);
+
+  if (!employee) {
+    return { notFound: true };
+  }
+
+  const { month: previewMonth, year: previewYear } = resolvePayrollPreviewPeriod(
+    req.query.month,
+    req.query.year
+  );
+
+  const gross = await resolveEmployeeGrossSalary(employee);
+  const taxSettings = await loadPayrollTaxSettings();
+  const figures = computeEmployeeCurrentPayrollFigures(
+    employee,
+    gross,
+    taxSettings,
+    previewMonth,
+    previewYear
+  );
+
+  const existingPayrolls = await Payroll.find({ employee: employeeId })
+    .sort({ year: -1, month: -1 })
+    .limit(12);
+
+  return {
+    employee: {
+      _id: employee._id,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      employeeId: employee.employeeId,
+      department: employee.department,
+      placementDepartment: employee.placementDepartment,
+      placementDesignation: employee.placementDesignation,
+      position: employee.position
+    },
+    currentPayroll: buildEmployeeCurrentPayrollPayload(
+      employee,
+      gross,
+      figures,
+      previewMonth,
+      previewYear
+    ),
+    existingPayrolls
+  };
+};
+
 // @route   GET /api/payroll/employee/:employeeId
 // @desc    Get payroll details for a specific employee
 // @access  Private (HR and Admin)
@@ -1203,46 +1268,15 @@ router.get('/employee/:employeeId',
         });
       }
 
-      // Get employee details
-      const employee = await Employee.findById(req.params.employeeId)
-        .populate('department', 'name code')
-        .populate('placementDepartment', 'name code')
-        .populate('placementDesignation', 'title level')
-        .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax hireDate appointmentDate placementDepartment placementDesignation department position');
-
-      if (!employee) {
+      const payload = await fetchEmployeePayrollDetailPayload(req.params.employeeId, req);
+      if (payload.notFound) {
         return res.status(404).json({
           success: false,
           message: 'Employee not found'
         });
       }
 
-      const gross = await resolveEmployeeGrossSalary(employee);
-      const taxSettings = await loadPayrollTaxSettings();
-      const figures = computeEmployeeCurrentPayrollFigures(employee, gross, taxSettings);
-
-      const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
-        .sort({ year: -1, month: -1 })
-        .limit(12);
-
-      res.json({
-        success: true,
-        data: {
-          employee: {
-            _id: employee._id,
-            firstName: employee.firstName,
-            lastName: employee.lastName,
-            employeeId: employee.employeeId,
-            department: employee.department,
-            placementDepartment: employee.placementDepartment,
-            placementDesignation: employee.placementDesignation,
-            position: employee.position
-          },
-          currentPayroll: buildEmployeeCurrentPayrollPayload(employee, gross, figures),
-          existingPayrolls
-        }
-      });
+      res.json({ success: true, data: payload });
     } catch (error) {
       console.error('Error in employee payroll details:', error);
       res.status(500).json({
@@ -1268,46 +1302,15 @@ router.get('/view/employee/:employeeId',
         });
       }
 
-      // Get employee details
-      const employee = await Employee.findById(req.params.employeeId)
-        .populate('department', 'name code')
-        .populate('placementDepartment', 'name code')
-        .populate('placementDesignation', 'title level')
-        .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances arrears providentFund eobi manualTax hireDate appointmentDate placementDepartment placementDesignation department position');
-
-      if (!employee) {
+      const payload = await fetchEmployeePayrollDetailPayload(req.params.employeeId, req);
+      if (payload.notFound) {
         return res.status(404).json({
           success: false,
           message: 'Employee not found'
         });
       }
 
-      const gross = await resolveEmployeeGrossSalary(employee);
-      const taxSettings = await loadPayrollTaxSettings();
-      const figures = computeEmployeeCurrentPayrollFigures(employee, gross, taxSettings);
-
-      const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
-        .sort({ year: -1, month: -1 })
-        .limit(12);
-
-      res.json({
-        success: true,
-        data: {
-          employee: {
-            _id: employee._id,
-            firstName: employee.firstName,
-            lastName: employee.lastName,
-            employeeId: employee.employeeId,
-            department: employee.department,
-            placementDepartment: employee.placementDepartment,
-            placementDesignation: employee.placementDesignation,
-            position: employee.position
-          },
-          currentPayroll: buildEmployeeCurrentPayrollPayload(employee, gross, figures),
-          existingPayrolls
-        }
-      });
+      res.json({ success: true, data: payload });
     } catch (error) {
       console.error('Error in employee payroll details:', error);
       res.status(500).json({
@@ -1499,7 +1502,7 @@ router.post('/', [
     const activeEmployees = await Employee.find({
       employmentStatus: 'Active',
       'salary.gross': { $exists: true, $gt: 0 }
-    }).select('firstName lastName employeeId salary allowances arrears department position providentFund eobi manualTax hireDate appointmentDate');
+    }).select(PAYROLL_EMPLOYEE_SELECT);
 
     if (activeEmployees.length === 0) {
       return res.status(404).json({
@@ -1575,7 +1578,7 @@ router.post('/', [
             ? currentSalaryResult.data.currentSalary
             : employee.salary.gross;
 
-          const prorationResult = applyJoiningProration(employee, month, year, monthlyGross);
+          const prorationResult = applyPayrollProration(employee, month, year, monthlyGross);
           if (prorationResult.skipPayroll) {
             return {
               success: false,
@@ -1743,7 +1746,8 @@ router.post('/', [
               usesAllowanceTaxPolicy: taxCalculation.usesAllowanceTaxPolicy
             },
             currency: 'PKR',
-            remarks: `Monthly payroll generated for ${month}/${year}${buildProrationRemarksSuffix(proration)}`,
+            remarks: `Monthly payroll generated for ${month}/${year}${buildPayrollProrationRemarksSuffix(proration)}`,
+            proration: proration?.isProrated ? proration : undefined,
             createdBy: req.user.id,
             status: 'Draft'
           };

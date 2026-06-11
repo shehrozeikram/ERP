@@ -351,7 +351,10 @@ export const SUBMODULES = {
   [MODULE_KEYS.TAJ_RESIDENCIA]: [
     'complains_tickets',
     'land_acquisition',
-    'land_acquisition_maps'
+    'land_acquisition_maps',
+    'land_acquisition_moza',
+    'land_acquisition_registry',
+    'land_acquisition_possession'
   ],
   [MODULE_KEYS.ASSET_TAGGING]: [
     'asset_tagging_dashboard',
@@ -969,7 +972,10 @@ export const MODULES = {
         name: 'Land Acquisition',
         path: '/taj-residencia/land-acquisition',
         subItems: [
-          { name: 'Maps', path: '/taj-residencia/land-acquisition/maps' }
+          { name: 'Maps', path: '/taj-residencia/land-acquisition/maps' },
+          { name: 'Moza', path: '/taj-residencia/land-acquisition/moza' },
+          { name: 'Registry', path: '/taj-residencia/land-acquisition/registry' },
+          { name: 'Possession', path: '/taj-residencia/land-acquisition/possession' }
         ]
       }
     ]
@@ -1466,6 +1472,9 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       
       // Taj Residencia Module
       '/taj-residencia/complains-tickets': 'complains_tickets',
+      '/taj-residencia/land-acquisition/moza': 'land_acquisition_moza',
+      '/taj-residencia/land-acquisition/registry': 'land_acquisition_registry',
+      '/taj-residencia/land-acquisition/possession': 'land_acquisition_possession',
       '/taj-residencia/land-acquisition/maps': 'land_acquisition_maps',
       '/taj-residencia/land-acquisition': 'land_acquisition'
     };

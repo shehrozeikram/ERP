@@ -145,7 +145,10 @@ const SUBMODULES = {
   [MODULES.TAJ_RESIDENCIA]: [
     'complains_tickets',
     'land_acquisition',
-    'land_acquisition_maps'
+    'land_acquisition_maps',
+    'land_acquisition_moza',
+    'land_acquisition_registry',
+    'land_acquisition_possession'
   ],
   general: [
     'document_tracking',

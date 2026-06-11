@@ -1,6 +1,7 @@
 import React from 'react';
 import { Chip, Tooltip } from '@mui/material';
 import {
+  getPayrollProrationBadgeColor,
   getPayrollProrationLabel,
   getPayrollProrationTooltip,
   isPayrollProrated
@@ -14,7 +15,7 @@ const PayrollProrationBadge = ({ payroll, size = 'small', sx }) => {
       <Chip
         label={getPayrollProrationLabel(payroll)}
         size={size}
-        color="warning"
+        color={getPayrollProrationBadgeColor(payroll)}
         variant="outlined"
         sx={{ fontWeight: 600, ...sx }}
       />

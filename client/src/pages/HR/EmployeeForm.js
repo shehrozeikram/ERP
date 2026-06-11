@@ -48,10 +48,27 @@ import * as Yup from 'yup';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { allowancesForForm, vehicleFuelTotal, buildAllowancesPayload } from '../../utils/allowanceHelpers';
+import { computeAutoSalaryBreakdown } from '../../utils/salaryBreakdown';
+import AutoCalculatedSalaryBreakdown from '../../components/AutoCalculatedSalaryBreakdown';
 import { useData } from '../../contexts/DataContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
 
 const steps = ['Joining Report', 'Personal Information', 'Employment Details', 'Contact & Address', 'Salary & Benefits'];
+
+const PAYROLL_MONTH_OPTIONS = [
+  { value: 1, label: 'January' },
+  { value: 2, label: 'February' },
+  { value: 3, label: 'March' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'June' },
+  { value: 7, label: 'July' },
+  { value: 8, label: 'August' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'October' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'December' }
+];
 
 const EmployeeForm = () => {
   const { id } = useParams();
@@ -62,6 +79,10 @@ const EmployeeForm = () => {
   // Get the page number from location state (passed when navigating from EmployeeList)
   const savedPage = location.state?.page || 0;
   const [activeStep, setActiveStep] = useState(0);
+  const [partialPeriodDraft, setPartialPeriodDraft] = useState({
+    month: new Date().getMonth() + 1,
+    year: new Date().getFullYear()
+  });
   const [departments, setDepartments] = useState([]);
 
   const [banks, setBanks] = useState([]);
@@ -803,7 +824,15 @@ const EmployeeForm = () => {
           startDate: emp.startDate ? new Date(emp.startDate).toISOString().split('T')[0] : '',
           endDate: emp.endDate ? new Date(emp.endDate).toISOString().split('T')[0] : '',
           isCurrentJob: emp.isCurrentJob || false
-        }))
+        })),
+        partialSalaryPay: {
+          isActive: employeeData.partialSalaryPay?.isActive || false,
+          payableDaysPerMonth: employeeData.partialSalaryPay?.payableDaysPerMonth || '',
+          periods: (employeeData.partialSalaryPay?.periods || []).map((p) => ({
+            month: p.month,
+            year: p.year
+          }))
+        }
       };
       
       formik.setValues(formData);
@@ -950,6 +979,11 @@ const EmployeeForm = () => {
       salary: {
         gross: ''
       },
+      partialSalaryPay: {
+        isActive: false,
+        payableDaysPerMonth: '',
+        periods: []
+      },
       // Placement fields
       placementSector: '',
       placementProject: '',
@@ -1043,6 +1077,22 @@ const EmployeeForm = () => {
           cleanedValues.salary.gross = parseFloat(cleanedValues.salary.gross);
         } else {
           delete cleanedValues.salary;
+        }
+
+        if (cleanedValues.partialSalaryPay) {
+          const psp = cleanedValues.partialSalaryPay;
+          psp.isActive = Boolean(psp.isActive);
+          psp.payableDaysPerMonth = parseInt(psp.payableDaysPerMonth, 10) || 0;
+          psp.periods = (psp.periods || [])
+            .map((p) => ({
+              month: parseInt(p.month, 10),
+              year: parseInt(p.year, 10)
+            }))
+            .filter((p) => p.month >= 1 && p.month <= 12 && p.year >= 2020);
+          if (!psp.isActive) {
+            psp.payableDaysPerMonth = 0;
+            psp.periods = [];
+          }
         }
         
         // Process academicBackground array - filter out empty objects and convert dates
@@ -2307,13 +2357,16 @@ const EmployeeForm = () => {
                 name="employeeId"
                 label="Employee ID"
                 value={formik.values.employeeId || ''}
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
+                onChange={id && id !== 'add' ? undefined : formik.handleChange}
+                onBlur={id && id !== 'add' ? undefined : formik.handleBlur}
+                InputProps={{ readOnly: !!(id && id !== 'add') }}
                 error={formik.touched.employeeId && Boolean(formik.errors.employeeId)}
                 helperText={
                   formik.touched.employeeId && formik.errors.employeeId
                     ? formik.errors.employeeId
-                    : "Enter Employee ID or leave blank for auto-generation"
+                    : id && id !== 'add'
+                      ? "Employee ID cannot be changed after creation"
+                      : "Enter Employee ID or leave blank for auto-generation"
                 }
               />
             </Grid>
@@ -3554,6 +3607,114 @@ const EmployeeForm = () => {
                 required
               />
             </Grid>
+
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="h6" gutterBottom sx={{ mt: 1 }}>
+                Partial monthly pay
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Pay a fixed number of calendar days each month for selected periods. Salary and all allowances are scaled the same way as join-month payroll.
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.partialSalaryPay?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('partialSalaryPay.isActive', e.target.checked)}
+                    />
+                  }
+                  label="Enable partial pay for selected months"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.partialSalaryPay?.isActive && (
+              <>
+                <Grid item xs={12} md={4}>
+                  <TextField
+                    fullWidth
+                    label="Payable days per month"
+                    type="number"
+                    value={formik.values.partialSalaryPay?.payableDaysPerMonth || ''}
+                    onChange={(e) => formik.setFieldValue('partialSalaryPay.payableDaysPerMonth', e.target.value)}
+                    inputProps={{ min: 1, max: 31 }}
+                    helperText="e.g. 8 days salary for each selected month"
+                    required
+                  />
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <FormControl fullWidth>
+                    <InputLabel>Month</InputLabel>
+                    <Select
+                      label="Month"
+                      value={partialPeriodDraft.month}
+                      onChange={(e) => setPartialPeriodDraft((prev) => ({ ...prev, month: e.target.value }))}
+                    >
+                      {PAYROLL_MONTH_OPTIONS.map((m) => (
+                        <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <TextField
+                    fullWidth
+                    label="Year"
+                    type="number"
+                    value={partialPeriodDraft.year}
+                    onChange={(e) => setPartialPeriodDraft((prev) => ({ ...prev, year: e.target.value }))}
+                    inputProps={{ min: 2020, max: 2100 }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={2} sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      const month = Number(partialPeriodDraft.month);
+                      const year = Number(partialPeriodDraft.year);
+                      if (!month || !year) return;
+                      const periods = formik.values.partialSalaryPay?.periods || [];
+                      const exists = periods.some((p) => Number(p.month) === month && Number(p.year) === year);
+                      if (exists) return;
+                      formik.setFieldValue('partialSalaryPay.periods', [...periods, { month, year }]);
+                    }}
+                  >
+                    Add
+                  </Button>
+                </Grid>
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {(formik.values.partialSalaryPay?.periods || []).map((period) => {
+                      const label = PAYROLL_MONTH_OPTIONS.find((m) => m.value === Number(period.month))?.label
+                        || `Month ${period.month}`;
+                      const key = `${period.year}-${period.month}`;
+                      return (
+                        <Chip
+                          key={key}
+                          label={`${label} ${period.year}`}
+                          onDelete={() => {
+                            formik.setFieldValue(
+                              'partialSalaryPay.periods',
+                              (formik.values.partialSalaryPay?.periods || []).filter(
+                                (p) => !(Number(p.month) === Number(period.month) && Number(p.year) === Number(period.year))
+                              )
+                            );
+                          }}
+                        />
+                      );
+                    })}
+                    {!formik.values.partialSalaryPay?.periods?.length && (
+                      <Typography variant="body2" color="text.secondary">
+                        No months added yet.
+                      </Typography>
+                    )}
+                  </Box>
+                </Grid>
+              </>
+            )}
             
             {/* Flexible Allowances Section */}
             <Grid item xs={12}>
@@ -3937,28 +4098,7 @@ const EmployeeForm = () => {
                 <Typography variant="h6" gutterBottom>
                   Auto-Calculated Salary Breakdown
                 </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Basic Salary (66.66%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6666))}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      House Rent (23.34%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.2334))}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Medical (10%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.1))}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Total: {formatPKR(formik.values.salary?.gross || 0)}
-                    </Typography>
-                  </Grid>
-                </Grid>
+                <AutoCalculatedSalaryBreakdown gross={formik.values.salary?.gross || 0} />
               </Card>
             </Grid>
             
@@ -4028,119 +4168,53 @@ const EmployeeForm = () => {
                     <strong>Gross Salary:</strong> {formatPKR(formik.values.salary?.gross || 0)}
                   </Typography>
                   <Divider sx={{ my: 1 }} />
-                  <Typography variant="body2" color="textSecondary">
-                    <strong>Salary Distribution (Total: {formatPKR(formik.values.salary?.gross || 0)}):</strong>
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                    <strong>Auto-Calculated Salary Breakdown</strong>
                   </Typography>
-                  
-                  {/* Calculate the actual distribution based on current allowances */}
-                  {(() => {
-                    const grossSalary = formik.values.salary?.gross || 0;
-                    const vehicleFuelAllowance = vehicleFuelTotal(formik.values.allowances);
-                    const houseRent = Math.round(grossSalary * 0.2334); // 23.34% of gross
-                    const medical = Math.round(grossSalary * 0.1); // 10% of gross
-                    const basicSalary = grossSalary - houseRent - medical - vehicleFuelAllowance;
-                    
-                    return (
-                      <>
-                        <Typography variant="body2" color="primary.main">
-                          💰 Basic Salary: {formatPKR(basicSalary)} (Adjusted to accommodate allowances)
-                        </Typography>
-                        <Typography variant="body2">
-                          🏠 House Rent (23.34%): {formatPKR(houseRent)}
-                        </Typography>
-                        <Typography variant="body2">
-                          🏥 Medical (10%): {formatPKR(medical)}
-                        </Typography>
-                        
-                        {/* Show Vehicle & Fuel allowance as included in gross */}
-                        {vehicleFuelAllowance > 0 && (
-                          <Typography variant="body2" color="success.main">
-                            🚗 Vehicle + Fuel: {formatPKR(vehicleFuelAllowance)} (Included in Gross)
-                          </Typography>
-                        )}
-                        
-                        {/* Show other allowances if active */}
-                        {formik.values.allowances?.food?.isActive && (
-                          <Typography variant="body2" color="success.main">
-                            🍽️ Food Allowance: {formatPKR(formik.values.allowances.food.amount || 0)}
-                          </Typography>
-                        )}
-                        {formik.values.allowances?.conveyance?.isActive && (
-                          <Typography variant="body2" color="success.main">
-                            🚌 Conveyance: {formatPKR(formik.values.allowances.conveyance.amount || 0)}
-                          </Typography>
-                        )}
-                        {formik.values.allowances?.medical?.isActive && (
-                          <Typography variant="body2" color="success.main">
-                            🏥 Medical Allowance: {formatPKR(formik.values.allowances.medical.amount || 0)}
-                          </Typography>
-                        )}
-                        {formik.values.allowances?.houseRent?.isActive && (
-                          <Typography variant="body2" color="success.main">
-                            🏠 House Allowance: {formatPKR(formik.values.allowances.houseRent.amount || 0)}
-                          </Typography>
-                        )}
-                        {formik.values.allowances?.special?.isActive && (
-                          <Typography variant="body2" color="success.main">
-                            ⭐ Special: {formatPKR(formik.values.allowances.special.amount || 0)}
-                          </Typography>
-                        )}
-                        {formik.values.allowances?.other?.isActive && (
-                          <Typography variant="body2" color="success.main">
-                            📋 Other: {formatPKR(formik.values.allowances.other.amount || 0)}
-                          </Typography>
-                        )}
-                        
-                        {/* Show total breakdown */}
-                        <Divider sx={{ my: 1 }} />
-                        <Typography variant="body2" color="info.main">
-                          <strong>Breakdown Total:</strong> {formatPKR(basicSalary + houseRent + medical + vehicleFuelAllowance)}
-                        </Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          This equals your Gross Salary of {formatPKR(grossSalary)}
-                        </Typography>
-                      </>
-                    );
-                  })()}
-                  
+                  <AutoCalculatedSalaryBreakdown gross={formik.values.salary?.gross || 0} dense />
+
+                  {vehicleFuelTotal(formik.values.allowances) > 0 && (
+                    <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+                      Vehicle + Fuel Allowance: {formatPKR(vehicleFuelTotal(formik.values.allowances))}
+                    </Typography>
+                  )}
+                  {formik.values.allowances?.food?.isActive && (
+                    <Typography variant="body2" color="success.main">
+                      Food Allowance: {formatPKR(formik.values.allowances.food.amount || 0)}
+                    </Typography>
+                  )}
+                  {formik.values.allowances?.conveyance?.isActive && (
+                    <Typography variant="body2" color="success.main">
+                      Conveyance: {formatPKR(formik.values.allowances.conveyance.amount || 0)}
+                    </Typography>
+                  )}
+                  {formik.values.allowances?.medical?.isActive && (
+                    <Typography variant="body2" color="success.main">
+                      Medical Allowance: {formatPKR(formik.values.allowances.medical.amount || 0)}
+                    </Typography>
+                  )}
+                  {formik.values.allowances?.houseRent?.isActive && (
+                    <Typography variant="body2" color="success.main">
+                      House Allowance: {formatPKR(formik.values.allowances.houseRent.amount || 0)}
+                    </Typography>
+                  )}
+                  {formik.values.allowances?.special?.isActive && (
+                    <Typography variant="body2" color="success.main">
+                      Special: {formatPKR(formik.values.allowances.special.amount || 0)}
+                    </Typography>
+                  )}
+                  {formik.values.allowances?.other?.isActive && (
+                    <Typography variant="body2" color="success.main">
+                      Other: {formatPKR(formik.values.allowances.other.amount || 0)}
+                    </Typography>
+                  )}
+
                   <Divider sx={{ my: 1 }} />
                   <Typography variant="h6" color="primary">
                     <strong>Total Monthly Compensation:</strong> {formatPKR(formik.values.salary?.gross || 0)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    Monthly compensation (Gross Salary - includes all allowances)
-                  </Typography>
-                  
-                  {/* Salary Calculation Formula */}
-                  <Divider sx={{ my: 1 }} />
-                  <Typography variant="body2" color="textSecondary">
-                    <strong>📊 Salary Calculation Formula:</strong>
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
-                    <strong>Step 1:</strong> Fixed Components (from Gross Salary)
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
-                    • House Rent = 23.34% of Gross Salary (Fixed)
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
-                    • Medical = 10% of Gross Salary (Fixed)
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
-                    • Vehicle + Fuel = Fixed Amounts (if active)
-                  </Typography>
-                  
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
-                    <strong>Step 2:</strong> Calculate Basic Salary
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
-                    • Basic Salary = Gross Salary - House Rent - Medical - Vehicle - Fuel
-                  </Typography>
-                  
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
-                    <strong>Step 3:</strong> Total Monthly Compensation
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
-                    • Total = Gross Salary (includes all components)
+                    Monthly compensation (Gross Salary)
                   </Typography>
                   {formik.values.eobi?.isActive && (
                     <>
@@ -4157,7 +4231,7 @@ const EmployeeForm = () => {
                     <>
                       <Divider sx={{ my: 1 }} />
                       <Typography variant="body2" color="error">
-                        <strong>Provident Fund Deduction:</strong> {formatPKR(formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6666 * 0.0834))}
+                        <strong>Provident Fund Deduction:</strong> {formatPKR(formik.values.providentFund?.amount || Math.round(computeAutoSalaryBreakdown(formik.values.salary?.gross).basic * 0.0834))}
                       </Typography>
                       <Typography variant="body2" color="textSecondary">
                         Auto-calculated: 8.34% of basic salary
@@ -4168,11 +4242,6 @@ const EmployeeForm = () => {
                   {/* Net Salary Calculation */}
                   {(() => {
                     const grossSalary = formik.values.salary?.gross || 0;
-                    const vehicleFuelAllowance = vehicleFuelTotal(formik.values.allowances);
-                    const houseRent = Math.round(grossSalary * 0.2334);
-                    const medical = Math.round(grossSalary * 0.1);
-                    const basicSalary = grossSalary - houseRent - medical - vehicleFuelAllowance;
-                    
                     const totalDeductions = (formik.values.eobi?.isActive ? (formik.values.eobi?.amount || 370) : 0);
                     // Provident Fund excluded from total deductions (Coming Soon)
                     // + (formik.values.providentFund?.isActive ? Math.round(basicSalary * 0.0834) : 0);

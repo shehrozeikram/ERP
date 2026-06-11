@@ -88,6 +88,7 @@ const getJoiningProration = (month, year, joiningDate) => {
     payableDays,
     daysInMonth,
     joiningDate,
+    type: 'joining',
     workingDaysFromJoining: calculateWorkingDaysFromDay(year, month, joinDay),
     reason: `Prorated first salary: ${payableDays}/${daysInMonth} days from joining date`
   };

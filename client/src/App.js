@@ -2022,6 +2022,18 @@ function App() {
               path="/taj-residencia/land-acquisition/maps" 
               element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
             />
+            <Route 
+              path="/taj-residencia/land-acquisition/moza" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/registry" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/possession" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
 
             {/* Audit Module Routes */}
             <Route 

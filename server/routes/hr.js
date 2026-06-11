@@ -981,6 +981,9 @@ router.put('/employees/:id', [
 
     // Clean up the request body
     const employeeData = { ...req.body };
+
+    // Employee ID is immutable after creation — never allow it to be changed via update
+    delete employeeData.employeeId;
     
     // Unset email when empty - sparse unique index allows multiple docs without email, but multiple nulls conflict
     if (employeeData.email !== undefined) {

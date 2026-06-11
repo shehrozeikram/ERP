@@ -107,6 +107,9 @@ const auditTrailRoutes = require('./routes/auditTrail');
 const subRoleRoutes = require('./routes/subRoles');
 const userSubRoleRoutes = require('./routes/userSubRoles');
 const tajResidenciaComplaintsRoutes = require('./routes/tajResidenciaComplaints');
+const landAcquisitionMozaRoutes = require('./routes/landAcquisitionMoza');
+const landAcquisitionRegistryRoutes = require('./routes/landAcquisitionRegistry');
+const landAcquisitionPossessionRoutes = require('./routes/landAcquisitionPossession');
 const tajRentalManagementRoutes = require('./routes/tajRentalManagement');
 const camChargesRoutes = require('./routes/camCharges');
 const waterChargesRoutes = require('./routes/waterCharges');
@@ -657,8 +660,11 @@ app.use('/api/sub-roles', subRoleRoutes);
 app.use('/api/user-sub-roles', userSubRoleRoutes);
 app.use('/api/roles', authMiddleware, activityLogger, require('./routes/roles'));
 
-// Taj Residencia routes (complaints public/listing; land acquisition API removed)
+// Taj Residencia routes
 app.use('/api', tajResidenciaComplaintsRoutes);
+app.use('/api/taj-residencia/land-acquisition', authMiddleware, landAcquisitionMozaRoutes);
+app.use('/api/taj-residencia/land-acquisition', authMiddleware, landAcquisitionRegistryRoutes);
+app.use('/api/taj-residencia/land-acquisition', authMiddleware, landAcquisitionPossessionRoutes);
 app.use('/api/taj-utilities/rental-management', authMiddleware, activityLogger, tajRentalManagementRoutes);
 app.use('/api/taj-utilities/cam-charges', authMiddleware, activityLogger, camChargesRoutes);
 app.use('/api/taj-utilities/water-charges', authMiddleware, activityLogger, waterChargesRoutes);

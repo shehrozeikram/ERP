@@ -1617,6 +1617,9 @@ Do you want to:
                         </Typography>
                         <Typography variant="caption" color="textSecondary">
                           General
+                          {currentOverview?.month && currentOverview?.year ? (
+                            <> · {months.find((m) => Number(m.value) === Number(currentOverview.month))?.label || currentOverview.month} {currentOverview.year}</>
+                          ) : null}
                         </Typography>
                       </Box>
                     </TableCell>

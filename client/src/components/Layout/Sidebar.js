@@ -328,6 +328,9 @@ const Sidebar = () => {
       
       // Taj Residencia Module
       '/taj-residencia/complains-tickets': 'complains_tickets',
+      '/taj-residencia/land-acquisition/moza': 'land_acquisition_moza',
+      '/taj-residencia/land-acquisition/registry': 'land_acquisition_registry',
+      '/taj-residencia/land-acquisition/possession': 'land_acquisition_possession',
       '/taj-residencia/land-acquisition/maps': 'land_acquisition_maps',
       '/taj-residencia/land-acquisition': 'land_acquisition'
     };

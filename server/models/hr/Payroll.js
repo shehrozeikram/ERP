@@ -9,10 +9,10 @@ const {
   getEmployeeEobiDeduction
 } = require('../../utils/allowanceHelpers');
 const {
-  applyJoiningProration,
-  buildProrationRemarksSuffix,
+  applyPayrollProration,
+  buildPayrollProrationRemarksSuffix,
   adjustAttendanceForJoiningProration
-} = require('../../utils/payrollJoiningProration');
+} = require('../../utils/payrollPartialSalaryPay');
 
 // Helper function to calculate loan deductions from active loans
 /**
@@ -464,6 +464,10 @@ const payrollSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  proration: {
+    type: mongoose.Schema.Types.Mixed,
+    default: undefined
+  },
   // Audit fields
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -794,7 +798,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     Number(employee.salary?.gross) ||
     (Number(employee.salary?.basic) || 0) + additionalAllowancesTotal(employee.allowances);
 
-  const prorationResult = applyJoiningProration(employee, month, year, monthlyGross);
+  const prorationResult = applyPayrollProration(employee, month, year, monthlyGross);
   if (prorationResult.skipPayroll) {
     throw new Error(
       prorationResult.proration?.reason || 'Employee not yet joined in this payroll period'
@@ -928,7 +932,8 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
       return eobi;
     })(),
     currency: employee.currency || 'PKR',
-    remarks: `Monthly payroll generated for ${month}/${year}${buildProrationRemarksSuffix(proration)}`,
+    remarks: `Monthly payroll generated for ${month}/${year}${buildPayrollProrationRemarksSuffix(proration)}`,
+    proration: proration?.isProrated ? proration : undefined,
     status: 'Draft',
     createdBy: attendanceData.createdBy || 'system'
   };

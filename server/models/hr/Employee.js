@@ -635,6 +635,20 @@ const employeeSchema = new mongoose.Schema({
       min: [0, 'Basic salary cannot be negative']
     }
   },
+  /** Fixed payable days per month for selected payroll periods (salary + allowances scaled). */
+  partialSalaryPay: {
+    isActive: { type: Boolean, default: false },
+    payableDaysPerMonth: {
+      type: Number,
+      default: 0,
+      min: [0, 'Payable days cannot be negative'],
+      max: [31, 'Payable days cannot exceed 31']
+    },
+    periods: [{
+      month: { type: Number, min: 1, max: 12, required: true },
+      year: { type: Number, min: 2020, required: true }
+    }]
+  },
   // EOBI (Employees' Old-Age Benefits Institution) - Pakistan
   eobi: {
     isActive: {
@@ -1410,8 +1424,9 @@ employeeSchema.pre('save', async function(next) {
     this.email = undefined;
   }
   
-  // Auto-generate Employee ID if not provided
-  if (!this.employeeId) {
+  // Auto-generate Employee ID only for brand-new employees that have no ID yet.
+  // Never re-assign an ID on an existing document — even if employeeId was accidentally cleared.
+  if (!this.employeeId && this.isNew) {
     try {
       // Find ALL employees (including deleted ones) to get the highest ID ever created
       // This ensures no ID is ever reused, even if employee is deleted

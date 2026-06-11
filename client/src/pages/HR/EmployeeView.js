@@ -48,6 +48,9 @@ import { getImageUrl, handleImageError } from '../../utils/imageService';
 import leaveService from '../../services/leaveService';
 import TextField from '@mui/material/TextField';
 import { fetchEmployeeKpiWorksheet } from '../../services/kpiWorksheetService';
+import { openEmployeeDetailPrint } from '../../utils/employeeDetailPrint';
+import AutoCalculatedSalaryBreakdown from '../../components/AutoCalculatedSalaryBreakdown';
+import { vehicleFuelTotal } from '../../utils/allowanceHelpers';
 
 const EmployeeView = () => {
   const { id } = useParams();
@@ -286,6 +289,26 @@ const EmployeeView = () => {
                    day === 2 || day === 22 ? 'nd' : 
                    day === 3 || day === 23 ? 'rd' : 'th';
     return `${day}${suffix} ${date.toLocaleString('en-GB', { month: 'long', year: 'numeric' })}`;
+  };
+
+  const handlePrintEmployeeDetail = () => {
+    if (!employee) return;
+
+    const result = openEmployeeDetailPrint({
+      employee,
+      leaveSummary,
+      kpiSummary,
+      loans,
+      profileImageUrl: employee.profileImage ? getImageUrl(employee.profileImage) : null
+    });
+
+    if (result?.ok === false) {
+      setSnackbar({
+        open: true,
+        message: result.message,
+        severity: 'warning'
+      });
+    }
   };
 
   const handlePrintJoiningReport = () => {
@@ -707,6 +730,13 @@ const EmployeeView = () => {
           >
             {updatingPayrolls ? 'Updating...' : 'Update Payrolls'}
           </Button> */}
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={handlePrintEmployeeDetail}
+          >
+            Print
+          </Button>
           <Button
             variant="contained"
             startIcon={<EditIcon />}
@@ -1474,30 +1504,60 @@ const EmployeeView = () => {
                 <SalaryIcon />
                 Salary Information
               </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <Typography variant="h6" color="primary" gutterBottom>
-                    Gross Salary: {formatPKR(employee.salary?.gross || 0)}
-                  </Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography variant="body2" color="textSecondary">
-                    Basic (66.66%): {formatPKR(employee.salary?.basic || Math.round((employee.salary?.gross || 0) * 0.6666))}
-                  </Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography variant="body2" color="textSecondary">
-                    House Rent (30%): {formatPKR(employee.salary?.houseRent || Math.round((employee.salary?.gross || 0) * 0.3))}
-                  </Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography variant="body2" color="textSecondary">
-                    Medical (10%): {formatPKR(employee.salary?.medical || Math.round((employee.salary?.gross || 0) * 0.1))}
-                  </Typography>
-                </Grid>
-              </Grid>
-              <Typography variant="body2" color="textSecondary">
-                Monthly compensation
+              <Typography variant="h6" color="primary" gutterBottom>
+                Gross Salary: {formatPKR(employee.salary?.gross || 0)}
+              </Typography>
+              <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+                Auto-Calculated Salary Breakdown
+              </Typography>
+              <AutoCalculatedSalaryBreakdown gross={employee.salary?.gross || 0} dense />
+              {vehicleFuelTotal(employee.allowances) > 0 && (
+                <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+                  Vehicle + Fuel Allowance: {formatPKR(vehicleFuelTotal(employee.allowances))}
+                </Typography>
+              )}
+              {employee.allowances?.food?.isActive && (
+                <Typography variant="body2" color="success.main">
+                  Food Allowance: {formatPKR(employee.allowances.food.amount || 0)}
+                </Typography>
+              )}
+              {employee.allowances?.conveyance?.isActive && (
+                <Typography variant="body2" color="success.main">
+                  Conveyance: {formatPKR(employee.allowances.conveyance.amount || 0)}
+                </Typography>
+              )}
+              {employee.allowances?.medical?.isActive && (
+                <Typography variant="body2" color="success.main">
+                  Medical Allowance: {formatPKR(employee.allowances.medical.amount || 0)}
+                </Typography>
+              )}
+              {employee.allowances?.houseRent?.isActive && (
+                <Typography variant="body2" color="success.main">
+                  House Allowance: {formatPKR(employee.allowances.houseRent.amount || 0)}
+                </Typography>
+              )}
+              {employee.allowances?.special?.isActive && (
+                <Typography variant="body2" color="success.main">
+                  Special: {formatPKR(employee.allowances.special.amount || 0)}
+                </Typography>
+              )}
+              {employee.allowances?.other?.isActive && (
+                <Typography variant="body2" color="success.main">
+                  Other: {formatPKR(employee.allowances.other.amount || 0)}
+                </Typography>
+              )}
+              {employee.eobi?.isActive && (
+                <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+                  EOBI Deduction: {formatPKR(employee.eobi?.amount || 370)}
+                </Typography>
+              )}
+              {employee.providentFund?.isActive && (
+                <Typography variant="body2" color="error">
+                  Provident Fund: {formatPKR(employee.providentFund?.amount || 0)}
+                </Typography>
+              )}
+              <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                Monthly compensation (Gross Salary)
               </Typography>
             </CardContent>
           </Card>
