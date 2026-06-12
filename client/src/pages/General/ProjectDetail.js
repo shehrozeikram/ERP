@@ -38,7 +38,7 @@ import api from '../../services/api';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BUDGET_CATEGORIES = [
-  'Civil Works', 'Finishes', 'Electrical', 'Plumbing',
+  'Civil Works', 'Finishes', 'Electrical', 'Plumbing', 'HVAC System',
   'Sewerage', 'Water Supply & Gas',
   'Labor', 'Consultancy', 'Materials', 'Contingency', 'Miscellaneous'
 ];

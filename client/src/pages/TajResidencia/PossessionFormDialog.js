@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Autocomplete,
   Box,
@@ -282,12 +282,12 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
     return null;
   };
 
-  const registeredAreaForRegistryKhasra = (entryId) => {
+  const registeredAreaForRegistryKhasra = useCallback((entryId) => {
     const regLine = linkedRegistry?.lines?.find((l) => String(l.khasraEntry) === String(entryId));
     if (regLine?.acquiredArea) return regLine.acquiredArea;
     const status = statusByKhasra[entryId];
     return status?.registered || { kanal: 0, marla: 0, sarsai: 0 };
-  };
+  }, [linkedRegistry, statusByKhasra]);
 
   const landInKhasraForEntry = (entryId) => {
     const entry = mozaKhasras.find((k) => String(k._id) === String(entryId));
@@ -295,11 +295,11 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
   };
 
   /** Registered / registry area for the selected Registry Khasra (source). */
-  const khasraAreaForLine = (line, { registryEntryId } = {}) => {
+  const khasraAreaForLine = useCallback((line, { registryEntryId } = {}) => {
     const registryId = registryEntryId || line.registryKhasraEntry;
     if (!registryId) return emptyArea();
     return areaToForm(registeredAreaForRegistryKhasra(registryId));
-  };
+  }, [registeredAreaForRegistryKhasra]);
 
   const priorPossessedForKhasra = (khasraEntryId) =>
     normalizeArea(possessedTotals[String(khasraEntryId || '')] || {});
@@ -337,7 +337,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       });
       return changed ? { ...prev, lines } : prev;
     });
-  }, [open, form.moza, statusByKhasra, linkedRegistry]);
+  }, [open, form.moza, statusByKhasra, linkedRegistry, khasraAreaForLine]);
 
   const possessedTotal = useMemo(
     () => addAreas(...form.lines.map((line) => parseAreaForm(line.possessedArea))),
@@ -424,7 +424,6 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
   };
 
   const handleAllocatedKhasraSelect = (index, entry) => {
-    const line = form.lines[index];
     if (!entry) {
       updateLine(index, {
         khasraEntry: '',

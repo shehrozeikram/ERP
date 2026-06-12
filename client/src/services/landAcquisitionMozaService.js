@@ -38,7 +38,7 @@ export const importMozaExcel = (file) => {
   });
 };
 
-export default {
+const landAcquisitionMozaService = {
   getMozas,
   getMozaEntries,
   getMozaKhewats,
@@ -52,3 +52,5 @@ export default {
   deleteMozaEntry,
   importMozaExcel
 };
+
+export default landAcquisitionMozaService;

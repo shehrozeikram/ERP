@@ -161,12 +161,12 @@ const syncDraftPayrollsAllowancesFromEmployee = async (employee) => {
   if (!employee?._id) return { updated: 0 };
 
   const Payroll = require('../models/hr/Payroll');
-  const { calculateTaxWithSeparateArrears } = require('./taxCalculator');
+  const { calculatePayrollTaxWithSettings, loadPayrollTaxSettings } = require('./allowanceTaxCalculator');
 
-  const payrolls = await Payroll.find({
-    employee: employee._id,
-    status: { $in: ['Draft', 'Approved'] }
-  });
+  const [payrolls, taxSettings] = await Promise.all([
+    Payroll.find({ employee: employee._id, status: { $in: ['Draft', 'Approved'] } }),
+    loadPayrollTaxSettings()
+  ]);
 
   let updated = 0;
 
@@ -193,8 +193,13 @@ const syncDraftPayrollsAllowancesFromEmployee = async (employee) => {
       (payroll.otherBonus || 0) +
       arrears;
 
-    const mainSalary = payroll.totalEarnings - arrears;
-    const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, arrears);
+    const taxCalculation = calculatePayrollTaxWithSettings({
+      grossSalary: grossBase,
+      allowances: payroll.allowances,
+      arrears,
+      employeeId: employee._id,
+      settings: taxSettings
+    });
     payroll.incomeTax = Math.round(taxCalculation.totalTax);
     payroll.eobi = getEmployeeEobiDeduction(employee);
 

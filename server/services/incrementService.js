@@ -1,8 +1,8 @@
 const EmployeeIncrement = require('../models/hr/EmployeeIncrement');
 const Employee = require('../models/hr/Employee');
 const Payroll = require('../models/hr/Payroll');
-const { calculateMonthlyTax } = require('../utils/taxCalculator');
 const { vehicleFuelTotal } = require('../utils/allowanceHelpers');
+const { calculatePayrollTaxWithSettings, loadPayrollTaxSettings } = require('../utils/allowanceTaxCalculator');
 
 class IncrementService {
   
@@ -175,80 +175,69 @@ class IncrementService {
       const currentDate = new Date();
       const currentMonth = currentDate.getMonth() + 1;
       const currentYear = currentDate.getFullYear();
-      
-      // Find future payrolls (current month onwards)
-      const futurePayrolls = await Payroll.find({
-        employee: employeeId,
-        $or: [
-          { year: { $gt: currentYear } },
-          { year: currentYear, month: { $gte: currentMonth } }
-        ]
-      });
-      
-      // Calculate new salary components
+
+      const [futurePayrolls, taxSettings] = await Promise.all([
+        Payroll.find({
+          employee: employeeId,
+          $or: [
+            { year: { $gt: currentYear } },
+            { year: currentYear, month: { $gte: currentMonth } }
+          ]
+        }),
+        loadPayrollTaxSettings()
+      ]);
+
       const basicSalary = Math.round(newSalary * 0.6666);
       const medicalAllowance = Math.round(newSalary * 0.10);
       const houseRentAllowance = Math.round(newSalary * 0.2334);
-      
-      // Update each future payroll
+
       for (const payroll of futurePayrolls) {
         payroll.basicSalary = basicSalary;
         payroll.medicalAllowance = medicalAllowance;
         payroll.houseRentAllowance = houseRentAllowance;
-        
-        // Recalculate gross salary
         payroll.grossSalary = basicSalary + medicalAllowance + houseRentAllowance;
-        
-        // Recalculate total earnings
-        const additionalAllowances = 
+
+        const additionalAllowances =
           (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
           (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0) +
           vehicleFuelTotal(payroll.allowances) +
           (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0) +
           (payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
-        
-        payroll.totalEarnings = payroll.grossSalary + additionalAllowances + 
-          (payroll.overtimeAmount || 0) + 
-          (payroll.performanceBonus || 0) + 
-          (payroll.otherBonus || 0);
-        
-        // Recalculate tax (simplified calculation)
-        const medicalAllowanceForTax = Math.round(payroll.totalEarnings * 0.10);
-        const taxableIncome = payroll.totalEarnings - medicalAllowanceForTax;
-        const annualTaxableIncome = taxableIncome * 12;
-        
-        let annualTax = 0;
-        if (annualTaxableIncome <= 600000) {
-          annualTax = 0;
-        } else if (annualTaxableIncome <= 1200000) {
-          annualTax = (annualTaxableIncome - 600000) * 0.01;
-        } else if (annualTaxableIncome <= 2200000) {
-          annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-        } else if (annualTaxableIncome <= 3200000) {
-          annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-        } else if (annualTaxableIncome <= 4100000) {
-          annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-        } else {
-          annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-        }
-        
-        payroll.incomeTax = Math.round(annualTax / 12);
-        
-        // Recalculate total deductions
-        payroll.totalDeductions = (payroll.incomeTax || 0) + 
-          (payroll.eobi || 370) + 
-          (payroll.healthInsurance || 0) + 
-          (payroll.attendanceDeduction || 0) + 
+
+        const arrears = payroll.arrears || 0;
+
+        payroll.totalEarnings =
+          payroll.grossSalary +
+          additionalAllowances +
+          (payroll.overtimeAmount || 0) +
+          (payroll.performanceBonus || 0) +
+          (payroll.otherBonus || 0) +
+          arrears;
+
+        const taxCalculation = calculatePayrollTaxWithSettings({
+          grossSalary: payroll.grossSalary,
+          allowances: payroll.allowances,
+          arrears,
+          employeeId,
+          settings: taxSettings
+        });
+
+        payroll.incomeTax = Math.round(taxCalculation.totalTax);
+
+        payroll.totalDeductions =
+          (payroll.incomeTax || 0) +
+          (payroll.eobi || 370) +
+          (payroll.healthInsurance || 0) +
+          (payroll.attendanceDeduction || 0) +
           (payroll.otherDeductions || 0);
-        
-        // Recalculate net salary
+
         payroll.netSalary = payroll.totalEarnings - payroll.totalDeductions;
-        
+
         await payroll.save();
       }
-      
+
       console.log(`✅ Updated ${futurePayrolls.length} future payrolls for employee ${employeeId}`);
-      
+
     } catch (error) {
       console.error('Error updating future payrolls:', error);
       throw error;

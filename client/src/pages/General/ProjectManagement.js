@@ -22,7 +22,7 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BUDGET_CATEGORIES = [
-  'Civil Works', 'Finishes', 'Electrical', 'Plumbing',
+  'Civil Works', 'Finishes', 'Electrical', 'Plumbing', 'HVAC System',
   'Sewerage', 'Water Supply & Gas',
   'Labor', 'Consultancy', 'Materials', 'Contingency', 'Miscellaneous'
 ];
@@ -303,7 +303,7 @@ const ProjectManagement = () => {
     } finally {
       setLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.page, pagination.rowsPerPage, search, statusFilter, typeFilter]);
 
   const loadStats = useCallback(async () => {
