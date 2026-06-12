@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import { getPossession } from '../../services/landAcquisitionPossessionService';
 import { formatKMS } from '../../utils/landAreaUnits';
+import { formatKhasraKhewatLabel } from '../../utils/landKhasraDisplay';
 
 const formatDate = (value) => {
   if (!value) return '—';
@@ -42,12 +43,6 @@ const DetailField = ({ label, value }) => (
     </Typography>
   </Box>
 );
-
-const formatKhasraLabel = (khewatNo, khasraNo) => {
-  if (!khasraNo) return '—';
-  if (khewatNo) return `Khasra ${khasraNo} · Khewat ${khewatNo}`;
-  return `Khasra ${khasraNo}`;
-};
 
 const PossessionDetailDialog = ({ open, onClose, possessionId }) => {
   const [possession, setPossession] = useState(null);
@@ -159,10 +154,10 @@ const PossessionDetailDialog = ({ open, onClose, possessionId }) => {
                     <TableRow key={line._id || idx}>
                       <TableCell>{idx + 1}</TableCell>
                       <TableCell>
-                        {formatKhasraLabel(line.registryKhewatNo, line.registryKhasraNo)}
+                        {formatKhasraKhewatLabel(line.registryKhasraNo, line.registryKhewatNo)}
                       </TableCell>
                       <TableCell>
-                        {formatKhasraLabel(line.khewatNo, line.khasraNo)}
+                        {formatKhasraKhewatLabel(line.khasraNo, line.khewatNo)}
                       </TableCell>
                       <TableCell>{formatKMS(line.khasraArea)}</TableCell>
                       <TableCell>{formatKMS(line.possessedArea)}</TableCell>

@@ -14,6 +14,8 @@ export const getMozaKhasras = (mozaId, params = {}) =>
 
 export const createMoza = (data) => api.post(`${BASE}/mozas`, data);
 
+export const updateMoza = (mozaId, data) => api.put(`${BASE}/mozas/${mozaId}`, data);
+
 export const deleteMoza = (mozaId) => api.delete(`${BASE}/mozas/${mozaId}`);
 
 export const getMozaEntriesMeta = (mozaId) =>
@@ -43,6 +45,7 @@ export default {
   getMozaKhasras,
   getMozaEntriesMeta,
   createMoza,
+  updateMoza,
   deleteMoza,
   createMozaEntry,
   updateMozaEntry,

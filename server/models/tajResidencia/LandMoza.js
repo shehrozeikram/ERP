@@ -10,10 +10,8 @@ const landMozaSchema = new mongoose.Schema({
   slug: {
     type: String,
     required: true,
-    unique: true,
     trim: true,
-    lowercase: true,
-    index: true
+    lowercase: true
   },
   sourceLabel: {
     type: String,
@@ -35,5 +33,11 @@ const landMozaSchema = new mongoose.Schema({
     ref: 'User'
   }
 }, { timestamps: true });
+
+// Slug unique only among active mouzas (deleted mouzas release the slug)
+landMozaSchema.index(
+  { slug: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } }
+);
 
 module.exports = mongoose.model('LandMoza', landMozaSchema);

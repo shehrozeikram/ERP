@@ -34,19 +34,7 @@ import {
   subtractAreas,
   toSarsais
 } from '../../utils/landAreaUnits';
-
-const khasraOptionLabel = (row) => {
-  if (!row) return '';
-  return `Khasra ${row.khasraNo} · Khewat ${row.khewatNo}`;
-};
-
-const sortKhasraOptions = (rows) =>
-  [...rows].sort((a, b) => {
-    const na = Number(a.khasraNo);
-    const nb = Number(b.khasraNo);
-    if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
-    return String(a.khasraNo).localeCompare(String(b.khasraNo), undefined, { numeric: true });
-  });
+import { formatKhasraSelectLabel, sortKhasraEntries } from '../../utils/landKhasraDisplay';
 
 const calcTransferPercent = (totalOwned, khasraArea) => {
   const ownedSarsais = toSarsais(totalOwned);
@@ -215,7 +203,29 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
     });
   };
 
-  const khasraOptions = useMemo(() => sortKhasraOptions(mozaKhasras), [mozaKhasras]);
+  const khasraOptions = useMemo(() => sortKhasraEntries(mozaKhasras), [mozaKhasras]);
+
+  // Keep line khasra/khewat aligned with moza master data (fixes stale swapped values)
+  useEffect(() => {
+    if (!open || !form.moza || !mozaKhasras.length) return;
+    setForm((prev) => {
+      let changed = false;
+      const lines = prev.lines.map((line) => {
+        if (!line.khasraEntry) return line;
+        const entry = mozaKhasras.find((k) => String(k._id) === String(line.khasraEntry));
+        if (!entry) return line;
+        if (line.khewatNo === entry.khewatNo && line.khasraNo === entry.khasraNo) return line;
+        changed = true;
+        return {
+          ...line,
+          khewatNo: entry.khewatNo,
+          khasraNo: entry.khasraNo,
+          khasraArea: areaToForm(entry.landInKhasra)
+        };
+      });
+      return changed ? { ...prev, lines } : prev;
+    });
+  }, [open, form.moza, mozaKhasras]);
 
   const findKhasraOption = (line) => {
     if (line.khasraEntry) {
@@ -457,10 +467,20 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
                           options={khasraOptions}
                           value={findKhasraOption(line)}
                           onChange={(_, entry) => handleKhasraSelect(index, entry)}
-                          getOptionLabel={khasraOptionLabel}
+                          getOptionLabel={formatKhasraSelectLabel}
                           isOptionEqualToValue={(a, b) => a._id === b._id}
                           getOptionDisabled={(option) => isKhasraTaken(option._id, index)}
                           noOptionsText="No khasras in this mouza"
+                          renderOption={(props, option) => (
+                            <li {...props} key={option._id}>
+                              <Box>
+                                <Typography variant="body2">Khasra {option.khasraNo}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Khewat {option.khewatNo}
+                                </Typography>
+                              </Box>
+                            </li>
+                          )}
                           renderInput={(params) => (
                             <TextField
                               {...params}

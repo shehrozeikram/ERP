@@ -23,7 +23,7 @@ import {
 } from '@mui/material';
 import { Add, Delete } from '@mui/icons-material';
 import { getMozas, getMozaKhasras } from '../../services/landAcquisitionMozaService';
-import { getRegistries } from '../../services/landAcquisitionRegistryService';
+import { getRegistries, getRegistry } from '../../services/landAcquisitionRegistryService';
 import {
   getNextPossessionRef,
   getPossessedTotals,
@@ -39,6 +39,11 @@ import {
   subtractAreas,
   toSarsais
 } from '../../utils/landAreaUnits';
+import {
+  formatKhasraSelectLabel,
+  resolveKhasraFields,
+  sortKhasraEntries
+} from '../../utils/landKhasraDisplay';
 
 const calcTransferPercent = (totalPossessed, plotArea) => {
   const possessedSarsais = toSarsais(totalPossessed);
@@ -58,19 +63,6 @@ const formatKMSOrZero = (area) => {
   return formatKMS(a);
 };
 
-const khasraOptionLabel = (row) => {
-  if (!row) return '';
-  return `Khasra ${row.khasraNo} · Khewat ${row.khewatNo}`;
-};
-
-const sortKhasraOptions = (rows) =>
-  [...rows].sort((a, b) => {
-    const na = Number(a.khasraNo);
-    const nb = Number(b.khasraNo);
-    if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
-    return String(a.khasraNo).localeCompare(String(b.khasraNo), undefined, { numeric: true });
-  });
-
 const emptyLine = () => ({
   registryKhasraEntry: '',
   registryKhewatNo: '',
@@ -83,6 +75,34 @@ const emptyLine = () => ({
   possessedArea: emptyArea(),
   remarks: ''
 });
+
+const khasraEntryId = (entry) => {
+  if (!entry) return '';
+  if (typeof entry === 'object' && entry._id) return entry._id;
+  return String(entry);
+};
+
+/** Build possession rows from a linked registry document. */
+const linesFromRegistry = (registry, registryId, mozaKhasras = []) => {
+  if (!registry?.lines?.length) return [emptyLine()];
+  return registry.lines.map((line) => {
+    const entryId = khasraEntryId(line.khasraEntry);
+    const fields = resolveKhasraFields(entryId, mozaKhasras, line);
+    const registeredArea = areaToForm(line.acquiredArea || {});
+    return {
+      registryKhasraEntry: entryId,
+      registryKhewatNo: fields.khewatNo,
+      registryKhasraNo: fields.khasraNo,
+      khasraEntry: entryId,
+      registry: registryId,
+      khewatNo: fields.khewatNo,
+      khasraNo: fields.khasraNo,
+      khasraArea: registeredArea,
+      possessedArea: registeredArea,
+      remarks: line.remarks || ''
+    };
+  });
+};
 
 const possessionToForm = (doc) => ({
   possessionDate: doc.possessionDate ? doc.possessionDate.slice(0, 10) : '',
@@ -198,7 +218,39 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
     }
   }, [open, form.moza, possession]);
 
-  const khasraOptions = useMemo(() => sortKhasraOptions(mozaKhasras), [mozaKhasras]);
+  const khasraOptions = useMemo(() => sortKhasraEntries(mozaKhasras), [mozaKhasras]);
+
+  // Keep line khasra/khewat aligned with moza master data (fixes stale swapped values)
+  useEffect(() => {
+    if (!open || !form.moza || !mozaKhasras.length) return;
+    setForm((prev) => {
+      let changed = false;
+      const lines = prev.lines.map((line) => {
+        const next = { ...line };
+        if (line.khasraEntry) {
+          const possessed = resolveKhasraFields(line.khasraEntry, mozaKhasras, line);
+          if (line.khewatNo !== possessed.khewatNo || line.khasraNo !== possessed.khasraNo) {
+            next.khewatNo = possessed.khewatNo;
+            next.khasraNo = possessed.khasraNo;
+            changed = true;
+          }
+        }
+        if (line.registryKhasraEntry) {
+          const registry = resolveKhasraFields(line.registryKhasraEntry, mozaKhasras, {
+            khewatNo: line.registryKhewatNo,
+            khasraNo: line.registryKhasraNo
+          });
+          if (line.registryKhewatNo !== registry.khewatNo || line.registryKhasraNo !== registry.khasraNo) {
+            next.registryKhewatNo = registry.khewatNo;
+            next.registryKhasraNo = registry.khasraNo;
+            changed = true;
+          }
+        }
+        return next;
+      });
+      return changed ? { ...prev, lines } : prev;
+    });
+  }, [open, form.moza, mozaKhasras]);
 
   const linkedRegistry = useMemo(
     () => registries.find((r) => r._id === form.registry) || null,
@@ -208,9 +260,9 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
   const registryKhasraOptions = useMemo(() => {
     if (linkedRegistry?.lines?.length) {
       const ids = new Set(linkedRegistry.lines.map((l) => String(l.khasraEntry)));
-      return sortKhasraOptions(mozaKhasras.filter((k) => ids.has(String(k._id))));
+      return sortKhasraEntries(mozaKhasras.filter((k) => ids.has(String(k._id))));
     }
-    return sortKhasraOptions(
+    return sortKhasraEntries(
       mozaKhasras.filter((k) => {
         const status = statusByKhasra[k._id];
         return status && toSarsais(status.registered) > 0;
@@ -305,6 +357,34 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
   }, [open, possessedTotal.kanal, possessedTotal.marla, possessedTotal.sarsai]);
 
   const setHeader = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const handleRegistryLinkChange = async (e) => {
+    const registryId = e.target.value;
+    if (!registryId) {
+      setForm((prev) => ({
+        ...prev,
+        registry: '',
+        lines: prev.moza ? [emptyLine()] : []
+      }));
+      return;
+    }
+
+    let registry = registries.find((r) => r._id === registryId) || null;
+    if (!registry?.lines?.length) {
+      try {
+        const res = await getRegistry(registryId);
+        registry = res.data?.data || registry;
+      } catch {
+        // fall back to list item if detail fetch fails
+      }
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      registry: registryId,
+      lines: linesFromRegistry(registry, registryId, mozaKhasras)
+    }));
+  };
 
   const handleMozaChange = (mozaId) => {
     setForm({
@@ -451,9 +531,13 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
               select
               label="Link Registry"
               value={form.registry}
-              onChange={setHeader('registry')}
+              onChange={handleRegistryLinkChange}
               disabled={!form.moza}
-              helperText={linkedRegistry ? 'Registry khasra list filtered' : 'Optional'}
+              helperText={
+                linkedRegistry
+                  ? `Pre-filled ${linkedRegistry.lines?.length || 0} khasra row(s) from registry`
+                  : 'Optional — auto-fills khasra rows'
+              }
             >
               <MenuItem value="">None</MenuItem>
               {registries.map((r) => (
@@ -520,9 +604,19 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
                             line.registryKhewatNo
                           )}
                           onChange={(_, entry) => handleRegistryKhasraSelect(index, entry)}
-                          getOptionLabel={khasraOptionLabel}
+                          getOptionLabel={formatKhasraSelectLabel}
                           isOptionEqualToValue={(a, b) => a._id === b._id}
                           noOptionsText={linkedRegistry ? 'No khasras in linked registry' : 'No registered khasras'}
+                          renderOption={(props, option) => (
+                            <li {...props} key={option._id}>
+                              <Box>
+                                <Typography variant="body2">Khasra {option.khasraNo}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Khewat {option.khewatNo}
+                                </Typography>
+                              </Box>
+                            </li>
+                          )}
                           renderInput={(params) => (
                             <TextField {...params} placeholder="Optional source…" />
                           )}
@@ -537,9 +631,19 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
                             options={khasraOptions}
                             value={findKhasraOption(line.khasraEntry, line.khasraNo, line.khewatNo)}
                             onChange={(_, entry) => handleAllocatedKhasraSelect(index, entry)}
-                            getOptionLabel={khasraOptionLabel}
+                            getOptionLabel={formatKhasraSelectLabel}
                             isOptionEqualToValue={(a, b) => a._id === b._id}
                             noOptionsText="No khasras in this mouza"
+                            renderOption={(props, option) => (
+                              <li {...props} key={option._id}>
+                                <Box>
+                                  <Typography variant="body2">Khasra {option.khasraNo}</Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Khewat {option.khewatNo}
+                                  </Typography>
+                                </Box>
+                              </li>
+                            )}
                             renderInput={(params) => (
                               <TextField {...params} placeholder="Possessed khasra…" required />
                             )}

@@ -1,0 +1,34 @@
+{
+  "viewBox": [
+    5184.0,
+    2520.0
+  ],
+  "pngSize": [
+    6480,
+    3150
+  ],
+  "mouzaFiles": {
+    "chak-rupa": "latha-shapes-chak-rupa.json",
+    "kaak": "latha-shapes-kaak.json",
+    "lakhu": "latha-shapes-lakhu.json",
+    "rupa": "latha-shapes-rupa.json",
+    "sheikhpur": "latha-shapes-sheikhpur.json"
+  },
+  "markerFiles": {
+    "chak-rupa": "latha-markers-chak-rupa.json",
+    "kaak": "latha-markers-kaak.json",
+    "lakhu": "latha-markers-lakhu.json",
+    "rupa": "latha-markers-rupa.json",
+    "sheikhpur": "latha-markers-sheikhpur.json"
+  },
+  "totalParcels": 1138,
+  "mouzaLegend": {
+    "sheikhpur": "#9C27B0",
+    "kaak": "#2E7D32",
+    "lakhu": "#EF6C00",
+    "rupa": "#0288D1",
+    "chak-rupa": "#1565C0",
+    "narhala": "#C62828",
+    "unknown": "#9E9E9E"
+  }
+}

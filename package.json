@@ -40,6 +40,9 @@
     "mongo:show-target": "node scripts/show-mongodb-target.js",
     "mongo:show-target:prod": "NODE_ENV=production node scripts/show-mongodb-target.js",
     "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect",
+    "fix:employee-ids:prod:dry-run": "NODE_ENV=production node server/scripts/fix-employee-ids-production.js --dry-run",
+    "fix:employee-ids:prod": "NODE_ENV=production node server/scripts/fix-employee-ids-production.js",
+    "extract:latha-map-shapes": "python3 scripts/extract-latha-map-shapes.py",
     "sync:taj-invoices-prod-to-local": "node scripts/sync-taj-property-invoices-prod-to-local.js",
     "demo:seed-full-advance-pending-finance": "node server/scripts/seed-full-advance-po-pending-finance.js",
     "demo:clear-full-advance": "node server/scripts/clear-full-advance-demo.js"

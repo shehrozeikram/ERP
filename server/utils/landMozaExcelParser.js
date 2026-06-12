@@ -61,7 +61,7 @@ const findMozaName = (rows, fallbackName = '') => {
 const isHeaderRow = (row) => {
   const c0 = toStr(row?.[0]).toLowerCase();
   const c1 = toStr(row?.[1]).toLowerCase();
-  return (c0.includes('sr') && c1.includes('khasra'))
+  return (c0.includes('sr') && (c1.includes('khewat') || c1.includes('khasra')))
     || (c0 === 'sr. no' || c0 === 'sr no');
 };
 
@@ -72,8 +72,8 @@ const isSubHeaderRow = (row) => {
 
 const looksLikeDataRow = (row) => {
   const srNo = toNum(row?.[0]);
-  const khasraNo = toStr(row?.[1]);
-  const khewatNo = toStr(row?.[2]);
+  const khewatNo = toStr(row?.[1]);
+  const khasraNo = toStr(row?.[2]);
   return srNo >= 1 && Boolean(khasraNo || khewatNo);
 };
 
@@ -120,8 +120,8 @@ const parseLandMozaExcel = (input, options = {}) => {
     if (isHeaderRow(row) || isSubHeaderRow(row)) continue;
 
     const srNo = toNum(row[0]);
-    const khasraNo = toStr(row[1]);
-    const khewatNo = toStr(row[2]);
+    const khewatNo = toStr(row[1]);
+    const khasraNo = toStr(row[2]);
 
     if (!srNo && !khasraNo && !khewatNo) continue;
 

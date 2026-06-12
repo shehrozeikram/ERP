@@ -65,12 +65,18 @@ const connectDB = async () => {
         : `✅ MongoDB Connected: ${conn.connection.host}`
     );
 
-    // Sync Employee indexes (email partial index, employeeId partial unique for non-deleted only)
+    // Sync partial unique indexes (employeeId, land moza slug, etc.)
     try {
       const Employee = require('../models/hr/Employee');
       await Employee.syncIndexes();
     } catch (syncErr) {
       console.warn('⚠️ Employee index sync skipped:', syncErr.message);
+    }
+    try {
+      const LandMoza = require('../models/tajResidencia/LandMoza');
+      await LandMoza.syncIndexes();
+    } catch (syncErr) {
+      console.warn('⚠️ LandMoza index sync skipped:', syncErr.message);
     }
 
     // Handle connection events

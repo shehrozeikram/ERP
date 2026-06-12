@@ -8,6 +8,7 @@ const { buildMozaAcquisitionStatus } = require('../utils/landAcquisitionStatus')
 const {
   parseAreaInput, addAreas, toSarsais, normalizeArea, subtractAreas
 } = require('../utils/landAreaUnits');
+const { enrichPossessionLines } = require('../utils/syncKhasraFromMozaEntry');
 
 const router = express.Router();
 
@@ -243,6 +244,8 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   let payload;
   try {
     payload = buildPossessionPayload(req.body);
+    payload.lines = await enrichPossessionLines(payload.lines);
+    payload.khewatNo = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))].join(', ');
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, message: err.message });
   }
@@ -320,6 +323,8 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
   let payload;
   try {
     payload = buildPossessionPayload(req.body);
+    payload.lines = await enrichPossessionLines(payload.lines);
+    payload.khewatNo = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))].join(', ');
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, message: err.message });
   }

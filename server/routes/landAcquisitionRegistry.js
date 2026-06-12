@@ -9,6 +9,7 @@ const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const {
   parseAreaInput, addAreas, toSarsais, normalizeArea, subtractAreas
 } = require('../utils/landAreaUnits');
+const { enrichRegistryLines } = require('../utils/syncKhasraFromMozaEntry');
 
 const router = express.Router();
 
@@ -312,6 +313,10 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
   let payload;
   try {
     payload = buildRegistryPayload(body);
+    payload.lines = await enrichRegistryLines(payload.lines);
+    const khewatNos = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))];
+    payload.khewatNos = khewatNos;
+    payload.khewatNo = khewatNos.join(', ');
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, message: err.message });
   }
@@ -394,6 +399,10 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
   let payload;
   try {
     payload = buildRegistryPayload(body);
+    payload.lines = await enrichRegistryLines(payload.lines);
+    const khewatNos = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))];
+    payload.khewatNos = khewatNos;
+    payload.khewatNo = khewatNos.join(', ');
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, message: err.message });
   }

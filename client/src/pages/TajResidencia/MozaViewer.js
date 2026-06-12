@@ -36,6 +36,7 @@ import {
   getMozaEntries,
   getMozaEntriesMeta,
   createMoza,
+  updateMoza,
   deleteMoza,
   createMozaEntry,
   updateMozaEntry,
@@ -170,7 +171,7 @@ const MozaEntriesTable = ({ mozaId, mozaName, active, onEntryCountChange }) => {
   };
 
   const handleDelete = async (entry) => {
-    if (!window.confirm(`Delete Sr No ${entry.srNo} (Khasra ${entry.khasraNo})?`)) return;
+    if (!window.confirm(`Delete Sr No ${entry.srNo} (Khewat ${entry.khewatNo}, Khasra ${entry.khasraNo})?`)) return;
     setDeletingId(entry._id);
     try {
       const res = await deleteMozaEntry(mozaId, entry._id);
@@ -225,8 +226,8 @@ const MozaEntriesTable = ({ mozaId, mozaName, active, onEntryCountChange }) => {
             <TableHead>
               <TableRow>
                 <TableCell rowSpan={2} sx={TABLE_HEAD_SX}>Sr No</TableCell>
-                <TableCell rowSpan={2} sx={TABLE_HEAD_SX}>Khasra No.</TableCell>
                 <TableCell rowSpan={2} sx={TABLE_HEAD_SX}>Khewat No.</TableCell>
+                <TableCell rowSpan={2} sx={TABLE_HEAD_SX}>Khasra No.</TableCell>
                 {AREA_COLUMNS.map((col) => (
                   <TableCell key={col.key} align="center" colSpan={3} sx={{ ...TABLE_HEAD_SX, px: 0.5 }}>
                     {col.label}
@@ -248,8 +249,8 @@ const MozaEntriesTable = ({ mozaId, mozaName, active, onEntryCountChange }) => {
               {entries.map((row) => (
                 <TableRow key={row._id} hover>
                   <TableCell>{row.srNo}</TableCell>
-                  <TableCell>{row.khasraNo}</TableCell>
                   <TableCell>{row.khewatNo}</TableCell>
+                  <TableCell>{row.khasraNo}</TableCell>
                   {AREA_COLUMNS.map((col) => {
                     const a = normalizeArea(row[col.key]);
                     return (
@@ -339,6 +340,10 @@ const MozaViewer = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [newMozaName, setNewMozaName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingMoza, setEditingMoza] = useState(null);
+  const [editMozaName, setEditMozaName] = useState('');
+  const [updating, setUpdating] = useState(false);
   const [deletingMozaId, setDeletingMozaId] = useState(null);
   const [error, setError] = useState('');
 
@@ -390,6 +395,39 @@ const MozaViewer = () => {
       toast.error(err.response?.data?.message || 'Failed to create mouza');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const openEditMoza = (event, moza) => {
+    event.stopPropagation();
+    setEditingMoza(moza);
+    setEditMozaName(moza.name);
+    setEditOpen(true);
+  };
+
+  const handleUpdateMoza = async () => {
+    const name = editMozaName.trim();
+    if (!name) {
+      toast.error('Mouza name is required');
+      return;
+    }
+    if (!editingMoza) return;
+
+    setUpdating(true);
+    try {
+      const res = await updateMoza(editingMoza._id, { name });
+      toast.success(res.data?.message || 'Mouza updated');
+      const updated = res.data?.data;
+      setMozas((prev) =>
+        prev.map((m) => (m._id === editingMoza._id ? { ...m, ...updated } : m))
+      );
+      setEditOpen(false);
+      setEditingMoza(null);
+      setEditMozaName('');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update mouza');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -475,6 +513,37 @@ const MozaViewer = () => {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={editOpen}
+        onClose={() => !updating && setEditOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Edit Mouza</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            margin="dense"
+            label="Mouza name"
+            value={editMozaName}
+            onChange={(e) => setEditMozaName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleUpdateMoza()}
+            disabled={updating}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditOpen(false)} disabled={updating}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleUpdateMoza}
+            disabled={updating || !editMozaName.trim() || editMozaName.trim() === editingMoza?.name}
+          >
+            {updating ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {listLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress />
@@ -530,7 +599,17 @@ const MozaViewer = () => {
                       Mouza {m.name}
                     </Typography>
                     <Chip size="small" label={`${m.entryCount || 0} khasra records`} color="primary" variant="outlined" />
-                    <Box sx={{ ml: { sm: 'auto' }, display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                    <Box sx={{ ml: { sm: 'auto' }, display: 'flex', alignItems: 'center', gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
+                      <Tooltip title="Edit mouza name">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={(e) => openEditMoza(e, m)}
+                          aria-label={`Edit mouza ${m.name}`}
+                        >
+                          <Edit fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Delete mouza">
                         <span>
                           <IconButton

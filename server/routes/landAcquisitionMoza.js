@@ -74,6 +74,18 @@ const getMozaOr404 = async (res, mozaId) => {
   return moza;
 };
 
+/** If a soft-deleted mouza still holds this slug, rename it so the slug can be reused. */
+const releaseSlugFromInactiveMoza = async (slug, excludeMozaId) => {
+  const inactive = await LandMoza.findOne({
+    _id: { $ne: excludeMozaId },
+    slug,
+    isActive: false
+  });
+  if (!inactive) return;
+  inactive.slug = `${slug}-archived-${inactive._id}`;
+  await inactive.save();
+};
+
 const mapEntryAreas = (entry) => {
   const mapped = { ...entry };
   AREA_KEYS.forEach((key) => {
@@ -296,6 +308,7 @@ router.post('/mozas', authMiddleware, asyncHandler(async (req, res) => {
       message: `Mouza "${existing.name}" already exists`
     });
   }
+  await releaseSlugFromInactiveMoza(slug, null);
 
   const moza = await LandMoza.create({
     name,
@@ -309,6 +322,59 @@ router.post('/mozas', authMiddleware, asyncHandler(async (req, res) => {
     success: true,
     message: `Mouza "${name}" created`,
     data: moza
+  });
+}));
+
+// PUT /api/taj-residencia/land-acquisition/mozas/:id
+router.put('/mozas/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const moza = await getMozaOr404(res, req.params.id);
+  if (!moza) return;
+
+  const name = String(req.body?.name || '').trim();
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Mouza name is required' });
+  }
+
+  const slug = slugify(name);
+  const duplicate = await LandMoza.findOne({
+    _id: { $ne: moza._id },
+    slug,
+    isActive: true
+  });
+  if (duplicate) {
+    return res.status(409).json({
+      success: false,
+      message: `Mouza "${duplicate.name}" already exists`
+    });
+  }
+  await releaseSlugFromInactiveMoza(slug, moza._id);
+
+  moza.name = name;
+  moza.slug = slug;
+  try {
+    await moza.save();
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: `Mouza name "${name}" is already in use. Please choose a different name.`
+      });
+    }
+    throw err;
+  }
+
+  res.json({
+    success: true,
+    message: `Mouza renamed to "${name}"`,
+    data: {
+      _id: moza._id,
+      name: moza.name,
+      slug: moza.slug,
+      sourceLabel: moza.sourceLabel,
+      entryCount: moza.entryCount,
+      createdAt: moza.createdAt,
+      updatedAt: moza.updatedAt
+    }
   });
 }));
 

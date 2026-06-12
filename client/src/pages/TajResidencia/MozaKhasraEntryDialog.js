@@ -62,10 +62,10 @@ const MozaKhasraEntryDialog = ({ open, onClose, onSave, entry, suggestedSrNo, sa
             <TextField fullWidth required label="Sr No" type="number" value={form.srNo} onChange={set('srNo')} inputProps={{ min: 1 }} />
           </Grid>
           <Grid item xs={4} sm={5}>
-            <TextField fullWidth required label="Khasra No." value={form.khasraNo} onChange={set('khasraNo')} />
+            <TextField fullWidth required label="Khewat No." value={form.khewatNo} onChange={set('khewatNo')} />
           </Grid>
           <Grid item xs={4} sm={5}>
-            <TextField fullWidth required label="Khewat No." value={form.khewatNo} onChange={set('khewatNo')} />
+            <TextField fullWidth required label="Khasra No." value={form.khasraNo} onChange={set('khasraNo')} />
           </Grid>
         </Grid>
 
