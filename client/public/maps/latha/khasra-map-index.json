@@ -1,0 +1,27 @@
+{
+  "source": "docs/Khasra Plan.kmz",
+  "bounds": {
+    "south": 33.558763,
+    "west": 72.921432,
+    "north": 33.601284,
+    "east": 72.982572,
+    "center": [
+      33.580023,
+      72.952002
+    ]
+  },
+  "counts": {
+    "points": 2955,
+    "lines": 5237,
+    "areas": 146,
+    "parcels": 1555,
+    "uniqueKhasraLabels": 1787
+  },
+  "files": {
+    "points": "khasra-points.json",
+    "lines": "khasra-lines.json",
+    "areas": "khasra-areas.json",
+    "parcels": "khasra-parcels.json",
+    "kmz": "khasra-plan.kmz"
+  }
+}

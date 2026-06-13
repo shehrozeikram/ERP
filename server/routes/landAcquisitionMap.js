@@ -1,9 +1,40 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandMoza = require('../models/tajResidencia/LandMoza');
+const LandRegistry = require('../models/tajResidencia/LandRegistry');
+const LandPossession = require('../models/tajResidencia/LandPossession');
 const { buildMozaAcquisitionStatus } = require('../utils/landAcquisitionStatus');
+const { addAreas, normalizeArea, toSarsais } = require('../utils/landAreaUnits');
 
 const router = express.Router();
+
+const normalizeKhasraNo = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const parts = raw.split('/');
+  const head = parts[0].replace(/^0+(?=\d)/, '') || parts[0];
+  return parts.length > 1 ? `${head}/${parts.slice(1).join('/')}` : head;
+};
+
+const statusKey = (slug, khasraNo) => `${slug}:${normalizeKhasraNo(khasraNo)}`;
+
+const mergeRegisteredLine = (status, line) => {
+  const patch = normalizeArea(line.acquiredArea);
+  if (toSarsais(patch) <= 0) return;
+  status.registered = addAreas(status.registered || { kanal: 0, marla: 0, sarsai: 0 }, patch);
+  if (!status.khewatNo && line.khewatNo) status.khewatNo = line.khewatNo;
+  if (!status.khasraNo && line.khasraNo) status.khasraNo = line.khasraNo;
+  if (status.purchaseStatus === 'not_purchased') status.purchaseStatus = 'purchased';
+  if (status.possessionStatus === 'not_possessed') status.possessionStatus = 'purchased_not_possessed';
+};
+
+const mergePossessedLine = (status, line) => {
+  const patch = normalizeArea(line.possessedArea);
+  if (toSarsais(patch) <= 0) return;
+  status.possessed = addAreas(status.possessed || { kanal: 0, marla: 0, sarsai: 0 }, patch);
+  if (!status.khewatNo && line.khewatNo) status.khewatNo = line.khewatNo;
+  if (!status.khasraNo && line.khasraNo) status.khasraNo = line.khasraNo;
+};
 
 // GET /api/taj-residencia/land-acquisition/map-status
 router.get('/map-status', asyncHandler(async (req, res) => {
@@ -17,7 +48,7 @@ router.get('/map-status', asyncHandler(async (req, res) => {
   for (const moza of mozas) {
     const rows = await buildMozaAcquisitionStatus(moza._id);
     rows.forEach((row) => {
-      const key = `${moza.slug}:${String(row.khasraNo).trim()}`;
+      const key = statusKey(moza.slug, row.khasraNo);
       status[key] = {
         khasraEntryId: row.khasraEntryId,
         khewatNo: row.khewatNo,
@@ -31,13 +62,79 @@ router.get('/map-status', asyncHandler(async (req, res) => {
         remainingToPossess: row.remainingToPossess
       };
     });
+
+    const [registries, possessions] = await Promise.all([
+      LandRegistry.find({ moza: moza._id, isActive: true }).lean(),
+      LandPossession.find({ moza: moza._id, isActive: true }).lean()
+    ]);
+
+    registries.forEach((registry) => {
+      (registry.lines || []).forEach((line) => {
+        if (!line.khasraNo) return;
+        const key = statusKey(moza.slug, line.khasraNo);
+        if (!status[key]) {
+          status[key] = {
+            khasraEntryId: line.khasraEntry || null,
+            khewatNo: line.khewatNo || registry.khewatNo || '',
+            khasraNo: line.khasraNo,
+            purchaseStatus: 'not_purchased',
+            possessionStatus: 'not_possessed',
+            baseline: { kanal: 0, marla: 0, sarsai: 0 },
+            registered: { kanal: 0, marla: 0, sarsai: 0 },
+            possessed: { kanal: 0, marla: 0, sarsai: 0 },
+            remainingToRegister: { kanal: 0, marla: 0, sarsai: 0 },
+            remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 }
+          };
+        }
+        mergeRegisteredLine(status[key], line);
+      });
+    });
+
+    possessions.forEach((possession) => {
+      (possession.lines || []).forEach((line) => {
+        if (!line.khasraNo) return;
+        const key = statusKey(moza.slug, line.khasraNo);
+        if (!status[key]) {
+          status[key] = {
+            khasraEntryId: line.khasraEntry || null,
+            khewatNo: line.khewatNo || possession.khewatNo || '',
+            khasraNo: line.khasraNo,
+            purchaseStatus: 'not_purchased',
+            possessionStatus: 'not_possessed',
+            baseline: { kanal: 0, marla: 0, sarsai: 0 },
+            registered: { kanal: 0, marla: 0, sarsai: 0 },
+            possessed: { kanal: 0, marla: 0, sarsai: 0 },
+            remainingToRegister: { kanal: 0, marla: 0, sarsai: 0 },
+            remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 }
+          };
+        }
+        mergePossessedLine(status[key], line);
+        if (toSarsais(status[key].possessed) > 0) {
+          if (toSarsais(status[key].registered) > 0
+            && toSarsais(status[key].possessed) >= toSarsais(status[key].registered)) {
+            status[key].possessionStatus = 'fully_possessed';
+          } else if (toSarsais(status[key].registered) > 0) {
+            status[key].possessionStatus = 'partial_possession';
+          } else {
+            status[key].possessionStatus = 'possessed_unregistered';
+          }
+        }
+      });
+    });
   }
+
+  const summary = Object.values(status).reduce((acc, row) => {
+    if (toSarsais(row.registered) > 0) acc.registered += 1;
+    if (toSarsais(row.possessed) > 0) acc.possessed += 1;
+    return acc;
+  }, { registered: 0, possessed: 0 });
 
   res.json({
     success: true,
     data: {
       mozas,
-      status
+      status,
+      summary
     }
   });
 }));

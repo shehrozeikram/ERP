@@ -9,9 +9,73 @@ export const STATUS_LEGEND = [
   { id: 'no_data', label: 'No ERP record', color: '#E0E0E0', fill: 'rgba(224, 224, 224, 0.2)' }
 ];
 
+/** Normalize khasra labels so map points match ERP records (e.g. "0123" → "123"). */
+export const normalizeKhasraNo = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const parts = raw.split('/');
+  const head = parts[0].replace(/^0+(?=\d)/, '') || parts[0];
+  return parts.length > 1 ? `${head}/${parts.slice(1).join('/')}` : head;
+};
+
 export const statusKeyForParcel = (mouzaSlug, khasraNo) => {
   if (!mouzaSlug || !khasraNo) return null;
-  return `${mouzaSlug}:${String(khasraNo).trim()}`;
+  return `${mouzaSlug}:${normalizeKhasraNo(khasraNo)}`;
+};
+
+export const hasRegisteredArea = (statusRow) => {
+  if (!statusRow) return false;
+  const { kanal = 0, marla = 0, sarsai = 0 } = statusRow.registered || {};
+  return kanal > 0 || marla > 0 || sarsai > 0;
+};
+
+export const hasPossessedArea = (statusRow) => {
+  if (!statusRow) return false;
+  const { kanal = 0, marla = 0, sarsai = 0 } = statusRow.possessed || {};
+  return kanal > 0 || marla > 0 || sarsai > 0;
+};
+
+export const isErpTrackedKhasra = (statusRow) =>
+  Boolean(statusRow && (hasRegisteredArea(statusRow) || hasPossessedArea(statusRow)));
+
+/** Build lookup maps for exact and normalized khasra keys. */
+export const buildStatusLookups = (statusMap = {}) => {
+  const exact = statusMap;
+  const byKhasra = {};
+
+  Object.entries(statusMap).forEach(([key, row]) => {
+    const sep = key.indexOf(':');
+    if (sep === -1) return;
+    const slug = key.slice(0, sep);
+    const khasra = key.slice(sep + 1);
+    const norm = normalizeKhasraNo(khasra);
+    const normKey = `${slug}:${norm}`;
+    if (!byKhasra[normKey]) byKhasra[normKey] = row;
+  });
+
+  return { exact, byKhasra };
+};
+
+/** Resolve ERP status for a khasra label (optionally scoped to one mouza). */
+export const resolveStatusForKhasra = (khasraNo, mouzaFilter, statusMap, mozas = [], lookups = null) => {
+  const k = normalizeKhasraNo(khasraNo);
+  if (!k) return null;
+
+  const maps = lookups || buildStatusLookups(statusMap);
+  const tryKey = (slug) => maps.byKhasra[`${slug}:${k}`] || maps.exact[`${slug}:${k}`] || maps.exact[`${slug}:${khasraNo}`];
+
+  if (mouzaFilter && mouzaFilter !== 'all') {
+    const status = tryKey(mouzaFilter);
+    return status ? { status, mouza: mouzaFilter } : null;
+  }
+
+  for (const moza of mozas) {
+    const slug = typeof moza === 'string' ? moza : moza.slug;
+    const status = tryKey(slug);
+    if (status) return { status, mouza: slug };
+  }
+
+  return null;
 };
 
 export const fillForStatus = (statusRow) => {
@@ -22,7 +86,7 @@ export const fillForStatus = (statusRow) => {
   if (statusRow.possessionStatus === 'partial_possession') {
     return STATUS_LEGEND.find((x) => x.id === 'partial_possession').fill;
   }
-  if (statusRow.purchaseStatus !== 'not_purchased') {
+  if (hasRegisteredArea(statusRow) || statusRow.purchaseStatus !== 'not_purchased') {
     return STATUS_LEGEND.find((x) => x.id === 'registered').fill;
   }
   return STATUS_LEGEND.find((x) => x.id === 'not_registered').fill;
@@ -33,8 +97,24 @@ export const strokeForStatus = (statusRow, selected = false) => {
   if (!statusRow) return 'rgba(120,120,120,0.35)';
   if (statusRow.possessionStatus === 'fully_possessed') return 'rgba(27, 94, 32, 0.9)';
   if (statusRow.possessionStatus === 'partial_possession') return 'rgba(230, 81, 0, 0.9)';
-  if (statusRow.purchaseStatus !== 'not_purchased') return 'rgba(13, 71, 161, 0.85)';
+  if (hasRegisteredArea(statusRow) || statusRow.purchaseStatus !== 'not_purchased') {
+    return 'rgba(13, 71, 161, 0.85)';
+  }
   return 'rgba(97, 97, 97, 0.45)';
+};
+
+export const markerRadiusForStatus = (statusRow, selected = false) => {
+  if (selected) return 11;
+  if (!statusRow) return 4;
+  if (isErpTrackedKhasra(statusRow)) return 9;
+  return 5;
+};
+
+export const fillOpacityForStatus = (statusRow, selected = false) => {
+  if (selected) return 0.88;
+  if (isErpTrackedKhasra(statusRow)) return 0.78;
+  if (statusRow) return 0.22;
+  return 0.1;
 };
 
 export const pointsToPath = (points) => {
