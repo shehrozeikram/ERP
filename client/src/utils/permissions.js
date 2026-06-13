@@ -1375,6 +1375,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/vendors': 'accounts_payable',
       '/finance/accounts-payable': 'accounts_payable',
+      '/finance/utility-bills': 'accounts_payable',
       '/finance/cash-approvals': 'accounts_payable',
       '/finance/vendor-advance': 'accounts_payable',
       '/finance/banking': 'banking',

@@ -131,8 +131,13 @@ const UtilityBillDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
+  const isFinanceContext = location.pathname.startsWith('/finance/utility-bills');
   const isCentralizedStoreContext = location.pathname.startsWith('/admin/centralized-store');
-  const billsListPath = isCentralizedStoreContext ? '/admin/centralized-store/bills' : '/admin/utility-bills';
+  const billsListPath = isFinanceContext
+    ? '/finance/accounts-payable'
+    : isCentralizedStoreContext
+      ? '/admin/centralized-store/bills'
+      : '/admin/utility-bills';
   const billEditPath = (billId) =>
     isCentralizedStoreContext
       ? `/admin/centralized-store/bill/${billId}/edit`
@@ -304,12 +309,26 @@ const UtilityBillDetails = () => {
   const getStoreInvoiceOrgTitle = () =>
     (displayValue(bill?.site) || displayValue(bill?.accountHead) || displayValue(bill?.provider) || 'Bill').trim();
   const getVendorSupplierLine = () => {
+    const e = bill?.payeeEmployee;
+    if (e && typeof e === 'object') {
+      const name = [e.firstName, e.lastName].filter(Boolean).join(' ').trim();
+      const id = e.employeeId ? `${String(e.employeeId).trim()} ` : '';
+      return `${id}${name}`.trim() || displayValue(bill?.provider);
+    }
     const v = bill?.vendorId;
     if (v && typeof v === 'object') {
       const sid = v.supplierId != null && String(v.supplierId).trim() !== '' ? `${String(v.supplierId).trim()} ` : '';
       return `${sid}${v.name || ''}`.trim() || displayValue(bill?.provider);
     }
     return displayValue(bill?.provider);
+  };
+  const getPayeeNameLine = () => {
+    if ((bill?.provider || '').trim()) return displayValue(bill.provider);
+    const e = bill?.payeeEmployee;
+    if (e && typeof e === 'object') {
+      return [e.firstName, e.lastName].filter(Boolean).join(' ').trim() || e.employeeId || '—';
+    }
+    return '—';
   };
   const getStoreLineProductCode = (line) => {
     const snap = displayValue(line?.itemCode);
@@ -536,7 +555,7 @@ const UtilityBillDetails = () => {
       .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin-bottom: 12px; border-bottom: 1px solid #bbb; padding-bottom: 10px; }
       .meta-block { line-height: 1.55; }
       .meta-block-right { text-align: right; }
-      .meta-row { display: grid; grid-template-columns: 92px 1fr; font-weight: 700; }
+      .meta-row { display: grid; grid-template-columns: 100px 1fr; font-weight: 700; }
       .meta-row-time { display: flex; justify-content: flex-end; align-items: baseline; gap: 8px; font-weight: 700; }
       .meta-row .lbl, .meta-row-time .lbl { color: #333; }
       .narration { background: #ffe7c2; border: 1px solid #e8b86a; padding: 8px 10px; margin: 10px 0 14px; font-weight: 700; line-height: 1.4; }
@@ -571,6 +590,7 @@ const UtilityBillDetails = () => {
           <div class="meta-row"><span class="lbl">Date</span><span>${esc(formatInvoiceDateDmy(bd))}</span></div>
           <div class="meta-row"><span class="lbl">Bill ID</span><span>${esc(displayValue(bill?.billId))}</span></div>
           <div class="meta-row"><span class="lbl">Supplier</span><span>${esc(getVendorSupplierLine())}</span></div>
+          <div class="meta-row"><span class="lbl">Payee Name</span><span>${esc(getPayeeNameLine())}</span></div>
           <div class="meta-row"><span class="lbl">Address</span><span>${esc(displayValue(bill?.location))}</span></div>
         </div>
         <div class="meta-block meta-block-right">
@@ -778,7 +798,7 @@ const UtilityBillDetails = () => {
     <Box sx={{ p: 3 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} gap={2} flexWrap="wrap">
         <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(billsListPath)}>
-          Back to Bills
+          {isFinanceContext ? 'Back to Accounts Payable' : 'Back to Bills'}
         </Button>
         <Stack direction="row" spacing={1}>
           <Chip label={`Approval: ${approvalStatus}`} color={getApprovalColor(approvalStatus)} sx={{ alignSelf: 'center' }} />
@@ -970,13 +990,17 @@ const UtilityBillDetails = () => {
                 borderColor: 'grey.400'
               }}
             >
-              <Box sx={{ display: 'grid', gridTemplateColumns: '88px 1fr', rowGap: 0.75, columnGap: 1, fontSize: 13 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '100px 1fr', rowGap: 0.75, columnGap: 1, fontSize: 13 }}>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Date</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{formatInvoiceDateDmy(bill.billDate)}</Typography>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Bill ID</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{bill.billId}</Typography>
-                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Supplier</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>
+                  {bill.payeeEmployee ? 'Employee' : 'Supplier'}
+                </Typography>
                 <Typography sx={{ fontWeight: 700 }}>{getVendorSupplierLine()}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Payee Name</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{getPayeeNameLine()}</Typography>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Address</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{displayValue(bill.location)}</Typography>
               </Box>

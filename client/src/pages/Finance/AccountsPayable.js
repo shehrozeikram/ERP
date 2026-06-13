@@ -416,12 +416,20 @@ const AccountsPayable = () => {
   };
 
   const handleViewBill = async (bill) => {
+    if (bill.referenceType === 'utility_bill' && bill.referenceId) {
+      navigate(`/finance/utility-bills/${bill.referenceId}`);
+      return;
+    }
     try {
       setLoading(true);
       setBillViewTab(0);
       const response = await api.get(`/finance/accounts-payable/${bill._id}`);
       if (response.data.success) {
         const b = response.data.data;
+        if (b.referenceType === 'utility_bill' && b.referenceId) {
+          navigate(`/finance/utility-bills/${b.referenceId}`);
+          return;
+        }
         setSelectedBill(b);
         setViewDialogOpen(true);
       }

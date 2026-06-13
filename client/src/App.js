@@ -1061,6 +1061,10 @@ function App() {
               path="/finance/accounts-payable" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AccountsPayable /></ProtectedRoute>} 
             />
+            <Route
+              path="/finance/utility-bills/:id"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><UtilityBillDetails /></ProtectedRoute>}
+            />
             <Route 
               path="/finance/banking" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><Banking /></ProtectedRoute>} 

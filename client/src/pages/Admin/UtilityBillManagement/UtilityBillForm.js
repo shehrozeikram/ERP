@@ -287,6 +287,7 @@ const UtilityBillForm = () => {
     site: 'Head Office',
     utilityType: defaultType,
     provider: '',
+    payeeName: '',
     accountNumber: '',
     billDate: new Date().toISOString().split('T')[0],
     dueDate: '',
@@ -364,11 +365,24 @@ const UtilityBillForm = () => {
 
   useEffect(() => {
     if (!billLines.length || selectedBillCategory || !storeCategories.length) return;
-    const firstCatName = billLines[0].categoryName;
-    if (!firstCatName) return;
-    const cat = storeCategories.find((c) => c.name === firstCatName);
-    if (cat) setSelectedBillCategory(cat);
-  }, [billLines, storeCategories, selectedBillCategory]);
+    const firstLine = billLines[0];
+    const firstCatName = firstLine.categoryName;
+    if (firstCatName) {
+      const cat = storeCategories.find((c) => c.name === firstCatName);
+      if (cat) {
+        setSelectedBillCategory(cat);
+        return;
+      }
+    }
+    if (firstLine.storeItem && storeItems.length) {
+      const item = storeItems.find((i) => String(i._id) === String(firstLine.storeItem));
+      const catId = item?.category?._id || item?.category;
+      if (catId) {
+        const cat = storeCategories.find((c) => String(c._id) === String(catId));
+        if (cat) setSelectedBillCategory(cat);
+      }
+    }
+  }, [billLines, storeCategories, storeItems, selectedBillCategory]);
 
   const fetchMasterData = async () => {
     try {
@@ -407,6 +421,12 @@ const UtilityBillForm = () => {
       return;
     }
     setSelectedVendor(value);
+    if (isCentralizedStoreBill && value) {
+      setFormData((prev) => ({
+        ...prev,
+        payeeName: (value.payeeName || '').trim() || value.name || ''
+      }));
+    }
   };
 
   const handleQuickVendorCreate = async () => {
@@ -432,6 +452,12 @@ const UtilityBillForm = () => {
         return [...list, created].sort((a, b) => String(a.name).localeCompare(String(b.name)));
       });
       setSelectedVendor(created);
+      if (isCentralizedStoreBill) {
+        setFormData((prev) => ({
+          ...prev,
+          payeeName: (created.payeeName || '').trim() || created.name || ''
+        }));
+      }
       setVendorDialogOpen(false);
       setQuickVendorForm(emptyQuickVendorForm());
     } catch (err) {
@@ -526,11 +552,19 @@ const UtilityBillForm = () => {
       const mappedLines = (bill.billLines || []).map((line) => {
         const itemName = line.itemName || '';
         const parts = itemName.includes(' — ') ? itemName.split(' — ') : [];
+        const storeItemObj = line.storeItem && typeof line.storeItem === 'object' ? line.storeItem : null;
+        const categoryName =
+          parts.length > 1
+            ? parts[0]
+            : (storeItemObj?.category?.name || '');
+        const itemLabel =
+          storeItemObj?.name ||
+          (parts.length > 1 ? parts.slice(1).join(' — ') : itemName);
         return {
-          storeItem: line.storeItem?._id || line.storeItem,
-          itemCode: String(line.itemCode || (line.storeItem && typeof line.storeItem === 'object' ? line.storeItem.code : '') || '').trim(),
-          categoryName: parts.length > 1 ? parts[0] : '',
-          itemLabel: parts.length > 1 ? parts.slice(1).join(' — ') : itemName,
+          storeItem: storeItemObj?._id || line.storeItem,
+          itemCode: String(line.itemCode || storeItemObj?.code || '').trim(),
+          categoryName,
+          itemLabel,
           itemName,
           description: line.description || '',
           utilityType: line.utilityType || '',
@@ -577,6 +611,7 @@ const UtilityBillForm = () => {
         site: bill.site || '',
         utilityType: bill.utilityType || defaultType,
         provider: bill.provider || '',
+        payeeName: bill.provider || '',
         accountNumber: bill.accountNumber || '',
         billDate: bill.billDate ? new Date(bill.billDate).toISOString().split('T')[0] : '',
         dueDate: bill.dueDate ? new Date(bill.dueDate).toISOString().split('T')[0] : '',
@@ -710,6 +745,10 @@ const UtilityBillForm = () => {
         setError('Select a supplier / vendor from the list.');
         return;
       }
+      if (isCentralizedStoreBill && !(formData.payeeName || '').trim()) {
+        setError('Payee name is required.');
+        return;
+      }
       if (!billLines.length || billLines.every((l) => !(Number(l.amount) > 0))) {
         setError('Add at least one item: select category, pick item, click Add Item, and enter amount.');
         return;
@@ -726,7 +765,9 @@ const UtilityBillForm = () => {
 
       const payload = { ...formData };
       if (useStoreBill) {
-        if (isCentralizedStoreBill && payeeType === 'employee' && selectedEmployee) {
+        if (isCentralizedStoreBill) {
+          payload.provider = (formData.payeeName || '').trim();
+        } else if (payeeType === 'employee' && selectedEmployee) {
           payload.provider = selectedEmployee.name;
         } else {
           payload.provider = selectedVendor.name;
@@ -1051,6 +1092,7 @@ const UtilityBillForm = () => {
                           setPayeeType(v);
                           if (v === 'vendor') setSelectedEmployee(null);
                           else setSelectedVendor(null);
+                          setFormData((prev) => ({ ...prev, payeeName: '' }));
                         }}
                       >
                         <ToggleButton value="vendor">Vendor</ToggleButton>
@@ -1069,7 +1111,12 @@ const UtilityBillForm = () => {
                             o?.employeeId ? `${o.employeeId} — ${o.name}` : (o?.name || '')
                           }
                           value={selectedEmployee}
-                          onChange={(_, emp) => setSelectedEmployee(emp)}
+                          onChange={(_, emp) => {
+                            setSelectedEmployee(emp);
+                            if (emp) {
+                              setFormData((prev) => ({ ...prev, payeeName: emp.name || '' }));
+                            }
+                          }}
                           isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
                           noOptionsText={
                             masterDataLoading
@@ -1164,8 +1211,26 @@ const UtilityBillForm = () => {
                       />
                     )}
                   </Grid>
+                  {isCentralizedStoreBill && (
+                    <Grid item xs={12} md={3}>
+                      <TextField
+                        fullWidth
+                        required
+                        label="Payee Name"
+                        name="payeeName"
+                        value={formData.payeeName}
+                        onChange={handleChange('payeeName')}
+                        placeholder="Name on payment / cheque"
+                        helperText={
+                          payeeType === 'vendor'
+                            ? 'Auto-filled from vendor; edit if payment goes to a different name'
+                            : 'Auto-filled from employee; edit if needed'
+                        }
+                      />
+                    </Grid>
+                  )}
                   <Grid item xs={12} md={isCentralizedStoreBill ? 3 : 4}>
-                    <FormControl fullWidth required>
+                    <FormControl fullWidth>
                       <InputLabel>Category</InputLabel>
                       <Select
                         value={selectedBillCategory?._id || ''}
@@ -1209,7 +1274,11 @@ const UtilityBillForm = () => {
                           label="Item"
                           fullWidth
                           placeholder={selectedBillCategory ? 'e.g. Meter 1' : 'Select category first'}
-                          required
+                          helperText={
+                            billLines.length
+                              ? 'Optional — only needed when adding another line'
+                              : 'Select category, then pick an item to add'
+                          }
                         />
                       )}
                     />
