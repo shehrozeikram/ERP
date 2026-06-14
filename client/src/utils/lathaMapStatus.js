@@ -2,9 +2,10 @@ import { formatKMS, normalizeArea } from './landAreaUnits';
 import { formatKhasraKhewatLabel } from './landKhasraDisplay';
 
 export const STATUS_LEGEND = [
-  { id: 'fully_possessed', label: 'Fully possessed', color: '#2E7D32', fill: 'rgba(46, 125, 50, 0.62)' },
-  { id: 'partial_possession', label: 'Partial possession', color: '#F57C00', fill: 'rgba(245, 124, 0, 0.58)' },
-  { id: 'registered', label: 'Registered (not possessed)', color: '#1565C0', fill: 'rgba(21, 101, 192, 0.5)' },
+  { id: 'fully_possessed', label: 'Fully possessed', color: '#2E7D32', fill: 'rgba(46, 125, 50, 0.72)' },
+  { id: 'partial_possession', label: 'Partial possession', color: '#F57C00', fill: 'rgba(245, 124, 0, 0.65)' },
+  { id: 'possessed_unregistered', label: 'Possessed (no registry)', color: '#00897B', fill: 'rgba(0, 137, 123, 0.65)' },
+  { id: 'registered', label: 'Registered (not possessed)', color: '#1565C0', fill: 'rgba(21, 101, 192, 0.58)' },
   { id: 'not_registered', label: 'Not registered', color: '#BDBDBD', fill: 'rgba(189, 189, 189, 0.28)' },
   { id: 'no_data', label: 'No ERP record', color: '#E0E0E0', fill: 'rgba(224, 224, 224, 0.2)' }
 ];
@@ -35,8 +36,63 @@ export const hasPossessedArea = (statusRow) => {
   return kanal > 0 || marla > 0 || sarsai > 0;
 };
 
+/** Stored transfer % from registry / possession lines (0–100). */
+export const normalizeTransferPercent = (value) => {
+  const pct = Number(value);
+  if (!Number.isFinite(pct) || pct <= 0) return 0;
+  return Math.min(100, pct);
+};
+
+export const formatTransferPercentLabel = (value) => {
+  const pct = normalizeTransferPercent(value);
+  if (pct <= 0) return '0%';
+  if (pct >= 100) return '100%';
+  return Number.isInteger(pct) ? `${pct}%` : `${pct.toFixed(1)}%`;
+};
+
+export const hasRegistryTransfer = (statusRow) =>
+  normalizeTransferPercent(statusRow?.registryTransferPercent) > 0;
+
+export const hasPossessionTransfer = (statusRow) =>
+  normalizeTransferPercent(statusRow?.possessionTransferPercent) > 0;
+
+export const registryCoverageFraction = (statusRow) =>
+  normalizeTransferPercent(statusRow?.registryTransferPercent) / 100;
+
+export const possessionCoverageFraction = (statusRow) =>
+  normalizeTransferPercent(statusRow?.possessionTransferPercent) / 100;
+
 export const isErpTrackedKhasra = (statusRow) =>
   Boolean(statusRow && (hasRegisteredArea(statusRow) || hasPossessedArea(statusRow)));
+
+export const isRegisteredOnMap = (statusRow) =>
+  Boolean(statusRow && hasRegisteredArea(statusRow) && !hasPossessedArea(statusRow));
+
+export const isPossessedOnMap = (statusRow) =>
+  Boolean(statusRow && hasPossessedArea(statusRow));
+
+/** Map ERP row to legend/status category for fill & stroke. */
+export const getMapStatusId = (statusRow) => {
+  if (!statusRow) return 'no_data';
+
+  if (hasPossessedArea(statusRow)) {
+    if (statusRow.possessionStatus === 'fully_possessed') return 'fully_possessed';
+    if (statusRow.possessionStatus === 'partial_possession') return 'partial_possession';
+    if (statusRow.possessionStatus === 'possessed_unregistered' || !hasRegisteredArea(statusRow)) {
+      return 'possessed_unregistered';
+    }
+    return 'partial_possession';
+  }
+
+  if (hasRegisteredArea(statusRow) || statusRow.purchaseStatus !== 'not_purchased') {
+    return 'registered';
+  }
+
+  return 'not_registered';
+};
+
+export const legendForStatus = (statusRow) =>
+  STATUS_LEGEND.find((item) => item.id === getMapStatusId(statusRow)) || STATUS_LEGEND.find((item) => item.id === 'no_data');
 
 /** Build lookup maps for exact and normalized khasra keys. */
 export const buildStatusLookups = (statusMap = {}) => {
@@ -78,29 +134,13 @@ export const resolveStatusForKhasra = (khasraNo, mouzaFilter, statusMap, mozas =
   return null;
 };
 
-export const fillForStatus = (statusRow) => {
-  if (!statusRow) return STATUS_LEGEND.find((x) => x.id === 'no_data').fill;
-  if (statusRow.possessionStatus === 'fully_possessed') {
-    return STATUS_LEGEND.find((x) => x.id === 'fully_possessed').fill;
-  }
-  if (statusRow.possessionStatus === 'partial_possession') {
-    return STATUS_LEGEND.find((x) => x.id === 'partial_possession').fill;
-  }
-  if (hasRegisteredArea(statusRow) || statusRow.purchaseStatus !== 'not_purchased') {
-    return STATUS_LEGEND.find((x) => x.id === 'registered').fill;
-  }
-  return STATUS_LEGEND.find((x) => x.id === 'not_registered').fill;
-};
+export const fillForStatus = (statusRow) => legendForStatus(statusRow).fill;
 
 export const strokeForStatus = (statusRow, selected = false) => {
   if (selected) return '#FF6F00';
-  if (!statusRow) return 'rgba(120,120,120,0.35)';
-  if (statusRow.possessionStatus === 'fully_possessed') return 'rgba(27, 94, 32, 0.9)';
-  if (statusRow.possessionStatus === 'partial_possession') return 'rgba(230, 81, 0, 0.9)';
-  if (hasRegisteredArea(statusRow) || statusRow.purchaseStatus !== 'not_purchased') {
-    return 'rgba(13, 71, 161, 0.85)';
-  }
-  return 'rgba(97, 97, 97, 0.45)';
+  const legend = legendForStatus(statusRow);
+  if (legend.id === 'no_data') return 'rgba(120,120,120,0.35)';
+  return legend.color;
 };
 
 export const markerRadiusForStatus = (statusRow, selected = false) => {
@@ -111,10 +151,20 @@ export const markerRadiusForStatus = (statusRow, selected = false) => {
 };
 
 export const fillOpacityForStatus = (statusRow, selected = false) => {
-  if (selected) return 0.88;
-  if (isErpTrackedKhasra(statusRow)) return 0.78;
+  if (selected) return 0.9;
+  if (isPossessedOnMap(statusRow)) return 0.82;
+  if (hasRegisteredArea(statusRow)) return 0.78;
   if (statusRow) return 0.22;
   return 0.1;
+};
+
+export const khasraLabelClassForStatus = (statusRow) => {
+  const id = getMapStatusId(statusRow);
+  if (id === 'fully_possessed' || id === 'partial_possession' || id === 'possessed_unregistered') {
+    return 'latha-khasra-label latha-khasra-label--possessed';
+  }
+  if (id === 'registered') return 'latha-khasra-label latha-khasra-label--registered';
+  return 'latha-khasra-label';
 };
 
 export const pointsToPath = (points) => {
@@ -128,8 +178,8 @@ export const formatStatusSummary = (statusRow) => {
   const lines = [
     formatKhasraKhewatLabel(statusRow.khasraNo, statusRow.khewatNo),
     `Baseline: ${formatKMS(normalizeArea(statusRow.baseline))}`,
-    `Registered: ${formatKMS(normalizeArea(statusRow.registered))}`,
-    `Possessed: ${formatKMS(normalizeArea(statusRow.possessed))}`
+    `Registered: ${formatKMS(normalizeArea(statusRow.registered))} (${formatTransferPercentLabel(statusRow.registryTransferPercent)} transfer)`,
+    `Possessed: ${formatKMS(normalizeArea(statusRow.possessed))} (${formatTransferPercentLabel(statusRow.possessionTransferPercent)} transfer)`
   ];
   return lines.join('\n');
 };

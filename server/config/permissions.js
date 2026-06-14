@@ -123,7 +123,8 @@ const SUBMODULES = {
     'campaigns',
     'companies',
     'opportunities',
-    'crm_reports'
+    'crm_reports',
+    'crm_surveys'
   ],
   [MODULES.AUDIT]: [
     'audit_management',

@@ -145,6 +145,12 @@ import Companies from './pages/CRM/Companies';
 import Campaigns from './pages/CRM/Campaigns';
 import Opportunities from './pages/CRM/Opportunities';
 import Reports from './pages/CRM/Reports';
+import SurveyList from './pages/CRM/Survey/SurveyList';
+import SurveyBuilder from './pages/CRM/Survey/SurveyBuilder';
+import SurveyRespond from './pages/CRM/Survey/SurveyRespond';
+import SurveyAnalytics from './pages/CRM/Survey/SurveyAnalytics';
+import SurveyExecutiveDashboard from './pages/CRM/Survey/SurveyExecutiveDashboard';
+import PollBuilder from './pages/CRM/Survey/PollBuilder';
 import Profile from './pages/Profile/Profile';
 import MyKPIs from './pages/Profile/MyKPIs';
 import ChatPage from './pages/Chat/ChatPage';
@@ -1610,6 +1616,42 @@ function App() {
             <Route 
               path="/crm/reports" 
               element={<ProtectedRoute><Reports /></ProtectedRoute>} 
+            />
+            <Route
+              path="/crm/survey/poll/new"
+              element={<ProtectedRoute><PollBuilder /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey/poll/:id/edit"
+              element={<ProtectedRoute><PollBuilder /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey/dashboard"
+              element={<ProtectedRoute><SurveyExecutiveDashboard /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey"
+              element={<ProtectedRoute><SurveyList /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey/mine"
+              element={<ProtectedRoute><SurveyList /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey/new"
+              element={<ProtectedRoute><SurveyBuilder /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey/:id/edit"
+              element={<ProtectedRoute><SurveyBuilder /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey/:id/respond"
+              element={<ProtectedRoute><SurveyRespond /></ProtectedRoute>}
+            />
+            <Route
+              path="/crm/survey/:id/analytics"
+              element={<ProtectedRoute><SurveyAnalytics /></ProtectedRoute>}
             />
 
             {/* Profile */}

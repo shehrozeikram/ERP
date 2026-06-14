@@ -3,7 +3,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const LandMoza = require('../models/tajResidencia/LandMoza');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const LandPossession = require('../models/tajResidencia/LandPossession');
-const { buildMozaAcquisitionStatus } = require('../utils/landAcquisitionStatus');
+const { buildMozaAcquisitionStatus, deriveStatus } = require('../utils/landAcquisitionStatus');
 const { addAreas, normalizeArea, toSarsais } = require('../utils/landAreaUnits');
 
 const router = express.Router();
@@ -19,6 +19,11 @@ const normalizeKhasraNo = (value) => {
 const statusKey = (slug, khasraNo) => `${slug}:${normalizeKhasraNo(khasraNo)}`;
 
 const mergeRegisteredLine = (status, line) => {
+  const transferPercent = Math.min(100, Math.max(0, Number(line.transferPercent) || 0));
+  if (transferPercent > 0) {
+    status.registryTransferPercent = Math.max(status.registryTransferPercent || 0, transferPercent);
+  }
+
   const patch = normalizeArea(line.acquiredArea);
   if (toSarsais(patch) <= 0) return;
   status.registered = addAreas(status.registered || { kanal: 0, marla: 0, sarsai: 0 }, patch);
@@ -29,6 +34,11 @@ const mergeRegisteredLine = (status, line) => {
 };
 
 const mergePossessedLine = (status, line) => {
+  const transferPercent = Math.min(100, Math.max(0, Number(line.transferPercent) || 0));
+  if (transferPercent > 0) {
+    status.possessionTransferPercent = Math.max(status.possessionTransferPercent || 0, transferPercent);
+  }
+
   const patch = normalizeArea(line.possessedArea);
   if (toSarsais(patch) <= 0) return;
   status.possessed = addAreas(status.possessed || { kanal: 0, marla: 0, sarsai: 0 }, patch);
@@ -59,7 +69,9 @@ router.get('/map-status', asyncHandler(async (req, res) => {
         registered: row.registered,
         possessed: row.possessed,
         remainingToRegister: row.remainingToRegister,
-        remainingToPossess: row.remainingToPossess
+        remainingToPossess: row.remainingToPossess,
+        registryTransferPercent: 0,
+        possessionTransferPercent: 0
       };
     });
 
@@ -83,7 +95,9 @@ router.get('/map-status', asyncHandler(async (req, res) => {
             registered: { kanal: 0, marla: 0, sarsai: 0 },
             possessed: { kanal: 0, marla: 0, sarsai: 0 },
             remainingToRegister: { kanal: 0, marla: 0, sarsai: 0 },
-            remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 }
+            remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 },
+            registryTransferPercent: 0,
+            possessionTransferPercent: 0
           };
         }
         mergeRegisteredLine(status[key], line);
@@ -105,27 +119,28 @@ router.get('/map-status', asyncHandler(async (req, res) => {
             registered: { kanal: 0, marla: 0, sarsai: 0 },
             possessed: { kanal: 0, marla: 0, sarsai: 0 },
             remainingToRegister: { kanal: 0, marla: 0, sarsai: 0 },
-            remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 }
+            remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 },
+            registryTransferPercent: 0,
+            possessionTransferPercent: 0
           };
         }
         mergePossessedLine(status[key], line);
-        if (toSarsais(status[key].possessed) > 0) {
-          if (toSarsais(status[key].registered) > 0
-            && toSarsais(status[key].possessed) >= toSarsais(status[key].registered)) {
-            status[key].possessionStatus = 'fully_possessed';
-          } else if (toSarsais(status[key].registered) > 0) {
-            status[key].possessionStatus = 'partial_possession';
-          } else {
-            status[key].possessionStatus = 'possessed_unregistered';
-          }
-        }
       });
     });
+
+    Object.keys(status)
+      .filter((key) => key.startsWith(`${moza.slug}:`))
+      .forEach((key) => {
+        const row = status[key];
+        const derived = deriveStatus(row.baseline, row.registered, row.possessed);
+        row.purchaseStatus = derived.purchaseStatus;
+        row.possessionStatus = derived.possessionStatus;
+      });
   }
 
   const summary = Object.values(status).reduce((acc, row) => {
-    if (toSarsais(row.registered) > 0) acc.registered += 1;
-    if (toSarsais(row.possessed) > 0) acc.possessed += 1;
+    if ((row.registryTransferPercent || 0) > 0) acc.registered += 1;
+    if ((row.possessionTransferPercent || 0) > 0) acc.possessed += 1;
     return acc;
   }, { registered: 0, possessed: 0 });
 

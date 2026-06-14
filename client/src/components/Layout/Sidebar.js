@@ -308,6 +308,9 @@ const Sidebar = () => {
       '/crm/companies': 'companies',
       '/crm/opportunities': 'opportunities',
       '/crm/reports': 'crm_reports',
+      '/crm/survey/new': 'crm_surveys',
+      '/crm/survey/mine': 'crm_surveys',
+      '/crm/survey': 'crm_surveys',
       
       // Audit Module
       '/audit/list': 'audit_management',

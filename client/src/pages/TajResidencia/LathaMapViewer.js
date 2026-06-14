@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
+  FormControlLabel,
   IconButton,
   Paper,
   Stack,
@@ -28,15 +30,23 @@ import {
   buildStatusLookups,
   fillForStatus,
   fillOpacityForStatus,
+  formatTransferPercentLabel,
   formatStatusSummary,
-  isErpTrackedKhasra,
+  hasPossessionTransfer,
+  hasRegistryTransfer,
+  khasraLabelClassForStatus,
+  normalizeKhasraNo,
+  possessionCoverageFraction,
+  registryCoverageFraction,
   resolveStatusForKhasra,
   strokeForStatus
 } from '../../utils/lathaMapStatus';
+import { clipPolygonBottomFraction, clipPolygonTopFraction } from '../../utils/lathaMapGeometry';
 import { formatKMS, normalizeArea } from '../../utils/landAreaUnits';
 
 const MAP_BASE = `${process.env.PUBLIC_URL}/maps/latha`;
 const MAP_INDEX_URL = `${MAP_BASE}/khasra-map-index.json`;
+const MOZA_KHASRAS_INDEX_URL = `${MAP_BASE}/moza-khasras-index.json`;
 const KMZ_URL = `${MAP_BASE}/khasra-plan.kmz`;
 
 const MOUZA_LABELS = {
@@ -100,17 +110,20 @@ const KhasraParcelLayer = ({
   data,
   getStyle,
   onParcelClick,
-  isTrackedKhasra
+  getLabelClass,
+  getTooltipLabel
 }) => {
   const map = useMap();
   const layerRef = useRef(null);
   const styleRef = useRef(getStyle);
   const clickRef = useRef(onParcelClick);
-  const trackedRef = useRef(isTrackedKhasra);
+  const labelClassRef = useRef(getLabelClass);
+  const tooltipRef = useRef(getTooltipLabel);
 
   styleRef.current = getStyle;
   clickRef.current = onParcelClick;
-  trackedRef.current = isTrackedKhasra;
+  labelClassRef.current = getLabelClass;
+  tooltipRef.current = getTooltipLabel;
 
   useEffect(() => {
     if (!data?.features?.length) return undefined;
@@ -129,20 +142,103 @@ const KhasraParcelLayer = ({
         leafletLayer.on('click', (event) => clickRef.current(event, parcel));
 
         const label = String(feature.properties?.k || '');
-        if (trackedRef.current(feature.properties?.k)) {
-          leafletLayer.bindTooltip(label, {
+        const labelClass = labelClassRef.current(feature.properties?.k);
+        const tooltipLabel = tooltipRef.current?.(feature.properties?.k) || `Khasra ${label}`;
+        const isTracked = labelClass.includes('--registered') || labelClass.includes('--possessed');
+
+        if (isTracked) {
+          leafletLayer.bindTooltip(tooltipLabel, {
             permanent: true,
             direction: 'center',
-            className: 'latha-khasra-label latha-khasra-label--tracked',
+            className: labelClass,
             opacity: 1
           });
         } else {
-          leafletLayer.bindTooltip(`Khasra ${label}`, {
+          leafletLayer.bindTooltip(tooltipLabel, {
             sticky: true,
             direction: 'top',
             opacity: 0.95
           });
         }
+      }
+    });
+
+    layer.addTo(map);
+    layerRef.current = layer;
+
+    return () => {
+      layerRef.current = null;
+      map.removeLayer(layer);
+    };
+  }, [map, data]);
+
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    layer.eachLayer((leafletLayer) => {
+      if (leafletLayer.feature) {
+        leafletLayer.setStyle(styleRef.current(leafletLayer.feature));
+      }
+    });
+  }, [getStyle]);
+
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer || !tooltipRef.current) return;
+
+    layer.eachLayer((leafletLayer) => {
+      if (!leafletLayer.feature) return;
+
+      const khasraNo = leafletLayer.feature.properties?.k;
+      const labelClass = labelClassRef.current(khasraNo);
+      const tooltipLabel = tooltipRef.current(khasraNo) || `Khasra ${khasraNo}`;
+      const isTracked = labelClass.includes('--registered') || labelClass.includes('--possessed');
+
+      leafletLayer.unbindTooltip();
+      if (isTracked) {
+        leafletLayer.bindTooltip(tooltipLabel, {
+          permanent: true,
+          direction: 'center',
+          className: labelClass,
+          opacity: 1
+        });
+      } else {
+        leafletLayer.bindTooltip(tooltipLabel, {
+          sticky: true,
+          direction: 'top',
+          opacity: 0.95
+        });
+      }
+    });
+  }, [getTooltipLabel, getLabelClass]);
+
+  return null;
+};
+
+const KhasraPartialFillLayer = ({ data, getStyle, onParcelClick }) => {
+  const map = useMap();
+  const layerRef = useRef(null);
+  const styleRef = useRef(getStyle);
+  const clickRef = useRef(onParcelClick);
+
+  styleRef.current = getStyle;
+  clickRef.current = onParcelClick;
+
+  useEffect(() => {
+    if (!data?.features?.length) return undefined;
+
+    const layer = L.geoJSON(data, {
+      style: (feature) => styleRef.current(feature),
+      onEachFeature: (feature, leafletLayer) => {
+        const parcel = {
+          id: `khasra-${feature.properties?.k}`,
+          k: feature.properties?.k,
+          lat: feature.properties?.cy,
+          lng: feature.properties?.cx,
+          feature
+        };
+
+        leafletLayer.on('click', (event) => clickRef.current(event, parcel));
       }
     });
 
@@ -176,13 +272,15 @@ const LathaMapViewer = () => {
   const [parcels, setParcels] = useState([]);
   const [lines, setLines] = useState(null);
   const [statusMap, setStatusMap] = useState({});
+  const [mozaKhasrasIndex, setMozaKhasrasIndex] = useState(null);
   const [mozas, setMozas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
   const [mouzaFilter, setMouzaFilter] = useState('all');
   const [baseLayer, setBaseLayer] = useState('satellite');
-  const [showRegistryOnly, setShowRegistryOnly] = useState(false);
+  const [showRegistryLayer, setShowRegistryLayer] = useState(true);
+  const [showPossessionLayer, setShowPossessionLayer] = useState(true);
   const [selectedParcel, setSelectedParcel] = useState(null);
   const [mapReady, setMapReady] = useState(false);
 
@@ -193,14 +291,15 @@ const LathaMapViewer = () => {
       setLoading(true);
       setLoadError('');
       try {
-        const [indexRes, statusRes] = await Promise.all([
+        const [indexRes, statusRes, mozaKhasrasRes] = await Promise.all([
           fetch(MAP_INDEX_URL).then((r) => {
             if (!r.ok) {
               throw new Error('Khasra map index not found. Run scripts/extract-khasra-kmz.py');
             }
             return r.json();
           }),
-          getMapStatus()
+          getMapStatus(),
+          fetch(MOZA_KHASRAS_INDEX_URL).then((r) => (r.ok ? r.json() : { mozas: {} }))
         ]);
 
         const files = indexRes.files || {};
@@ -234,6 +333,7 @@ const LathaMapViewer = () => {
         if (cancelled) return;
 
         setMapIndex(indexRes);
+        setMozaKhasrasIndex(mozaKhasrasRes);
         setMozas(statusRes.data?.data?.mozas || []);
         setStatusMap(statusRes.data?.data?.status || {});
         setLines(linesRes);
@@ -284,9 +384,50 @@ const LathaMapViewer = () => {
   const statusLookups = useMemo(() => buildStatusLookups(statusMap), [statusMap]);
 
   const mouzaChips = useMemo(() => {
+    const fromIndex = Object.keys(mozaKhasrasIndex?.mozas || {});
     const fromErp = mozas.map((m) => m.slug);
-    return [...new Set(fromErp)].sort();
-  }, [mozas]);
+    return [...new Set([...fromIndex, ...fromErp])].sort();
+  }, [mozas, mozaKhasrasIndex]);
+
+  const mouzaKhasraSets = useMemo(() => {
+    const sets = {};
+
+    Object.entries(mozaKhasrasIndex?.mozas || {}).forEach(([slug, list]) => {
+      sets[slug] = new Set(
+        (list || []).map((khasraNo) => normalizeKhasraNo(khasraNo)).filter(Boolean)
+      );
+    });
+
+    Object.keys(statusMap).forEach((key) => {
+      const sep = key.indexOf(':');
+      if (sep === -1) return;
+      const slug = key.slice(0, sep);
+      const khasra = normalizeKhasraNo(key.slice(sep + 1));
+      if (!khasra) return;
+      if (!sets[slug]) sets[slug] = new Set();
+      sets[slug].add(khasra);
+    });
+
+    return sets;
+  }, [mozaKhasrasIndex, statusMap]);
+
+  const getResolvedStatusForMouza = useCallback(
+    (point, slug) => resolveStatusForKhasra(
+      point.k,
+      slug === 'all' ? null : slug,
+      statusMap,
+      mozas,
+      statusLookups
+    ),
+    [statusMap, mozas, statusLookups]
+  );
+
+  const parcelBelongsToMouza = useCallback((parcel, slug) => {
+    if (!slug || slug === 'all') return true;
+    const khasraSet = mouzaKhasraSets[slug];
+    if (!khasraSet?.size) return Boolean(getResolvedStatusForMouza(parcel, slug));
+    return khasraSet.has(normalizeKhasraNo(parcel.k));
+  }, [mouzaKhasraSets, getResolvedStatusForMouza]);
 
   const getResolvedStatus = useCallback(
     (point) => resolveStatusForKhasra(
@@ -302,43 +443,149 @@ const LathaMapViewer = () => {
   const mapStats = useMemo(() => {
     let registeredOnMap = 0;
     let possessedOnMap = 0;
+    let erpOnMap = 0;
 
     parcels.forEach((parcel) => {
-      const resolved = resolveStatusForKhasra(parcel.k, null, statusMap, mozas, statusLookups);
-      if (isErpTrackedKhasra(resolved?.status)) {
-        if (resolved.status.possessionStatus === 'fully_possessed'
-          || resolved.status.possessionStatus === 'partial_possession'
-          || (resolved.status.possessed && (resolved.status.possessed.kanal > 0
-            || resolved.status.possessed.marla > 0
-            || resolved.status.possessed.sarsai > 0))) {
-          possessedOnMap += 1;
-        } else {
-          registeredOnMap += 1;
-        }
-      }
+      if (mouzaFilter !== 'all' && !parcelBelongsToMouza(parcel, mouzaFilter)) return;
+
+      const resolved = resolveStatusForKhasra(
+        parcel.k,
+        mouzaFilter === 'all' ? null : mouzaFilter,
+        statusMap,
+        mozas,
+        statusLookups
+      );
+      const status = resolved?.status;
+      if (hasPossessionTransfer(status)) possessedOnMap += 1;
+      if (hasRegistryTransfer(status)) registeredOnMap += 1;
+      if (hasRegistryTransfer(status) || hasPossessionTransfer(status)) erpOnMap += 1;
     });
 
-    return { registeredOnMap, possessedOnMap, erpOnMap: registeredOnMap + possessedOnMap };
-  }, [parcels, statusMap, mozas, statusLookups]);
+    return { registeredOnMap, possessedOnMap, erpOnMap };
+  }, [parcels, mouzaFilter, statusMap, mozas, statusLookups, parcelBelongsToMouza]);
+
+  const matchesRegistryLayer = useCallback((status) => (
+    hasRegistryTransfer(status)
+  ), []);
+
+  const matchesPossessionLayer = useCallback((status) => (
+    hasPossessionTransfer(status)
+  ), []);
+
+  const matchesActiveLayer = useCallback((status) => (
+    (showRegistryLayer && matchesRegistryLayer(status))
+    || (showPossessionLayer && matchesPossessionLayer(status))
+  ), [showRegistryLayer, showPossessionLayer, matchesRegistryLayer, matchesPossessionLayer]);
+
+  const anyErpLayerOn = showRegistryLayer || showPossessionLayer;
 
   const visibleParcels = useMemo(() => {
     let next = parcels;
 
     if (mouzaFilter !== 'all') {
-      next = next.filter((parcel) => getResolvedStatus(parcel));
-    }
-
-    if (showRegistryOnly) {
-      next = next.filter((parcel) => isErpTrackedKhasra(getResolvedStatus(parcel)?.status));
+      next = next.filter((parcel) => parcelBelongsToMouza(parcel, mouzaFilter));
     }
 
     return next;
-  }, [parcels, mouzaFilter, showRegistryOnly, getResolvedStatus]);
+  }, [parcels, mouzaFilter, parcelBelongsToMouza]);
+
+  useEffect(() => {
+    if (!mapReady || !mapIndex?.bounds) return undefined;
+
+    const map = mapRef.current;
+    if (!map) return undefined;
+
+    const timer = window.setTimeout(() => {
+      if (mouzaFilter === 'all') {
+        const { south, west, north, east } = mapIndex.bounds;
+        runWhenMapReady(map, (readyMap) => {
+          readyMap.fitBounds(
+            [[south, west], [north, east]],
+            { padding: [24, 24], animate: true }
+          );
+        });
+        return;
+      }
+
+      if (visibleParcels.length === 0) return;
+
+      runWhenMapReady(map, (readyMap) => {
+        if (visibleParcels.length === 1) {
+          const [parcel] = visibleParcels;
+          readyMap.setView([parcel.lat, parcel.lng], 17, { animate: true });
+          return;
+        }
+
+        const bounds = L.latLngBounds(visibleParcels.map((parcel) => [parcel.lat, parcel.lng]));
+        readyMap.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: true });
+      });
+    }, 150);
+
+    return () => window.clearTimeout(timer);
+  }, [mouzaFilter, visibleParcels, mapReady, mapIndex]);
 
   const visibleParcelsGeoJson = useMemo(() => ({
     type: 'FeatureCollection',
     features: visibleParcels.map((parcel) => parcel.feature).filter(Boolean)
   }), [visibleParcels]);
+
+  const registryFillGeoJson = useMemo(() => {
+    if (!showRegistryLayer) {
+      return { type: 'FeatureCollection', features: [] };
+    }
+
+    const features = visibleParcels.flatMap((parcel) => {
+      if (!parcel.feature?.geometry) return [];
+      const status = getResolvedStatus(parcel)?.status;
+      if (!matchesRegistryLayer(status)) return [];
+
+      const fraction = registryCoverageFraction(status);
+      const geometry = clipPolygonBottomFraction(parcel.feature.geometry, fraction);
+      if (!geometry) return [];
+
+      return [{
+        type: 'Feature',
+        properties: {
+          ...parcel.feature.properties,
+          k: parcel.k,
+          layer: 'registry',
+          coveragePct: Math.round(fraction * 100)
+        },
+        geometry
+      }];
+    });
+
+    return { type: 'FeatureCollection', features };
+  }, [visibleParcels, showRegistryLayer, getResolvedStatus, matchesRegistryLayer]);
+
+  const possessionFillGeoJson = useMemo(() => {
+    if (!showPossessionLayer) {
+      return { type: 'FeatureCollection', features: [] };
+    }
+
+    const features = visibleParcels.flatMap((parcel) => {
+      if (!parcel.feature?.geometry) return [];
+      const status = getResolvedStatus(parcel)?.status;
+      if (!matchesPossessionLayer(status)) return [];
+
+      const fraction = possessionCoverageFraction(status);
+      const geometry = clipPolygonTopFraction(parcel.feature.geometry, fraction);
+      if (!geometry) return [];
+
+      return [{
+        type: 'Feature',
+        properties: {
+          ...parcel.feature.properties,
+          k: parcel.k,
+          layer: 'possession',
+          coveragePct: Math.round(fraction * 100)
+        },
+        geometry
+      }];
+    });
+
+    return { type: 'FeatureCollection', features };
+  }, [visibleParcels, showPossessionLayer, getResolvedStatus, matchesPossessionLayer]);
 
   const changeZoom = useCallback((delta) => {
     const map = mapRef.current;
@@ -361,11 +608,11 @@ const LathaMapViewer = () => {
     });
   }, [mapIndex]);
 
-  const focusRegistryOnMap = useCallback(() => {
+  const focusErpOnMap = useCallback(() => {
     const map = mapRef.current;
     const tracked = parcels
       .map((parcel) => ({ parcel, resolved: getResolvedStatus(parcel) }))
-      .filter(({ resolved }) => isErpTrackedKhasra(resolved?.status));
+      .filter(({ resolved }) => matchesRegistryLayer(resolved?.status));
 
     if (!tracked.length) return;
 
@@ -380,7 +627,28 @@ const LathaMapViewer = () => {
       const bounds = L.latLngBounds(tracked.map(({ parcel }) => [parcel.lat, parcel.lng]));
       readyMap.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: true });
     });
-  }, [parcels, getResolvedStatus]);
+  }, [parcels, getResolvedStatus, matchesRegistryLayer]);
+
+  const focusPossessionOnMap = useCallback(() => {
+    const map = mapRef.current;
+    const tracked = parcels
+      .map((parcel) => ({ parcel, resolved: getResolvedStatus(parcel) }))
+      .filter(({ resolved }) => matchesPossessionLayer(resolved?.status));
+
+    if (!tracked.length) return;
+
+    runWhenMapReady(map, (readyMap) => {
+      if (tracked.length === 1) {
+        const { parcel } = tracked[0];
+        readyMap.setView([parcel.lat, parcel.lng], 17, { animate: true });
+        setSelectedParcel(parcel);
+        return;
+      }
+
+      const bounds = L.latLngBounds(tracked.map(({ parcel }) => [parcel.lat, parcel.lng]));
+      readyMap.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: true });
+    });
+  }, [parcels, getResolvedStatus, matchesPossessionLayer]);
 
   const lineStyle = useMemo(
     () => ({
@@ -411,7 +679,7 @@ const LathaMapViewer = () => {
     setSelectedParcel((prev) => (prev?.id === parcel.id ? null : parcel));
   }, []);
 
-  const isTrackedKhasra = useCallback((khasraNo) => {
+  const getKhasraLabelClass = useCallback((khasraNo) => {
     const resolved = resolveStatusForKhasra(
       khasraNo,
       mouzaFilter === 'all' ? null : mouzaFilter,
@@ -419,8 +687,59 @@ const LathaMapViewer = () => {
       mozas,
       statusLookups
     );
-    return isErpTrackedKhasra(resolved?.status);
-  }, [mouzaFilter, statusMap, mozas, statusLookups]);
+    const status = resolved?.status;
+    if (showPossessionLayer && matchesPossessionLayer(status)) {
+      return khasraLabelClassForStatus(status);
+    }
+    if (showRegistryLayer && matchesRegistryLayer(status)) {
+      return khasraLabelClassForStatus(status);
+    }
+    return 'latha-khasra-label';
+  }, [
+    mouzaFilter,
+    statusMap,
+    mozas,
+    statusLookups,
+    showRegistryLayer,
+    showPossessionLayer,
+    matchesRegistryLayer,
+    matchesPossessionLayer
+  ]);
+
+  const getTooltipLabel = useCallback((khasraNo) => {
+    const resolved = resolveStatusForKhasra(
+      khasraNo,
+      mouzaFilter === 'all' ? null : mouzaFilter,
+      statusMap,
+      mozas,
+      statusLookups
+    );
+    const status = resolved?.status;
+    const lines = [String(khasraNo)];
+    const coverageParts = [];
+
+    if (showRegistryLayer && matchesRegistryLayer(status)) {
+      coverageParts.push(`Reg ${formatTransferPercentLabel(status.registryTransferPercent)}`);
+    }
+    if (showPossessionLayer && matchesPossessionLayer(status)) {
+      coverageParts.push(`Pos ${formatTransferPercentLabel(status.possessionTransferPercent)}`);
+    }
+
+    if (coverageParts.length) {
+      lines.push(coverageParts.join(' · '));
+    }
+
+    return lines.join('\n');
+  }, [
+    mouzaFilter,
+    statusMap,
+    mozas,
+    statusLookups,
+    showRegistryLayer,
+    showPossessionLayer,
+    matchesRegistryLayer,
+    matchesPossessionLayer
+  ]);
 
   const parcelStyle = useCallback((feature) => {
     const parcel = { k: feature?.properties?.k };
@@ -433,15 +752,62 @@ const LathaMapViewer = () => {
     );
     const statusRow = resolved?.status || null;
     const isSelected = selectedParcel?.k === parcel.k;
+    const highlighted = anyErpLayerOn && matchesActiveLayer(statusRow);
+
+    if (!highlighted) {
+      return {
+        color: 'rgba(120,120,120,0.35)',
+        fillColor: 'rgba(224, 224, 224, 0.2)',
+        fillOpacity: isSelected ? 0.45 : 0.1,
+        weight: isSelected ? 3 : 1,
+        opacity: 0.65
+      };
+    }
+
+    return {
+      color: strokeForStatus(statusRow, isSelected),
+      fillColor: 'transparent',
+      fillOpacity: 0,
+      weight: isSelected ? 3 : 2,
+      opacity: 1
+    };
+  }, [
+    mouzaFilter,
+    statusMap,
+    mozas,
+    statusLookups,
+    selectedParcel,
+    anyErpLayerOn,
+    matchesActiveLayer
+  ]);
+
+  const registryFillStyle = useCallback(() => ({
+    color: 'rgba(21, 101, 192, 0.9)',
+    fillColor: 'rgba(21, 101, 192, 0.72)',
+    fillOpacity: 0.78,
+    weight: 1,
+    opacity: 0.95
+  }), []);
+
+  const possessionFillStyle = useCallback((feature) => {
+    const resolved = resolveStatusForKhasra(
+      feature?.properties?.k,
+      mouzaFilter === 'all' ? null : mouzaFilter,
+      statusMap,
+      mozas,
+      statusLookups
+    );
+    const statusRow = resolved?.status || null;
+    const isSelected = selectedParcel?.k === feature?.properties?.k;
 
     return {
       color: strokeForStatus(statusRow, isSelected),
       fillColor: fillForStatus(statusRow),
       fillOpacity: fillOpacityForStatus(statusRow, isSelected),
-      weight: isSelected ? 3 : isTrackedKhasra(parcel.k) ? 2 : 1,
-      opacity: isTrackedKhasra(parcel.k) ? 1 : 0.65
+      weight: 1,
+      opacity: 0.95
     };
-  }, [mouzaFilter, statusMap, mozas, statusLookups, selectedParcel, isTrackedKhasra]);
+  }, [mouzaFilter, statusMap, mozas, statusLookups, selectedParcel]);
 
   const closeDetail = () => {
     setSelectedParcel(null);
@@ -476,7 +842,7 @@ const LathaMapViewer = () => {
               Latha Land Map
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Registry &amp; possession from ERP shown as colored khasra parcels on the survey plan
+              Map fill uses Transfer % from registry &amp; possession records
             </Typography>
             {!loading && mapStats.erpOnMap > 0 && (
               <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
@@ -527,20 +893,33 @@ const LathaMapViewer = () => {
             </Tooltip>
             <Button
               size="small"
-              variant={showRegistryOnly ? 'contained' : 'outlined'}
+              variant="outlined"
               color="primary"
-              onClick={() => setShowRegistryOnly((prev) => !prev)}
+              onClick={focusErpOnMap}
+              disabled={
+                loading
+                || Boolean(loadError)
+                || !mapReady
+                || !showRegistryLayer
+                || mapStats.registeredOnMap === 0
+              }
             >
-              {showRegistryOnly ? 'Showing registry only' : 'Show registry only'}
+              Focus registry
             </Button>
             <Button
               size="small"
               variant="outlined"
-              color="primary"
-              onClick={focusRegistryOnMap}
-              disabled={loading || Boolean(loadError) || !mapReady || mapStats.erpOnMap === 0}
+              color="success"
+              onClick={focusPossessionOnMap}
+              disabled={
+                loading
+                || Boolean(loadError)
+                || !mapReady
+                || !showPossessionLayer
+                || mapStats.possessedOnMap === 0
+              }
             >
-              Focus registry
+              Focus possession
             </Button>
             <Button
               size="small"
@@ -564,6 +943,39 @@ const LathaMapViewer = () => {
 
         <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap alignItems="center">
           <LayersIcon fontSize="small" color="action" />
+          <FormControlLabel
+            control={(
+              <Checkbox
+                size="small"
+                checked={showRegistryLayer}
+                onChange={(event) => setShowRegistryLayer(event.target.checked)}
+                sx={{ color: '#1565C0', '&.Mui-checked': { color: '#1565C0' } }}
+              />
+            )}
+            label={(
+              <Typography variant="body2" fontWeight={showRegistryLayer ? 600 : 400}>
+                Registry
+              </Typography>
+            )}
+            sx={{ mr: 0.5 }}
+          />
+          <FormControlLabel
+            control={(
+              <Checkbox
+                size="small"
+                checked={showPossessionLayer}
+                onChange={(event) => setShowPossessionLayer(event.target.checked)}
+                sx={{ color: '#2E7D32', '&.Mui-checked': { color: '#2E7D32' } }}
+              />
+            )}
+            label={(
+              <Typography variant="body2" fontWeight={showPossessionLayer ? 600 : 400}>
+                Possession
+              </Typography>
+            )}
+            sx={{ mr: 1 }}
+          />
+          <Box sx={{ width: '1px', height: 24, bgcolor: 'divider', mx: 0.5, display: { xs: 'none', sm: 'block' } }} />
           <Chip
             size="small"
             label="All mouzas"
@@ -604,14 +1016,23 @@ const LathaMapViewer = () => {
             color: 'rgba(255,255,255,0.75)',
             fontWeight: 600,
             fontSize: '10px',
-            lineHeight: 1,
+            lineHeight: 1.2,
+            whiteSpace: 'pre-line',
+            textAlign: 'center',
             textShadow: '0 0 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)',
             pointerEvents: 'none'
           },
-          '& .latha-khasra-label--tracked': {
+          '& .latha-khasra-label--registered': {
             color: '#fff',
             fontWeight: 800,
-            fontSize: '11px'
+            fontSize: '11px',
+            textShadow: '0 0 4px rgba(13,71,161,0.95), 0 0 2px rgba(0,0,0,0.95)'
+          },
+          '& .latha-khasra-label--possessed': {
+            color: '#fff',
+            fontWeight: 800,
+            fontSize: '11px',
+            textShadow: '0 0 4px rgba(27,94,32,0.95), 0 0 2px rgba(0,0,0,0.95)'
           }
         }}
       >
@@ -650,12 +1071,27 @@ const LathaMapViewer = () => {
               url={baseLayer === 'satellite' ? SATELLITE_URL : STREET_URL}
             />
             {lines && <GeoJSON data={lines} style={lineStyle} />}
+            {registryFillGeoJson.features.length > 0 && (
+              <KhasraPartialFillLayer
+                data={registryFillGeoJson}
+                getStyle={registryFillStyle}
+                onParcelClick={handleParcelClick}
+              />
+            )}
+            {possessionFillGeoJson.features.length > 0 && (
+              <KhasraPartialFillLayer
+                data={possessionFillGeoJson}
+                getStyle={possessionFillStyle}
+                onParcelClick={handleParcelClick}
+              />
+            )}
             {visibleParcelsGeoJson.features.length > 0 && (
               <KhasraParcelLayer
                 data={visibleParcelsGeoJson}
                 getStyle={parcelStyle}
                 onParcelClick={handleParcelClick}
-                isTrackedKhasra={isTrackedKhasra}
+                getLabelClass={getKhasraLabelClass}
+                getTooltipLabel={getTooltipLabel}
               />
             )}
           </MapContainer>
@@ -697,10 +1133,16 @@ const LathaMapViewer = () => {
                   <strong>Baseline:</strong> {formatKMS(normalizeArea(selectedStatus.baseline))}
                 </Typography>
                 <Typography variant="body2" color="primary.main">
-                  <strong>Registered:</strong> {formatKMS(normalizeArea(selectedStatus.registered))}
+                  <strong>Registered:</strong>{' '}
+                  {formatKMS(normalizeArea(selectedStatus.registered))}
+                  {' · Transfer '}
+                  {formatTransferPercentLabel(selectedStatus.registryTransferPercent)}
                 </Typography>
                 <Typography variant="body2" color="success.main">
-                  <strong>Possessed:</strong> {formatKMS(normalizeArea(selectedStatus.possessed))}
+                  <strong>Possessed:</strong>{' '}
+                  {formatKMS(normalizeArea(selectedStatus.possessed))}
+                  {' · Transfer '}
+                  {formatTransferPercentLabel(selectedStatus.possessionTransferPercent)}
                 </Typography>
                 <Chip
                   size="small"
@@ -734,7 +1176,7 @@ const LathaMapViewer = () => {
         }}
       >
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Color legend — khasra parcels are filled: blue = registered, green = possessed, gray = not registered
+          Fill height = Transfer % from ERP record — registry from bottom (blue), possession from top (green/orange/teal)
         </Typography>
         <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
           {STATUS_LEGEND.map((item) => (
@@ -756,9 +1198,14 @@ const LathaMapViewer = () => {
         {mapIndex && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             {visibleParcels.length.toLocaleString()} khasra parcels shown
-            {mapStats.erpOnMap > 0 ? ` · ${mapStats.erpOnMap.toLocaleString()} colored from ERP registry/possession` : ' · no ERP matches on map yet'}
+            {mouzaFilter !== 'all' ? ` · ${MOUZA_LABELS[mouzaFilter] || mouzaFilter}` : ''}
+            {anyErpLayerOn
+              ? ` · ${[
+                showRegistryLayer ? `${mapStats.registeredOnMap.toLocaleString()} registry` : null,
+                showPossessionLayer ? `${mapStats.possessedOnMap.toLocaleString()} possession` : null
+              ].filter(Boolean).join(' + ')} on map`
+              : ' · survey plan only (check Registry or Possession to show ERP data)'}
             {mapIndex.counts?.parcels ? ` · ${mapIndex.counts.parcels.toLocaleString()} parcel shapes from KMZ` : ''}
-            {showRegistryOnly ? ' · registry-only filter active' : ''}
           </Typography>
         )}
       </Box>

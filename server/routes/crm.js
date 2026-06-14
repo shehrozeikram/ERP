@@ -12,6 +12,41 @@ const User = require('../models/User');
 
 const router = express.Router();
 
+const getUserId = (user) => user?._id || user?.id;
+
+const formatValidationErrors = (errors) => {
+  const arr = errors.array();
+  return {
+    success: false,
+    message: arr.map((e) => e.msg).join(', '),
+    errors: arr
+  };
+};
+
+const sanitizePhone = (value) => {
+  if (value === undefined || value === null) return value;
+  const str = String(value).trim();
+  if (!str) return '';
+  return str.replace(/[\s\-().]/g, '');
+};
+
+const leadPhoneValidator = body('phone')
+  .optional({ values: 'falsy' })
+  .customSanitizer(sanitizePhone)
+  .custom((value) => {
+    if (!value || value === '') return true;
+    return /^[\+]?[0-9][\d]{6,15}$/.test(value);
+  })
+  .withMessage('Valid phone number is required');
+
+const cleanLeadRefs = (data) => {
+  const leadData = { ...data };
+  if (!leadData.department || leadData.department === '') delete leadData.department;
+  if (!leadData.assignedTo || leadData.assignedTo === '') delete leadData.assignedTo;
+  if (!leadData.phone || leadData.phone === '') delete leadData.phone;
+  return leadData;
+};
+
 // ==================== LEADS ROUTES ====================
 
 // @route   GET /api/crm/leads
@@ -87,31 +122,22 @@ router.post('/leads', [
   body('firstName').trim().isLength({ min: 1, max: 50 }).withMessage('First name is required and must be less than 50 characters'),
   body('lastName').trim().isLength({ min: 1, max: 50 }).withMessage('Last name is required and must be less than 50 characters'),
   body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('phone').optional().matches(/^[\+]?[1-9][\d]{0,15}$/).withMessage('Valid phone number is required'),
+  leadPhoneValidator,
   body('company').optional().trim().isLength({ max: 100 }).withMessage('Company name must be less than 100 characters'),
-  body('source').isIn(['Website', 'Social Media', 'Referral', 'Cold Call', 'Trade Show', 'Advertisement', 'Email Campaign', 'Other']).withMessage('Valid source is required'),
-  body('priority').optional().isIn(['Low', 'Medium', 'High', 'Urgent']).withMessage('Valid priority is required')
+  body('source').isIn(['Website', 'Social Media', 'Referral', 'Cold Call', 'Trade Show', 'Advertisement', 'Email Campaign', 'Walk-in', 'Phone Call', 'Other']).withMessage('Valid source is required'),
+  body('priority').optional().isIn(['Low', 'Medium', 'High', 'Urgent']).withMessage('Valid priority is required'),
+  body('status').optional().isIn(['New', 'Contacted', 'Qualified', 'Proposal Sent', 'Negotiation', 'Won', 'Lost', 'Unqualified']).withMessage('Valid status is required')
 ], authorize('super_admin', 'admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({
-      success: false,
-      errors: errors.array()
-    });
+    return res.status(400).json(formatValidationErrors(errors));
   }
 
-  // Clean request body - remove empty strings for ObjectId fields
-  const leadData = { ...req.body };
-  if (!leadData.department || leadData.department === '') {
-    delete leadData.department;
-  }
-  if (!leadData.assignedTo || leadData.assignedTo === '') {
-    delete leadData.assignedTo;
-  }
+  const leadData = cleanLeadRefs(req.body);
 
   const lead = new Lead({
     ...leadData,
-    createdBy: req.user.id
+    createdBy: getUserId(req.user)
   });
 
   await lead.save();
@@ -161,25 +187,15 @@ router.put('/leads/:id', [
   body('firstName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('First name must be less than 50 characters'),
   body('lastName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be less than 50 characters'),
   body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('phone').optional().matches(/^[\+]?[1-9][\d]{0,15}$/).withMessage('Valid phone number is required'),
+  leadPhoneValidator,
   body('status').optional().isIn(['New', 'Contacted', 'Qualified', 'Proposal Sent', 'Negotiation', 'Won', 'Lost', 'Unqualified']).withMessage('Valid status is required')
 ], authorize('super_admin', 'admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({
-      success: false,
-      errors: errors.array()
-    });
+    return res.status(400).json(formatValidationErrors(errors));
   }
 
-  // Clean request body - remove empty strings for ObjectId fields
-  const updateData = { ...req.body };
-  if (!updateData.department || updateData.department === '') {
-    delete updateData.department;
-  }
-  if (!updateData.assignedTo || updateData.assignedTo === '') {
-    delete updateData.assignedTo;
-  }
+  const updateData = cleanLeadRefs(req.body);
 
   // Get the old lead to check status change
   const oldLead = await Lead.findById(req.params.id);

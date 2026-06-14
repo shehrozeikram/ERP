@@ -326,6 +326,9 @@ const Leads = () => {
       if (!cleanedData.assignedTo || cleanedData.assignedTo === '') {
         delete cleanedData.assignedTo;
       }
+      if (!cleanedData.phone || String(cleanedData.phone).trim() === '') {
+        delete cleanedData.phone;
+      }
 
       if (leadDialog.mode === 'add') {
         await crmService.createLead(cleanedData);
@@ -337,7 +340,12 @@ const Leads = () => {
       setLeadDialog({ open: false, mode: 'add', lead: null });
       loadLeads();
     } catch (err) {
-      setError('Failed to save lead. Please try again.');
+      const data = err.response?.data;
+      const message = data?.message
+        || (Array.isArray(data?.errors) ? data.errors.map((e) => e.msg).join(', ') : null)
+        || err.message
+        || 'Failed to save lead. Please try again.';
+      setError(message);
     }
   };
 

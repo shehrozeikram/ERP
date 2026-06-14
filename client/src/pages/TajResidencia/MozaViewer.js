@@ -48,19 +48,78 @@ const AREA_COLUMNS = AREA_FIELDS;
 
 const TABLE_HEAD_SX = {
   fontWeight: 700,
-  fontSize: '0.9rem',
+  fontSize: '0.875rem',
   lineHeight: 1.3,
-  whiteSpace: 'nowrap'
+  whiteSpace: 'nowrap',
+  px: 1.75,
+  py: 1.1
 };
 
-const KMS_CELL_SX = {
-  px: 0.5,
+const COMPACT_CELL_SX = {
+  px: 1.75,
   py: 1,
-  width: 40,
-  minWidth: 40,
-  maxWidth: 48,
-  fontSize: '0.8125rem'
+  whiteSpace: 'nowrap',
+  fontSize: '0.9375rem',
+  fontWeight: 500
 };
+
+const KMS_GROUP_BG = '#f3f6fa';
+const KMS_GROUP_BORDER = '1px solid #d5dde8';
+
+const kmsCellSx = (part, { header = false } = {}) => {
+  const base = {
+    width: 36,
+    minWidth: 36,
+    maxWidth: 36,
+    px: 0.35,
+    py: header ? 0.85 : 1,
+    textAlign: 'center',
+    whiteSpace: 'nowrap',
+    bgcolor: KMS_GROUP_BG,
+    fontSize: header ? '0.75rem' : '0.9375rem',
+    fontWeight: header ? 700 : 600,
+    color: header ? 'text.secondary' : 'text.primary',
+    letterSpacing: header ? 0.6 : 0
+  };
+
+  if (part === 'k') {
+    return {
+      ...base,
+      borderLeft: KMS_GROUP_BORDER,
+      pl: 0.75,
+      borderTopLeftRadius: header ? 0 : 0
+    };
+  }
+  if (part === 's') {
+    return {
+      ...base,
+      borderRight: KMS_GROUP_BORDER,
+      pr: 0.75
+    };
+  }
+  return base;
+};
+
+const kmsHeaderGroupSx = {
+  ...TABLE_HEAD_SX,
+  bgcolor: KMS_GROUP_BG,
+  borderBottom: KMS_GROUP_BORDER,
+  borderLeft: KMS_GROUP_BORDER,
+  borderRight: KMS_GROUP_BORDER,
+  px: 1
+};
+
+const TABLE_COLGROUP = (
+  <colgroup>
+    <col style={{ width: 64 }} />
+    <col style={{ width: 96 }} />
+    <col style={{ width: 104 }} />
+    <col style={{ width: 36 }} />
+    <col style={{ width: 36 }} />
+    <col style={{ width: 36 }} />
+    <col style={{ width: 96 }} />
+  </colgroup>
+);
 
 const sumAreas = (entries, key) =>
   addAreas(...entries.map((row) => normalizeArea(row[key])));
@@ -221,26 +280,39 @@ const MozaEntriesTable = ({ mozaId, mozaName, active, onEntryCountChange }) => {
           <CircularProgress size={28} />
         </Box>
       ) : (
-        <TableContainer sx={{ maxHeight: 'min(72vh, 720px)', minHeight: 420, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-          <Table size="small" stickyHeader sx={{ tableLayout: 'auto' }}>
+        <TableContainer
+          sx={{
+            width: 'fit-content',
+            maxWidth: '100%',
+            minWidth: { xs: '100%', sm: 528 },
+            maxHeight: 'min(72vh, 720px)',
+            minHeight: 420,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            overflow: 'auto'
+          }}
+        >
+          <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%', minWidth: 528 }}>
+            {TABLE_COLGROUP}
             <TableHead>
               <TableRow>
-                <TableCell rowSpan={2} sx={TABLE_HEAD_SX}>Sr No</TableCell>
-                <TableCell rowSpan={2} sx={TABLE_HEAD_SX}>Khewat No.</TableCell>
-                <TableCell rowSpan={2} sx={TABLE_HEAD_SX}>Khasra No.</TableCell>
+                <TableCell rowSpan={2} align="center" sx={TABLE_HEAD_SX}>Sr No</TableCell>
+                <TableCell rowSpan={2} align="center" sx={TABLE_HEAD_SX}>Khewat No.</TableCell>
+                <TableCell rowSpan={2} align="center" sx={TABLE_HEAD_SX}>Khasra No.</TableCell>
                 {AREA_COLUMNS.map((col) => (
-                  <TableCell key={col.key} align="center" colSpan={3} sx={{ ...TABLE_HEAD_SX, px: 0.5 }}>
+                  <TableCell key={col.key} align="center" colSpan={3} sx={kmsHeaderGroupSx}>
                     {col.label}
                   </TableCell>
                 ))}
-                <TableCell rowSpan={2} align="center" width={88} sx={TABLE_HEAD_SX}>Actions</TableCell>
+                <TableCell rowSpan={2} align="center" sx={{ ...TABLE_HEAD_SX, width: 80 }}>Actions</TableCell>
               </TableRow>
               <TableRow>
                 {AREA_COLUMNS.map((col) => (
                   <React.Fragment key={`${col.key}-sub`}>
-                    <TableCell align="right" sx={{ ...TABLE_HEAD_SX, ...KMS_CELL_SX }}>K</TableCell>
-                    <TableCell align="right" sx={{ ...TABLE_HEAD_SX, ...KMS_CELL_SX }}>M</TableCell>
-                    <TableCell align="right" sx={{ ...TABLE_HEAD_SX, ...KMS_CELL_SX }}>S</TableCell>
+                    <TableCell align="center" sx={kmsCellSx('k', { header: true })}>K</TableCell>
+                    <TableCell align="center" sx={kmsCellSx('m', { header: true })}>M</TableCell>
+                    <TableCell align="center" sx={kmsCellSx('s', { header: true })}>S</TableCell>
                   </React.Fragment>
                 ))}
               </TableRow>
@@ -248,20 +320,20 @@ const MozaEntriesTable = ({ mozaId, mozaName, active, onEntryCountChange }) => {
             <TableBody>
               {entries.map((row) => (
                 <TableRow key={row._id} hover>
-                  <TableCell>{row.srNo}</TableCell>
-                  <TableCell>{row.khewatNo}</TableCell>
-                  <TableCell>{row.khasraNo}</TableCell>
+                  <TableCell align="center" sx={COMPACT_CELL_SX}>{row.srNo}</TableCell>
+                  <TableCell align="center" sx={COMPACT_CELL_SX}>{row.khewatNo}</TableCell>
+                  <TableCell align="center" sx={COMPACT_CELL_SX}>{row.khasraNo}</TableCell>
                   {AREA_COLUMNS.map((col) => {
                     const a = normalizeArea(row[col.key]);
                     return (
                       <React.Fragment key={`${row._id}-${col.key}`}>
-                        <TableCell align="right" sx={KMS_CELL_SX}>{a.kanal || '—'}</TableCell>
-                        <TableCell align="right" sx={KMS_CELL_SX}>{a.marla || '—'}</TableCell>
-                        <TableCell align="right" sx={KMS_CELL_SX}>{a.sarsai || '—'}</TableCell>
+                        <TableCell align="center" sx={kmsCellSx('k')}>{a.kanal || '—'}</TableCell>
+                        <TableCell align="center" sx={kmsCellSx('m')}>{a.marla || '—'}</TableCell>
+                        <TableCell align="center" sx={kmsCellSx('s')}>{a.sarsai || '—'}</TableCell>
                       </React.Fragment>
                     );
                   })}
-                  <TableCell align="center" padding="checkbox">
+                  <TableCell align="center" sx={{ ...COMPACT_CELL_SX, px: 0.5 }}>
                     <Tooltip title="Edit">
                       <IconButton size="small" onClick={() => openEditDialog(row)}>
                         <Edit fontSize="small" />
@@ -284,13 +356,13 @@ const MozaEntriesTable = ({ mozaId, mozaName, active, onEntryCountChange }) => {
               ))}
               {entries.length > 0 && (
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell colSpan={3}><strong>Page subtotal (Land in Khasra)</strong></TableCell>
-                  <TableCell align="right" sx={KMS_CELL_SX}><strong>{totals.kanal || '—'}</strong></TableCell>
-                  <TableCell align="right" sx={KMS_CELL_SX}><strong>{totals.marla || '—'}</strong></TableCell>
-                  <TableCell align="right" sx={KMS_CELL_SX}><strong>{totals.sarsai || '—'}</strong></TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary">
-                      Combined: {formatKMS(totals)} (current page)
+                  <TableCell colSpan={3} sx={COMPACT_CELL_SX}><strong>Page subtotal (Land in Khasra)</strong></TableCell>
+                  <TableCell align="center" sx={{ ...kmsCellSx('k'), fontWeight: 700 }}>{totals.kanal || '—'}</TableCell>
+                  <TableCell align="center" sx={{ ...kmsCellSx('m'), fontWeight: 700 }}>{totals.marla || '—'}</TableCell>
+                  <TableCell align="center" sx={{ ...kmsCellSx('s'), fontWeight: 700 }}>{totals.sarsai || '—'}</TableCell>
+                  <TableCell sx={COMPACT_CELL_SX}>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {formatKMS(totals)}
                     </Typography>
                   </TableCell>
                 </TableRow>

@@ -329,7 +329,8 @@ export const SUBMODULES = {
     'campaigns',
     'companies',
     'opportunities',
-    'crm_reports'
+    'crm_reports',
+    'crm_surveys'
   ],
   [MODULE_KEYS.AUDIT]: [
     'audit_management',
@@ -866,7 +867,18 @@ export const MODULES = {
       { name: 'Campaigns', path: '/crm/campaigns' },
       { name: 'Companies', path: '/crm/companies' },
       { name: 'Opportunities', path: '/crm/opportunities' },
-      { name: 'Reports', path: '/crm/reports' }
+      { name: 'Reports', path: '/crm/reports' },
+      {
+        name: 'Survey',
+        path: '/crm/survey',
+        subItems: [
+          { name: 'Analytics & Reporting Dashboard', path: '/crm/survey/dashboard' },
+          { name: 'Manage Surveys', path: '/crm/survey' },
+          { name: 'My Surveys', path: '/crm/survey/mine' },
+          { name: 'Create Survey', path: '/crm/survey/new' },
+          { name: 'Create Poll', path: '/crm/survey/poll/new' }
+        ]
+      }
     ]
   },
   
@@ -1235,6 +1247,11 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   // Chat (1:1, groups, moderation UI) — any authenticated user; moderation page enforces admin API
   if (path === '/chat' || path.startsWith('/chat/')) return true;
 
+  // CRM Survey — any authenticated user can open assigned surveys and submit responses
+  if (path === '/crm/survey/mine' || /^\/crm\/survey\/[^/]+\/respond$/.test(path)) {
+    return true;
+  }
+
   // Purchase Orders route relies on backend assignment checks for visibility and actions.
   // Keep this route reachable for cross-module authority approvers (audit/hr/general/etc).
   if (path === '/procurement/purchase-orders' || path.startsWith('/procurement/purchase-orders/')) return true;
@@ -1453,6 +1470,11 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/crm/companies': 'companies',
       '/crm/opportunities': 'opportunities',
       '/crm/reports': 'crm_reports',
+      '/crm/survey/poll/new': 'crm_surveys',
+      '/crm/survey/dashboard': 'crm_surveys',
+      '/crm/survey/new': 'crm_surveys',
+      '/crm/survey/mine': 'crm_surveys',
+      '/crm/survey': 'crm_surveys',
       
       // Audit Module
       '/audit/list': 'audit_management',
@@ -1486,8 +1508,11 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
     }
     
     // Handle dynamic routes (with :id or other params)
-    // Check if path starts with any mapped path
-    for (const [mappedPath, submodule] of Object.entries(pathToSubmoduleMap)) {
+    // Prefer the longest matching path (e.g. /crm/survey before /crm)
+    const sortedEntries = Object.entries(pathToSubmoduleMap)
+      .sort((a, b) => b[0].length - a[0].length);
+
+    for (const [mappedPath, submodule] of sortedEntries) {
       // Remove trailing slashes for comparison
       const normalizedPath = path.replace(/\/$/, '');
       const normalizedMappedPath = mappedPath.replace(/\/$/, '');
