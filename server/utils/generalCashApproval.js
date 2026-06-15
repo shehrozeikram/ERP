@@ -123,7 +123,7 @@ const validateGeneralCashApprovalPayload = (payload, { forSubmit = false } = {})
     const approverIds = (payload.approverIds || payload.draftApproverIds || [])
       .map((id) => String(id || '').trim())
       .filter(Boolean);
-    if (approverIds.length !== 2) {
+    if (!payload.skipApproverIds && approverIds.length !== 2) {
       errors.push('Select Manager Approver and Head Of Department Approver');
     }
   }
@@ -222,12 +222,234 @@ const approverIdFromStep = (step) => {
 const getFirstPendingDepartmentStepIndex = (chain = []) =>
   (chain || []).findIndex((step) => step.status === 'pending');
 
+/** Index of the first rejected step in the department chain. */
+const getRejectedDepartmentStepIndex = (chain = []) =>
+  (chain || []).findIndex((step) => step.status === 'rejected');
+
 /** Index user may act on, only if they are the current (first pending) approver. */
 const getActorPendingDepartmentStepIndex = (chain, userId) => {
   const uid = String(userId || '');
   const idx = getFirstPendingDepartmentStepIndex(chain);
   if (idx === -1) return -1;
   return approverIdFromStep(chain[idx]) === uid ? idx : -1;
+};
+
+const isGeneralCashApprovalEditable = (ca) => {
+  if (!isGeneralCashApproval(ca)) return false;
+  if (ca.status === 'Returned from Audit') return true;
+  if (ca.status === 'Rejected') return true;
+  return (
+    ['Draft', 'Pending Approval'].includes(ca.status) &&
+    ['Draft', 'Submitted', 'Rejected'].includes(ca.departmentApprovalStatus || 'Draft')
+  );
+};
+
+/** Re-queue after rejection — keep approved steps, reopen rejected/pending only (comparative-statement pattern). */
+const resubmitGeneralDepartmentApproval = (ca) => {
+  const chain = ca.departmentApprovalChain || [];
+  const hasRejectedStep = chain.some((step) => step.status === 'rejected');
+  const isRejected =
+    ca.status === 'Rejected' ||
+    ca.departmentApprovalStatus === 'Rejected' ||
+    hasRejectedStep;
+
+  if (!chain.length) {
+    const err = new Error('No approval chain to resubmit');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!isRejected) {
+    const err = new Error('This cash approval is not in a rejected state that can be resubmitted');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  ca.departmentApprovalChain = chain.map((step) => {
+    if (step.status === 'approved') {
+      return {
+        approver: step.approver,
+        status: 'approved',
+        actedAt: step.actedAt,
+        comment: step.comment || ''
+      };
+    }
+    return {
+      approver: step.approver,
+      status: 'pending',
+      actedAt: undefined,
+      comment: ''
+    };
+  });
+  ca.departmentApprovalStatus = 'Submitted';
+  ca.status = 'Pending Approval';
+  ca.departmentRejectedBy = undefined;
+  ca.departmentRejectedAt = undefined;
+  ca.departmentRejectionReason = '';
+  ca.markModified('departmentApprovalChain');
+};
+
+const departmentApproverRoleLabel = (index) => {
+  if (index === 0) return 'Manager';
+  if (index === 1) return 'Head of Department';
+  return `Approver ${index + 1}`;
+};
+
+/** Who receives the resubmitted request (first pending step after preserving approvals). */
+const getResubmitTargetDepartmentStepIndex = (ca) => {
+  const chain = ca.departmentApprovalChain || [];
+  const rejectedIdx = getRejectedDepartmentStepIndex(chain);
+  if (rejectedIdx >= 0) return rejectedIdx;
+  return getFirstPendingDepartmentStepIndex(chain);
+};
+
+const getResubmitTargetDepartmentRoleLabel = (ca) => {
+  const idx = getResubmitTargetDepartmentStepIndex(ca);
+  return idx >= 0 ? departmentApproverRoleLabel(idx) : 'approver';
+};
+
+const hasPreservedDepartmentApprovals = (ca) =>
+  (ca?.departmentApprovalChain || []).some((step) => step.status === 'approved');
+
+const RESUBMIT_TARGET_BY_FROM_STATUS = {
+  'Pending Approval': { stage: 'department', status: 'Pending Approval', label: 'department approval' },
+  'Pending Audit': { stage: 'audit', status: 'Pending Audit', label: 'Pre-Audit' },
+  'Forwarded to Audit Director': { stage: 'audit', status: 'Pending Audit', label: 'Pre-Audit' },
+  'Send to CEO Office': { stage: 'ceo_secretariat', status: 'Send to CEO Office', label: 'CEO Secretariat' },
+  'Forwarded to CEO': { stage: 'ceo', status: 'Forwarded to CEO', label: 'CEO' },
+  'Pending Finance': { stage: 'finance', status: 'Pending Finance', label: 'Finance' }
+};
+
+/** Status the document was in when it was last rejected (workflow history or rejection fields). */
+const getRejectedFromStatus = (ca) => {
+  const history = Array.isArray(ca?.workflowHistory) ? ca.workflowHistory : [];
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    if (String(history[i]?.toStatus || '') === 'Rejected') {
+      return String(history[i]?.fromStatus || '');
+    }
+  }
+  const dated = [
+    { at: ca?.financeRejectedAt, from: 'Pending Finance' },
+    { at: ca?.auditRejectedAt, from: 'Pending Audit' },
+    { at: ca?.ceoRejectedAt, from: 'Forwarded to CEO' },
+    { at: ca?.departmentRejectedAt, from: 'Pending Approval' }
+  ].filter((row) => row.at);
+  if (dated.length) {
+    dated.sort((a, b) => new Date(b.at) - new Date(a.at));
+    return dated[0].from;
+  }
+  if (getRejectedDepartmentStepIndex(ca?.departmentApprovalChain) >= 0) {
+    return 'Pending Approval';
+  }
+  return '';
+};
+
+const resolveGeneralResubmitTarget = (ca) => {
+  const fromStatus = getRejectedFromStatus(ca) || 'Pending Approval';
+  const target = RESUBMIT_TARGET_BY_FROM_STATUS[fromStatus] || RESUBMIT_TARGET_BY_FROM_STATUS['Pending Approval'];
+  return { ...target, fromStatus };
+};
+
+const resubmitHistoryComment = (ca, target) => {
+  switch (target.stage) {
+    case 'department':
+      return hasPreservedDepartmentApprovals(ca)
+        ? 'Resubmitted after rejection (prior department approvals preserved)'
+        : 'Resubmitted after rejection for department review';
+    case 'audit':
+      return 'Resubmitted after audit rejection for Pre-Audit review';
+    case 'finance':
+      return 'Resubmitted after finance rejection for finance review';
+    case 'ceo_secretariat':
+      return 'Resubmitted after CEO Secretariat rejection';
+    case 'ceo':
+      return 'Resubmitted after CEO rejection';
+    default:
+      return 'Resubmitted after rejection';
+  }
+};
+
+const resubmitGeneralToAudit = (ca, buildChangeSummary) => {
+  const snapshot = ca.auditSnapshotAtReturn;
+  if (snapshot && typeof buildChangeSummary === 'function') {
+    const summary = buildChangeSummary(ca.items, snapshot);
+    ca.resubmissionChangeSummary = summary || ca.resubmissionChangeSummary || '';
+  }
+  ca.status = 'Pending Audit';
+  ca.auditRejectedBy = undefined;
+  ca.auditRejectedAt = undefined;
+  ca.auditRejectionComments = '';
+};
+
+const resubmitGeneralToFinance = (ca) => {
+  ca.financeAuthorityApprovals = (ca.financeAuthorityApprovals || []).filter(
+    (row) => String(row?.decision || 'approved').trim() !== 'rejected'
+  );
+  ca.financeRejectedBy = undefined;
+  ca.financeRejectedAt = undefined;
+  ca.financeRejectionComments = '';
+  ca.status = 'Pending Finance';
+  ca.markModified('financeAuthorityApprovals');
+};
+
+const resubmitGeneralToCeoSecretariat = (ca) => {
+  ca.status = 'Send to CEO Office';
+  ca.ceoRejectedBy = undefined;
+  ca.ceoRejectedAt = undefined;
+  ca.ceoRejectionComments = '';
+};
+
+const resubmitGeneralToCeo = (ca) => {
+  ca.status = 'Forwarded to CEO';
+  ca.ceoRejectedBy = undefined;
+  ca.ceoRejectedAt = undefined;
+  ca.ceoRejectionComments = '';
+};
+
+const isGeneralCashApprovalResubmitState = (ca) => {
+  if (!isGeneralCashApproval(ca) || ca.status === 'Draft') return false;
+  if (ca.status === 'Rejected' || ca.departmentApprovalStatus === 'Rejected') return true;
+  return getRejectedDepartmentStepIndex(ca.departmentApprovalChain) >= 0;
+};
+
+const applyGeneralResubmit = async (ca, approverIds, actorId, { buildChangeSummary } = {}) => {
+  const ids = uniqueApproverIds(approverIds);
+  const target = resolveGeneralResubmitTarget(ca);
+
+  if (target.stage === 'department') {
+    const chain = ca.departmentApprovalChain || [];
+    if (chain.length > 0) {
+      if (ids.length === 2) {
+        ids.forEach((approverId, idx) => {
+          const step = ca.departmentApprovalChain[idx];
+          if (step && step.status !== 'approved') {
+            step.approver = approverId;
+          }
+        });
+      }
+      resubmitGeneralDepartmentApproval(ca);
+    } else {
+      if (!isGeneralCashApprovalResubmitState(ca)) {
+        const err = new Error('This cash approval is not in a rejected state that can be resubmitted');
+        err.statusCode = 400;
+        throw err;
+      }
+      await applyGeneralSubmitApprovers(ca, ids, actorId);
+    }
+  } else if (target.stage === 'audit') {
+    resubmitGeneralToAudit(ca, buildChangeSummary);
+  } else if (target.stage === 'finance') {
+    resubmitGeneralToFinance(ca);
+  } else if (target.stage === 'ceo_secretariat') {
+    resubmitGeneralToCeoSecretariat(ca);
+  } else if (target.stage === 'ceo') {
+    resubmitGeneralToCeo(ca);
+  }
+
+  return {
+    ...target,
+    historyComment: resubmitHistoryComment(ca, target)
+  };
 };
 
 module.exports = {
@@ -244,5 +466,17 @@ module.exports = {
   getEligibleUtilityBillApproverUserIds,
   approverIdFromStep,
   getFirstPendingDepartmentStepIndex,
-  getActorPendingDepartmentStepIndex
+  getActorPendingDepartmentStepIndex,
+  getRejectedDepartmentStepIndex,
+  isGeneralCashApprovalEditable,
+  isGeneralCashApprovalResubmitState,
+  resubmitGeneralDepartmentApproval,
+  applyGeneralResubmit,
+  departmentApproverRoleLabel,
+  getResubmitTargetDepartmentStepIndex,
+  getResubmitTargetDepartmentRoleLabel,
+  hasPreservedDepartmentApprovals,
+  getRejectedFromStatus,
+  resolveGeneralResubmitTarget,
+  resubmitHistoryComment
 };

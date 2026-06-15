@@ -23,6 +23,17 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
 import generalCashApprovalService from '../../../services/generalCashApprovalService';
 import CashApprovalGeneralDetailShell from '../../../components/CashApprovals/CashApprovalGeneralDetailShell';
+import {
+  canEditGeneralCashApproval,
+  canResubmitGeneralCashApproval,
+  canSubmitGeneralCashApprovalDraft,
+  isGeneralCashApprovalRejected,
+  rejectedApproverLabel,
+  hasPreservedDepartmentApprovals,
+  getResubmitDestinationLabel,
+  isDepartmentStageRejection,
+  resubmitCashApprovalMessage
+} from '../../../utils/generalCashApprovalWorkflow';
 
 const GeneralCashApprovalDetail = () => {
   const { id } = useParams();
@@ -55,19 +66,16 @@ const GeneralCashApprovalDetail = () => {
   }, [load]);
 
   const uid = String(user?._id || user?.id || '');
-  const isCreator = uid && String(ca?.createdBy?._id || ca?.createdBy) === uid;
   const firstPendingStep = (ca?.departmentApprovalChain || []).find((s) => s.status === 'pending');
   const pendingApproverId = String(firstPendingStep?.approver?._id || firstPendingStep?.approver || '');
-  const isCurrentPendingApprover = pendingApproverId && pendingApproverId === uid && !isCreator;
+  const isCurrentPendingApprover = pendingApproverId && pendingApproverId === uid && uid !== String(ca?.createdBy?._id || ca?.createdBy);
   const canApprove =
     ca?.status === 'Pending Approval' &&
     ca?.departmentApprovalStatus === 'Submitted' &&
     isCurrentPendingApprover;
-  const canEdit =
-    isCreator &&
-    ['Draft', 'Pending Approval'].includes(ca?.status) &&
-    ['Draft', 'Submitted', 'Rejected'].includes(ca?.departmentApprovalStatus || 'Draft');
-  const canSubmitDraft = isCreator && ca?.status === 'Draft';
+  const canEdit = canEditGeneralCashApproval(ca, user);
+  const canSubmitDraft = canSubmitGeneralCashApprovalDraft(ca, user);
+  const canResubmit = canResubmitGeneralCashApproval(ca, user);
   const auditBlocksEdit = ['Pending Audit', 'Forwarded to Audit Director'].includes(ca?.status);
 
   const handleApprove = async () => {
@@ -96,6 +104,22 @@ const GeneralCashApprovalDetail = () => {
       await load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Reject failed');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResubmit = async () => {
+    try {
+      setActionLoading(true);
+      const approverIds = (ca.departmentApprovalChain || [])
+        .map((step) => String(step?.approver?._id || step?.approver || ''))
+        .filter(Boolean);
+      await generalCashApprovalService.submit(id, { approverIds });
+      toast.success(resubmitCashApprovalMessage(ca));
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Resubmit failed');
     } finally {
       setActionLoading(false);
     }
@@ -153,6 +177,14 @@ const GeneralCashApprovalDetail = () => {
                 Returned from audit. Update the request if needed, then resubmit when available.
               </Alert>
             )}
+            {isGeneralCashApprovalRejected(ca) && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Rejected by {rejectedApproverLabel(ca)}. Review the observations below, edit if needed, then resubmit.
+                {isDepartmentStageRejection(ca) && hasPreservedDepartmentApprovals(ca)
+                  ? ` Prior department approvals are preserved — resubmit goes directly to ${getResubmitDestinationLabel(ca)}.`
+                  : ` Resubmit will return the request to ${getResubmitDestinationLabel(ca)}.`}
+              </Alert>
+            )}
           </>
         }
         toolbarActions={
@@ -161,6 +193,19 @@ const GeneralCashApprovalDetail = () => {
               <Button variant="contained" color="info" startIcon={<SendIcon />} disabled={actionLoading} onClick={handleSubmit}>
                 Submit
               </Button>
+            )}
+            {canResubmit && (
+              <>
+                <Button
+                  variant="contained"
+                  color="info"
+                  startIcon={<SendIcon />}
+                  disabled={actionLoading}
+                  onClick={handleResubmit}
+                >
+                  Resubmit
+                </Button>
+              </>
             )}
             {canApprove && (
               <>
@@ -172,7 +217,7 @@ const GeneralCashApprovalDetail = () => {
                 </Button>
               </>
             )}
-            <Tooltip title={auditBlocksEdit ? 'Cannot edit while in audit' : 'Edit request'}>
+            <Tooltip title={auditBlocksEdit ? 'Cannot edit while in audit' : (canEdit ? 'Edit request' : 'Only the requester can edit rejected or draft requests')}>
               <span>
                 <Button
                   variant="contained"

@@ -59,6 +59,12 @@ const MOUZA_LABELS = {
   unknown: 'Other / Unmapped'
 };
 
+const parcelIdForFeature = (feature, idx = 0) => {
+  const k = feature?.properties?.k ?? idx;
+  const moza = feature?.properties?.moza;
+  return moza ? `khasra-${moza}-${k}` : `khasra-${k}`;
+};
+
 const SATELLITE_URL =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const STREET_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -132,8 +138,9 @@ const KhasraParcelLayer = ({
       style: (feature) => styleRef.current(feature),
       onEachFeature: (feature, leafletLayer) => {
         const parcel = {
-          id: `khasra-${feature.properties?.k}`,
+          id: parcelIdForFeature(feature),
           k: feature.properties?.k,
+          moza: feature.properties?.moza || null,
           lat: feature.properties?.cy,
           lng: feature.properties?.cx,
           feature
@@ -231,8 +238,9 @@ const KhasraPartialFillLayer = ({ data, getStyle, onParcelClick }) => {
       style: (feature) => styleRef.current(feature),
       onEachFeature: (feature, leafletLayer) => {
         const parcel = {
-          id: `khasra-${feature.properties?.k}`,
+          id: parcelIdForFeature(feature),
           k: feature.properties?.k,
+          moza: feature.properties?.moza || null,
           lat: feature.properties?.cy,
           lng: feature.properties?.cx,
           feature
@@ -341,8 +349,9 @@ const LathaMapViewer = () => {
         if (parcelsRes?.features?.[0]?.geometry?.type === 'Polygon') {
           setParcels(
             (parcelsRes.features || []).map((feature, idx) => ({
-              id: `khasra-${feature.properties?.k || idx}`,
+              id: parcelIdForFeature(feature, idx),
               k: feature.properties?.k,
+              moza: feature.properties?.moza || null,
               lat: feature.properties?.cy,
               lng: feature.properties?.cx,
               feature
@@ -351,8 +360,9 @@ const LathaMapViewer = () => {
         } else {
           setParcels(
             (parcelsRes?.features || []).map((feature, idx) => ({
-              id: `khasra-${feature.properties?.k || idx}`,
+              id: parcelIdForFeature(feature, idx),
               k: feature.properties?.k,
+              moza: feature.properties?.moza || null,
               lat: feature.geometry.coordinates[1],
               lng: feature.geometry.coordinates[0],
               feature: null
@@ -424,6 +434,7 @@ const LathaMapViewer = () => {
 
   const parcelBelongsToMouza = useCallback((parcel, slug) => {
     if (!slug || slug === 'all') return true;
+    if (parcel.moza) return parcel.moza === slug;
     const khasraSet = mouzaKhasraSets[slug];
     if (!khasraSet?.size) return Boolean(getResolvedStatusForMouza(parcel, slug));
     return khasraSet.has(normalizeKhasraNo(parcel.k));
@@ -432,7 +443,7 @@ const LathaMapViewer = () => {
   const getResolvedStatus = useCallback(
     (point) => resolveStatusForKhasra(
       point.k,
-      mouzaFilter === 'all' ? null : mouzaFilter,
+      point.moza || (mouzaFilter === 'all' ? null : mouzaFilter),
       statusMap,
       mozas,
       statusLookups
@@ -742,16 +753,20 @@ const LathaMapViewer = () => {
   ]);
 
   const parcelStyle = useCallback((feature) => {
-    const parcel = { k: feature?.properties?.k };
+    const parcel = {
+      id: parcelIdForFeature(feature),
+      k: feature?.properties?.k,
+      moza: feature?.properties?.moza || null
+    };
     const resolved = resolveStatusForKhasra(
       parcel.k,
-      mouzaFilter === 'all' ? null : mouzaFilter,
+      parcel.moza || (mouzaFilter === 'all' ? null : mouzaFilter),
       statusMap,
       mozas,
       statusLookups
     );
     const statusRow = resolved?.status || null;
-    const isSelected = selectedParcel?.k === parcel.k;
+    const isSelected = selectedParcel?.id === parcel.id;
     const highlighted = anyErpLayerOn && matchesActiveLayer(statusRow);
 
     if (!highlighted) {
@@ -792,13 +807,14 @@ const LathaMapViewer = () => {
   const possessionFillStyle = useCallback((feature) => {
     const resolved = resolveStatusForKhasra(
       feature?.properties?.k,
-      mouzaFilter === 'all' ? null : mouzaFilter,
+      feature?.properties?.moza || (mouzaFilter === 'all' ? null : mouzaFilter),
       statusMap,
       mozas,
       statusLookups
     );
     const statusRow = resolved?.status || null;
-    const isSelected = selectedParcel?.k === feature?.properties?.k;
+    const featureId = parcelIdForFeature(feature);
+    const isSelected = selectedParcel?.id === featureId;
 
     return {
       color: strokeForStatus(statusRow, isSelected),

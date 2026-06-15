@@ -29,7 +29,13 @@ const {
   applyGeneralSubmitApprovers,
   approverIdFromStep,
   getFirstPendingDepartmentStepIndex,
-  getActorPendingDepartmentStepIndex
+  getActorPendingDepartmentStepIndex,
+  getRejectedDepartmentStepIndex,
+  isGeneralCashApprovalEditable,
+  resubmitGeneralDepartmentApproval,
+  isGeneralCashApprovalResubmitState,
+  applyGeneralResubmit,
+  resolveGeneralResubmitTarget
 } = require('../utils/generalCashApproval');
 const { queryApproverCandidateUsers } = require('../utils/utilityBillApproverEligibility');
 const Employee = require('../models/hr/Employee');
@@ -345,15 +351,85 @@ const notifyNextGeneralDepartmentApprover = async (ca, actorId) => {
   const recipientId = approverIdFromStep(chain[idx]);
   if (!recipientId) return;
   const roleLabel = idx === 0 ? 'Manager' : 'Head of Department';
+  const preservedNote = chain.some((step, stepIdx) => stepIdx < idx && step.status === 'approved')
+    ? ' Previous approvals are preserved — only your step is pending.'
+    : '';
   await notify({
     recipientIds: [recipientId],
     actorId,
     title: 'Cash Approval awaiting your approval',
-    message: `Cash Approval ${ca.caNumber} requires your ${roleLabel} approval.`,
-    actionUrl: `/cash-approvals/${ca._id}/view?from=audit`,
+    message: `Cash Approval ${ca.caNumber} requires your ${roleLabel} approval.${preservedNote}`,
+    actionUrl: `/general/cash-approvals/${ca._id}`,
     entityId: ca._id,
     module: 'general'
   });
+};
+
+const notifyAfterGeneralResubmit = async (ca, actorId, target) => {
+  if (!target) return;
+  if (target.stage === 'department') {
+    await notifyNextGeneralDepartmentApprover(ca, actorId);
+    return;
+  }
+  if (target.stage === 'audit') {
+    const recipients = await getAuditRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId,
+      title: 'General Cash Approval pending Audit review',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to Pre-Audit after rejection.`,
+      actionUrl: '/audit',
+      entityId: ca._id,
+      module: 'general',
+      metadata: { queueStage: 'pending_audit', targetModule: 'audit', targetTab: 'pre_audit' }
+    });
+    return;
+  }
+  if (target.stage === 'finance') {
+    const slots = getRequiredFinanceAuthoritySlots(ca);
+    const decidedKeys = new Set(
+      (ca.financeAuthorityApprovals || [])
+        .map((row) => String(row?.authorityKey || '').trim())
+        .filter(Boolean)
+    );
+    const pendingIds = slots.filter((slot) => !decidedKeys.has(slot.key)).map((slot) => slot.userId);
+    const recipients = pendingIds.length ? pendingIds : await getFinanceRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId,
+      title: 'Cash Approval pending Finance review',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to Finance after rejection.`,
+      actionUrl: `/general/cash-approvals/${ca._id}`,
+      entityId: ca._id,
+      module: 'general'
+    });
+    return;
+  }
+  if (target.stage === 'ceo_secretariat') {
+    const recipients = await getCeoSecretariatRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId,
+      title: 'Cash Approval pending CEO Secretariat review',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to CEO Secretariat after rejection.`,
+      actionUrl: `/general/cash-approvals/${ca._id}`,
+      entityId: ca._id,
+      module: 'general'
+    });
+    return;
+  }
+  if (target.stage === 'ceo') {
+    const recipients = await getCeoRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId,
+      title: 'Cash Approval pending CEO approval',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to CEO after rejection.`,
+      actionUrl: `/general/cash-approvals/${ca._id}`,
+      entityId: ca._id,
+      module: 'general'
+    });
+  }
 };
 
 const { resolveAuditStampMeta } = require('../utils/auditStampMeta');
@@ -997,10 +1073,7 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
     if (!canManageGeneralCashApproval(req.user, ca) && !hasGeneralModuleAccess(req.user)) {
       return res.status(403).json({ success: false, message: 'Not allowed to edit this cash approval' });
     }
-    const editableGeneral =
-      ['Draft', 'Pending Approval'].includes(ca.status) &&
-      ['Draft', 'Submitted', 'Rejected'].includes(ca.departmentApprovalStatus || 'Draft');
-    if (!editableGeneral && ca.status !== 'Returned from Audit') {
+    if (!isGeneralCashApprovalEditable(ca)) {
       return res.status(400).json({ success: false, message: `Cannot edit cash approval in "${ca.status}" status` });
     }
     const body = { ...req.body };
@@ -1059,10 +1132,43 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
     if (body.draftApproverIds) {
       ca.draftApproverIds = uniqueApproverIds(parseJsonBodyField(body.draftApproverIds, []));
     }
+    const shouldResubmit = body.resubmit === true || body.resubmit === 'true';
+    if (shouldResubmit) {
+      const resubmitTarget = resolveGeneralResubmitTarget(ca);
+      const skipApproverIds = resubmitTarget.stage !== 'department';
+      const approverIds = uniqueApproverIds(
+        parseJsonBodyField(body.approverIds, ca.draftApproverIds?.map((id) => String(id._id || id)) || [])
+      );
+      const payload = {
+        purpose: ca.purpose,
+        requestingDepartment: ca.requestingDepartment,
+        advanceToEmployee: ca.advanceToEmployee?._id || ca.advanceToEmployee,
+        advanceGlAccount: ca.advanceGlAccount?._id || ca.advanceGlAccount,
+        items: ca.items,
+        shippingCost: ca.shippingCost,
+        approverIds,
+        skipApproverIds
+      };
+      const { errors: resubmitErrors } = validateGeneralCashApprovalPayload(payload, { forSubmit: true });
+      if (resubmitErrors.length) {
+        return res.status(400).json({ success: false, message: resubmitErrors.join('; ') });
+      }
+      const target = await applyGeneralResubmit(ca, approverIds, getActorId(req), {
+        buildChangeSummary: buildCAChangeSummary
+      });
+      pushHistory(ca, 'Rejected', target.status, req.user.id, target.historyComment, 'General');
+      await notifyAfterGeneralResubmit(ca, req.user.id, target);
+    }
     ca.updatedBy = req.user.id;
     await ca.save();
     const updated = await fullPopulate(CashApproval.findById(ca._id));
-    return res.json({ success: true, message: 'Cash Approval updated', data: updated });
+    return res.json({
+      success: true,
+      message: shouldResubmit
+        ? 'Cash Approval updated and resubmitted for approval'
+        : 'Cash Approval updated',
+      data: updated
+    });
   }
 
   const editableStatuses = ['Pending Approval', 'Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'];
@@ -1098,9 +1204,15 @@ router.put('/:id/submit', authMiddleware, asyncHandler(async (req, res) => {
   if (!canManageGeneralCashApproval(req.user, ca)) {
     return res.status(403).json({ success: false, message: 'Not allowed to submit this cash approval' });
   }
-  if (ca.status !== 'Draft') {
-    return res.status(400).json({ success: false, message: 'Only draft cash approvals can be submitted' });
+  const isResubmit = isGeneralCashApprovalResubmitState(ca);
+  if (!isResubmit && ca.status !== 'Draft') {
+    return res.status(400).json({
+      success: false,
+      message: `Only draft or rejected cash approvals can be submitted (current status: ${ca.status})`
+    });
   }
+  const resubmitTarget = isResubmit ? resolveGeneralResubmitTarget(ca) : null;
+  const skipApproverIds = resubmitTarget && resubmitTarget.stage !== 'department';
   const approverIds = uniqueApproverIds(
     req.body?.approverIds || ca.draftApproverIds?.map((id) => String(id._id || id)) || []
   );
@@ -1111,19 +1223,41 @@ router.put('/:id/submit', authMiddleware, asyncHandler(async (req, res) => {
     advanceGlAccount: ca.advanceGlAccount?._id || ca.advanceGlAccount,
     items: ca.items,
     shippingCost: ca.shippingCost,
-    approverIds
+    approverIds,
+    skipApproverIds
   };
   const { errors } = validateGeneralCashApprovalPayload(payload, { forSubmit: true });
   if (errors.length) {
     return res.status(400).json({ success: false, message: errors.join('; ') });
   }
+
+  if (isResubmit) {
+    const target = await applyGeneralResubmit(ca, approverIds, getActorId(req), {
+      buildChangeSummary: buildCAChangeSummary
+    });
+    pushHistory(ca, 'Rejected', target.status, req.user.id, target.historyComment, 'General');
+    ca.updatedBy = req.user.id;
+    await ca.save();
+    await notifyAfterGeneralResubmit(ca, req.user.id, target);
+    const updated = await fullPopulate(CashApproval.findById(ca._id));
+    return res.json({
+      success: true,
+      message: `Cash Approval resubmitted to ${target.label}`,
+      data: updated
+    });
+  }
+
   await applyGeneralSubmitApprovers(ca, approverIds, getActorId(req));
   pushHistory(ca, 'Draft', 'Pending Approval', req.user.id, 'Submitted from General module for Manager / HOD approval', 'General');
   ca.updatedBy = req.user.id;
   await ca.save();
   await notifyNextGeneralDepartmentApprover(ca, req.user.id);
   const updated = await fullPopulate(CashApproval.findById(ca._id));
-  res.json({ success: true, message: 'Cash Approval submitted for approval', data: updated });
+  res.json({
+    success: true,
+    message: 'Cash Approval submitted for approval',
+    data: updated
+  });
 }));
 
 // DELETE /api/cash-approvals/:id

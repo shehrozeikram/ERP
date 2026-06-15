@@ -46,6 +46,16 @@ describe('getWorkflowFeedbackObservations', () => {
     expect(getWorkflowFeedbackObservations(undefined)).toEqual([]);
   });
 
+  it('includes department rejection reason for general cash approvals', () => {
+    const rows = getWorkflowFeedbackObservations({
+      status: 'Rejected',
+      departmentRejectionReason: 'Please attach vendor quote',
+      departmentRejectedAt: '2026-06-01T10:00:00.000Z'
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].observation).toBe('Please attach vendor quote');
+  });
+
   it('prefers document.observations when non-empty', () => {
     const obs = [{ _id: '1', observation: 'A', addedAt: '2024-01-01' }];
     const s = {

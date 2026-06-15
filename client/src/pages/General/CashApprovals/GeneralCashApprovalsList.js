@@ -27,7 +27,8 @@ import {
   Visibility as ViewIcon,
   Refresh as RefreshIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -39,6 +40,7 @@ import {
   canApproveCashApprovalRow,
   isCashApprovalDeptApproved
 } from '../../../utils/departmentApprovalListActions';
+import { canEditGeneralCashApproval } from '../../../utils/generalCashApprovalWorkflow';
 
 const statusColor = (status) => {
   if (status === 'Draft') return 'default';
@@ -229,6 +231,13 @@ const GeneralCashApprovalsList = () => {
                             <ViewIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
+                        {canEditGeneralCashApproval(row, user) && (
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => navigate(`/general/cash-approvals/${row._id}/edit`)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </Stack>
                     </TableCell>
                   </TableRow>

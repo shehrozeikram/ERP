@@ -88,19 +88,21 @@ const applyBillLinesToPayload = async (billData) => {
   billData.grandTotal = billData.amount;
   billData.balanceAmount = Math.max(billData.amount - (Number(billData.lastMonthAmount) || 0), 0);
 
+  const explicitProvider = String(billData.provider || '').trim();
+
   if (billData.payeeEmployee) {
     const Employee = require('../models/hr/Employee');
     const emp = await Employee.findById(billData.payeeEmployee)
       .select('firstName lastName employeeId')
       .lean();
-    if (emp) {
+    if (emp && !explicitProvider) {
       const name = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId || '';
       if (name) billData.provider = name;
     }
     billData.vendorId = null;
   } else if (billData.vendorId) {
     const vendor = await Supplier.findById(billData.vendorId).select('name').lean();
-    if (vendor?.name) billData.provider = vendor.name;
+    if (vendor?.name && !explicitProvider) billData.provider = vendor.name;
     billData.payeeEmployee = null;
   }
 

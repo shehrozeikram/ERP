@@ -19,7 +19,9 @@ import {
   CircularProgress,
   FormControl,
   InputLabel,
-  Select
+  Select,
+  Chip,
+  TableContainer
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,8 +40,19 @@ import {
   optionsForManagerApprover,
   optionsForHodApprover
 } from '../../../utils/dualApproverAutocomplete';
-import { resolveUploadPublicUrl } from '../../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
+import { resolveUploadPublicUrl, formatDateTime, userDisplayName as caUserDisplayName } from '../../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
 import LineAttachmentCell from '../../../components/common/LineAttachmentCell';
+import { WorkflowAuditFeedbackPanel } from '../../../components/Admin/workflowAuditReturn';
+import {
+  canEditGeneralCashApproval,
+  isGeneralCashApprovalRejected,
+  rejectedApproverLabel,
+  departmentApproverRoleLabel,
+  hasPreservedDepartmentApprovals,
+  getResubmitDestinationLabel,
+  isDepartmentStageRejection,
+  resolveGeneralResubmitTargetClient
+} from '../../../utils/generalCashApprovalWorkflow';
 import {
   appendCashApprovalLineAttachmentsToFormData,
   emptyGeneralCashApprovalLine,
@@ -107,6 +120,8 @@ const GeneralCashApprovalForm = () => {
   const [approverOptions, setApproverOptions] = useState([]);
   const [approverLoading, setApproverLoading] = useState(false);
   const [loadedDeptApproval, setLoadedDeptApproval] = useState('Draft');
+  const [loadedStatus, setLoadedStatus] = useState('Draft');
+  const [loadedCa, setLoadedCa] = useState(null);
 
   const linesTotal = useMemo(
     () => lines.reduce((s, l) => s + (Number(l.amount) || 0), 0),
@@ -185,10 +200,12 @@ const GeneralCashApprovalForm = () => {
           setError('Not a General module cash approval');
           return;
         }
-        if (!['Draft', 'Pending Approval', 'Returned from Audit'].includes(ca.status)) {
+        if (!canEditGeneralCashApproval(ca, user)) {
           setError('This cash approval can no longer be edited');
           return;
         }
+        setLoadedCa(ca);
+        setLoadedStatus(ca.status || 'Draft');
         setHeader({
           purpose: ca.purpose || '',
           notes: ca.notes || '',
@@ -280,7 +297,7 @@ const GeneralCashApprovalForm = () => {
   const addLine = () => setLines((prev) => [...prev, emptyLine()]);
   const removeLine = (idx) => setLines((prev) => (prev.length <= 1 ? [emptyLine()] : prev.filter((_, i) => i !== idx)));
 
-  const buildFormData = (mode) => {
+  const buildFormData = (mode, { resubmitAfterSave = false } = {}) => {
     const fd = new FormData();
     fd.append('generalModule', 'true');
     fd.append('originatingModule', 'general');
@@ -297,7 +314,8 @@ const GeneralCashApprovalForm = () => {
         fd.append('advanceGlAccountNumber', advanceEmployee.advanceAccount.accountNumber || '');
       }
     }
-    if (mode === 'submit') fd.append('submit', 'true');
+    if (mode === 'submit' && !isEdit) fd.append('submit', 'true');
+    if (resubmitAfterSave) fd.append('resubmit', 'true');
 
     fd.append('items', JSON.stringify(serializeCashApprovalItemsForSubmit(lines)));
     appendCashApprovalLineAttachmentsToFormData(fd, lines);
@@ -325,15 +343,22 @@ const GeneralCashApprovalForm = () => {
       if (!(Number(l.amount) > 0)) return `Line ${i + 1}: total amount must be greater than zero`;
     }
     if (mode === 'submit') {
-      if (!managerApprover?._id || !hodApprover?._id) {
-        return 'Select Manager Approver and Head Of Department Approver before submitting';
-      }
-      const rid = getUserId(user);
-      if ([getUserId(managerApprover), getUserId(hodApprover)].includes(rid)) {
-        return 'Requester cannot be selected as Manager or HOD approver';
-      }
-      if (getUserId(managerApprover) === getUserId(hodApprover)) {
-        return 'Manager and HOD approvers must be different';
+      const rejectedResubmit =
+        isEdit &&
+        isGeneralCashApprovalRejected({ status: loadedStatus, departmentApprovalStatus: loadedDeptApproval });
+      const needsDepartmentApprovers =
+        !rejectedResubmit || isDepartmentStageRejection(loadedCa);
+      if (needsDepartmentApprovers) {
+        if (!managerApprover?._id || !hodApprover?._id) {
+          return 'Select Manager Approver and Head Of Department Approver before submitting';
+        }
+        const rid = getUserId(user);
+        if ([getUserId(managerApprover), getUserId(hodApprover)].includes(rid)) {
+          return 'Requester cannot be selected as Manager or HOD approver';
+        }
+        if (getUserId(managerApprover) === getUserId(hodApprover)) {
+          return 'Manager and HOD approvers must be different';
+        }
       }
     }
     return '';
@@ -348,7 +373,11 @@ const GeneralCashApprovalForm = () => {
     setSaving(true);
     setError('');
     try {
-      const fd = buildFormData(mode);
+      const resubmitAfterSave = isEdit && mode === 'submit' && isGeneralCashApprovalRejected({
+        status: loadedStatus,
+        departmentApprovalStatus: loadedDeptApproval
+      });
+      const fd = buildFormData(mode, { resubmitAfterSave });
       let requestId = id;
       if (isEdit) {
         await generalCashApprovalService.update(id, fd);
@@ -356,7 +385,13 @@ const GeneralCashApprovalForm = () => {
         const created = await generalCashApprovalService.create(fd);
         requestId = created.data?._id;
       }
-      if (mode === 'submit' && isEdit && loadedDeptApproval === 'Draft') {
+      if (
+        mode === 'submit' &&
+        isEdit &&
+        !resubmitAfterSave &&
+        loadedDeptApproval === 'Draft' &&
+        loadedStatus === 'Draft'
+      ) {
         await generalCashApprovalService.submit(requestId, {
           approverIds: [getUserId(managerApprover), getUserId(hodApprover)]
         });
@@ -381,6 +416,14 @@ const GeneralCashApprovalForm = () => {
     managerApprover
   });
 
+  const isRejectedEdit = isEdit && isGeneralCashApprovalRejected({ status: loadedStatus, departmentApprovalStatus: loadedDeptApproval });
+  const approvalChain = loadedCa?.departmentApprovalChain || [];
+  const resubmitTarget = resolveGeneralResubmitTargetClient(loadedCa || {});
+  const departmentStageRejection = isRejectedEdit && resubmitTarget.stage === 'department';
+  const managerStepApproved = approvalChain[0]?.status === 'approved';
+  const hodStepApproved = approvalChain[1]?.status === 'approved';
+  const preservedApprovals = hasPreservedDepartmentApprovals(loadedCa);
+  const resubmitDestination = getResubmitDestinationLabel(loadedCa || {});
   const showApprovals =
     !isEdit || loadedDeptApproval === 'Draft' || loadedDeptApproval === 'Rejected';
 
@@ -398,6 +441,21 @@ const GeneralCashApprovalForm = () => {
         {isEdit ? 'Edit cash approval' : 'New cash approval'}
       </Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {isRejectedEdit && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Rejected by {rejectedApproverLabel(loadedCa || {})}. Update the request below, then resubmit.
+          {departmentStageRejection && preservedApprovals
+            ? ` Department approvals are preserved — resubmit goes directly to ${resubmitDestination} for review.`
+            : ` Resubmit will return the request to ${resubmitDestination}.`}
+        </Alert>
+      )}
+      {loadedCa && (
+        <WorkflowAuditFeedbackPanel
+          document={loadedCa}
+          formatDateTime={formatDateTime}
+          userDisplayName={caUserDisplayName}
+        />
+      )}
 
       <Paper sx={{ p: 3 }}>
         <Grid container spacing={2}>
@@ -521,8 +579,8 @@ const GeneralCashApprovalForm = () => {
               <TableCell>Description / narration</TableCell>
               <TableCell>Location</TableCell>
               <TableCell width={90}>Unit</TableCell>
-              <TableCell width={80}>Qty</TableCell>
-              <TableCell width={100}>Rate</TableCell>
+              <TableCell width={120} sx={{ minWidth: 120 }}>Qty</TableCell>
+              <TableCell width={140} sx={{ minWidth: 140 }}>Rate</TableCell>
               <TableCell width={110} align="right">Total</TableCell>
               <TableCell width={160}>Attachments</TableCell>
               <TableCell width={48} />
@@ -543,10 +601,10 @@ const GeneralCashApprovalForm = () => {
                 <TableCell>
                   <TextField size="small" fullWidth value={line.unit} onChange={(e) => updateLine(idx, 'unit', e.target.value)} />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={{ minWidth: 120 }}>
                   <TextField size="small" type="number" fullWidth value={line.quantity} onChange={(e) => updateLine(idx, 'quantity', e.target.value)} inputProps={{ min: 0, step: 'any' }} />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={{ minWidth: 140 }}>
                   <TextField size="small" type="number" fullWidth value={line.unitPrice} onChange={(e) => updateLine(idx, 'unitPrice', e.target.value)} inputProps={{ min: 0, step: 'any' }} />
                 </TableCell>
                 <TableCell align="right">{Number(line.amount || 0).toFixed(2)}</TableCell>
@@ -573,9 +631,60 @@ const GeneralCashApprovalForm = () => {
         {showApprovals && (
           <>
             <Typography variant="h6" gutterBottom>Approvals</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Choose Manager and Head Of Department approvers before submitting.
-            </Typography>
+            {isRejectedEdit && approvalChain.length > 0 ? (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {departmentStageRejection
+                    ? 'Prior department approvals are kept. Only the pending step will be notified on resubmit.'
+                    : 'Department approvals are complete. Resubmit will route to the stage that rejected this request.'}
+                </Typography>
+                <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                        <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {approvalChain.map((step, idx) => {
+                        const approver = step?.approver;
+                        const name = approver && typeof approver === 'object'
+                          ? caUserDisplayName(approver)
+                          : '—';
+                        const st = step?.status || 'pending';
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell>{departmentApproverRoleLabel(idx)}</TableCell>
+                            <TableCell>{name}</TableCell>
+                            <TableCell>
+                              <Chip
+                                size="small"
+                                label={st === 'pending' ? 'Pending' : st === 'approved' ? 'Approved' : 'Rejected'}
+                                color={st === 'approved' ? 'success' : st === 'rejected' ? 'error' : 'default'}
+                                variant={st === 'pending' ? 'outlined' : 'filled'}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {step?.actedAt ? formatDateTime(step.actedAt) : '—'}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                {isRejectedEdit && !departmentStageRejection
+                  ? `Department approval is already complete. Resubmit will send this to ${resubmitDestination}.`
+                  : 'Choose Manager and Head Of Department approvers before submitting.'}
+              </Typography>
+            )}
+            {(departmentStageRejection || !isRejectedEdit) && (
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>
                 <TextField fullWidth size="small" label="Sig. of requester" value={userDisplayName(user)} InputProps={{ readOnly: true }} />
@@ -585,12 +694,20 @@ const GeneralCashApprovalForm = () => {
                   options={managerOptions}
                   value={managerApprover}
                   loading={approverLoading}
+                  disabled={managerStepApproved}
                   onChange={(_, v) => setManagerApprover(v)}
                   onOpen={() => loadApproverOptions('')}
                   onInputChange={approverSearchOnInputChange(loadApproverOptions)}
                   getOptionLabel={userDisplayName}
                   isOptionEqualToValue={(a, b) => a._id === b._id}
-                  renderInput={(params) => <TextField {...params} size="small" label="Manager approver" />}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      label="Manager approver"
+                      helperText={managerStepApproved ? 'Already approved — cannot change' : undefined}
+                    />
+                  )}
                 />
               </Grid>
               <Grid item xs={12} md={4}>
@@ -598,25 +715,34 @@ const GeneralCashApprovalForm = () => {
                   options={hodOptions}
                   value={hodApprover}
                   loading={approverLoading}
+                  disabled={hodStepApproved}
                   onChange={(_, v) => setHodApprover(v)}
                   onOpen={() => loadApproverOptions('')}
                   onInputChange={approverSearchOnInputChange(loadApproverOptions)}
                   getOptionLabel={userDisplayName}
                   isOptionEqualToValue={(a, b) => a._id === b._id}
-                  renderInput={(params) => <TextField {...params} size="small" label="Head of department approver" />}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      label="Head of department approver"
+                      helperText={hodStepApproved ? 'Already approved — cannot change' : undefined}
+                    />
+                  )}
                 />
               </Grid>
             </Grid>
+            )}
           </>
         )}
 
         <Stack direction="row" spacing={1} sx={{ mt: 3 }}>
           <Button startIcon={<CancelIcon />} onClick={() => navigate('/general/cash-approvals')}>Cancel</Button>
           <Button variant="outlined" startIcon={<SaveIcon />} disabled={saving} onClick={() => handleSave('draft')}>
-            Save draft
+            {isRejectedEdit ? 'Save changes' : 'Save draft'}
           </Button>
           <Button variant="contained" startIcon={<SendIcon />} disabled={saving} onClick={() => handleSave('submit')}>
-            Submit for approval
+            {isRejectedEdit ? `Resubmit to ${resubmitDestination}` : 'Submit for approval'}
           </Button>
         </Stack>
       </Paper>

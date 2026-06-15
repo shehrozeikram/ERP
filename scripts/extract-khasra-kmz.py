@@ -35,6 +35,31 @@ SIMPLIFY_TOLERANCE = 0.000008
 
 NS = {'k': 'http://www.opengis.net/kml/2.2'}
 
+MOUZA_DESC_SLUGS = (
+    ('sheikhpur', 'sheikhpur'),
+    ('chak rupa', 'chak-rupa'),
+    ('chak-rupa', 'chak-rupa'),
+    ('kaak', 'kaak'),
+    ('lakhu', 'lakhu'),
+    ('narhala', 'narhala'),
+    ('rupa', 'rupa'),
+)
+
+
+def mouza_slug_from_description(description: str) -> str | None:
+    text = (description or '').strip().lower()
+    if not text or text == 'mouza name':
+        return None
+    for needle, slug in MOUZA_DESC_SLUGS:
+        if needle in text:
+            return slug
+    return None
+
+
+def parcel_identity_key(khasra: str, moza: str | None) -> str:
+    k = khasra.strip()
+    return f'{moza}:{k}' if moza else k
+
 
 def ensure_shapely():
     try:
@@ -108,7 +133,22 @@ def bounds_from_coords(all_coords: list[list[float]]) -> dict:
     }
 
 
-def poly_to_geojson(poly, khasra: str) -> dict:
+def as_single_polygon(geom):
+    if geom is None or geom.is_empty:
+        return None
+    if geom.geom_type == 'Polygon':
+        return geom
+    if geom.geom_type == 'MultiPolygon':
+        parts = [part for part in geom.geoms if part.area > MIN_PARCEL_AREA]
+        return max(parts, key=lambda item: item.area) if parts else None
+    if geom.geom_type == 'GeometryCollection':
+        parts = [as_single_polygon(part) for part in geom.geoms]
+        parts = [part for part in parts if part is not None]
+        return max(parts, key=lambda item: item.area) if parts else None
+    return None
+
+
+def poly_to_geojson(poly, khasra: str, moza: str | None = None) -> dict:
     simplified = poly.simplify(SIMPLIFY_TOLERANCE, preserve_topology=True)
     if simplified.is_empty:
         simplified = poly
@@ -116,18 +156,51 @@ def poly_to_geojson(poly, khasra: str) -> dict:
     if exterior[0] != exterior[-1]:
         exterior.append(exterior[0])
     centroid = simplified.centroid
+    properties = {
+        'k': khasra,
+        'cx': round(centroid.x, 6),
+        'cy': round(centroid.y, 6),
+    }
+    if moza:
+        properties['moza'] = moza
     return {
         'type': 'Feature',
         'geometry': {
             'type': 'Polygon',
             'coordinates': [exterior],
         },
-        'properties': {
-            'k': khasra,
-            'cx': round(centroid.x, 6),
-            'cy': round(centroid.y, 6),
-        },
+        'properties': properties,
     }
+
+
+def split_polygon_for_points(polygon, point_features: list[dict]) -> list[tuple[dict, object]]:
+    from shapely.geometry import MultiPoint, Point
+    from shapely.ops import voronoi_diagram
+
+    if len(point_features) == 1:
+        return [(point_features[0], polygon)]
+
+    points = [
+        Point(feature['geometry']['coordinates'][0], feature['geometry']['coordinates'][1])
+        for feature in point_features
+    ]
+    bounds = polygon.envelope.bounds
+    span = max(bounds[2] - bounds[0], bounds[3] - bounds[1], 0.0005)
+    envelope = polygon.envelope.buffer(span * 0.25)
+    regions = list(voronoi_diagram(MultiPoint(points), envelope=envelope).geoms)
+    assignments: list[tuple[dict, object]] = []
+
+    for feature, point in zip(point_features, points):
+        region = next(
+            (item for item in regions if item.contains(point) or item.buffer(1e-10).contains(point)),
+            min(regions, key=lambda item: item.distance(point)),
+        )
+        clipped = as_single_polygon(region.intersection(polygon))
+        if clipped is None or clipped.area <= MIN_PARCEL_AREA:
+            clipped = polygon
+        assignments.append((feature, clipped))
+
+    return assignments
 
 
 def build_khasra_parcels(point_features: list[dict], line_features: list[dict]) -> list[dict]:
@@ -150,24 +223,39 @@ def build_khasra_parcels(point_features: list[dict], line_features: list[dict]) 
         return []
 
     spatial_index = STRtree(polys)
-    parcel_features = []
-    seen_khasra = set()
+    assignments_by_polygon: dict[int, list[dict]] = {}
+    seen_keys: set[str] = set()
 
     for feature in point_features:
         khasra = feature['properties'].get('k')
         if not khasra:
             continue
+
+        moza = feature['properties'].get('moza')
+        identity = parcel_identity_key(khasra, moza)
+        if identity in seen_keys:
+            continue
+
         lon, lat = feature['geometry']['coordinates']
         point = Point(lon, lat)
         candidates = [polys[i] for i in spatial_index.query(point) if polys[i].contains(point)]
         if not candidates:
             continue
+
         parcel = min(candidates, key=lambda item: item.area)
-        norm_key = khasra.strip()
-        if norm_key in seen_khasra:
-            continue
-        seen_khasra.add(norm_key)
-        parcel_features.append(poly_to_geojson(parcel, khasra))
+        parcel_id = id(parcel)
+        assignments_by_polygon.setdefault(parcel_id, []).append(feature)
+        seen_keys.add(identity)
+
+    parcel_features = []
+    polygon_by_id = {id(poly): poly for poly in polys}
+
+    for parcel_id, grouped_features in assignments_by_polygon.items():
+        polygon = polygon_by_id[parcel_id]
+        for feature, sub_polygon in split_polygon_for_points(polygon, grouped_features):
+            khasra = feature['properties']['k']
+            moza = feature['properties'].get('moza')
+            parcel_features.append(poly_to_geojson(sub_polygon, khasra, moza))
 
     return parcel_features
 
@@ -195,12 +283,18 @@ def main() -> None:
                 coords = parse_coords(coord_el.text if coord_el is not None else '')
                 if not coords or not khasra:
                     continue
+                desc_el = placemark.find('k:description', NS)
+                description = (desc_el.text or '').strip() if desc_el is not None else ''
+                moza = mouza_slug_from_description(description)
                 lon, lat = coords[0]
                 all_coords.append([lon, lat])
+                properties = {'k': khasra}
+                if moza:
+                    properties['moza'] = moza
                 point_features.append({
                     'type': 'Feature',
                     'geometry': {'type': 'Point', 'coordinates': [lon, lat]},
-                    'properties': {'k': khasra},
+                    'properties': properties,
                 })
                 continue
 

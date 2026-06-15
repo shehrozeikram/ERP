@@ -2,7 +2,13 @@ import React from 'react';
 import { Box, Button, Chip, Stack } from '@mui/material';
 import { ArrowBack as ArrowBackIcon, Print as PrintIcon } from '@mui/icons-material';
 import CashApprovalGeneralDocument from './CashApprovalGeneralDocument';
-import { getStatusColor, printGeneralCashApproval } from './cashApprovalGeneralDocumentUtils';
+import { WorkflowAuditFeedbackPanel } from '../Admin/workflowAuditReturn';
+import {
+  formatDateTime,
+  getStatusColor,
+  printGeneralCashApproval,
+  userDisplayName
+} from './cashApprovalGeneralDocumentUtils';
 
 /**
  * Toolbar + document layout for General cash approvals (full page or embedded in dialogs).
@@ -62,6 +68,18 @@ const CashApprovalGeneralDetailShell = ({
       )}
 
       {topAlerts}
+
+      <WorkflowAuditFeedbackPanel
+        document={ca}
+        formatDateTime={formatDateTime}
+        userDisplayName={userDisplayName}
+        returnedIntro={(
+          <>
+            This cash approval was returned or rejected. Review the observations below, use <strong>Edit</strong> to
+            update the request, then resubmit for approval.
+          </>
+        )}
+      />
 
       <CashApprovalGeneralDocument ca={ca} elevation={embedded ? 0 : 2} />
     </Box>
