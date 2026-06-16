@@ -410,7 +410,16 @@ const payrollSchema = new mongoose.Schema({
   // Status
   status: {
     type: String,
-    enum: ['Draft', 'Pending', 'Approved', 'Paid', 'Cancelled'],
+    enum: [
+      'Draft',
+      'Pending',
+      'Approved by Deputy Manager Payroll HR',
+      'Approved by GM HR',
+      'Approved by AVP',
+      'Approved',
+      'Paid',
+      'Cancelled'
+    ],
     default: 'Draft'
   },
   // Payment details
@@ -1071,33 +1080,12 @@ payrollSchema.methods.approve = async function(approvedByUserId) {
   this.approvedAt = new Date();
   
   // Update employee's arrears status to 'Paid' for this month when payroll is approved
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findById(this.employee);
-  
-  if (employee && employee.arrears && this.arrears > 0) {
-    const currentMonth = this.month;
-    const currentYear = this.year;
-    
-    // Check all arrears types for the current month and mark as paid
-    const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
-    
-    for (const arrearsType of arrearsTypes) {
-      const arrearsData = employee.arrears[arrearsType];
-      if (arrearsData && arrearsData.isActive && 
-          arrearsData.month === currentMonth && 
-          arrearsData.year === currentYear && 
-          arrearsData.status !== 'Paid' && 
-          arrearsData.status !== 'Cancelled') {
-        
-        console.log(`💰 Marking ${arrearsType} arrears as 'Paid' for employee ${employee.employeeId} - ${currentMonth}/${currentYear} (Payroll Approved)`);
-        arrearsData.status = 'Paid';
-        arrearsData.paidDate = new Date();
-      }
+  if (this.arrears > 0) {
+    const { markEmployeeArrearsPaidForPeriod } = require('../../utils/employeeArrearsUpdate');
+    const updated = await markEmployeeArrearsPaidForPeriod(this.employee, this.month, this.year);
+    if (updated) {
+      console.log(`✅ Employee arrears updated to 'Paid' for ${this.month}/${this.year} (Payroll Approved)`);
     }
-    
-    // Save the updated employee record
-    await employee.save();
-    console.log(`✅ Employee ${employee.employeeId} arrears updated to 'Paid' status for ${currentMonth}/${currentYear} (Payroll Approved)`);
   }
   
   return await this.save();
@@ -1105,8 +1093,9 @@ payrollSchema.methods.approve = async function(approvedByUserId) {
 
 // Instance method to mark payroll as paid
 payrollSchema.methods.markAsPaid = async function(paymentMethod = 'Bank Transfer') {
-  if (this.status !== 'Approved') {
-    throw new Error('Only approved payrolls can be marked as paid');
+  const { isPayrollFinalApprovedStatus } = require('../../utils/payrollAuthorityPayrollStatus');
+  if (!isPayrollFinalApprovedStatus(this.status)) {
+    throw new Error('Only fully approved payrolls can be marked as paid');
   }
   
   this.status = 'Paid';
@@ -1135,33 +1124,10 @@ payrollSchema.methods.markAsPaid = async function(paymentMethod = 'Bank Transfer
   }
   
   // Update employee's arrears status to 'Paid' for this month
-  const Employee = mongoose.model('Employee');
-  const employee = await Employee.findById(this.employee);
-  
-  if (employee && employee.arrears) {
-    const currentMonth = this.month;
-    const currentYear = this.year;
-    
-    // Check all arrears types for the current month and mark as paid
-    const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
-    
-    for (const arrearsType of arrearsTypes) {
-      const arrearsData = employee.arrears[arrearsType];
-      if (arrearsData && arrearsData.isActive && 
-          arrearsData.month === currentMonth && 
-          arrearsData.year === currentYear && 
-          arrearsData.status !== 'Paid' && 
-          arrearsData.status !== 'Cancelled') {
-        
-        console.log(`💰 Marking ${arrearsType} arrears as 'Paid' for employee ${employee.employeeId} - ${currentMonth}/${currentYear}`);
-        arrearsData.status = 'Paid';
-        arrearsData.paidDate = new Date();
-      }
-    }
-    
-    // Save the updated employee record
-    await employee.save();
-    console.log(`✅ Employee ${employee.employeeId} arrears updated to 'Paid' status for ${currentMonth}/${currentYear}`);
+  const { markEmployeeArrearsPaidForPeriod } = require('../../utils/employeeArrearsUpdate');
+  const updated = await markEmployeeArrearsPaidForPeriod(this.employee, this.month, this.year);
+  if (updated) {
+    console.log(`✅ Employee arrears updated to 'Paid' for ${this.month}/${this.year}`);
   }
   
   return await this.save();

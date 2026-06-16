@@ -1,10 +1,11 @@
 const PayrollMonthlyApproval = require('../models/hr/PayrollMonthlyApproval');
 const { matchUserToFinanceSlots } = require('./financeAuthoritySlots');
 
-/** Payroll monthly summary uses HR titles; keys match stored financeApprovalAuthorities fields. */
+/** Payroll monthly summary uses HR titles; keys match stored financeApprovalAuthorities fields (sequential order). */
 const PAYROLL_AUTHORITY_SLOT_CONFIG = [
   { key: 'accountsOfficerUser', label: 'Deputy Manager Payroll HR' },
-  { key: 'financeControllerUser', label: 'GM HR' }
+  { key: 'financeControllerUser', label: 'GM HR' },
+  { key: 'accountsManagerUser', label: 'AVP' }
 ];
 
 const getRequiredPayrollAuthoritySlots = (doc) => {
@@ -16,11 +17,11 @@ const getRequiredPayrollAuthoritySlots = (doc) => {
 };
 
 const populateMonthlyApproval = (query) => query
-  .populate('financeApprovalAuthorities.accountsOfficerUser', 'firstName lastName email employeeId')
-  .populate('financeApprovalAuthorities.accountsManagerUser', 'firstName lastName email employeeId')
-  .populate('financeApprovalAuthorities.financeControllerUser', 'firstName lastName email employeeId')
-  .populate('financeAuthorityApprovals.approver', 'firstName lastName email employeeId')
-  .populate('financeAuthoritiesAssignedBy', 'firstName lastName email employeeId');
+  .populate('financeApprovalAuthorities.accountsOfficerUser', 'firstName lastName email employeeId digitalSignature')
+  .populate('financeApprovalAuthorities.accountsManagerUser', 'firstName lastName email employeeId digitalSignature')
+  .populate('financeApprovalAuthorities.financeControllerUser', 'firstName lastName email employeeId digitalSignature')
+  .populate('financeAuthorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
+  .populate('financeAuthoritiesAssignedBy', 'firstName lastName email employeeId digitalSignature');
 
 const getApprovedAuthorityKeys = (doc) => new Set(
   (doc?.financeAuthorityApprovals || [])
@@ -34,6 +35,13 @@ const allPayrollAuthoritiesApproved = (doc) => {
   if (slots.length < PAYROLL_AUTHORITY_SLOT_CONFIG.length) return false;
   const approved = getApprovedAuthorityKeys(doc);
   return slots.every((slot) => approved.has(slot.key));
+};
+
+/** First authority slot that has not approved yet (enforces sequential chain). */
+const getNextPendingPayrollAuthoritySlot = (doc) => {
+  const slots = getRequiredPayrollAuthoritySlots(doc);
+  const approved = getApprovedAuthorityKeys(doc);
+  return slots.find((slot) => !approved.has(slot.key)) || null;
 };
 
 const syncAuthorityStatus = (doc) => {
@@ -75,5 +83,6 @@ module.exports = {
   getOrCreateMonthlyApproval,
   assertMonthlyPayrollAuthoritiesApproved,
   getRequiredPayrollAuthoritySlots,
+  getNextPendingPayrollAuthoritySlot,
   matchUserToFinanceSlots
 };

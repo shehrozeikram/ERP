@@ -16,6 +16,7 @@ const {
   getOrCreateMonthlyApproval,
   assertMonthlyPayrollAuthoritiesApproved,
   getRequiredPayrollAuthoritySlots,
+  getNextPendingPayrollAuthoritySlot,
   matchUserToFinanceSlots,
   PAYROLL_AUTHORITY_SLOT_CONFIG,
   getApprovedAuthorityKeys
@@ -27,6 +28,13 @@ const {
   calculatePayrollTaxWithSettings,
   loadPayrollTaxSettings
 } = require('../utils/allowanceTaxCalculator');
+const { queryApproverCandidateUsers } = require('../utils/utilityBillApproverEligibility');
+const { markEmployeeArrearsPaidForPeriod } = require('../utils/employeeArrearsUpdate');
+const { applyBulkPayrollStatusForAuthoritySlot, PAYROLL_STATUS_BY_AUTHORITY_SLOT, applyComparisonReportStatusForAuthoritySlot } = require('../utils/payrollAuthorityPayrollStatus');
+const {
+  savePayrollMonthlyComparisonReport,
+  getPayrollMonthlyComparisonReport
+} = require('../utils/payrollMonthlyComparisonReport');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Attendance = require('../models/hr/Attendance');
 const AttendanceIntegrationService = require('../services/attendanceIntegrationService');
@@ -812,15 +820,22 @@ router.get('/monthly',
 );
 
 // @route   GET /api/payroll/hr-authority-candidates
-// @desc    Active HR users for GM HR payroll approval picker
+// @desc    Active users for payroll approval authority pickers (GM HR, AVP)
 // @access  Private (HR and Admin)
 router.get('/hr-authority-candidates',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 150, 1), 200);
     const search = String(req.query.search || '').trim();
-    const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const allUsers = req.query.allUsers !== 'false' && req.query.allUsers !== false;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || (allUsers ? 500 : 150), 1), 500);
 
+    if (allUsers) {
+      const users = await queryApproverCandidateUsers({ search, limit, allUsers: true });
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.json({ success: true, data: users });
+    }
+
+    const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const andClauses = [
       { isActive: true },
       {
@@ -912,14 +927,14 @@ router.put('/monthly-approval/:month/:year/authorities',
     const fa = req.body?.financeApprovalAuthorities || {};
     const authorities = {
       accountsOfficerUser: req.user.id,
-      accountsManagerUser: null,
+      accountsManagerUser: fa.accountsManagerUser || fa.avpUser || null,
       financeControllerUser: fa.financeControllerUser || fa.gmHrUser || null
     };
     const ids = Object.values(authorities).map((id) => String(id || '')).filter(Boolean);
-    if (ids.length < 2) {
+    if (ids.length < PAYROLL_AUTHORITY_SLOT_CONFIG.length) {
       return res.status(400).json({
         success: false,
-        message: 'Select GM HR. You are assigned as Deputy Manager Payroll HR.'
+        message: 'Select GM HR and AVP. You are assigned as Deputy Manager Payroll HR.'
       });
     }
     if (new Set(ids).size !== ids.length) {
@@ -986,6 +1001,7 @@ router.patch('/monthly-approval/:month/:year/authority-approve',
       });
     }
 
+    const nextPendingSlot = getNextPendingPayrollAuthoritySlot(doc);
     const approvals = Array.isArray(doc.financeAuthorityApprovals) ? [...doc.financeAuthorityApprovals] : [];
     const approvedKeys = getApprovedAuthorityKeys(doc);
     const pendingMatchedSlots = matchedSlots.filter((slot) => !approvedKeys.has(slot.key));
@@ -996,8 +1012,18 @@ router.patch('/monthly-approval/:month/:year/authority-approve',
       });
     }
 
+    const canActSlots = pendingMatchedSlots.filter(
+      (slot) => nextPendingSlot && slot.key === nextPendingSlot.key
+    );
+    if (!canActSlots.length) {
+      return res.status(403).json({
+        success: false,
+        message: `Waiting for ${nextPendingSlot?.label || 'prior authority'} to approve first.`
+      });
+    }
+
     const now = new Date();
-    pendingMatchedSlots.forEach((slot) => {
+    canActSlots.forEach((slot) => {
       approvals.push({
         authorityKey: slot.key,
         authorityLabel: slot.label,
@@ -1011,14 +1037,42 @@ router.patch('/monthly-approval/:month/:year/authority-approve',
     syncAuthorityStatus(doc);
     await doc.save();
 
+    const actedSlot = canActSlots[0];
+    const bulkResult = actedSlot
+      ? await applyBulkPayrollStatusForAuthoritySlot(month, year, actedSlot.key, req.user.id)
+      : { matched: 0, modified: 0, payrollIds: [] };
+
+    const comparisonResult = actedSlot
+      ? await applyComparisonReportStatusForAuthoritySlot(month, year, actedSlot.key, req.user.id)
+      : { matched: 0, modified: 0 };
+
+    if (actedSlot?.key === 'accountsManagerUser' && bulkResult.payrollIds?.length) {
+      const finalizedPayrolls = await Payroll.find({ _id: { $in: bulkResult.payrollIds } });
+      for (const payroll of finalizedPayrolls) {
+        try {
+          await FinanceHelper.recordPayrollAccrual(payroll, req.user.id);
+        } catch (finError) {
+          console.error(`[authority-approve] Finance accrual failed for payroll ${payroll._id}:`, finError.message);
+        }
+      }
+    }
+
     const remaining = slots.filter((slot) => !getApprovedAuthorityKeys(doc).has(slot.key)).length;
     const populated = await populateMonthlyApproval(PayrollMonthlyApproval.findById(doc._id));
+    const payrollUpdateNote = bulkResult.modified > 0
+      ? ` ${bulkResult.modified} payroll(s) updated to "${PAYROLL_STATUS_BY_AUTHORITY_SLOT[actedSlot?.key] || 'new status'}".`
+      : '';
+    const comparisonUpdateNote = comparisonResult.modified > 0
+      ? ' Monthly comparison report approval updated.'
+      : '';
     res.json({
       success: true,
       message: remaining === 0
-        ? 'All approval authorities have approved. Draft payrolls can now be approved.'
-        : `Your approval was recorded. ${remaining} approval(s) remaining.`,
-      data: populated
+        ? `All approval authorities have approved.${payrollUpdateNote}${comparisonUpdateNote}`
+        : `Your approval was recorded.${payrollUpdateNote}${comparisonUpdateNote} ${remaining} approval(s) remaining.`,
+      data: populated,
+      payrollsUpdated: bulkResult.modified,
+      comparisonReportUpdated: comparisonResult.modified > 0
     });
   })
 );
@@ -1040,6 +1094,67 @@ router.get('/stats',
     res.json({
       success: true,
       data: stats
+    });
+  })
+);
+
+// @route   GET /api/payroll/monthly-comparison/:month/:year
+// @desc    Get monthly payroll comparison report (cached if available)
+// @access  Private (HR and Admin)
+router.get('/monthly-comparison/:month/:year',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const month = parseInt(req.params.month, 10);
+    const year = parseInt(req.params.year, 10);
+    if (!month || month < 1 || month > 12 || !year) {
+      return res.status(400).json({ success: false, message: 'Invalid month or year' });
+    }
+    const result = await getPayrollMonthlyComparisonReport(month, year);
+    const approvalDoc = await populateMonthlyApproval(
+      PayrollMonthlyApproval.findOne({ month, year })
+    );
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        monthlyApproval: approvalDoc || null
+      }
+    });
+  })
+);
+
+// @route   POST /api/payroll/monthly-comparison/:month/:year/generate
+// @desc    Build and save monthly payroll comparison report
+// @access  Private (HR and Admin)
+router.post('/monthly-comparison/:month/:year/generate',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const month = parseInt(req.params.month, 10);
+    const year = parseInt(req.params.year, 10);
+    if (!month || month < 1 || month > 12 || !year) {
+      return res.status(400).json({ success: false, message: 'Invalid month or year' });
+    }
+    const payrollCount = await Payroll.countDocuments({ month, year });
+    if (!payrollCount) {
+      return res.status(404).json({
+        success: false,
+        message: 'No payroll records found for this month. Generate payroll first.'
+      });
+    }
+    const saved = await savePayrollMonthlyComparisonReport(month, year, req.user.id);
+    const approvalDoc = await populateMonthlyApproval(
+      PayrollMonthlyApproval.findOne({ month, year })
+    );
+    res.json({
+      success: true,
+      message: `Comparison report generated for ${month}/${year}`,
+      data: {
+        report: saved.report,
+        generatedAt: saved.savedAt,
+        status: saved.status,
+        fromCache: false,
+        monthlyApproval: approvalDoc || null
+      }
     });
   })
 );
@@ -1899,35 +2014,9 @@ router.post('/', [
     
     for (const payroll of insertedPayrolls) {
       try {
-        // Find the employee for this payroll
-        const employee = await Employee.findById(payroll.employee);
-        
-        if (employee && employee.arrears) {
-          const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
-          let employeeArrearsUpdated = false;
-          
-          // Check all arrears types for the current month and mark as paid
-          for (const arrearsType of arrearsTypes) {
-            const arrearsData = employee.arrears[arrearsType];
-            if (arrearsData && arrearsData.isActive &&
-                arrearsData.month === month &&
-                arrearsData.year === year &&
-                arrearsData.status !== 'Paid' &&
-                arrearsData.status !== 'Cancelled') {
-              
-              console.log(`💰 Marking ${arrearsType} arrears as 'Paid' for employee ${employee.employeeId} - ${month}/${year}`);
-              arrearsData.status = 'Paid';
-              arrearsData.paidDate = new Date();
-              employeeArrearsUpdated = true;
-            }
-          }
-          
-          // Save the updated employee record if any arrears were updated
-          if (employeeArrearsUpdated) {
-            await employee.save();
-            arrearsUpdatedCount++;
-            console.log(`✅ Employee ${employee.employeeId} arrears updated to 'Paid' status for ${month}/${year}`);
-          }
+        const updated = await markEmployeeArrearsPaidForPeriod(payroll.employee, month, year);
+        if (updated) {
+          arrearsUpdatedCount++;
         }
       } catch (error) {
         console.error(`❌ Error updating arrears for employee ${payroll.employee}:`, error.message);
@@ -1956,6 +2045,13 @@ router.post('/', [
     console.log(`   Total Gross Salary: Rs. ${totalGrossSalary.toLocaleString()}`);
     console.log(`   Total Net Salary: Rs. ${totalNetSalary.toLocaleString()}`);
     console.log(`   Total Tax Collected: Rs. ${totalTax.toLocaleString()}`);
+
+    try {
+      await savePayrollMonthlyComparisonReport(month, year, req.user.id);
+      console.log(`📋 Monthly comparison report saved for ${month}/${year}`);
+    } catch (comparisonErr) {
+      console.error('⚠️ Failed to save monthly comparison report:', comparisonErr.message);
+    }
 
     res.status(201).json({
       success: true,

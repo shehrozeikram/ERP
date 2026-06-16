@@ -29,14 +29,13 @@ import {
 import {
   ArrowBack as ArrowBackIcon,
   Edit as EditIcon,
-  CheckCircle as ApproveIcon,
-  CheckCircle,
   Payment as PaymentIcon,
   Cancel as CancelIcon,
   Download as DownloadIcon,
   Print as PrintIcon,
   Receipt as ReceiptIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  CheckCircle
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -44,6 +43,12 @@ import { formatPKR } from '../../utils/currency';
 import { vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 import api from '../../services/api';
 import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
+import PayrollApprovalAuthorityTable from '../../components/HR/PayrollApprovalAuthorityTable';
+import {
+  getPayrollStatusColor,
+  getPayrollStatusLabel,
+  isPayrollFinalApprovedStatus
+} from '../../utils/payrollStatusHelpers';
 
 const PayrollDetail = () => {
   const { id } = useParams();
@@ -115,19 +120,6 @@ const PayrollDetail = () => {
 
   const handleEdit = () => {
     navigate(`/hr/payroll/${id}/edit`);
-  };
-
-  const handleApprove = async () => {
-    try {
-      setActionLoading(true);
-      await api.patch(`/payroll/${id}/approve`);
-      await fetchPayrollDetail();
-    } catch (approveError) {
-      console.error('Error approving payroll:', approveError);
-      setError(approveError.response?.data?.message || 'Failed to approve payroll');
-    } finally {
-      setActionLoading(false);
-    }
   };
 
   const handleMarkAsPaid = async () => {
@@ -396,6 +388,9 @@ const PayrollDetail = () => {
     );
   }
 
+  const payrollIsFinalApproved = isPayrollFinalApprovedStatus(payroll.status);
+  const payrollIsPaid = String(payroll.status || '').toLowerCase() === 'paid';
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -411,6 +406,11 @@ const PayrollDetail = () => {
           <Typography variant="h4">
             Payroll Details
           </Typography>
+          <Chip
+            label={getPayrollStatusLabel(payroll.status)}
+            color={getPayrollStatusColor(payroll.status)}
+            size="small"
+          />
           <PayrollProrationBadge payroll={payroll} />
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -442,26 +442,16 @@ const PayrollDetail = () => {
           >
             {downloadLoading ? 'Downloading...' : downloadSuccess ? 'Downloaded!' : 'Download Payslip PDF'}
           </Button>
-          {!payroll.isApproved && (
-            <Button
-              variant="contained"
-              color="success"
-              startIcon={<ApproveIcon />}
-              onClick={handleApprove}
-              disabled={
-                actionLoading
-                || monthlyApproval?.authorityStatus !== 'approved'
-              }
-              title={
-                monthlyApproval?.authorityStatus !== 'approved'
-                  ? 'Monthly payroll approval authorities must all approve first'
-                  : ''
-              }
-            >
-              Approve
-            </Button>
+          {!payrollIsFinalApproved && !payrollIsPaid && (
+            <Chip
+              size="small"
+              variant="outlined"
+              color="warning"
+              label="Awaiting approval authority sign-offs on the monthly payroll"
+              sx={{ display: { xs: 'none', md: 'inline-flex' } }}
+            />
           )}
-          {payroll.isApproved && !payroll.isPaid && (
+          {payrollIsFinalApproved && !payrollIsPaid && (
             <Button
               variant="contained"
               color="primary"
@@ -472,7 +462,7 @@ const PayrollDetail = () => {
               Mark as Paid
             </Button>
           )}
-          {payroll.isPaid && (
+          {payrollIsPaid && (
             <Button
               variant="contained"
               color="error"
@@ -925,6 +915,8 @@ const PayrollDetail = () => {
           </Grid>
         </CardContent>
       </Card>
+
+      <PayrollApprovalAuthorityTable monthlyApproval={monthlyApproval} />
 
       {/* Attendance History Modal */}
       <Dialog

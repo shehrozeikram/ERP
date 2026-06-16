@@ -22,6 +22,10 @@ const {
   linkUserToEmployee,
   unlinkUserFromEmployee
 } = require('../utils/employeeUserLink');
+const {
+  departmentAuthValidator,
+  optionalDepartmentAuthValidator
+} = require('../utils/departmentResolver');
 
 const router = express.Router();
 
@@ -168,17 +172,7 @@ router.post('/register', [
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long'),
-  body('department')
-    .custom(async (value) => {
-      if (!value) {
-        throw new Error('Department is required');
-      }
-      const department = await Department.findOne({ name: value, isActive: true });
-      if (!department) {
-        throw new Error('Invalid department');
-      }
-      return true;
-    }),
+  body('department').custom(departmentAuthValidator),
   body('position')
     .trim()
     .notEmpty()
@@ -794,17 +788,7 @@ router.post('/users', [
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long'),
-  body('department')
-    .custom(async (value) => {
-      if (!value) {
-        throw new Error('Department is required');
-      }
-      const department = await Department.findOne({ name: value, isActive: true });
-      if (!department) {
-        throw new Error('Invalid department');
-      }
-      return true;
-    }),
+  body('department').custom(departmentAuthValidator),
   body('position')
     .trim()
     .notEmpty()
@@ -1145,17 +1129,7 @@ router.put('/users/:id', [
       throw new Error('Invalid role');
     })
     .withMessage('Invalid role'),
-  body('department')
-    .optional()
-    .custom(async (value) => {
-      if (value) {
-        const department = await Department.findOne({ name: value, isActive: true });
-        if (!department) {
-          throw new Error('Invalid department');
-        }
-      }
-      return true;
-    }),
+  body('department').optional().custom(optionalDepartmentAuthValidator),
   body('isActive')
     .optional()
     .isBoolean()

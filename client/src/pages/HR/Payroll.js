@@ -49,7 +49,8 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   Download as DownloadIcon,
-  DoneAll as DoneAllIcon
+  DoneAll as DoneAllIcon,
+  CompareArrows as CompareArrowsIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -57,6 +58,8 @@ import { useData } from '../../contexts/DataContext';
 import api from '../../services/authService';
 import { PageLoading } from '../../components/LoadingSpinner';
 import MonthlyPayrollApprovalSection from '../../components/HR/MonthlyPayrollApprovalSection';
+import PayrollMonthlyComparisonDialog from '../../components/HR/PayrollMonthlyComparisonDialog';
+import { getPayrollStatusColor, getPayrollStatusLabel } from '../../utils/payrollStatusHelpers';
 import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
 
 // Months array moved outside component to prevent recreation on every render
@@ -121,6 +124,12 @@ const Payroll = () => {
   const [bulkApproveLoadingKey, setBulkApproveLoadingKey] = useState(null);
   const [monthlyApprovals, setMonthlyApprovals] = useState({});
   const [monthlyApprovalLoadingKeys, setMonthlyApprovalLoadingKeys] = useState(new Set());
+  const [comparisonDialogOpen, setComparisonDialogOpen] = useState(false);
+  const [comparisonReport, setComparisonReport] = useState(null);
+  const [comparisonGeneratedAt, setComparisonGeneratedAt] = useState(null);
+  const [comparisonReportStatus, setComparisonReportStatus] = useState('Draft');
+  const [comparisonContext, setComparisonContext] = useState(null);
+  const [comparisonLoadingKey, setComparisonLoadingKey] = useState(null);
 
   const fetchMonthlyApproval = useCallback(async (month, year) => {
     const key = `${month}-${year}`;
@@ -480,25 +489,9 @@ const Payroll = () => {
     setGeneralPayrollPage(0);
   };
 
-  const getStatusColor = (status) => {
-    switch (String(status || '').toLowerCase()) {
-      case 'draft': return 'default';
-      case 'approved': return 'warning';
-      case 'paid': return 'success';
-      case 'cancelled': return 'error';
-      default: return 'default';
-    }
-  };
+  const getStatusColor = (status) => getPayrollStatusColor(status);
 
-  const getStatusLabel = (status) => {
-    switch (String(status || '').toLowerCase()) {
-      case 'draft': return 'Draft';
-      case 'approved': return 'Approved';
-      case 'paid': return 'Paid';
-      case 'cancelled': return 'Cancelled';
-      default: return status;
-    }
-  };
+  const getStatusLabel = (status) => getPayrollStatusLabel(status);
 
   const formatCurrency = (amount) => {
     if (amount === null || amount === undefined) return 'PKR 0';
@@ -590,6 +583,59 @@ const Payroll = () => {
       setExportLoadingKey(null);
     }
   };
+
+  const openMonthlyComparisonReport = async (month, year, periodLabel, draftCount = 0) => {
+    const key = `${month}-${year}`;
+    try {
+      setComparisonLoadingKey(key);
+      setError(null);
+      setComparisonDialogOpen(true);
+      setComparisonReport(null);
+      setComparisonGeneratedAt(null);
+      setComparisonReportStatus('Draft');
+      setComparisonContext({ month, year, periodLabel, draftCount });
+
+      const [reportResponse] = await Promise.all([
+        api.post(`/payroll/monthly-comparison/${month}/${year}/generate`),
+        fetchMonthlyApproval(month, year)
+      ]);
+      const data = reportResponse.data?.data;
+      setComparisonReport(data?.report || null);
+      setComparisonGeneratedAt(data?.generatedAt || new Date().toISOString());
+      setComparisonReportStatus(data?.status || 'Draft');
+      if (data?.monthlyApproval) {
+        setMonthlyApprovals((prev) => ({ ...prev, [key]: data.monthlyApproval }));
+      }
+    } catch (err) {
+      console.error('Monthly comparison report error:', err);
+      setComparisonDialogOpen(false);
+      setComparisonContext(null);
+      setError(err.response?.data?.message || `Failed to generate comparison report for ${periodLabel}.`);
+    } finally {
+      setComparisonLoadingKey(null);
+    }
+  };
+
+  const refreshComparisonDialogData = useCallback(async () => {
+    if (!comparisonContext?.month || !comparisonContext?.year) return;
+    const { month, year } = comparisonContext;
+    const key = `${month}-${year}`;
+    try {
+      const [reportResponse] = await Promise.all([
+        api.get(`/payroll/monthly-comparison/${month}/${year}`),
+        fetchMonthlyApproval(month, year)
+      ]);
+      const data = reportResponse.data?.data;
+      if (data?.report) setComparisonReport(data.report);
+      if (data?.generatedAt) setComparisonGeneratedAt(data.generatedAt);
+      if (data?.status) setComparisonReportStatus(data.status);
+      if (data?.monthlyApproval) {
+        setMonthlyApprovals((prev) => ({ ...prev, [key]: data.monthlyApproval }));
+      }
+    } catch (err) {
+      console.error('Error refreshing comparison report:', err);
+    }
+  }, [comparisonContext, fetchMonthlyApproval]);
 
   const handleExportMonthlySummary = () => {
     try {
@@ -1038,19 +1084,16 @@ Do you want to:
       raw
         .map((s) => (s == null ? '' : String(s).trim()))
         .filter(Boolean)
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
     );
   };
 
   const getMonthStatusColor = (statuses) => {
     const set = normalizeMonthStatuses(statuses);
     if (set.size === 0) return 'default';
-    if (set.size === 1) {
-      if (set.has('Paid')) return 'success';
-      if (set.has('Approved')) return 'success';
-      if (set.has('Draft')) return 'default';
-      return 'default';
-    }
+    if (set.size === 1) return getPayrollStatusColor([...set][0]);
+    if (set.has('Approved by AVP') && !set.has('Draft')) return 'success';
+    if (set.has('Approved by GM HR')) return 'primary';
+    if (set.has('Approved by Deputy Manager Payroll HR')) return 'info';
     if (set.has('Draft') && set.has('Approved')) return 'warning';
     if (set.has('Approved') && set.has('Paid')) return 'info';
     if (set.has('Draft')) return 'warning';
@@ -1061,10 +1104,14 @@ Do you want to:
     const set = normalizeMonthStatuses(statuses);
     if (set.size === 0) return '—';
     if (set.size === 1) {
-      if (set.has('Paid')) return 'All Paid';
-      if (set.has('Approved')) return 'Approved';
-      if (set.has('Draft')) return 'Draft';
-      return [...set][0];
+      const only = [...set][0];
+      if (only === 'Paid') return 'All Paid';
+      return getPayrollStatusLabel(only);
+    }
+    if (set.has('Approved by AVP') && !set.has('Draft')) return 'Approved by AVP';
+    if (set.has('Approved by GM HR') && !set.has('Draft')) return 'Approved by GM HR';
+    if (set.has('Approved by Deputy Manager Payroll HR') && !set.has('Draft')) {
+      return 'Approved by Deputy Manager Payroll HR';
     }
     if (set.has('Draft') && set.has('Approved') && !set.has('Paid')) return 'Partially Approved';
     if (set.has('Approved') && set.has('Paid') && !set.has('Draft')) return 'Partially Paid';
@@ -2172,34 +2219,6 @@ Do you want to:
                         </TableCell>
                         <TableCell align="center">
                           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                            {draftCount > 0 && (
-                              <Tooltip title={bulkApproveTooltip}>
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    color="success"
-                                    disabled={
-                                      bulkApproveLoadingKey === monthKey
-                                      || approvalLoading
-                                      || bulkApproveBlocked
-                                    }
-                                    onClick={() =>
-                                      bulkApprovePayrolls(
-                                        monthly.month,
-                                        monthly.year,
-                                        `${monthly.monthName} ${monthly.year}`
-                                      )
-                                    }
-                                  >
-                                    {bulkApproveLoadingKey === monthKey ? (
-                                      <CircularProgress size={18} />
-                                    ) : (
-                                      <DoneAllIcon fontSize="small" />
-                                    )}
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                            )}
                             <Tooltip title="Export this month's payroll (CSV)">
                               <span>
                                 <IconButton
@@ -2212,6 +2231,27 @@ Do you want to:
                                     <CircularProgress size={18} />
                                   ) : (
                                     <DownloadIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Monthly comparison report (vs last month)">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="secondary"
+                                  disabled={comparisonLoadingKey === monthKey || !monthly.totalEmployees}
+                                  onClick={() => openMonthlyComparisonReport(
+                                    monthly.month,
+                                    monthly.year,
+                                    `${monthly.monthName} ${monthly.year}`,
+                                    draftCount
+                                  )}
+                                >
+                                  {comparisonLoadingKey === monthKey ? (
+                                    <CircularProgress size={18} />
+                                  ) : (
+                                    <CompareArrowsIcon fontSize="small" />
                                   )}
                                 </IconButton>
                               </span>
@@ -2240,7 +2280,10 @@ Do you want to:
                                 draftCount={draftCount}
                                 approvalDoc={approvalDoc}
                                 loading={approvalLoading}
-                                onRefresh={() => fetchMonthlyApproval(monthly.month, monthly.year)}
+                                onRefresh={async () => {
+                                  await fetchMonthlyApproval(monthly.month, monthly.year);
+                                  await fetchMonthlyPayrolls();
+                                }}
                                 onUpdated={(doc) => {
                                   if (doc) {
                                     setMonthlyApprovals((prev) => ({ ...prev, [monthKey]: doc }));
@@ -2259,34 +2302,12 @@ Do you want to:
                                   />
                                 </Typography>
                                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                                  {draftCount > 0 && (
-                                    <Button
-                                      size="small"
-                                      variant="contained"
-                                      color="success"
-                                      startIcon={
-                                        bulkApproveLoadingKey === monthKey ? (
-                                          <CircularProgress size={14} color="inherit" />
-                                        ) : (
-                                          <DoneAllIcon />
-                                        )
-                                      }
-                                      disabled={
-                                        bulkApproveLoadingKey === monthKey
-                                        || approvalLoading
-                                        || bulkApproveBlocked
-                                      }
-                                      onClick={() =>
-                                        bulkApprovePayrolls(
-                                          monthly.month,
-                                          monthly.year,
-                                          `${monthly.monthName} ${monthly.year}`
-                                        )
-                                      }
-                                    >
-                                      Approve all ({draftCount})
-                                    </Button>
-                                  )}
+                                  <Chip
+                                    size="small"
+                                    variant="outlined"
+                                    color="info"
+                                    label="Payrolls update when each authority approves"
+                                  />
                                   <Button
                                     size="small"
                                     variant="outlined"
@@ -2633,6 +2654,45 @@ Do you want to:
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PayrollMonthlyComparisonDialog
+        open={comparisonDialogOpen}
+        onClose={() => {
+          setComparisonDialogOpen(false);
+          setComparisonReport(null);
+          setComparisonGeneratedAt(null);
+          setComparisonReportStatus('Draft');
+          setComparisonContext(null);
+        }}
+        report={comparisonReport}
+        generatedAt={comparisonGeneratedAt}
+        reportStatus={comparisonReportStatus}
+        loading={!!comparisonLoadingKey}
+        month={comparisonContext?.month}
+        year={comparisonContext?.year}
+        periodLabel={comparisonContext?.periodLabel}
+        draftCount={comparisonContext?.draftCount || 0}
+        approvalDoc={
+          comparisonContext
+            ? monthlyApprovals[`${comparisonContext.month}-${comparisonContext.year}`]
+            : null
+        }
+        approvalLoading={
+          comparisonContext
+            ? monthlyApprovalLoadingKeys.has(`${comparisonContext.month}-${comparisonContext.year}`)
+            : false
+        }
+        onRefreshApproval={refreshComparisonDialogData}
+        onApprovalUpdated={async (doc) => {
+          if (!comparisonContext) return;
+          const key = `${comparisonContext.month}-${comparisonContext.year}`;
+          if (doc) {
+            setMonthlyApprovals((prev) => ({ ...prev, [key]: doc }));
+          }
+          await refreshComparisonDialogData();
+          await fetchMonthlyPayrolls();
+        }}
+      />
     </Box>
   );
 };
