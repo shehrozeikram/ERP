@@ -220,6 +220,7 @@ import TajResidenciaDashboard from './pages/TajResidencia/TajResidenciaDashboard
 
 import ComplainsTickets from './pages/TajResidencia/ComplainsTickets';
 import LandAcquisition from './pages/TajResidencia/LandAcquisition';
+import LandParties from './pages/TajResidencia/LandParties';
 
 // Audit Module Components
 import AuditDashboard from './pages/Audit/AuditDashboard';
@@ -2084,6 +2085,22 @@ function App() {
             <Route 
               path="/taj-residencia/land-acquisition/possession" 
               element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/parties" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandParties /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/parties/sellers" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandParties /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/parties/buyers" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandParties /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/parties/dealers" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandParties /></ProtectedRoute>} 
             />
 
             {/* Audit Module Routes */}

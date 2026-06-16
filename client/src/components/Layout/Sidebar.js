@@ -334,6 +334,10 @@ const Sidebar = () => {
       '/taj-residencia/land-acquisition/moza': 'land_acquisition_moza',
       '/taj-residencia/land-acquisition/registry': 'land_acquisition_registry',
       '/taj-residencia/land-acquisition/possession': 'land_acquisition_possession',
+      '/taj-residencia/land-acquisition/parties/sellers': 'land_acquisition_parties',
+      '/taj-residencia/land-acquisition/parties/buyers': 'land_acquisition_parties',
+      '/taj-residencia/land-acquisition/parties/dealers': 'land_acquisition_parties',
+      '/taj-residencia/land-acquisition/parties': 'land_acquisition_parties',
       '/taj-residencia/land-acquisition/maps': 'land_acquisition_maps',
       '/taj-residencia/land-acquisition': 'land_acquisition'
     };
@@ -817,13 +821,12 @@ const Sidebar = () => {
     }
   }, [location.pathname, getModuleCount, markModuleAsRead]);
 
-  const handleSubmenuToggle = (text, subItems) => {
+  const handleSubmenuToggle = (key, subItems) => {
     setOpenSubmenu(prev => {
-      // If state is undefined, use isSubmenuActive to determine current state
-      const currentState = prev[text] !== undefined ? prev[text] : (subItems ? isSubmenuActive(subItems) : false);
+      const currentState = prev[key] !== undefined ? prev[key] : (subItems ? isSubmenuActive(subItems) : false);
       return {
         ...prev,
-        [text]: !currentState
+        [key]: !currentState
       };
     });
   };
@@ -840,8 +843,14 @@ const Sidebar = () => {
   };
 
   const isSubmenuActive = (subItems) => {
-    return subItems?.some(item => isActive(item.path));
+    return subItems?.some((item) => isActive(item.path) || (item.subItems && isSubmenuActive(item.subItems)));
   };
+
+  const getSubmenuKey = (item, parentKey = '') => item.path || `${parentKey}/${item.text}`;
+
+  const isSubmenuOpen = (key, subItems) => (
+    openSubmenu[key] !== undefined ? openSubmenu[key] : isSubmenuActive(subItems)
+  );
 
   return (
     <Drawer
@@ -1015,12 +1024,12 @@ const Sidebar = () => {
               <ListItemButton
                 onClick={() => {
                   if (item.subItems) {
-                    handleSubmenuToggle(item.text, item.subItems);
+                    handleSubmenuToggle(item.path || item.text, item.subItems);
                   } else {
                     handleNavigation(item.path);
                   }
                 }}
-                selected={isActive(item.path)}
+                selected={item.subItems ? isSubmenuActive(item.subItems) : isActive(item.path)}
                 sx={{
                   '&.Mui-selected': {
                     bgcolor: 'primary.light',
@@ -1040,14 +1049,14 @@ const Sidebar = () => {
                 </ListItemIcon>
                 <ListItemText primary={item.text} />
                 {item.subItems && (
-                  (openSubmenu[item.text] !== undefined ? openSubmenu[item.text] : isSubmenuActive(item.subItems)) ? <ExpandLess /> : <ExpandMore />
+                  (isSubmenuOpen(item.path || item.text, item.subItems)) ? <ExpandLess /> : <ExpandMore />
                 )}
               </ListItemButton>
             </ListItem>
 
             {/* Submenu */}
             {item.subItems && (
-              <Collapse in={openSubmenu[item.text] !== undefined ? openSubmenu[item.text] : isSubmenuActive(item.subItems)} timeout="auto" unmountOnExit>
+              <Collapse in={isSubmenuOpen(item.path || item.text, item.subItems)} timeout="auto" unmountOnExit>
                 <List component="div" disablePadding>
                   {item.subItems.map((subItem) => (
                     <Box key={subItem.path}>
@@ -1080,12 +1089,12 @@ const Sidebar = () => {
                             
                             // Handle navigation
                             if (subItem.subItems) {
-                              handleSubmenuToggle(subItem.text, subItem.subItems);
+                              handleSubmenuToggle(getSubmenuKey(subItem, item.path), subItem.subItems);
                             } else {
                               handleNavigation(subItem.path);
                             }
                           }}
-                          selected={isActive(subItem.path)}
+                          selected={subItem.subItems ? isSubmenuActive(subItem.subItems) : isActive(subItem.path)}
                         >
                         <ListItemText 
                           primary={
@@ -1187,24 +1196,54 @@ const Sidebar = () => {
                           } 
                         />
                         {subItem.subItems && (
-                          isSubmenuActive(subItem.subItems) ? <ExpandLess /> : <ExpandMore />
+                          isSubmenuOpen(getSubmenuKey(subItem, item.path), subItem.subItems) ? <ExpandLess /> : <ExpandMore />
                         )}
                       </ListItemButton>
 
                       {/* Sub-submenu */}
                       {subItem.subItems && (
-                        <Collapse in={openSubmenu[subItem.text] !== undefined ? openSubmenu[subItem.text] : isSubmenuActive(subItem.subItems)} timeout="auto" unmountOnExit>
+                        <Collapse in={isSubmenuOpen(getSubmenuKey(subItem, item.path), subItem.subItems)} timeout="auto" unmountOnExit>
                           <List component="div" disablePadding>
-                            {subItem.subItems.map((subSubItem) => (
+                            {subItem.subItems.map((subSubItem) => {
+                              const subSubKey = getSubmenuKey(subSubItem, getSubmenuKey(subItem, item.path));
+                              return (
+                              <Box key={subSubItem.path}>
                               <ListItemButton
-                                key={subSubItem.path}
                                 sx={{ pl: 6 }}
-                                onClick={() => handleNavigation(subSubItem.path)}
-                                selected={isActive(subSubItem.path)}
+                                onClick={() => {
+                                  if (subSubItem.subItems) {
+                                    handleSubmenuToggle(subSubKey, subSubItem.subItems);
+                                  } else {
+                                    handleNavigation(subSubItem.path);
+                                  }
+                                }}
+                                selected={subSubItem.subItems ? isSubmenuActive(subSubItem.subItems) : isActive(subSubItem.path)}
                               >
                                 <ListItemText primary={subSubItem.text} />
+                                {subSubItem.subItems && (
+                                  isSubmenuOpen(subSubKey, subSubItem.subItems) ? <ExpandLess /> : <ExpandMore />
+                                )}
                               </ListItemButton>
-                            ))}
+
+                              {subSubItem.subItems && (
+                                <Collapse in={isSubmenuOpen(subSubKey, subSubItem.subItems)} timeout="auto" unmountOnExit>
+                                  <List component="div" disablePadding>
+                                    {subSubItem.subItems.map((nestedItem) => (
+                                      <ListItemButton
+                                        key={nestedItem.path}
+                                        sx={{ pl: 8 }}
+                                        onClick={() => handleNavigation(nestedItem.path)}
+                                        selected={isActive(nestedItem.path)}
+                                      >
+                                        <ListItemText primary={nestedItem.text} />
+                                      </ListItemButton>
+                                    ))}
+                                  </List>
+                                </Collapse>
+                              )}
+                              </Box>
+                              );
+                            })}
                           </List>
                         </Collapse>
                       )}

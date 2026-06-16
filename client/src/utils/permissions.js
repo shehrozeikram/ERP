@@ -356,7 +356,8 @@ export const SUBMODULES = {
     'land_acquisition_maps',
     'land_acquisition_moza',
     'land_acquisition_registry',
-    'land_acquisition_possession'
+    'land_acquisition_possession',
+    'land_acquisition_parties'
   ],
   [MODULE_KEYS.ASSET_TAGGING]: [
     'asset_tagging_dashboard',
@@ -991,6 +992,15 @@ export const MODULES = {
           { name: 'Registry', path: '/taj-residencia/land-acquisition/registry' },
           { name: 'Possession', path: '/taj-residencia/land-acquisition/possession' }
         ]
+      },
+      {
+        name: 'Parties',
+        path: '/taj-residencia/land-acquisition/parties',
+        subItems: [
+          { name: 'Sellers', path: '/taj-residencia/land-acquisition/parties/sellers' },
+          { name: 'Buyers', path: '/taj-residencia/land-acquisition/parties/buyers' },
+          { name: 'Dealers', path: '/taj-residencia/land-acquisition/parties/dealers' }
+        ]
       }
     ]
   },
@@ -1501,6 +1511,10 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/taj-residencia/land-acquisition/moza': 'land_acquisition_moza',
       '/taj-residencia/land-acquisition/registry': 'land_acquisition_registry',
       '/taj-residencia/land-acquisition/possession': 'land_acquisition_possession',
+      '/taj-residencia/land-acquisition/parties/sellers': 'land_acquisition_parties',
+      '/taj-residencia/land-acquisition/parties/buyers': 'land_acquisition_parties',
+      '/taj-residencia/land-acquisition/parties/dealers': 'land_acquisition_parties',
+      '/taj-residencia/land-acquisition/parties': 'land_acquisition_parties',
       '/taj-residencia/land-acquisition/maps': 'land_acquisition_maps',
       '/taj-residencia/land-acquisition': 'land_acquisition'
     };
