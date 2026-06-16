@@ -21,7 +21,7 @@ import {
   Map as MapIcon,
   Close as CloseIcon
 } from '@mui/icons-material';
-import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getMapStatus } from '../../services/landAcquisitionMapService';
@@ -43,6 +43,11 @@ import {
 } from '../../utils/lathaMapStatus';
 import { clipPolygonBottomFraction, clipPolygonTopFraction } from '../../utils/lathaMapGeometry';
 import { formatKMS, normalizeArea } from '../../utils/landAreaUnits';
+import {
+  buildMouzaLineHighlightIndex,
+  classifyLineFeature,
+  getMouzaHighlightColor
+} from '../../utils/lathaMapLineHighlight';
 
 const MAP_BASE = `${process.env.PUBLIC_URL}/maps/latha`;
 const MAP_INDEX_URL = `${MAP_BASE}/khasra-map-index.json`;
@@ -70,6 +75,28 @@ const SATELLITE_URL =
 const STREET_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const isMapUsable = (map) => Boolean(map?.getContainer?.() && map._loaded);
+
+const safeRemoveLayer = (map, layer) => {
+  if (!layer || !isMapUsable(map)) return;
+  try {
+    map.removeLayer(layer);
+  } catch {
+    // Map may be tearing down while React unmounts overlay layers.
+  }
+};
+
+const safeRestyleGeoJsonLayer = (map, layer, styleFn) => {
+  if (!layer || !isMapUsable(map)) return;
+  try {
+    layer.eachLayer((leafletLayer) => {
+      if (leafletLayer.feature) {
+        leafletLayer.setStyle(styleFn(leafletLayer.feature));
+      }
+    });
+  } catch {
+    // Canvas/SVG renderer can be gone during rapid mouza filter changes.
+  }
+};
 
 const runWhenMapReady = (map, fn) => {
   if (!map) return;
@@ -175,19 +202,13 @@ const KhasraParcelLayer = ({
 
     return () => {
       layerRef.current = null;
-      map.removeLayer(layer);
+      safeRemoveLayer(map, layer);
     };
   }, [map, data]);
 
   useEffect(() => {
-    const layer = layerRef.current;
-    if (!layer) return;
-    layer.eachLayer((leafletLayer) => {
-      if (leafletLayer.feature) {
-        leafletLayer.setStyle(styleRef.current(leafletLayer.feature));
-      }
-    });
-  }, [getStyle]);
+    safeRestyleGeoJsonLayer(map, layerRef.current, (feature) => styleRef.current(feature));
+  }, [getStyle, map]);
 
   useEffect(() => {
     const layer = layerRef.current;
@@ -255,19 +276,54 @@ const KhasraPartialFillLayer = ({ data, getStyle, onParcelClick }) => {
 
     return () => {
       layerRef.current = null;
-      map.removeLayer(layer);
+      safeRemoveLayer(map, layer);
     };
   }, [map, data]);
 
   useEffect(() => {
-    const layer = layerRef.current;
-    if (!layer) return;
-    layer.eachLayer((leafletLayer) => {
-      if (leafletLayer.feature) {
-        leafletLayer.setStyle(styleRef.current(leafletLayer.feature));
-      }
+    safeRestyleGeoJsonLayer(map, layerRef.current, (feature) => styleRef.current(feature));
+  }, [getStyle, map]);
+
+  return null;
+};
+
+const KhasraLineLayer = ({ data, getStyle }) => {
+  const map = useMap();
+  const layerRef = useRef(null);
+  const styleRef = useRef(getStyle);
+  const rendererRef = useRef(null);
+
+  styleRef.current = getStyle;
+
+  useEffect(() => {
+    if (!data?.features?.length || !isMapUsable(map)) return undefined;
+
+    if (!rendererRef.current) {
+      rendererRef.current = L.svg({ padding: 0.5 });
+    }
+
+    const layer = L.geoJSON(data, {
+      style: (feature) => styleRef.current(feature),
+      interactive: false,
+      renderer: rendererRef.current
     });
-  }, [getStyle]);
+
+    layer.addTo(map);
+    layerRef.current = layer;
+
+    return () => {
+      layerRef.current = null;
+      safeRemoveLayer(map, layer);
+    };
+  }, [map, data]);
+
+  useEffect(() => {
+    let frameId = 0;
+    frameId = window.requestAnimationFrame(() => {
+      safeRestyleGeoJsonLayer(map, layerRef.current, (feature) => styleRef.current(feature));
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [getStyle, map]);
 
   return null;
 };
@@ -500,6 +556,16 @@ const LathaMapViewer = () => {
     return next;
   }, [parcels, mouzaFilter, parcelBelongsToMouza]);
 
+  const mouzaHighlightParcels = useMemo(() => {
+    if (mouzaFilter === 'all') return [];
+    return parcels.filter((parcel) => parcelBelongsToMouza(parcel, mouzaFilter));
+  }, [parcels, mouzaFilter, parcelBelongsToMouza]);
+
+  const mouzaLineIndex = useMemo(
+    () => (mouzaFilter === 'all' ? null : buildMouzaLineHighlightIndex(mouzaHighlightParcels)),
+    [mouzaFilter, mouzaHighlightParcels]
+  );
+
   useEffect(() => {
     if (!mapReady || !mapIndex?.bounds) return undefined;
 
@@ -523,12 +589,12 @@ const LathaMapViewer = () => {
       runWhenMapReady(map, (readyMap) => {
         if (visibleParcels.length === 1) {
           const [parcel] = visibleParcels;
-          readyMap.setView([parcel.lat, parcel.lng], 17, { animate: true });
+          readyMap.setView([parcel.lat, parcel.lng], 17, { animate: false });
           return;
         }
 
         const bounds = L.latLngBounds(visibleParcels.map((parcel) => [parcel.lat, parcel.lng]));
-        readyMap.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: true });
+        readyMap.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: false });
       });
     }, 150);
 
@@ -661,14 +727,44 @@ const LathaMapViewer = () => {
     });
   }, [parcels, getResolvedStatus, matchesPossessionLayer]);
 
-  const lineStyle = useMemo(
-    () => ({
-      color: '#f5f5f5',
-      weight: 1,
-      opacity: 0.85
-    }),
-    []
-  );
+  const lineStyle = useCallback((feature) => {
+    if (mouzaFilter === 'all') {
+      return {
+        color: '#f5f5f5',
+        weight: 1,
+        opacity: 0.85
+      };
+    }
+
+    const { onMouza, isBoundary } = classifyLineFeature(feature, mouzaLineIndex);
+    const mouzaColor = getMouzaHighlightColor(mouzaFilter);
+
+    if (!onMouza) {
+      return {
+        color: 'rgba(60, 60, 60, 0.35)',
+        weight: 0.5,
+        opacity: 0.12
+      };
+    }
+
+    if (isBoundary) {
+      return {
+        color: '#FFEB3B',
+        weight: 5,
+        opacity: 1,
+        lineCap: 'round',
+        lineJoin: 'round'
+      };
+    }
+
+    return {
+      color: mouzaColor,
+      weight: 2.75,
+      opacity: 0.98,
+      lineCap: 'round',
+      lineJoin: 'round'
+    };
+  }, [mouzaFilter, mouzaLineIndex]);
 
   const openFullscreen = useCallback(() => {
     const node = containerRef.current;
@@ -768,14 +864,16 @@ const LathaMapViewer = () => {
     const statusRow = resolved?.status || null;
     const isSelected = selectedParcel?.id === parcel.id;
     const highlighted = anyErpLayerOn && matchesActiveLayer(statusRow);
+    const mouzaActive = mouzaFilter !== 'all';
+    const mouzaColor = getMouzaHighlightColor(mouzaFilter);
 
     if (!highlighted) {
       return {
-        color: 'rgba(120,120,120,0.35)',
-        fillColor: 'rgba(224, 224, 224, 0.2)',
-        fillOpacity: isSelected ? 0.45 : 0.1,
-        weight: isSelected ? 3 : 1,
-        opacity: 0.65
+        color: mouzaActive ? mouzaColor : 'rgba(120,120,120,0.35)',
+        fillColor: mouzaActive ? 'rgba(41, 182, 246, 0.08)' : 'rgba(224, 224, 224, 0.2)',
+        fillOpacity: isSelected ? 0.45 : (mouzaActive ? 0.18 : 0.1),
+        weight: isSelected ? 4 : (mouzaActive ? 2.25 : 1),
+        opacity: mouzaActive ? 0.95 : 0.65
       };
     }
 
@@ -793,7 +891,8 @@ const LathaMapViewer = () => {
     statusLookups,
     selectedParcel,
     anyErpLayerOn,
-    matchesActiveLayer
+    matchesActiveLayer,
+    mouzaFilter
   ]);
 
   const registryFillStyle = useCallback(() => ({
@@ -1074,7 +1173,6 @@ const LathaMapViewer = () => {
             style={{ height: '100%', width: '100%' }}
             scrollWheelZoom={mapReady}
             zoomControl={false}
-            preferCanvas
           >
             <MapController onReady={handleMapReady} />
             <MapBounds bounds={mapIndex.bounds} />
@@ -1086,7 +1184,6 @@ const LathaMapViewer = () => {
               }
               url={baseLayer === 'satellite' ? SATELLITE_URL : STREET_URL}
             />
-            {lines && <GeoJSON data={lines} style={lineStyle} />}
             {registryFillGeoJson.features.length > 0 && (
               <KhasraPartialFillLayer
                 data={registryFillGeoJson}
@@ -1108,6 +1205,12 @@ const LathaMapViewer = () => {
                 onParcelClick={handleParcelClick}
                 getLabelClass={getKhasraLabelClass}
                 getTooltipLabel={getTooltipLabel}
+              />
+            )}
+            {lines && (
+              <KhasraLineLayer
+                data={lines}
+                getStyle={lineStyle}
               />
             )}
           </MapContainer>
@@ -1214,7 +1317,7 @@ const LathaMapViewer = () => {
         {mapIndex && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             {visibleParcels.length.toLocaleString()} khasra parcels shown
-            {mouzaFilter !== 'all' ? ` · ${MOUZA_LABELS[mouzaFilter] || mouzaFilter}` : ''}
+            {mouzaFilter !== 'all' ? ` · ${MOUZA_LABELS[mouzaFilter] || mouzaFilter} highlighted (yellow = mouza boundary)` : ''}
             {anyErpLayerOn
               ? ` · ${[
                 showRegistryLayer ? `${mapStats.registeredOnMap.toLocaleString()} registry` : null,

@@ -53,6 +53,25 @@ const questionSchema = new mongoose.Schema({
   order: { type: Number, default: 0 }
 }, { _id: false });
 
+const sectionSchema = new mongoose.Schema({
+  key: {
+    type: String,
+    trim: true,
+    required: true
+  },
+  title: {
+    type: String,
+    trim: true,
+    required: true,
+    maxlength: 200
+  },
+  order: { type: Number, default: 0 },
+  questions: {
+    type: [questionSchema],
+    default: []
+  }
+}, { _id: false });
+
 const surveySchema = new mongoose.Schema({
   title: {
     type: String,
@@ -84,6 +103,10 @@ const surveySchema = new mongoose.Schema({
     type: [questionSchema],
     default: []
   },
+  sections: {
+    type: [sectionSchema],
+    default: []
+  },
   targetUsers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -109,6 +132,7 @@ surveySchema.index({ createdBy: 1 });
 surveySchema.index({ kind: 1, status: 1 });
 
 surveySchema.statics.generateQuestionKey = () => `q_${crypto.randomBytes(6).toString('hex')}`;
+surveySchema.statics.generateSectionKey = () => `s_${crypto.randomBytes(6).toString('hex')}`;
 
 module.exports = mongoose.model('Survey', surveySchema);
 module.exports.QUESTION_TYPES = QUESTION_TYPES;

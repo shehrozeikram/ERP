@@ -33,6 +33,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
+  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -89,6 +91,247 @@ const CustomTooltip = ({ active, payload, label }) => {
         </Stack>
       ))}
     </Box>
+  );
+};
+
+const SurveyChartTooltip = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  const completion = row.assigned > 0
+    ? (row.completionRate ?? Math.round((row.responses / row.assigned) * 100))
+    : null;
+
+  return (
+    <Box
+      sx={{
+        bgcolor: '#fff',
+        px: 2,
+        py: 1.5,
+        borderRadius: 2,
+        border: BORDER,
+        boxShadow: '0 12px 32px rgba(15,23,42,0.14)',
+        minWidth: 200
+      }}
+    >
+      <Typography variant="body2" fontWeight={800} sx={{ color: '#1e293b', mb: 1 }}>
+        {row.fullTitle || row.name}
+      </Typography>
+      <Stack spacing={0.75}>
+        <Stack direction="row" justifyContent="space-between" spacing={2}>
+          <Typography variant="caption" color="text.secondary">Responses</Typography>
+          <Typography variant="body2" fontWeight={800} sx={{ color: row.color || '#6366F1' }}>
+            {row.responses}
+          </Typography>
+        </Stack>
+        <Stack direction="row" justifyContent="space-between" spacing={2}>
+          <Typography variant="caption" color="text.secondary">Assigned</Typography>
+          <Typography variant="body2" fontWeight={700}>{row.assigned ?? 0}</Typography>
+        </Stack>
+        {completion != null && (
+          <Stack direction="row" justifyContent="space-between" spacing={2}>
+            <Typography variant="caption" color="text.secondary">Completion</Typography>
+            <Typography variant="body2" fontWeight={800} sx={{ color: '#22C55E' }}>{completion}%</Typography>
+          </Stack>
+        )}
+      </Stack>
+    </Box>
+  );
+};
+
+const PieShareTooltip = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  return (
+    <Box sx={{ bgcolor: '#fff', px: 1.5, py: 1, borderRadius: 2, border: BORDER, boxShadow: '0 8px 24px rgba(15,23,42,0.12)' }}>
+      <Typography variant="body2" fontWeight={700}>{row.fullTitle || row.name}</Typography>
+      <Typography variant="body2" sx={{ color: row.fill, fontWeight: 800 }}>
+        {row.value} responses ({row.percent != null ? `${Math.round(row.percent * 100)}%` : ''})
+      </Typography>
+    </Box>
+  );
+};
+
+const renderPieShareLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+  if (percent < 0.07) return null;
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.52;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={800}>
+      {`${Math.round(percent * 100)}%`}
+    </text>
+  );
+};
+
+const SurveyResponsesChart = ({ data }) => {
+  const enriched = useMemo(
+    () => data.map((item, i) => ({
+      ...item,
+      label: item.name,
+      color: VIBRANT[i % VIBRANT.length],
+      completion: item.assigned > 0
+        ? (item.completionRate ?? Math.round((item.responses / item.assigned) * 100))
+        : null
+    })),
+    [data]
+  );
+
+  const pieData = useMemo(
+    () => enriched.map((item) => ({
+      name: item.label,
+      fullTitle: item.fullTitle || item.name,
+      value: item.responses,
+      fill: item.color
+    })),
+    [enriched]
+  );
+
+  const totalResponses = enriched.reduce((sum, item) => sum + item.responses, 0);
+  const barHeight = 300;
+  const barMinWidth = Math.max(420, enriched.length * 76);
+
+  return (
+    <Grid container spacing={2} alignItems="stretch">
+      <Grid item xs={12} md={7}>
+        <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ letterSpacing: 0.4, mb: 1, display: 'block' }}>
+          RESPONSE COUNT BY SURVEY
+        </Typography>
+        <Box
+          sx={{
+            width: '100%',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            borderRadius: 2,
+            border: '1px solid #eef2f7',
+            bgcolor: '#fafbfd',
+            p: 1
+          }}
+        >
+          <Box sx={{ width: barMinWidth, height: barHeight }}>
+            <ResponsiveContainer width={barMinWidth} height={barHeight}>
+              <BarChart
+                data={enriched}
+                margin={{ top: 32, right: 16, left: 0, bottom: 8 }}
+                barCategoryGap="24%"
+                barGap={6}
+              >
+                <GradientDefs id="surveyRsp" colors={VIBRANT} />
+                <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#e2e8f0" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: '#475569', fontWeight: 600 }}
+                  interval={0}
+                  angle={-32}
+                  textAnchor="end"
+                  height={72}
+                  axisLine={{ stroke: '#e2e8f0' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  domain={[0, (max) => Math.max(Math.ceil(max * 1.12), 4)]}
+                />
+                <RechartsTooltip content={<SurveyChartTooltip />} cursor={{ fill: 'rgba(99,102,241,0.07)' }} />
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 11, fontWeight: 700, top: -4 }}
+                />
+                <Bar dataKey="assigned" name="Assigned" fill="#E2E8F0" radius={[8, 8, 0, 0]} maxBarSize={40} />
+                <Bar dataKey="responses" name="Responses" radius={[8, 8, 0, 0]} maxBarSize={40}>
+                  <LabelList dataKey="responses" position="top" fontSize={11} fontWeight={800} fill="#334155" />
+                  {enriched.map((_, i) => (
+                    <Cell key={`rsp-bar-${i}`} fill={`url(#surveyRspGrad${i % VIBRANT.length})`} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </Box>
+        </Box>
+      </Grid>
+
+      <Grid item xs={12} md={5}>
+        <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ letterSpacing: 0.4, mb: 1, display: 'block' }}>
+          RESPONSE SHARE
+        </Typography>
+        <Box
+          sx={{
+            position: 'relative',
+            borderRadius: 2,
+            border: '1px solid #eef2f7',
+            bgcolor: '#fafbfd',
+            p: 1,
+            height: 300
+          }}
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={pieData}
+                cx="50%"
+                cy="50%"
+                innerRadius={62}
+                outerRadius={100}
+                paddingAngle={3}
+                dataKey="value"
+                stroke="#fff"
+                strokeWidth={3}
+                label={renderPieShareLabel}
+                labelLine={false}
+              >
+                {pieData.map((entry, i) => (
+                  <Cell key={`pie-${i}`} fill={entry.fill} />
+                ))}
+              </Pie>
+              <RechartsTooltip content={<PieShareTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              textAlign: 'center',
+              pointerEvents: 'none'
+            }}
+          >
+            <Typography variant="h4" fontWeight={800} sx={{ color: '#6366F1', lineHeight: 1 }}>
+              {totalResponses}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" fontWeight={700}>
+              Total
+            </Typography>
+          </Box>
+        </Box>
+
+        <Stack spacing={0.75} sx={{ mt: 1.5, maxHeight: 140, overflowY: 'auto', pr: 0.5 }}>
+          {pieData.map((item) => {
+            const share = totalResponses ? Math.round((item.value / totalResponses) * 100) : 0;
+            return (
+              <Stack key={item.name} direction="row" alignItems="center" spacing={1}>
+                <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: item.fill, flexShrink: 0 }} />
+                <Typography variant="caption" noWrap sx={{ flex: 1, color: '#475569', fontWeight: 600 }} title={item.fullTitle}>
+                  {item.fullTitle}
+                </Typography>
+                <Typography variant="caption" fontWeight={800} sx={{ color: item.fill }}>
+                  {item.value}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 32, textAlign: 'right' }}>
+                  {share}%
+                </Typography>
+              </Stack>
+            );
+          })}
+        </Stack>
+      </Grid>
+    </Grid>
   );
 };
 
@@ -217,6 +460,11 @@ const SurveyExecutiveDashboard = () => {
 
   const donutTotal = statusPieData.reduce((s, d) => s + d.value, 0);
 
+  const surveyChartData = useMemo(
+    () => (data?.charts?.surveyResponseChart || []).slice().sort((a, b) => b.responses - a.responses),
+    [data]
+  );
+
   if (loading && !data) {
     return (
       <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#f8fafc', minHeight: '100%' }}>
@@ -243,7 +491,6 @@ const SurveyExecutiveDashboard = () => {
 
   const { summary, charts, surveys, recentResponses } = data;
   const satisfaction = summary.avgSatisfaction;
-  const surveyChartData = charts.surveyResponseChart || [];
   const deptData = charts.departmentParticipation || [];
 
   return (
@@ -286,41 +533,14 @@ const SurveyExecutiveDashboard = () => {
       {/* Main charts */}
       <Grid container spacing={2} sx={{ mb: 2 }}>
         <Grid item xs={12} lg={7}>
-          <ChartPanel title="Responses by Survey" subtitle="Top surveys — each bar is a unique survey" height={360} accentColor="#6366F1">
+          <ChartPanel
+            title="Responses by Survey"
+            subtitle="Grouped bar chart and share donut — assigned vs actual responses"
+            height={420}
+            accentColor="#6366F1"
+          >
             {surveyChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={surveyChartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
-                  <GradientDefs id="surveyBar" colors={VIBRANT} />
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 10, fill: '#64748b', fontWeight: 500 }}
-                    interval={0}
-                    angle={-18}
-                    textAnchor="end"
-                    height={58}
-                    axisLine={{ stroke: '#e2e8f0' }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fontSize: 10, fill: '#64748b' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <RechartsTooltip
-                    content={(
-                      <CustomTooltip />
-                    )}
-                    labelFormatter={(_, payload) => payload?.[0]?.payload?.fullTitle || ''}
-                  />
-                  <Bar dataKey="responses" name="Responses" radius={[8, 8, 0, 0]} maxBarSize={52}>
-                    {surveyChartData.map((_, i) => (
-                      <Cell key={`sv-${i}`} fill={`url(#surveyBarGrad${i % VIBRANT.length})`} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <SurveyResponsesChart data={surveyChartData} />
             ) : (
               <Typography variant="body2" color="text.secondary" sx={{ py: 10, textAlign: 'center' }}>
                 No survey responses yet. Publish surveys to see trends here.

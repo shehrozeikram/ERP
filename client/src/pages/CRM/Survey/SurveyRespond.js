@@ -31,6 +31,12 @@ import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import surveyService from '../../../services/surveyService';
 import DynamicQuestionField from './DynamicQuestionField';
 import PollVote from './PollVote';
+import SurveySectionHeader from './SurveySectionHeader';
+import {
+  buildQuestionFlow,
+  questionsFromSections,
+  resolveSurveySections
+} from '../../../utils/surveySections';
 
 const pulse = keyframes`
   0% { transform: scale(1); opacity: 1; }
@@ -144,9 +150,19 @@ const SurveyRespond = () => {
     loadSurvey();
   }, [loadSurvey]);
 
-  const sortedQuestions = useMemo(
-    () => [...(survey?.questions || [])].sort((a, b) => (a.order || 0) - (b.order || 0)),
+  const sortedSections = useMemo(
+    () => resolveSurveySections(survey),
     [survey]
+  );
+
+  const questionFlow = useMemo(
+    () => buildQuestionFlow(sortedSections),
+    [sortedSections]
+  );
+
+  const sortedQuestions = useMemo(
+    () => questionsFromSections(sortedSections),
+    [sortedSections]
   );
 
   const isReadOnly = Boolean(
@@ -157,8 +173,13 @@ const SurveyRespond = () => {
     ? `${survey.createdBy.firstName || ''} ${survey.createdBy.lastName || ''}`.trim()
     : null;
 
-  const currentQuestion = sortedQuestions[currentIndex];
-  const totalSteps = sortedQuestions.length + 2;
+  const currentQuestion = questionFlow[currentIndex]?.question;
+  const currentSection = questionFlow[currentIndex]?.section;
+  const showSectionHeader = Boolean(
+    currentSection
+    && (currentIndex === 0 || questionFlow[currentIndex - 1]?.section?.key !== currentSection.key)
+  );
+  const totalSteps = questionFlow.length + 2;
   const currentStep = phase === 'intro' ? 1 : phase === 'review' ? totalSteps : currentIndex + 2;
   const progressPercent = Math.round((currentStep / totalSteps) * 100);
 
@@ -180,7 +201,8 @@ const SurveyRespond = () => {
     setAnswers((prev) => ({ ...prev, [questionKey]: value }));
     if (fieldError) setFieldError('');
 
-    const question = sortedQuestions.find((q) => q.key === questionKey);
+    const question = questionFlow.find((item) => item.question.key === questionKey)?.question
+      || sortedQuestions.find((q) => q.key === questionKey);
     if (
       question
       && AUTO_ADVANCE_TYPES.has(question.type)
@@ -214,7 +236,7 @@ const SurveyRespond = () => {
 
     if (!validateCurrent()) return;
 
-    if (currentIndex < sortedQuestions.length - 1) {
+    if (currentIndex < questionFlow.length - 1) {
       setCurrentIndex((i) => i + 1);
       bumpSlide();
     } else {
@@ -227,7 +249,7 @@ const SurveyRespond = () => {
     setFieldError('');
     if (phase === 'review') {
       setPhase('questions');
-      setCurrentIndex(sortedQuestions.length - 1);
+      setCurrentIndex(questionFlow.length - 1);
       bumpSlide();
       return;
     }
@@ -245,7 +267,7 @@ const SurveyRespond = () => {
     const errors = validateSurveyAnswers(sortedQuestions, answers);
     if (Object.keys(errors).length) {
       const firstKey = sortedQuestions.find((q) => errors[q.key])?.key;
-      const idx = sortedQuestions.findIndex((q) => q.key === firstKey);
+      const idx = questionFlow.findIndex((item) => item.question.key === firstKey);
       if (idx >= 0) {
         setCurrentIndex(idx);
         setPhase('questions');
@@ -403,32 +425,42 @@ const SurveyRespond = () => {
             </Typography>
           </Paper>
 
-          <Stack spacing={2}>
-            {sortedQuestions.map((question, index) => (
-              <Paper
-                key={question.key}
-                elevation={0}
-                sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}
-              >
-                <Typography variant="overline" color="primary.main" fontWeight={700}>
-                  Question {index + 1}
-                </Typography>
-                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                  {question.label}
-                </Typography>
-                <Box
-                  sx={{
-                    p: 2,
-                    borderRadius: 2,
-                    bgcolor: alpha(theme.palette.primary.main, 0.04),
-                    borderLeft: '4px solid',
-                    borderColor: 'primary.main'
-                  }}
-                >
-                  <Typography variant="body1">
-                    {formatAnswerDisplay(question, answers[question.key])}
-                  </Typography>
-                </Box>
+          <Stack spacing={3}>
+            {sortedSections.map((section, sectionIndex) => (
+              <Paper key={section.key} variant="outlined" sx={{ overflow: 'hidden' }}>
+                <SurveySectionHeader
+                  sectionNumber={sectionIndex + 1}
+                  title={section.title}
+                />
+                <Stack spacing={2} sx={{ p: 2 }}>
+                  {(section.questions || []).map((question, index) => (
+                    <Paper
+                      key={question.key}
+                      elevation={0}
+                      sx={{ p: 2.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}
+                    >
+                      <Typography variant="caption" color="primary.main" fontWeight={700}>
+                        Question {index + 1}
+                      </Typography>
+                      <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                        {question.label}
+                      </Typography>
+                      <Box
+                        sx={{
+                          p: 2,
+                          borderRadius: 2,
+                          bgcolor: alpha(theme.palette.primary.main, 0.04),
+                          borderLeft: '4px solid',
+                          borderColor: 'primary.main'
+                        }}
+                      >
+                        <Typography variant="body1">
+                          {formatAnswerDisplay(question, answers[question.key])}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  ))}
+                </Stack>
               </Paper>
             ))}
           </Stack>
@@ -534,6 +566,7 @@ const SurveyRespond = () => {
               )}
 
               <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" sx={{ mb: 3 }}>
+                <Chip label={`${sortedSections.length} section${sortedSections.length === 1 ? '' : 's'}`} variant="outlined" />
                 <Chip label={`${sortedQuestions.length} questions`} color="primary" variant="outlined" />
                 <Chip label={`~${estimateMinutes(sortedQuestions.length)} min`} variant="outlined" />
                 {survey.closesAt && (
@@ -580,6 +613,16 @@ const SurveyRespond = () => {
           {/* QUESTION */}
           {phase === 'questions' && currentQuestion && (
             <Box>
+              {showSectionHeader && currentSection && (
+                <Paper variant="outlined" sx={{ mb: 2, overflow: 'hidden' }}>
+                  <SurveySectionHeader
+                    sectionNumber={(questionFlow[currentIndex]?.sectionIndex || 0) + 1}
+                    title={currentSection.title}
+                    dense
+                  />
+                </Paper>
+              )}
+
               <Typography
                 variant="overline"
                 color="primary.main"
@@ -587,7 +630,7 @@ const SurveyRespond = () => {
                 letterSpacing={1.2}
                 sx={{ mb: 1, display: 'block' }}
               >
-                Question {currentIndex + 1} of {sortedQuestions.length}
+                Question {currentIndex + 1} of {questionFlow.length}
               </Typography>
 
               <DynamicQuestionField
@@ -607,12 +650,12 @@ const SurveyRespond = () => {
 
               {/* Dot navigator */}
               <Stack direction="row" spacing={0.75} justifyContent="center" flexWrap="wrap" sx={{ mt: 4 }}>
-                {sortedQuestions.map((q, i) => {
-                  const done = !isEmptyAnswer(answers[q.key]);
+                {questionFlow.map((item, i) => {
+                  const done = !isEmptyAnswer(answers[item.question.key]);
                   const active = i === currentIndex;
                   return (
                     <Box
-                      key={q.key}
+                      key={item.question.key}
                       onClick={() => goToQuestion(i)}
                       sx={{
                         width: active ? 24 : 8,
@@ -643,45 +686,56 @@ const SurveyRespond = () => {
                 {answeredCount} of {sortedQuestions.length} questions answered · Edit any answer before submitting
               </Typography>
 
-              <Stack spacing={2}>
-                {sortedQuestions.map((question, index) => {
-                  const empty = isEmptyAnswer(answers[question.key]);
-                  return (
-                    <Paper
-                      key={question.key}
-                      elevation={0}
-                      sx={{
-                        p: 2.5,
-                        borderRadius: 3,
-                        border: '1px solid',
-                        borderColor: empty ? 'warning.light' : 'divider',
-                        bgcolor: empty ? alpha(theme.palette.warning.main, 0.04) : 'background.paper'
-                      }}
-                    >
-                      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                            Q{index + 1}
-                            {question.required && ' · Required'}
-                          </Typography>
-                          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 0.75 }}>
-                            {question.label}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            color={empty ? 'warning.main' : 'text.primary'}
-                            fontWeight={empty ? 600 : 400}
+              <Stack spacing={3}>
+                {sortedSections.map((section, sectionIndex) => (
+                  <Paper key={section.key} variant="outlined" sx={{ overflow: 'hidden' }}>
+                    <SurveySectionHeader
+                      sectionNumber={sectionIndex + 1}
+                      title={section.title}
+                    />
+                    <Stack spacing={2} sx={{ p: 2 }}>
+                      {(section.questions || []).map((question, index) => {
+                        const flowIndex = questionFlow.findIndex((item) => item.question.key === question.key);
+                        const empty = isEmptyAnswer(answers[question.key]);
+                        return (
+                          <Paper
+                            key={question.key}
+                            elevation={0}
+                            sx={{
+                              p: 2.5,
+                              borderRadius: 3,
+                              border: '1px solid',
+                              borderColor: empty ? 'warning.light' : 'divider',
+                              bgcolor: empty ? alpha(theme.palette.warning.main, 0.04) : 'background.paper'
+                            }}
                           >
-                            {empty ? 'Not answered' : formatAnswerDisplay(question, answers[question.key])}
-                          </Typography>
-                        </Box>
-                        <IconButton size="small" onClick={() => goToQuestion(index)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Stack>
-                    </Paper>
-                  );
-                })}
+                            <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                                  Q{index + 1}
+                                  {question.required && ' · Required'}
+                                </Typography>
+                                <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 0.75 }}>
+                                  {question.label}
+                                </Typography>
+                                <Typography
+                                  variant="body2"
+                                  color={empty ? 'warning.main' : 'text.primary'}
+                                  fontWeight={empty ? 600 : 400}
+                                >
+                                  {empty ? 'Not answered' : formatAnswerDisplay(question, answers[question.key])}
+                                </Typography>
+                              </Box>
+                              <IconButton size="small" onClick={() => goToQuestion(flowIndex)}>
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Stack>
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
+                  </Paper>
+                ))}
               </Stack>
             </Box>
           )}

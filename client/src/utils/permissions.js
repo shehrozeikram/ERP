@@ -875,7 +875,7 @@ export const MODULES = {
           { name: 'Analytics & Reporting Dashboard', path: '/crm/survey/dashboard' },
           { name: 'Manage Surveys', path: '/crm/survey' },
           { name: 'My Surveys', path: '/crm/survey/mine' },
-          { name: 'Create Survey', path: '/crm/survey/new' },
+          { name: 'Create Market Intelligence Form', path: '/crm/survey/new' },
           { name: 'Create Poll', path: '/crm/survey/poll/new' }
         ]
       }

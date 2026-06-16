@@ -120,6 +120,41 @@ const normalizeQuestions = (questions = []) => questions.map((q, index) => ({
   order: Number.isFinite(Number(q.order)) ? Number(q.order) : index
 }));
 
+const normalizeSections = (sections = [], legacyQuestions = []) => {
+  if (Array.isArray(sections) && sections.length) {
+    return sections.map((section, sectionIndex) => ({
+      key: section.key || Survey.generateSectionKey(),
+      title: String(section.title || '').trim() || `Section ${sectionIndex + 1}`,
+      order: Number.isFinite(Number(section.order)) ? Number(section.order) : sectionIndex,
+      questions: normalizeQuestions(section.questions || [])
+    }));
+  }
+
+  const normalizedQuestions = normalizeQuestions(legacyQuestions);
+  if (!normalizedQuestions.length) return [];
+
+  return [{
+    key: Survey.generateSectionKey(),
+    title: 'General',
+    order: 0,
+    questions: normalizedQuestions
+  }];
+};
+
+const applySurveyStructure = (survey, { sections, questions } = {}) => {
+  const normalizedSections = normalizeSections(sections, questions);
+  survey.sections = normalizedSections;
+  survey.questions = normalizedSections.flatMap((section) => section.questions || []);
+  return survey;
+};
+
+const getSurveyQuestions = (survey) => {
+  if (survey?.sections?.length) {
+    return survey.sections.flatMap((section) => section.questions || []);
+  }
+  return survey?.questions || [];
+};
+
 const validatePollShape = (kind, questions = []) => {
   if (kind !== 'poll') return [];
   const errors = [];
@@ -624,9 +659,11 @@ router.get('/executive-dashboard',
       .sort((a, b) => b.responseCount - a.responseCount)
       .slice(0, 10)
       .map((item) => ({
-        name: item.title.length > 30 ? `${item.title.slice(0, 30)}…` : item.title,
+        name: item.title.length > 36 ? `${item.title.slice(0, 36)}…` : item.title,
         fullTitle: item.title,
         responses: item.responseCount,
+        assigned: item.assignedCount,
+        completionRate: item.responseRate,
         id: item._id
       }));
 
@@ -752,8 +789,7 @@ router.get('/:id',
 router.post('/',
   authorize(...CRM_ROLES),
   [
-    body('title').trim().notEmpty().withMessage('Title is required'),
-    body('questions').isArray({ min: 1 }).withMessage('At least one question is required')
+    body('title').trim().notEmpty().withMessage('Title is required')
   ],
   handleValidation,
   asyncHandler(async (req, res) => {
@@ -761,6 +797,7 @@ router.post('/',
       title,
       description,
       questions,
+      sections,
       targetUsers = [],
       closesAt,
       allowMultipleResponses = false,
@@ -770,8 +807,14 @@ router.post('/',
     } = req.body;
 
     const surveyKind = kind === 'poll' ? 'poll' : 'survey';
-    const normalizedQuestions = normalizeQuestions(questions);
-    const pollErrors = validatePollShape(surveyKind, normalizedQuestions);
+    const normalizedSections = normalizeSections(sections, questions);
+    const flatQuestions = normalizedSections.flatMap((section) => section.questions || []);
+
+    if (!flatQuestions.length) {
+      return res.status(400).json({ success: false, message: 'At least one question is required' });
+    }
+
+    const pollErrors = validatePollShape(surveyKind, flatQuestions);
     if (pollErrors.length) {
       return res.status(400).json({ success: false, message: pollErrors.join('; ') });
     }
@@ -779,7 +822,8 @@ router.post('/',
     const survey = await Survey.create({
       title: String(title).trim(),
       description: String(description || '').trim(),
-      questions: normalizedQuestions,
+      sections: normalizedSections,
+      questions: flatQuestions,
       targetUsers,
       closesAt: parseCloseDate(closesAt),
       allowMultipleResponses: Boolean(allowMultipleResponses),
@@ -814,6 +858,7 @@ router.put('/:id',
       title,
       description,
       questions,
+      sections,
       targetUsers,
       closesAt,
       allowMultipleResponses,
@@ -824,7 +869,12 @@ router.put('/:id',
 
     if (title !== undefined) survey.title = String(title).trim();
     if (description !== undefined) survey.description = String(description).trim();
-    if (questions !== undefined) survey.questions = normalizeQuestions(questions);
+    if (sections !== undefined || questions !== undefined) {
+      applySurveyStructure(survey, {
+        sections: sections !== undefined ? sections : survey.sections,
+        questions: questions !== undefined ? questions : survey.questions
+      });
+    }
     if (targetUsers !== undefined) survey.targetUsers = targetUsers;
     if (closesAt !== undefined) survey.closesAt = parseCloseDate(closesAt);
     if (allowMultipleResponses !== undefined) survey.allowMultipleResponses = Boolean(allowMultipleResponses);
