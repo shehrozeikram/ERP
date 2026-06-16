@@ -173,6 +173,7 @@ import VehicleLocationList from './pages/Admin/VehicleManagement/VehicleLocation
 import GroceryList from './pages/Admin/GroceryManagement/GroceryList';
 import GroceryForm from './pages/Admin/GroceryManagement/GroceryForm';
 import StockAlerts from './pages/Admin/GroceryManagement/StockAlerts';
+import HouseInventoryDashboard from './pages/Admin/HouseInventory/HouseInventoryDashboard';
 import PettyCashDashboard from './pages/Admin/PettyCashManagement/PettyCashDashboard';
 import FundForm from './pages/Admin/PettyCashManagement/FundForm';
 import ExpenseForm from './pages/Admin/PettyCashManagement/ExpenseForm';
@@ -1773,6 +1774,10 @@ function App() {
             <Route 
               path="/admin/vehicles/:id/edit" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/houses-inventory" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><HouseInventoryDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries" 

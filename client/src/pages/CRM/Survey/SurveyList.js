@@ -28,12 +28,14 @@ import {
   Analytics as AnalyticsIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  FactCheck as CommcraftReviewIcon,
   PlayArrow as RespondIcon,
   Refresh as RefreshIcon,
   Send as SendIcon,
   HowToVote as PollIcon
 } from '@mui/icons-material';
 import surveyService from '../../../services/surveyService';
+import CommcraftReviewDialog from './CommcraftReviewDialog';
 
 const statusColor = {
   draft: 'default',
@@ -64,6 +66,9 @@ const SurveyList = () => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewSurvey, setReviewSurvey] = useState(null);
 
   const pageTitle = useMemo(
     () => (isMineView ? 'My Surveys' : 'Manage Surveys'),
@@ -176,6 +181,21 @@ const SurveyList = () => {
     }
   };
 
+  const openReviewDialog = (survey) => {
+    setReviewSurvey(survey);
+    setReviewDialogOpen(true);
+  };
+
+  const closeReviewDialog = () => {
+    setReviewDialogOpen(false);
+    setReviewSurvey(null);
+  };
+
+  const handleReviewSaved = () => {
+    setSuccess('Commcraft review saved and linked to this survey.');
+    loadManaged();
+  };
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={2} sx={{ mb: 3 }}>
@@ -266,6 +286,17 @@ const SurveyList = () => {
                           <AnalyticsIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      {(survey.responseCount || 0) > 0 && (
+                        <Tooltip title={survey.hasCommcraftReview ? 'Edit Commcraft review' : 'Commcraft review section'}>
+                          <IconButton
+                            size="small"
+                            color={survey.hasCommcraftReview ? 'success' : 'secondary'}
+                            onClick={() => openReviewDialog(survey)}
+                          >
+                            <CommcraftReviewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Tooltip title="Edit">
                         <IconButton
                           size="small"
@@ -422,6 +453,13 @@ const SurveyList = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CommcraftReviewDialog
+        open={reviewDialogOpen}
+        survey={reviewSurvey}
+        onClose={closeReviewDialog}
+        onSaved={handleReviewSaved}
+      />
     </Box>
   );
 };

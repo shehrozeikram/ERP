@@ -121,6 +121,15 @@ const surveySchema = new mongoose.Schema({
   allowMultipleResponses: {
     type: Boolean,
     default: false
+  },
+  commcraftReview: {
+    crossCompanyObservations: { type: String, trim: true, maxlength: 5000, default: '' },
+    requiredFollowUp: { type: String, trim: true, maxlength: 5000, default: '' },
+    riskLevel: { type: String, enum: ['Low', 'Medium', 'High'] },
+    actionRequired: { type: String, enum: ['Immediate', 'This Month', 'Monitor Only'] },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reviewedAt: Date
   }
 }, {
   timestamps: true

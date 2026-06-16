@@ -55,6 +55,7 @@ const SUBMODULES = {
     'user_management',
     'sub_roles',
     'vehicle_management', 
+    'house_inventory',
     'grocery_management',
     'petty_cash_management',
     'event_management',
@@ -403,6 +404,11 @@ const PERMISSION_MAPPINGS = {
   'admin.groceries.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.groceries.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.groceries.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+
+  'admin.house_inventory.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.house_inventory.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.house_inventory.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.house_inventory.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
   'admin.suppliers.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.suppliers.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],

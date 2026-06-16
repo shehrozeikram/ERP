@@ -462,6 +462,38 @@ const buildStatusBreakdown = (assignedCount, responseCount) => {
   ].filter((item) => item.value > 0);
 };
 
+const COMMCRAFT_RISK_LEVELS = ['Low', 'Medium', 'High'];
+const COMMCRAFT_ACTIONS = ['Immediate', 'This Month', 'Monitor Only'];
+
+const normalizeCommcraftReviewPayload = (body = {}) => ({
+  crossCompanyObservations: String(body.crossCompanyObservations || '').trim(),
+  requiredFollowUp: String(body.requiredFollowUp || '').trim(),
+  riskLevel: COMMCRAFT_RISK_LEVELS.includes(body.riskLevel) ? body.riskLevel : null,
+  actionRequired: COMMCRAFT_ACTIONS.includes(body.actionRequired) ? body.actionRequired : null
+});
+
+const serializeCommcraftReview = (review) => {
+  if (!review) {
+    return {
+      crossCompanyObservations: '',
+      requiredFollowUp: '',
+      riskLevel: null,
+      actionRequired: null,
+      reviewedBy: null,
+      reviewedAt: null
+    };
+  }
+
+  return {
+    crossCompanyObservations: review.crossCompanyObservations || '',
+    requiredFollowUp: review.requiredFollowUp || '',
+    riskLevel: review.riskLevel || null,
+    actionRequired: review.actionRequired || null,
+    reviewedBy: review.reviewedBy || null,
+    reviewedAt: review.reviewedAt || null
+  };
+};
+
 // GET /api/crm/surveys
 router.get('/',
   authorize(...CRM_ROLES),
@@ -501,7 +533,8 @@ router.get('/',
     const data = surveys.map((survey) => ({
       ...survey,
       responseCount: countMap[String(survey._id)] || 0,
-      assignedCount: survey.targetUsers?.length || 0
+      assignedCount: survey.targetUsers?.length || 0,
+      hasCommcraftReview: Boolean(survey.commcraftReview?.reviewedAt)
     }));
 
     res.json({
@@ -1086,6 +1119,74 @@ router.get('/:id/analytics',
         questionAnalytics: buildQuestionAnalytics(survey, responses),
         recentResponses: responses.slice(0, 20),
         pendingUsers
+      }
+    });
+  })
+);
+
+// GET /api/crm/surveys/:id/commcraft-review
+router.get('/:id/commcraft-review',
+  authorize(...CRM_ROLES),
+  asyncHandler(async (req, res) => {
+    const survey = await Survey.findById(req.params.id)
+      .populate('commcraftReview.reviewedBy', 'firstName lastName email')
+      .lean();
+
+    if (!survey) {
+      return res.status(404).json({ success: false, message: 'Survey not found' });
+    }
+
+    const responseCount = await SurveyResponse.countDocuments({ survey: survey._id });
+    if (!responseCount) {
+      return res.status(400).json({ success: false, message: 'Commcraft review is available after survey responses are received' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        surveyId: survey._id,
+        surveyTitle: survey.title,
+        responseCount,
+        review: serializeCommcraftReview(survey.commcraftReview)
+      }
+    });
+  })
+);
+
+// PUT /api/crm/surveys/:id/commcraft-review
+router.put('/:id/commcraft-review',
+  authorize(...CRM_ROLES),
+  asyncHandler(async (req, res) => {
+    const survey = await Survey.findById(req.params.id);
+    if (!survey) {
+      return res.status(404).json({ success: false, message: 'Survey not found' });
+    }
+
+    const responseCount = await SurveyResponse.countDocuments({ survey: survey._id });
+    if (!responseCount) {
+      return res.status(400).json({ success: false, message: 'Commcraft review is available after survey responses are received' });
+    }
+
+    const payload = normalizeCommcraftReviewPayload(req.body);
+    const now = new Date();
+    const existing = survey.commcraftReview || {};
+
+    survey.commcraftReview = {
+      ...payload,
+      reviewedBy: existing.reviewedBy || req.user._id,
+      updatedBy: req.user._id,
+      reviewedAt: now
+    };
+
+    await survey.save();
+    await survey.populate('commcraftReview.reviewedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Commcraft review saved',
+      data: {
+        surveyId: survey._id,
+        review: serializeCommcraftReview(survey.commcraftReview)
       }
     });
   })

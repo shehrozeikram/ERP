@@ -227,6 +227,7 @@ export const SUBMODULES = {
     'user_management',
     'sub_roles',
     'vehicle_management', 
+    'house_inventory',
     'grocery_management',
     'petty_cash_management',
     'event_management',
@@ -914,6 +915,7 @@ export const MODULES = {
           { name: 'Reports', path: '/admin/vehicle-management/reports' }
         ]
       },
+      { name: 'Houses Inventory', path: '/admin/houses-inventory' },
       { name: 'Grocery Management', path: '/admin/groceries' },
       { name: 'Petty Cash Management', path: '/admin/petty-cash' },
       { name: 'Event Management', path: '/admin/events' },
@@ -1313,6 +1315,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
       '/settings': 'admin_settings',
       '/admin/vehicle-management': 'vehicle_management',
+      '/admin/houses-inventory': 'house_inventory',
       '/admin/groceries': 'grocery_management',
       '/admin/petty-cash': 'petty_cash_management',
       '/admin/events': 'event_management',

@@ -25,7 +25,11 @@ const surveyService = {
 
   getExecutiveDashboard: () => api.get('/crm/surveys/executive-dashboard'),
 
-  getPollResults: (id) => api.get(`/crm/surveys/${id}/poll-results`)
+  getPollResults: (id) => api.get(`/crm/surveys/${id}/poll-results`),
+
+  getCommcraftReview: (id) => api.get(`/crm/surveys/${id}/commcraft-review`),
+
+  saveCommcraftReview: (id, payload) => api.put(`/crm/surveys/${id}/commcraft-review`, payload)
 };
 
 export default surveyService;

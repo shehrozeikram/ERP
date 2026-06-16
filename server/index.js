@@ -83,6 +83,7 @@ const vehicleMaintenanceRoutes = require('./routes/vehicleMaintenance');
 const vehicleLogBookRoutes = require('./routes/vehicleLogBook');
 const trakkerRoutes = require('./routes/trakker');
 const groceryRoutes = require('./routes/groceries');
+const houseInventoryRoutes = require('./routes/houseInventory');
 const supplierRoutes = require('./routes/suppliers');
 const pettyCashRoutes = require('./routes/pettyCash');
 const eventRoutes = require('./routes/events');
@@ -628,6 +629,7 @@ app.use('/api/vehicle-maintenance', authMiddleware, activityLogger, vehicleMaint
 app.use('/api/vehicle-logbook', authMiddleware, activityLogger, vehicleLogBookRoutes);
 app.use('/api/trakker', trakkerRoutes);
 app.use('/api/groceries', authMiddleware, activityLogger, groceryRoutes);
+app.use('/api/house-inventory', authMiddleware, activityLogger, houseInventoryRoutes);
 app.use('/api/suppliers', authMiddleware, activityLogger, supplierRoutes);
 app.use('/api/petty-cash', authMiddleware, activityLogger, pettyCashRoutes);
 app.use('/api/events', authMiddleware, activityLogger, eventRoutes);
