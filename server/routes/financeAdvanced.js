@@ -415,6 +415,62 @@ router.post('/accounts',
   })
 );
 
+// @route   DELETE /api/finance/accounts/:id
+// @desc    Deactivate (remove) a chart of accounts entry
+// @access  Private (Finance and Admin)
+router.delete('/accounts/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const account = await Account.findById(req.params.id);
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Account not found' });
+    }
+
+    if (account.isSystem || account.isSystemAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'System accounts cannot be deleted'
+      });
+    }
+
+    const childCount = await Account.countDocuments({
+      parentAccount: account._id,
+      isActive: true
+    });
+    if (childCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete this account because it has ${childCount} active subaccount(s). Delete or reassign the subaccounts first.`
+      });
+    }
+
+    const balance = Number(account.balance) || 0;
+    if (Math.abs(balance) > 0.01) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete an account with a non-zero balance (${balance}). Clear or reclassify the balance first.`
+      });
+    }
+
+    const usedInJournal = await JournalEntry.exists({ 'lines.account': account._id });
+    if (usedInJournal) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete this account because it is used in journal entries'
+      });
+    }
+
+    account.isActive = false;
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Account deleted successfully',
+      data: { account }
+    });
+  })
+);
+
 // ================================
 // JOURNAL ENTRIES ROUTES
 // ================================

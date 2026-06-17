@@ -51,7 +51,8 @@ import {
   Security as SecurityIcon,
   Refresh as RefreshIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
-  KeyboardArrowRight as KeyboardArrowRightIcon
+  KeyboardArrowRight as KeyboardArrowRightIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -255,6 +256,9 @@ const ChartOfAccounts = () => {
   const [parentAccounts, setParentAccounts] = useState([]);
   const [parentAccountsLoading, setParentAccountsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [accountToDelete, setAccountToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchAccounts();
@@ -448,6 +452,42 @@ const ChartOfAccounts = () => {
     }));
   };
 
+  const openDeleteDialog = (account) => {
+    setAccountToDelete(account);
+    setDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (deleting) return;
+    setDeleteDialogOpen(false);
+    setAccountToDelete(null);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!accountToDelete?._id) return;
+    setDeleting(true);
+    setError('');
+    try {
+      await api.delete(`/finance/accounts/${accountToDelete._id}`);
+      setExpandedRows((prev) => {
+        const next = new Set(prev);
+        next.delete(String(accountToDelete._id));
+        return next;
+      });
+      setDeleteDialogOpen(false);
+      setAccountToDelete(null);
+      await fetchAccounts();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete account');
+      setDeleteDialogOpen(false);
+      setAccountToDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const canDeleteAccount = (account) => !account?.isSystem && !account?.isSystemAccount;
+
   const toggleRowExpansion = (accountId) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -529,14 +569,36 @@ const ChartOfAccounts = () => {
             </Typography>
           </TableCell>
           <TableCell>
-            <Button
-              variant="text"
-              size="small"
-              endIcon={<KeyboardArrowDownIcon />}
-              sx={{ textTransform: 'none', fontWeight: 600 }}
-            >
-              Account history
-            </Button>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                variant="text"
+                size="small"
+                endIcon={<KeyboardArrowDownIcon />}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
+              >
+                Account history
+              </Button>
+              {canDeleteAccount(account) ? (
+                <Tooltip title="Delete account">
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => openDeleteDialog(account)}
+                    aria-label="Delete account"
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : (
+                <Tooltip title="System accounts cannot be deleted">
+                  <span>
+                    <IconButton size="small" disabled aria-label="Delete account disabled">
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              )}
+            </Box>
           </TableCell>
         </TableRow>
       );
@@ -1063,6 +1125,34 @@ const ChartOfAccounts = () => {
             sx={{ minWidth: 120 }}
           >
             {submitting ? 'Saving...' : 'Create account'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete account?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            {accountToDelete
+              ? `This will remove ${accountToDelete.accountNumber ? `${accountToDelete.accountNumber} — ` : ''}${accountToDelete.name || 'this account'} from the chart of accounts.`
+              : 'This will remove the account from the chart of accounts.'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            Accounts with a balance, journal entries, or active subaccounts cannot be deleted.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={closeDeleteDialog} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteAccount}
+            disabled={deleting}
+            startIcon={<DeleteIcon />}
+          >
+            {deleting ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>
