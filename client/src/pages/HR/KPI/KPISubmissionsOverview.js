@@ -303,7 +303,7 @@ const KPISubmissionsOverview = () => {
                                   <TableCell align="right">
                                     <Button
                                       component={RouterLink}
-                                      to={`/hr/kpi/sheet?employeeId=${row.employee?._id}`}
+                                      to={`/hr/kpi/sheet?employeeId=${row.employee?._id}&year=${year}&month=${month}`}
                                       size="small"
                                       endIcon={<OpenInNewIcon />}
                                     >

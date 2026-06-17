@@ -57,6 +57,7 @@ function rowStillPresent(prevRow, newRows) {
 async function worksheetEditFlags(req, subjectEmployeeId) {
   const me = await employeeFromUser(req.user);
   const hr = isHrAdmin(req.user?.role);
+  const kpiElevated = hr || await canAccessKpiManagement(req.user, 'update');
   const subId = String(subjectEmployeeId);
   const subject = await Employee.findById(subId).select('reportingLine manager hod').lean();
   const owner = me && String(me._id) === subId;
@@ -66,10 +67,10 @@ async function worksheetEditFlags(req, subjectEmployeeId) {
   const managerOf = me && ((lineId && String(me._id) === lineId) || (mgrId && String(me._id) === mgrId) || (hodId && String(me._id) === hodId));
 
   return {
-    canEditStructure: owner || hr,
-    canEditEmployeeCols: owner || hr,
-    canEditManagerCols: (managerOf && !owner) || hr,
-    canDeleteRowsAsReportingLine: (managerOf && !owner) || hr
+    canEditStructure: owner || kpiElevated,
+    canEditEmployeeCols: owner || kpiElevated,
+    canEditManagerCols: (managerOf && !owner) || kpiElevated,
+    canDeleteRowsAsReportingLine: (managerOf && !owner) || kpiElevated
   };
 }
 
@@ -110,6 +111,7 @@ async function populateWorksheetEmployee(doc) {
 async function canAccessWorksheet(req, worksheetEmployeeId) {
   const role = req.user?.role;
   if (isHrAdmin(role)) return true;
+  if (await canAccessKpiManagement(req.user, 'read')) return true;
 
   const me = await employeeFromUser(req.user);
   if (!me) return false;
@@ -449,19 +451,19 @@ router.put(
 
     const flags = await worksheetEditFlags(req, doc.employee);
     const prevRows = (doc.rows || []).map((x) => rowToPlain(x));
-    const hr = isHrAdmin(req.user?.role);
+    const elevatedEditor = isHrAdmin(req.user?.role) || await canAccessKpiManagement(req.user, 'update');
 
     if (rows.length !== prevRows.length) {
       const canChangeStructure = flags.canEditStructure;
       const canDeleteAsReportingLine = flags.canDeleteRowsAsReportingLine;
 
-      if (!hr && !canChangeStructure && !canDeleteAsReportingLine) {
+      if (!elevatedEditor && !canChangeStructure && !canDeleteAsReportingLine) {
         return res.status(400).json({
           success: false,
           message: 'Only the employee (or HR) can add/remove KPI rows or change weights.'
         });
       }
-      if (!hr && canDeleteAsReportingLine && !canChangeStructure && rows.length > prevRows.length) {
+      if (!elevatedEditor && canDeleteAsReportingLine && !canChangeStructure && rows.length > prevRows.length) {
         return res.status(400).json({
           success: false,
           message: 'Reporting line cannot add KPI rows or change weights.'
@@ -497,7 +499,7 @@ router.put(
     });
 
     const deleteErr = validateRowDeletions(prevRows, merged, flags);
-    if (deleteErr && !hr) {
+    if (deleteErr && !elevatedEditor) {
       return res.status(400).json({ success: false, message: deleteErr });
     }
 

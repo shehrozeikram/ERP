@@ -243,8 +243,14 @@ const KPIMonthlySheet = () => {
   const isHrAdmin = HR_ADMIN_ROLES.includes(user?.role);
 
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(() => {
+    const y = parseInt(searchParams.get('year'), 10);
+    return Number.isFinite(y) ? y : now.getFullYear();
+  });
+  const [month, setMonth] = useState(() => {
+    const m = parseInt(searchParams.get('month'), 10);
+    return Number.isFinite(m) ? m : now.getMonth() + 1;
+  });
   const [sheet, setSheet] = useState(null);
   const [rows, setRows] = useState([]);
   const [editFlags, setEditFlags] = useState(defaultFlags);
@@ -260,11 +266,11 @@ const KPIMonthlySheet = () => {
   const [editRowDraft, setEditRowDraft] = useState(null);
 
   const targetEmployeeId = useMemo(() => {
-    if (isHrPage && isHrAdmin && hrEmployeeId) return hrEmployeeId;
+    if (isHrPage && hrEmployeeId) return hrEmployeeId;
     if (isTeamReviewPage) return teamMemberId || null;
     if (!isHrPage && teamMemberId) return teamMemberId;
     return null;
-  }, [isHrPage, isHrAdmin, hrEmployeeId, teamMemberId, isTeamReviewPage]);
+  }, [isHrPage, hrEmployeeId, teamMemberId, isTeamReviewPage]);
 
   /** On your own sheet you only edit Employee columns; reporting line fills the other two (or HR picks you in the HR KPI sheet). */
   const canEditReportingLineFields = useMemo(() => {
@@ -281,7 +287,7 @@ const KPIMonthlySheet = () => {
   }, [saving, sheet?._id, isOwnSheet, editFlags.canEditStructure]);
 
   const loadHistory = useCallback(async () => {
-    if (isHrPage && isHrAdmin && !hrEmployeeId) {
+    if (isHrPage && !hrEmployeeId) {
       setHistory([]);
       return;
     }
@@ -291,7 +297,7 @@ const KPIMonthlySheet = () => {
     } catch {
       setHistory([]);
     }
-  }, [isHrPage, isHrAdmin, hrEmployeeId]);
+  }, [isHrPage, hrEmployeeId]);
 
   const loadTeam = useCallback(async () => {
     if (isHrPage) return;
@@ -323,7 +329,7 @@ const KPIMonthlySheet = () => {
       setLoading(false);
       return;
     }
-    if (isHrPage && isHrAdmin && !hrEmployeeId) {
+    if (isHrPage && !hrEmployeeId) {
       setSheet(null);
       setRows([]);
       setEditFlags(defaultFlags);
@@ -370,7 +376,7 @@ const KPIMonthlySheet = () => {
     } finally {
       setLoading(false);
     }
-  }, [year, month, targetEmployeeId, isTeamReviewPage, teamMemberId, isHrPage, isHrAdmin, hrEmployeeId]);
+  }, [year, month, targetEmployeeId, isTeamReviewPage, teamMemberId, isHrPage, hrEmployeeId]);
 
   useEffect(() => {
     loadHistory();
@@ -397,6 +403,10 @@ const KPIMonthlySheet = () => {
   useEffect(() => {
     const id = searchParams.get('employeeId');
     if (id && isHrPage) setHrEmployeeId(id);
+    const y = parseInt(searchParams.get('year'), 10);
+    const m = parseInt(searchParams.get('month'), 10);
+    if (Number.isFinite(y)) setYear(y);
+    if (Number.isFinite(m)) setMonth(m);
   }, [searchParams, isHrPage]);
 
   const totalWeight = useMemo(() => rows.reduce((s, r) => s + (Number(r.weight) || 0), 0), [rows]);
@@ -470,7 +480,7 @@ const KPIMonthlySheet = () => {
 
   const ensureSheetId = async () => {
     if (sheet?._id) return sheet._id;
-    if (isHrPage && isHrAdmin && !hrEmployeeId) {
+    if (isHrPage && !hrEmployeeId) {
       toast.error('Select an employee before saving a KPI sheet.');
       return null;
     }
@@ -661,9 +671,11 @@ const KPIMonthlySheet = () => {
         </CardContent>
       </Card>
 
-      {isHrPage && isHrAdmin && !hrEmployeeId && !loading && (
+      {isHrPage && !hrEmployeeId && !loading && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Select an employee above to open their monthly KPI sheet.
+          {isHrAdmin
+            ? 'Select an employee above to open their monthly KPI sheet.'
+            : 'Open an employee from KPI Submissions, or pick one above if you have access to the employee list.'}
         </Alert>
       )}
 
@@ -673,7 +685,13 @@ const KPIMonthlySheet = () => {
         </Alert>
       )}
 
-      {!loading && targetEmployeeId && !canEditStructure && (
+      {!loading && targetEmployeeId && isHrPage && !canEditStructure && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Viewing <strong>{empName || 'employee'}</strong>&apos;s KPI sheet (read-only).
+        </Alert>
+      )}
+
+      {!loading && targetEmployeeId && !isHrPage && !canEditStructure && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           You are viewing a team member&apos;s sheet. Use <strong>Back to my sheet</strong> to add KPI areas and weights on
           your own monthly sheet. As reporting line, you can remove a KPI row only after the employee has entered achieved
