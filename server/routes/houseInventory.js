@@ -182,7 +182,7 @@ router.get('/houses', HOUSE_INVENTORY_PERMISSION, async (req, res) => {
       return {
         _id: house._id,
         houseName: house.name,
-        notes: house.notes || '',
+        address: house.address || house.notes || '',
         itemCount: stats?.itemCount || 0,
         areas: (stats?.areas || []).sort((a, b) => a.name.localeCompare(b.name))
       };
@@ -202,7 +202,7 @@ router.get('/houses', HOUSE_INVENTORY_PERMISSION, async (req, res) => {
 router.post('/houses', HOUSE_INVENTORY_CREATE_PERMISSION, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
-    const notes = String(req.body.notes || '').trim();
+    const address = String(req.body.address || '').trim();
     if (!name) return res.status(400).json({ success: false, message: 'House name is required' });
 
     const existing = await HouseInventoryHouse.findOne({ name });
@@ -210,7 +210,7 @@ router.post('/houses', HOUSE_INVENTORY_CREATE_PERMISSION, async (req, res) => {
 
     const house = await HouseInventoryHouse.create({
       name,
-      notes,
+      address,
       createdBy: req.user._id,
       updatedBy: req.user._id
     });
@@ -219,6 +219,44 @@ router.post('/houses', HOUSE_INVENTORY_CREATE_PERMISSION, async (req, res) => {
   } catch (error) {
     console.error('Error creating house master:', error);
     return res.status(500).json({ success: false, message: 'Failed to create house' });
+  }
+});
+
+// PUT /api/house-inventory/houses/:id
+router.put('/houses/:id', HOUSE_INVENTORY_UPDATE_PERMISSION, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const address = String(req.body.address || '').trim();
+    if (!name) return res.status(400).json({ success: false, message: 'House name is required' });
+
+    const house = await HouseInventoryHouse.findById(req.params.id);
+    if (!house) return res.status(404).json({ success: false, message: 'House not found' });
+
+    const duplicate = await HouseInventoryHouse.findOne({
+      _id: { $ne: house._id },
+      name
+    });
+    if (duplicate) {
+      return res.status(400).json({ success: false, message: 'Another house with this name already exists' });
+    }
+
+    const previousName = house.name;
+    house.name = name;
+    house.address = address;
+    house.updatedBy = req.user._id;
+    await house.save();
+
+    if (previousName !== name) {
+      await HouseInventoryItem.updateMany(
+        { houseName: previousName },
+        { $set: { houseName: name, updatedBy: req.user._id } }
+      );
+    }
+
+    return res.json({ success: true, data: house, message: 'House updated successfully' });
+  } catch (error) {
+    console.error('Error updating house master:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update house' });
   }
 });
 

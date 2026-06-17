@@ -75,8 +75,9 @@ const HouseInventoryDashboard = () => {
 
   const [dialog, setDialog] = useState({ open: false, mode: 'create', item: null });
   const [form, setForm] = useState(EMPTY_FORM);
-  const [houseDialogOpen, setHouseDialogOpen] = useState(false);
-  const [houseForm, setHouseForm] = useState({ name: '', notes: '' });
+  const [houseDialog, setHouseDialog] = useState({ open: false, mode: 'create', house: null });
+  const [houseForm, setHouseForm] = useState({ name: '', address: '' });
+  const isHouseDialogOpen = houseDialog.open;
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -231,7 +232,27 @@ const HouseInventoryDashboard = () => {
     }
   };
 
-  const handleCreateHouse = async () => {
+  const openCreateHouse = () => {
+    setHouseDialog({ open: true, mode: 'create', house: null });
+    setHouseForm({ name: '', address: '' });
+  };
+
+  const openEditHouse = (house, event) => {
+    event?.stopPropagation();
+    setHouseDialog({ open: true, mode: 'edit', house });
+    setHouseForm({
+      name: house.houseName || '',
+      address: house.address || ''
+    });
+  };
+
+  const closeHouseDialog = () => {
+    if (saving) return;
+    setHouseDialog({ open: false, mode: 'create', house: null });
+    setHouseForm({ name: '', address: '' });
+  };
+
+  const handleSaveHouse = async () => {
     const name = String(houseForm.name || '').trim();
     if (!name) {
       setError('House name is required');
@@ -240,18 +261,27 @@ const HouseInventoryDashboard = () => {
     try {
       setSaving(true);
       setError('');
-      await houseInventoryService.createHouse({
+      const payload = {
         name,
-        notes: String(houseForm.notes || '').trim()
-      });
-      setSuccess('House added successfully');
-      setHouseDialogOpen(false);
-      setHouseForm({ name: '', notes: '' });
+        address: String(houseForm.address || '').trim()
+      };
+      if (houseDialog.mode === 'edit' && houseDialog.house?._id) {
+        await houseInventoryService.updateHouse(houseDialog.house._id, payload);
+        setSuccess('House updated successfully');
+        if (activeHouse === houseDialog.house.houseName && activeHouse !== name) {
+          setActiveHouse(name);
+        }
+      } else {
+        await houseInventoryService.createHouse(payload);
+        setSuccess('House added successfully');
+        setActiveHouse(name);
+        setActiveArea(ALL_AREAS_VALUE);
+      }
+      closeHouseDialog();
       await fetchHouses();
-      setActiveHouse(name);
-      setActiveArea(ALL_AREAS_VALUE);
+      await fetchItems();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to add house');
+      setError(err.response?.data?.message || 'Failed to save house');
     } finally {
       setSaving(false);
     }
@@ -309,7 +339,7 @@ const HouseInventoryDashboard = () => {
       {sectionTab === 'houses' && (
         <>
           <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setHouseDialogOpen(true)}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateHouse}>
               Add House
             </Button>
           </Stack>
@@ -318,8 +348,10 @@ const HouseInventoryDashboard = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>House Name</TableCell>
+                  <TableCell>Address</TableCell>
                   <TableCell align="right">Areas</TableCell>
                   <TableCell align="right">Items</TableCell>
+                  <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -337,17 +369,26 @@ const HouseInventoryDashboard = () => {
                   >
                     <TableCell>
                       <Typography fontWeight={600}>{house.houseName}</Typography>
-                      {house.notes ? (
-                        <Typography variant="caption" color="text.secondary">{house.notes}</Typography>
-                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {house.address || '—'}
+                      </Typography>
                     </TableCell>
                     <TableCell align="right">{house.areas?.length || 0}</TableCell>
                     <TableCell align="right">{house.itemCount || 0}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Edit house">
+                        <IconButton size="small" onClick={(e) => openEditHouse(house, e)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {!houses.length && (
                   <TableRow>
-                    <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                       No houses found. Click Add House to start.
                     </TableCell>
                   </TableRow>
@@ -604,8 +645,8 @@ const HouseInventoryDashboard = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={houseDialogOpen} onClose={() => (saving ? null : setHouseDialogOpen(false))} maxWidth="xs" fullWidth>
-        <DialogTitle>Add House</DialogTitle>
+      <Dialog open={isHouseDialogOpen} onClose={closeHouseDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>{houseDialog.mode === 'edit' ? 'Edit House' : 'Add House'}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2} sx={{ mt: 0.5 }}>
             <TextField
@@ -615,17 +656,19 @@ const HouseInventoryDashboard = () => {
               required
             />
             <TextField
-              label="Notes (Optional)"
-              value={houseForm.notes}
-              onChange={(e) => setHouseForm((prev) => ({ ...prev, notes: e.target.value }))}
+              label="Address (Optional)"
+              value={houseForm.address}
+              onChange={(e) => setHouseForm((prev) => ({ ...prev, address: e.target.value }))}
               multiline
               minRows={2}
             />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setHouseDialogOpen(false)} disabled={saving}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateHouse} disabled={saving}>Add House</Button>
+          <Button onClick={closeHouseDialog} disabled={saving}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveHouse} disabled={saving}>
+            {houseDialog.mode === 'edit' ? 'Update' : 'Add House'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

@@ -151,7 +151,8 @@ const SUBMODULES = {
     'land_acquisition_moza',
     'land_acquisition_registry',
     'land_acquisition_possession',
-    'land_acquisition_parties'
+    'land_acquisition_parties',
+    'land_purchase'
   ],
   general: [
     'document_tracking',

@@ -8,7 +8,7 @@ const houseInventoryHouseSchema = new mongoose.Schema({
     unique: true,
     maxlength: 200
   },
-  notes: {
+  address: {
     type: String,
     trim: true,
     default: ''

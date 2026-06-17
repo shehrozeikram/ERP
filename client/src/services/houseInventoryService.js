@@ -11,6 +11,11 @@ const houseInventoryService = {
     return response.data;
   },
 
+  updateHouse: async (id, payload) => {
+    const response = await api.put(`/house-inventory/houses/${id}`, payload);
+    return response.data;
+  },
+
   getItems: async (params = {}) => {
     const response = await api.get('/house-inventory', { params });
     return response.data;

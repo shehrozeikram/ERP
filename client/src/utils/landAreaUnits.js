@@ -53,3 +53,17 @@ export const areaToForm = (area) => {
     sarsai: a.sarsai ? String(a.sarsai) : ''
   };
 };
+
+export const areaToDecimalKanal = (area) => {
+  const a = normalizeArea(area);
+  return a.kanal + (a.marla / MARLA_PER_KANAL) + (a.sarsai / SARSAIS_PER_KANAL);
+};
+
+export const formatAreaReadable = (area) => {
+  const a = normalizeArea(area);
+  const parts = [];
+  if (a.kanal) parts.push(`${a.kanal} Kanal`);
+  if (a.marla) parts.push(`${a.marla} Marla`);
+  if (a.sarsai) parts.push(`${a.sarsai} Sarsai`);
+  return parts.join(' ') || '—';
+};
