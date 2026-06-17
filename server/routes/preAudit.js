@@ -16,6 +16,9 @@ const {
 } = require('../utils/preAuditWorkflowStatus');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 const UtilityBill = require('../models/hr/UtilityBill');
+const UtilityCentralStore = require('../models/hr/UtilityCentralStore');
+const UtilityStoreCategory = require('../models/hr/UtilityStoreCategory');
+const UtilityStoreItem = require('../models/hr/UtilityStoreItem');
 const {
   postUtilityBillToFinance,
   isUtilityBillAuditFinalApproved,
@@ -492,6 +495,39 @@ router.get('/',
         hasNextPage,
         hasPrevPage,
         limit: parseInt(limit)
+      }
+    });
+  })
+);
+
+// @route   GET /api/pre-audit/centralized-store-items
+// @desc    Read-only centralized store catalog for audit director reference
+// @access  Private (audit module users)
+router.get('/centralized-store-items',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    if (!hasAuditAccess(req.user)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to audit resources.' });
+    }
+
+    const store = await UtilityCentralStore.getOrCreate(req.user?.id || req.user?._id);
+    const categories = await UtilityStoreCategory.find({ isActive: true })
+      .sort({ sortOrder: 1, name: 1 })
+      .select('name sortOrder')
+      .lean();
+    const items = await UtilityStoreItem.find({ isActive: true })
+      .populate('category', 'name')
+      .populate('expenseAccount', 'accountNumber name')
+      .sort({ sortOrder: 1, name: 1 })
+      .lean();
+
+    res.json({
+      success: true,
+      data: {
+        store: { _id: store._id, name: store.name },
+        categories,
+        items,
+        count: items.length
       }
     });
   })

@@ -89,6 +89,7 @@ import {
 } from '../../utils/utilityBillMemoUtils';
 import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
 import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
+import CentralizedStoreItemsAuditPanel from '../../components/Audit/CentralizedStoreItemsAuditPanel';
 import { collectUtilityBillWorkflowImages } from '../../utils/utilityBillAttachments';
 import {
   getStoreInvoiceOrgTitle,
@@ -2308,6 +2309,8 @@ const PreAudit = () => {
             <Tab label="Approved" />
             <Tab label="Returned" />
           </Tabs>
+
+          {tabValue === 2 && <CentralizedStoreItemsAuditPanel />}
 
           {loading ? (
             <Box>
