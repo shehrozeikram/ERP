@@ -13,7 +13,6 @@ import { formatAssetLocationForDisplay } from '../../utils/assetLocationDisplay'
 import AssetAttachmentThumb from '../../components/AssetTagging/AssetAttachmentThumb';
 import FixedAssetPaginationBar from '../../components/AssetTagging/FixedAssetPaginationBar';
 import FixedAssetGrandTotals from '../../components/AssetTagging/FixedAssetGrandTotals';
-import CeoOfficeFarImportButton from '../../components/AssetTagging/CeoOfficeFarImportButton';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
@@ -24,7 +23,6 @@ export default function FixedAssetRegisterPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   const [ledgerStatus, setLedgerStatus] = useState(''); // '' = active + fully_depreciated
   const [tagStatus, setTagStatus] = useState('');
@@ -83,14 +81,6 @@ export default function FixedAssetRegisterPage() {
           </Box>
         </Stack>
         <Stack direction="row" spacing={1} flexWrap="wrap">
-          <CeoOfficeFarImportButton
-            apiPath="/asset-tagging/import/ceo-office-far"
-            size="small"
-            onImported={(message) => {
-              setSuccess(message);
-              load();
-            }}
-          />
           <Button startIcon={<RefreshIcon />} onClick={load} disabled={loading}>Refresh</Button>
           <Button variant="outlined" startIcon={<QrIcon />} onClick={() => navigate('/asset-tagging/assets')}>
             Tagged Assets
@@ -144,7 +134,6 @@ export default function FixedAssetRegisterPage() {
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       {loading ? (
         <Box py={6} textAlign="center"><CircularProgress /></Box>

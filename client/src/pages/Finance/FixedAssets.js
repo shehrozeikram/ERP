@@ -21,7 +21,6 @@ import { resolveUploadFileHref } from '../../utils/uploadPaths';
 import { computeFixedAssetTotals } from '../../utils/fixedAssetPaginationTotals';
 import FixedAssetPaginationBar from '../../components/AssetTagging/FixedAssetPaginationBar';
 import FixedAssetGrandTotals from '../../components/AssetTagging/FixedAssetGrandTotals';
-import CeoOfficeFarImportButton from '../../components/AssetTagging/CeoOfficeFarImportButton';
 
 const CATEGORIES = ['land','building','machinery','vehicle','furniture','computer','equipment','other'];
 const METHODS = [
@@ -478,12 +477,6 @@ export default function FixedAssets() {
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
-          <CeoOfficeFarImportButton
-            onImported={(message) => {
-              setSuccess(message);
-              load();
-            }}
-          />
           <Button variant="outlined" color="warning" startIcon={<DepAllIcon />}
             onClick={() => { setBulkResult(null); setBulkOpen(true); }}>
             Depreciate All

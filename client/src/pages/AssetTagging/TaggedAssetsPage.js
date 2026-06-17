@@ -21,7 +21,6 @@ import {
 import AssetAttachmentThumb from '../../components/AssetTagging/AssetAttachmentThumb';
 import FixedAssetPaginationBar from '../../components/AssetTagging/FixedAssetPaginationBar';
 import FixedAssetGrandTotals from '../../components/AssetTagging/FixedAssetGrandTotals';
-import CeoOfficeFarImportButton from '../../components/AssetTagging/CeoOfficeFarImportButton';
 import { computeFixedAssetTotals } from '../../utils/fixedAssetPaginationTotals';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -65,7 +64,6 @@ export default function TaggedAssetsPage() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [selectedAssetIds, setSelectedAssetIds] = useState([]);
-  const [success, setSuccess] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -264,17 +262,7 @@ export default function TaggedAssetsPage() {
           <QrIcon color="primary" />
           <Typography variant="h5" fontWeight={700}>Tagged Assets</Typography>
         </Stack>
-        <Stack direction="row" spacing={1} flexWrap="wrap">
-          <CeoOfficeFarImportButton
-            apiPath="/asset-tagging/import/ceo-office-far"
-            size="small"
-            onImported={(message) => {
-              setSuccess(message);
-              load();
-            }}
-          />
-          <Button startIcon={<RefreshIcon />} onClick={load} disabled={loading}>Refresh</Button>
-        </Stack>
+        <Button startIcon={<RefreshIcon />} onClick={load} disabled={loading}>Refresh</Button>
       </Stack>
 
       <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" alignItems="center">
@@ -328,7 +316,6 @@ export default function TaggedAssetsPage() {
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       {!loading && (
         <FixedAssetGrandTotals

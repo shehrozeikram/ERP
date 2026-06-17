@@ -98,17 +98,6 @@ router.get('/dashboard-stats', authorize(...TAG_ROLES), asyncHandler(async (req,
   });
 }));
 
-// POST /api/asset-tagging/import/ceo-office-far — same CEO office FAR import (broader roles)
-router.post('/import/ceo-office-far', authorize(...TAG_ROLES), asyncHandler(async (req, res) => {
-  const { importCeoOfficeFixedAssets, CEO_OFFICE_ASSET_COUNT } = require('../services/ceoOfficeFixedAssetImport');
-  const result = await importCeoOfficeFixedAssets({ userId: req.user?.id });
-  res.json({
-    success: true,
-    message: `CEO office FAR import complete — ${result.created} created, ${result.skipped} already present (${CEO_OFFICE_ASSET_COUNT} in import set)`,
-    data: result
-  });
-}));
-
 // ── GET /api/asset-tagging/assets — list fixed assets with current tag
 router.get('/assets', authorize(...TAG_ROLES), asyncHandler(async (req, res) => {
   const { status, search, tagStatus } = req.query;
