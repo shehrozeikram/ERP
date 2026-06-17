@@ -1,27 +1,41 @@
 const getAccountId = (account) => String(account?._id || account?.id || '');
 
+const CASH_EQUIVALENTS_ACCOUNT_TYPE = 'cash and cash equivalents';
+
+const CASH_EQUIVALENTS_DETAIL_TYPES = new Set([
+  'bank',
+  'cash and cash equivalents',
+  'cash on hand',
+  'client trust account',
+  'money market',
+  'rents held in trust',
+  'savings'
+]);
+
+const normalizeAccountLabel = (value) => String(value || '').trim().toLowerCase();
+
 export const getParentAccountId = (account) => {
   if (!account?.parentAccount) return null;
   const parent = account.parentAccount;
   return String(parent._id || parent);
 };
 
-export const isPayFromRootAccount = (account) => {
+export const isCashAndCashEquivalentsAccount = (account) => {
   if (!account || account.isActive === false || account.allowTransactions === false) return false;
   if (account.type && account.type !== 'Asset') return false;
 
-  const name = String(account.name || '').toLowerCase();
-  const num = String(account.accountNumber || '').trim();
-  const detail = String(account.detailType || '').toLowerCase();
-  const acctNum = parseInt(num, 10);
+  const category = normalizeAccountLabel(account.category);
+  const accountType = normalizeAccountLabel(account.accountType);
 
-  return (
-    (Number.isFinite(acctNum) && acctNum >= 1000 && acctNum <= 1999) ||
-    /bank|cash|petty/i.test(name) ||
-    detail.includes('bank') ||
-    detail.includes('cash')
-  );
+  if (category === CASH_EQUIVALENTS_ACCOUNT_TYPE || accountType === CASH_EQUIVALENTS_ACCOUNT_TYPE) {
+    return true;
+  }
+
+  const detailType = normalizeAccountLabel(account.detailType);
+  return CASH_EQUIVALENTS_DETAIL_TYPES.has(detailType);
 };
+
+export const isPayFromRootAccount = isCashAndCashEquivalentsAccount;
 
 const sortByAccountNumber = (a, b) =>
   String(a.accountNumber || '').localeCompare(String(b.accountNumber || ''), undefined, { numeric: true });
@@ -57,7 +71,7 @@ export const buildPayFromAccountOptions = (allAccounts) => {
   );
 
   const primaryIds = new Set(
-    accounts.filter(isPayFromRootAccount).map(getAccountId)
+    accounts.filter(isCashAndCashEquivalentsAccount).map(getAccountId)
   );
 
   const eligibleIds = new Set(primaryIds);
@@ -76,7 +90,7 @@ export const buildPayFromAccountOptions = (allAccounts) => {
 
   const eligibleAccounts = eligibleIds.size
     ? accounts.filter((account) => eligibleIds.has(getAccountId(account)))
-    : accounts;
+    : accounts.filter(isCashAndCashEquivalentsAccount);
 
   return flattenPayFromHierarchy(eligibleAccounts);
 };

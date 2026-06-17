@@ -569,7 +569,7 @@ const VendorAdvance = () => {
                 </FormControl>
                 {bankAccounts.length === 0 ? (
                   <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-                    No suitable pay-from accounts found in the chart. Add bank/cash accounts (or subaccounts under them) or run Chart of Accounts → Ensure System Accounts.
+                    No suitable pay-from accounts found. Add Cash and cash equivalents accounts in Chart of Accounts (or subaccounts under them).
                   </Typography>
                 ) : null}
               </Grid>

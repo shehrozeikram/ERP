@@ -2308,7 +2308,7 @@ const AccountsPayable = () => {
                 </Select>
                 {bankAccounts.length === 0 && (
                   <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
-                    No bank/cash accounts found in chart of accounts. Add active Current Asset accounts (e.g. 1001, 1002) with Allow Transactions enabled.
+                    No Cash and cash equivalents accounts found in the chart. Add accounts under that account type (or subaccounts under them) in Chart of Accounts.
                   </Typography>
                 )}
               </FormControl>
