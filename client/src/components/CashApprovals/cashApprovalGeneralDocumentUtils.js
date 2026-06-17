@@ -94,17 +94,23 @@ export const buildGeneralCashApprovalApprovalRows = (ca) => {
     );
   };
 
-  const matchingAuditHistory = (keywords) =>
+  const matchingAuditHistory = (keywords, { excludeModules = [] } = {}) =>
     history.filter((entry) => {
       if (isDepartmentSentToAuditQueue(entry)) return false;
+      const module = normalize(entry?.module);
+      if (excludeModules.some((m) => module === normalize(m))) return false;
       const to = normalize(entry?.toStatus);
       return keywords.some((keyword) => to === keyword || to.startsWith(keyword));
     });
 
-  const findPreferredAuditEntry = (keywords) => {
-    const entries = matchingAuditHistory(keywords);
+  const findPreferredAuditEntry = (keywords, options = {}) => {
+    const entries = matchingAuditHistory(keywords, options);
     return entries.find((e) => e?.changedBy?.digitalSignature) || entries[0] || null;
   };
+
+  const findAuthorityApproval = (key) =>
+    (Array.isArray(ca.authorityApprovals) ? ca.authorityApprovals : [])
+      .find((entry) => String(entry?.authorityKey || '').trim() === key) || null;
 
   const preAuditFromHistory = findPreferredAuditEntry([
     'initial audit approval',
@@ -116,14 +122,25 @@ export const buildGeneralCashApprovalApprovalRows = (ca) => {
     null;
   const preAuditAt = ca.preAuditInitialApprovedAt || preAuditFromHistory?.changedAt;
 
-  const directorFromHistory = findPreferredAuditEntry([
-    'approved (from forwarded to audit director)',
-    'approved (from send to audit)',
-    'send to ceo office',
-    'pending finance'
-  ]);
-  const directorActor = directorFromHistory?.changedBy || ca.auditApprovedBy || null;
-  const directorAt = directorFromHistory?.changedAt || ca.auditApprovedAt;
+  const auditDirectorApproval = findAuthorityApproval('auditDirectorApproval');
+  const directorFromHistory = findPreferredAuditEntry(
+    [
+      'approved (from forwarded to audit director)',
+      'approved (from send to audit)',
+      'send to ceo office'
+    ],
+    { excludeModules: ['ceo', 'ceo secretariat', 'finance'] }
+  );
+  const directorActor =
+    (typeof ca.auditApprovedBy === 'object' ? ca.auditApprovedBy : null) ||
+    (typeof auditDirectorApproval?.approver === 'object' ? auditDirectorApproval.approver : null) ||
+    directorFromHistory?.changedBy ||
+    null;
+  const directorAt =
+    ca.auditApprovedAt ||
+    auditDirectorApproval?.approvedAt ||
+    directorFromHistory?.changedAt ||
+    null;
 
   const ceoSecretariatActor = ca.ceoForwardedBy || null;
   const ceoActor = ca.ceoApprovedBy || null;
@@ -217,12 +234,17 @@ export const buildGeneralCashApprovalStampRows = (ca) => {
     'initial audit approval',
     'pending audit'
   ]);
-  const directorStamp = findStamp([
-    'approved (from forwarded to audit director)',
-    'approved (from send to audit)',
-    'send to ceo office',
-    'pending finance'
-  ]);
+  const directorStamp = history.find(
+    (e) =>
+      !isDepartmentSentToAuditQueue(e) &&
+      e?.stampUsed &&
+      e?.stampImage &&
+      !['ceo', 'ceo secretariat', 'finance'].includes(normalize(e?.module)) &&
+      ['approved (from forwarded to audit director)', 'approved (from send to audit)', 'send to ceo office'].some((k) => {
+        const to = normalize(e?.toStatus);
+        return to === k || to.startsWith(k);
+      })
+  );
   return [
     {
       authority: 'Pre-Audit Authority Stamp',
