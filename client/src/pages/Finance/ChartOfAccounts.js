@@ -76,7 +76,7 @@ const ChartOfAccounts = () => {
     currentPage: 1,
     totalPages: 1,
     totalCount: 0,
-    limit: 25
+    limit: 100
   });
   const [summaryAccounts, setSummaryAccounts] = useState([]);
   const [newAccountDialog, setNewAccountDialog] = useState(false);
@@ -327,10 +327,11 @@ const ChartOfAccounts = () => {
   const fetchParentAccounts = async () => {
     setParentAccountsLoading(true);
     try {
-      const response = await api.get('/finance/accounts?page=1&limit=10000&_t=' + new Date().getTime());
+      const response = await api.get('/finance/accounts', {
+        params: { page: 1, limit: 10000, _t: Date.now() }
+      });
       if (response.data?.success) {
         const allAccounts = response.data?.data?.accounts || [];
-        // Keep broad list and filter at render-time; some legacy records may have missing flags
         setParentAccounts(allAccounts.filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber)));
         return;
       }
@@ -358,9 +359,16 @@ const ChartOfAccounts = () => {
     const type = section === 'Income' ? 'Revenue' : section;
     const [min, max] = ranges[section] || [1000, 1999];
     const source = parentAccounts.length > 0 ? parentAccounts : summaryAccounts.length > 0 ? summaryAccounts : accounts;
-    const sameType = source.filter(a => a.type === type).map(a => parseInt(a.accountNumber)).filter(n => !isNaN(n) && n >= min && n <= max);
-    const next = sameType.length ? Math.max(...sameType) + 1 : min;
-    return String(next);
+    const used = new Set(
+      source
+        .filter((a) => a.type === type)
+        .map((a) => parseInt(a.accountNumber, 10))
+        .filter((n) => !Number.isNaN(n) && n >= min && n <= max)
+    );
+    for (let n = min; n <= max; n += 1) {
+      if (!used.has(n)) return String(n);
+    }
+    return String(max);
   };
 
   const parentAccountOptions = useMemo(() => {
@@ -893,10 +901,9 @@ const ChartOfAccounts = () => {
                   label="Rows"
                   onChange={handlePageSizeChange}
                 >
-                  <MenuItem value={10}>10</MenuItem>
-                  <MenuItem value={25}>25</MenuItem>
-                  <MenuItem value={50}>50</MenuItem>
                   <MenuItem value={100}>100</MenuItem>
+                  <MenuItem value={250}>250</MenuItem>
+                  <MenuItem value={500}>500</MenuItem>
                 </Select>
               </FormControl>
             </Box>

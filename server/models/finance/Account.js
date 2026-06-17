@@ -124,6 +124,43 @@ accountSchema.virtual('formattedBalance').get(function() {
   }).format(this.balance);
 });
 
+const ACCOUNT_NUMBER_RANGES = {
+  Asset: [1000, 1999],
+  Liability: [2000, 2999],
+  Equity: [3000, 3999],
+  Revenue: [4000, 4999],
+  Expense: [5000, 5999]
+};
+
+accountSchema.statics.resolveAccountNumber = async function(preferred, type) {
+  const [min, max] = ACCOUNT_NUMBER_RANGES[type] || ACCOUNT_NUMBER_RANGES.Asset;
+  const existing = await this.find({ type }).select('accountNumber').lean();
+  const usedNumbers = new Set();
+
+  existing.forEach((acc) => {
+    const n = parseInt(String(acc.accountNumber || '').trim(), 10);
+    if (!Number.isNaN(n) && n >= min && n <= max) {
+      usedNumbers.add(n);
+    }
+  });
+
+  let start = min;
+  if (preferred !== undefined && preferred !== null && String(preferred).trim() !== '') {
+    const preferredNum = parseInt(String(preferred).trim(), 10);
+    if (!Number.isNaN(preferredNum) && preferredNum >= min && preferredNum <= max) {
+      start = preferredNum;
+    }
+  }
+
+  for (let n = start; n <= max; n += 1) {
+    if (!usedNumbers.has(n)) {
+      return String(n);
+    }
+  }
+
+  throw new Error(`No available account numbers in the ${type} range (${min}-${max})`);
+};
+
 // Pre-save middleware to validate account structure
 accountSchema.pre('save', function(next) {
   // Validate account number format (e.g., 1000-1999 for assets)

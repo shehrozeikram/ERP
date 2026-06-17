@@ -395,8 +395,18 @@ router.post('/accounts',
     const section = require('../config/accountDetailTypes').getSectionForAccountType(accountType) || 'Asset';
     const type = section === 'Income' ? 'Revenue' : section;
     const { accountType: _, ...rest } = req.body;
+    let accountNumber;
+    try {
+      accountNumber = await Account.resolveAccountNumber(req.body.accountNumber, type);
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Could not assign an account number'
+      });
+    }
     const accountData = {
       ...rest,
+      accountNumber,
       type,
       category: accountType,
       metadata: {
@@ -405,7 +415,16 @@ router.post('/accounts',
     };
 
     const account = new Account(accountData);
-    await account.save();
+    try {
+      await account.save();
+    } catch (err) {
+      if (err?.code === 11000) {
+        account.accountNumber = await Account.resolveAccountNumber(null, type);
+        await account.save();
+      } else {
+        throw err;
+      }
+    }
 
     res.status(201).json({
       success: true,
