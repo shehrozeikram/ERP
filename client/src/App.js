@@ -320,6 +320,7 @@ import KPITemplates from './pages/HR/KPI/KPITemplates';
 import KPICycles from './pages/HR/KPI/KPICycles';
 import ReviewKPIs from './pages/HR/KPI/ReviewKPIs';
 import KPIMonthlySheet from './pages/HR/KPI/KPIMonthlySheet';
+import KPISubmissionsOverview from './pages/HR/KPI/KPISubmissionsOverview';
 
 // Leave Management Pages
 import LeaveManagement from './pages/HR/Leaves/LeaveManagement';
@@ -713,6 +714,10 @@ function App() {
             <Route
               path="/hr/kpi/sheet"
               element={<ProtectedRoute><KPIMonthlySheet /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/kpi/submissions"
+              element={<ProtectedRoute><KPISubmissionsOverview /></ProtectedRoute>}
             />
 
             {/* Indents Routes */}

@@ -124,6 +124,72 @@ function rowToPlain(r) {
   return r.toObject ? r.toObject() : { ...r };
 }
 
+function worksheetEmployeeSubmitted(rows) {
+  if (!Array.isArray(rows) || !rows.length) return false;
+  return rows.some((row) => {
+    const eT = Number(row?.employeeTotalAssigned) || 0;
+    if (eT > 0) return true;
+    const legacyT = Number(row?.totalAssigned) || 0;
+    return legacyT > 0;
+  });
+}
+
+function worksheetManagerReviewed(rows) {
+  if (!Array.isArray(rows) || !rows.length) return false;
+  return rows.some((row) => {
+    const mT = Number(row?.managerTotalAssigned) || 0;
+    const mA = Number(row?.managerAchieved) || 0;
+    return mT > 0 || mA > 0;
+  });
+}
+
+function worksheetSubmissionStatus(rows) {
+  if (!Array.isArray(rows) || !rows.length) return 'not_started';
+  if (worksheetManagerReviewed(rows)) return 'manager_reviewed';
+  if (worksheetEmployeeSubmitted(rows)) return 'submitted';
+  return 'draft';
+}
+
+function groupSubmissionRecords(records) {
+  const projectMap = new Map();
+  for (const record of records) {
+    const projectId = record?.project?._id ? String(record.project._id) : 'unassigned';
+    const projectName = record?.project?.name || 'Unassigned project';
+    if (!projectMap.has(projectId)) {
+      projectMap.set(projectId, {
+        project: { _id: record?.project?._id || null, name: projectName },
+        departments: new Map()
+      });
+    }
+    const projectGroup = projectMap.get(projectId);
+    const departmentId = record?.department?._id ? String(record.department._id) : 'unassigned';
+    const departmentName = record?.department?.name || 'Unassigned department';
+    if (!projectGroup.departments.has(departmentId)) {
+      projectGroup.departments.set(departmentId, {
+        department: { _id: record?.department?._id || null, name: departmentName },
+        employees: []
+      });
+    }
+    projectGroup.departments.get(departmentId).employees.push(record);
+  }
+
+  return [...projectMap.values()]
+    .map((group) => ({
+      project: group.project,
+      departments: [...group.departments.values()]
+        .map((dept) => ({
+          ...dept,
+          employees: dept.employees.sort((a, b) => {
+            const an = `${a.employee?.firstName || ''} ${a.employee?.lastName || ''}`.trim();
+            const bn = `${b.employee?.firstName || ''} ${b.employee?.lastName || ''}`.trim();
+            return an.localeCompare(bn);
+          })
+        }))
+        .sort((a, b) => a.department.name.localeCompare(b.department.name))
+    }))
+    .sort((a, b) => a.project.name.localeCompare(b.project.name));
+}
+
 /** GET /api/kpi/worksheets/me?year=2026&month=3 */
 router.get(
   '/me',
@@ -231,6 +297,115 @@ router.get(
     }
 
     res.json({ success: true, data: out, year, month });
+  })
+);
+
+/** GET /api/kpi/worksheets/submissions?year=&month=&projectId=&departmentId=&submittedOnly= */
+router.get(
+  '/submissions',
+  asyncHandler(async (req, res) => {
+    if (!isHrAdmin(req.user?.role)) {
+      return res.status(403).json({ success: false, message: 'HR or admin access required' });
+    }
+
+    const now = new Date();
+    const year = Math.max(2000, parseInt(req.query.year, 10) || now.getFullYear());
+    const month = Math.min(12, Math.max(1, parseInt(req.query.month, 10) || now.getMonth() + 1));
+    const projectId = String(req.query.projectId || '').trim();
+    const departmentId = String(req.query.departmentId || '').trim();
+    const submittedOnly = String(req.query.submittedOnly || 'true').toLowerCase() !== 'false';
+    const search = String(req.query.search || '').trim().toLowerCase();
+
+    const empQuery = { isActive: true, isDeleted: { $ne: true } };
+    if (projectId) empQuery.placementProject = projectId;
+    if (departmentId) {
+      empQuery.$or = [{ placementDepartment: departmentId }, { department: departmentId }];
+    }
+
+    const employees = await Employee.find(empQuery)
+      .select('firstName lastName employeeId placementProject placementDepartment department')
+      .populate('placementProject', 'name code')
+      .populate('placementDepartment', 'name code')
+      .populate('department', 'name code')
+      .sort({ firstName: 1, lastName: 1 })
+      .lean();
+
+    const worksheets = await KPIWorksheet.find({ year, month })
+      .select('employee rows totalKPIScore totalWeight lastSavedAt updatedAt')
+      .lean();
+    const worksheetByEmployee = new Map(worksheets.map((ws) => [String(ws.employee), ws]));
+
+    let records = employees.map((emp) => {
+      const ws = worksheetByEmployee.get(String(emp._id));
+      const rows = ws?.rows || [];
+      const status = ws ? worksheetSubmissionStatus(rows) : 'not_started';
+      const project = emp.placementProject || { _id: null, name: 'Unassigned project' };
+      const department = emp.placementDepartment || emp.department || { _id: null, name: 'Unassigned department' };
+      return {
+        employee: {
+          _id: emp._id,
+          firstName: emp.firstName,
+          lastName: emp.lastName,
+          employeeId: emp.employeeId
+        },
+        project: {
+          _id: project?._id || null,
+          name: project?.name || 'Unassigned project',
+          code: project?.code || ''
+        },
+        department: {
+          _id: department?._id || null,
+          name: department?.name || 'Unassigned department',
+          code: department?.code || ''
+        },
+        worksheetId: ws?._id || null,
+        totalKPIScore: ws?.totalKPIScore ?? null,
+        totalWeight: ws?.totalWeight ?? null,
+        lastSavedAt: ws?.lastSavedAt || ws?.updatedAt || null,
+        status
+      };
+    });
+
+    const allRecords = records;
+
+    if (submittedOnly) {
+      records = records.filter((row) => row.status === 'submitted' || row.status === 'manager_reviewed');
+    }
+
+    if (search) {
+      records = records.filter((row) => {
+        const name = `${row.employee?.firstName || ''} ${row.employee?.lastName || ''}`.trim().toLowerCase();
+        const employeeId = String(row.employee?.employeeId || '').toLowerCase();
+        const projectName = String(row.project?.name || '').toLowerCase();
+        const departmentName = String(row.department?.name || '').toLowerCase();
+        return (
+          name.includes(search) ||
+          employeeId.includes(search) ||
+          projectName.includes(search) ||
+          departmentName.includes(search)
+        );
+      });
+    }
+
+    const summary = {
+      totalEmployees: employees.length,
+      shown: records.length,
+      submitted: allRecords.filter((row) => row.status === 'submitted').length,
+      managerReviewed: allRecords.filter((row) => row.status === 'manager_reviewed').length,
+      draft: allRecords.filter((row) => row.status === 'draft').length,
+      notStarted: allRecords.filter((row) => row.status === 'not_started').length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        year,
+        month,
+        summary,
+        groups: groupSubmissionRecords(records),
+        records
+      }
+    });
   })
 );
 

@@ -587,7 +587,8 @@ export const MODULES = {
         name: 'KPI Management',
         path: '/hr/kpi/sheet',
         subItems: [
-          { name: 'Monthly KPI sheet', path: '/hr/kpi/sheet' }
+          { name: 'Monthly KPI sheet', path: '/hr/kpi/sheet' },
+          { name: 'KPI submissions', path: '/hr/kpi/submissions' }
         ]
       },
       { name: 'Reports', path: '/hr/reports' }
@@ -1368,6 +1369,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/edit': 'evaluation_appraisal',
       '/hr/kpi/sheet': 'kpi_management',
+      '/hr/kpi/submissions': 'kpi_management',
       '/hr/kpi/dashboard': 'kpi_management',
       '/hr/kpi/templates': 'kpi_management',
       '/hr/kpi/cycles': 'kpi_management',

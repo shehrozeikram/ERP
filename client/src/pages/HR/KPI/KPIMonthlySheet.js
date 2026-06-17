@@ -281,13 +281,17 @@ const KPIMonthlySheet = () => {
   }, [saving, sheet?._id, isOwnSheet, editFlags.canEditStructure]);
 
   const loadHistory = useCallback(async () => {
+    if (isHrPage && isHrAdmin && !hrEmployeeId) {
+      setHistory([]);
+      return;
+    }
     try {
       const res = await fetchKpiWorksheetHistory();
       setHistory(res.data?.data || []);
     } catch {
       setHistory([]);
     }
-  }, []);
+  }, [isHrPage, isHrAdmin, hrEmployeeId]);
 
   const loadTeam = useCallback(async () => {
     if (isHrPage) return;
@@ -312,6 +316,14 @@ const KPIMonthlySheet = () => {
 
   const loadSheet = useCallback(async () => {
     if (isTeamReviewPage && !teamMemberId) {
+      setSheet(null);
+      setRows([]);
+      setEditFlags(defaultFlags);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
+    if (isHrPage && isHrAdmin && !hrEmployeeId) {
       setSheet(null);
       setRows([]);
       setEditFlags(defaultFlags);
@@ -358,7 +370,7 @@ const KPIMonthlySheet = () => {
     } finally {
       setLoading(false);
     }
-  }, [year, month, targetEmployeeId, isTeamReviewPage, teamMemberId]);
+  }, [year, month, targetEmployeeId, isTeamReviewPage, teamMemberId, isHrPage, isHrAdmin, hrEmployeeId]);
 
   useEffect(() => {
     loadHistory();
@@ -458,6 +470,10 @@ const KPIMonthlySheet = () => {
 
   const ensureSheetId = async () => {
     if (sheet?._id) return sheet._id;
+    if (isHrPage && isHrAdmin && !hrEmployeeId) {
+      toast.error('Select an employee before saving a KPI sheet.');
+      return null;
+    }
     try {
       let res;
       if (targetEmployeeId) {
@@ -607,7 +623,7 @@ const KPIMonthlySheet = () => {
               }}
               size="small"
             >
-              <MenuItem value="">— My own sheet —</MenuItem>
+              <MenuItem value="">Select employee…</MenuItem>
               {hrEmployees.map((e) => (
                 <MenuItem key={e._id} value={e._id}>
                   {[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeId} ({e.employeeId})
@@ -644,6 +660,12 @@ const KPIMonthlySheet = () => {
           )}
         </CardContent>
       </Card>
+
+      {isHrPage && isHrAdmin && !hrEmployeeId && !loading && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Select an employee above to open their monthly KPI sheet.
+        </Alert>
+      )}
 
       {loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>

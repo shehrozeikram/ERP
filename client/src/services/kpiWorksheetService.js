@@ -13,4 +13,6 @@ export const fetchTeamKpiWorksheets = (params) => api.get(`${base}/team`, { para
 export const fetchEmployeeKpiWorksheet = (employeeId, params) =>
   api.get(`${base}/for-employee/${employeeId}`, { params });
 
+export const fetchKpiSubmissions = (params) => api.get(`${base}/submissions`, { params });
+
 export const runKpiMonthlyBootstrap = (body) => api.post(`${base}/run-monthly-bootstrap`, body || {});
