@@ -10,6 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatAssetLocationForDisplay } from '../../utils/assetLocationDisplay';
+import AssetAttachmentThumb from '../../components/AssetTagging/AssetAttachmentThumb';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
@@ -140,6 +141,7 @@ export default function FixedAssetRegisterPage() {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.100', whiteSpace: 'nowrap' }}>Asset #</TableCell>
+                <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.100', width: 64 }}>Image</TableCell>
                 <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.100', minWidth: 160 }}>Description</TableCell>
                 <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.100' }}>Category</TableCell>
                 <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.100', whiteSpace: 'nowrap' }}>Serial #</TableCell>
@@ -157,7 +159,7 @@ export default function FixedAssetRegisterPage() {
             <TableBody>
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={12} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                  <TableCell colSpan={13} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                     No rows match your filters — add assets under Finance → Fixed Assets, or widen ledger status to &quot;All statuses&quot;.
                   </TableCell>
                 </TableRow>
@@ -165,6 +167,7 @@ export default function FixedAssetRegisterPage() {
               {paginatedRows.map((a) => (
                 <TableRow key={a._id} hover>
                   <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
+                  <TableCell><AssetAttachmentThumb asset={a} size={40} /></TableCell>
                   <TableCell>{a.name}</TableCell>
                   <TableCell sx={{ textTransform: 'capitalize' }}>{a.category || '—'}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{a.serialNumber || '—'}</TableCell>

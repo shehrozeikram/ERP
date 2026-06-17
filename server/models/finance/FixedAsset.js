@@ -1,5 +1,14 @@
 const mongoose = require('mongoose');
 
+const fixedAssetAttachmentSchema = new mongoose.Schema({
+  filename: { type: String, required: true, trim: true },
+  originalName: { type: String, required: true, trim: true },
+  path: { type: String, required: true, trim: true },
+  mimetype: { type: String, trim: true, default: '' },
+  size: { type: Number, default: 0 },
+  uploadedAt: { type: Date, default: Date.now }
+}, { _id: true });
+
 const depreciationLineSchema = new mongoose.Schema({
   period: { type: String, required: true },    // e.g. "2025-01"
   year: { type: Number, required: true },
@@ -63,6 +72,7 @@ const fixedAssetSchema = new mongoose.Schema(
     manufacturer: { type: String, trim: true },
     warrantyExpiryDate: Date,
     characteristics: { type: String, trim: true },
+    attachments: { type: [fixedAssetAttachmentSchema], default: [] },
     // Status
     status: {
       type: String,

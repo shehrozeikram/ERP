@@ -11,11 +11,13 @@ import {
   AccountBalance as AssetIcon, PlayArrow as DepreciateIcon,
   AllInclusive as DepAllIcon, KeyboardArrowDown as ExpandIcon,
   KeyboardArrowUp as CollapseIcon2, Block as DisposeIcon,
-  Schedule as ScheduleIcon
+  Schedule as ScheduleIcon, AttachFile as AttachFileIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import storeService from '../../services/storeService';
 import LocationSelector from '../../components/Procurement/Store/LocationSelector';
+import { resolveUploadFileHref } from '../../utils/uploadPaths';
 
 const CATEGORIES = ['land','building','machinery','vehicle','furniture','computer','equipment','other'];
 const METHODS = [
@@ -136,6 +138,8 @@ export default function FixedAssets() {
   const [selectedSubStores, setSelectedSubStores] = useState([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [newFiles, setNewFiles] = useState([]);
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState([]);
 
   // Single depreciate dialog
   const [depOpen, setDepOpen]   = useState(false);
@@ -251,8 +255,47 @@ export default function FixedAssets() {
       .catch(() => setSelectedSubStores([]));
   }, [mainStores, form.locationBuilding]);
 
+  const resetAttachmentState = () => {
+    setNewFiles([]);
+    setRemovedAttachmentIds([]);
+  };
+
+  const existingAttachments = (editing?.attachments || []).filter(
+    (att) => !removedAttachmentIds.includes(String(att._id))
+  );
+
+  const handleFileSelect = (e) => {
+    const selected = Array.from(e.target.files || []);
+    const valid = selected.filter(
+      (file) => file.type.startsWith('image/') || file.type === 'application/pdf'
+    );
+    if (!valid.length) {
+      setError('Only PDF and image files are allowed');
+      e.target.value = '';
+      return;
+    }
+    const currentCount = existingAttachments.length + newFiles.length;
+    const room = Math.max(0, 5 - currentCount);
+    if (room === 0) {
+      setError('Maximum 5 attachments per asset');
+      e.target.value = '';
+      return;
+    }
+    setNewFiles((prev) => [...prev, ...valid.slice(0, room)]);
+    e.target.value = '';
+  };
+
+  const removeNewFile = (index) => {
+    setNewFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeExistingAttachment = (attachmentId) => {
+    setRemovedAttachmentIds((prev) => [...prev, attachmentId]);
+  };
+
   const openAdd = async () => {
     setEditing(null);
+    resetAttachmentState();
     loadEmployees();
     const base = { ...emptyForm };
     try {
@@ -267,6 +310,7 @@ export default function FixedAssets() {
 
   const openEdit = (a) => {
     loadEmployees();
+    resetAttachmentState();
     const locParts = String(a.location || '').split(',').map((part) => part.trim());
     const inferredBuilding = locParts[0] || HQ_LOCATION;
     const isStore = inferredBuilding !== HQ_LOCATION;
@@ -315,9 +359,33 @@ export default function FixedAssets() {
       delete payload.locationRack;
       delete payload.locationShelf;
       delete payload.locationBin;
+      delete payload.attachments;
+      delete payload._id;
+      delete payload.assetNumber;
+      delete payload.depreciationSchedule;
+      delete payload.accumulatedDepreciation;
+      delete payload.currentBookValue;
+      delete payload.status;
+      delete payload.createdAt;
+      delete payload.updatedAt;
+      delete payload.__v;
 
-      if (editing) await api.put(`/finance/fixed-assets/${editing._id}`, payload);
-      else         await api.post('/finance/fixed-assets', payload);
+      const hasAttachmentChanges = newFiles.length > 0 || removedAttachmentIds.length > 0;
+
+      if (hasAttachmentChanges) {
+        const formData = new FormData();
+        formData.append('data', JSON.stringify(payload));
+        newFiles.forEach((file) => formData.append('attachments', file));
+        if (removedAttachmentIds.length) {
+          formData.append('removedAttachmentIds', JSON.stringify(removedAttachmentIds));
+        }
+        if (editing) await api.put(`/finance/fixed-assets/${editing._id}`, formData);
+        else await api.post('/finance/fixed-assets', formData);
+      } else if (editing) {
+        await api.put(`/finance/fixed-assets/${editing._id}`, payload);
+      } else {
+        await api.post('/finance/fixed-assets', payload);
+      }
       setSuccess(editing ? 'Asset updated' : 'Asset created');
       setOpen(false);
       load();
@@ -758,6 +826,80 @@ export default function FixedAssets() {
               </Select>
             </FormControl>
             <TextField label="Description" value={form.description || ''} onChange={e => setForm({ ...form, description: e.target.value })} multiline rows={2} fullWidth size="small" />
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                Attachment / Image
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Button variant="outlined" component="label" startIcon={<AttachFileIcon />} size="small">
+                  Add file
+                  <input
+                    type="file"
+                    hidden
+                    multiple
+                    accept="image/*,.pdf,application/pdf"
+                    onChange={handleFileSelect}
+                  />
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  Up to 5 files · 10 MB each · PDF, JPG, PNG, etc.
+                </Typography>
+              </Stack>
+              {!existingAttachments.length && !newFiles.length ? (
+                <Typography variant="body2" color="text.secondary">
+                  No attachment added yet.
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {existingAttachments.map((att) => {
+                    const href = resolveUploadFileHref(att.path, att.mimetype);
+                    const isImage = String(att.mimetype || '').startsWith('image/');
+                    return (
+                      <Stack key={att._id} direction="row" spacing={1} alignItems="center">
+                        {isImage && href ? (
+                          <Box
+                            component="img"
+                            src={href}
+                            alt={att.originalName || 'Attachment'}
+                            sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}
+                          />
+                        ) : (
+                          <AttachFileIcon fontSize="small" color="action" />
+                        )}
+                        <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                          {href ? (
+                            <a href={href} target="_blank" rel="noopener noreferrer">{att.originalName || att.filename}</a>
+                          ) : (
+                            att.originalName || att.filename
+                          )}
+                        </Typography>
+                        <IconButton size="small" color="error" onClick={() => removeExistingAttachment(String(att._id))}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    );
+                  })}
+                  {newFiles.map((file, index) => (
+                    <Stack key={`${file.name}-${index}`} direction="row" spacing={1} alignItems="center">
+                      {file.type.startsWith('image/') ? (
+                        <Box
+                          component="img"
+                          src={URL.createObjectURL(file)}
+                          alt={file.name}
+                          sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}
+                        />
+                      ) : (
+                        <AttachFileIcon fontSize="small" color="primary" />
+                      )}
+                      <Typography variant="body2" sx={{ flexGrow: 1 }}>{file.name}</Typography>
+                      <IconButton size="small" color="error" onClick={() => removeNewFile(index)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>

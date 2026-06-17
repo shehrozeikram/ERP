@@ -5,41 +5,15 @@ import {
 import { ArrowBack as BackIcon, Print as PrintIcon } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import {
+  ASSET_TAG_QR_PRINT_SIZE_MM,
+  assetTagQrImageSx,
+  buildAssetTagQrDataUrl
+} from '../../utils/assetTagQr';
 
 const SLOTS_PER_PAGE = 20;
 const SHEET_COLUMNS = 4;
 const SHEET_ROWS = 5;
-
-const CENTER_LOGO_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
-  <defs>
-    <linearGradient id="tovusBlue" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1db4ef"/>
-      <stop offset="100%" stop-color="#0f86cc"/>
-    </linearGradient>
-  </defs>
-  <circle cx="60" cy="60" r="60" fill="url(#tovusBlue)"/>
-  <circle cx="60" cy="60" r="45" fill="none" stroke="#ffffff" stroke-width="3.2" opacity="0.92"/>
-  <path d="M38 40h44v10H65v33H55V50H38z" fill="#ffffff"/>
-  <text
-    x="60"
-    y="98"
-    text-anchor="middle"
-    font-family="Arial, Helvetica, sans-serif"
-    font-size="11"
-    font-weight="700"
-    letter-spacing="1.4"
-    fill="#ffffff"
-  >TOVUS</text>
-</svg>
-`)}`;
-
-const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onloadend = () => resolve(reader.result);
-  reader.onerror = reject;
-  reader.readAsDataURL(blob);
-});
 
 const chunk = (arr, size) => {
   const out = [];
@@ -76,9 +50,6 @@ export default function BulkLabelPrintPage() {
       setError('');
 
       try {
-        const qrModule = await import('qr-code-styling');
-        const QRCodeStyling = qrModule.default;
-
         const resolved = await Promise.all(assetIds.map(async (assetId) => {
           const res = await api.get(`/asset-tagging/assets/${assetId}`);
           const { asset, currentTag } = res.data.data || {};
@@ -89,26 +60,7 @@ export default function BulkLabelPrintPage() {
           let styledDataUrl = '';
 
           try {
-            const qrCode = new QRCodeStyling({
-              width: 320,
-              height: 320,
-              type: 'canvas',
-              data: qrData.url,
-              image: CENTER_LOGO_DATA_URI,
-              margin: 6,
-              qrOptions: { errorCorrectionLevel: 'H' },
-              dotsOptions: { color: '#179cde', type: 'dots' },
-              cornersSquareOptions: { color: '#179cde', type: 'extra-rounded' },
-              cornersDotOptions: { color: '#179cde', type: 'dot' },
-              backgroundOptions: { color: '#ffffff' },
-              imageOptions: { hideBackgroundDots: true, imageSize: 0.28, margin: 0 }
-            });
-            const rawData = await qrCode.getRawData('png');
-            if (rawData) {
-              const blob = rawData instanceof Blob ? rawData : new Blob([rawData], { type: 'image/png' });
-              const dataUrl = await blobToDataUrl(blob);
-              styledDataUrl = typeof dataUrl === 'string' ? dataUrl : '';
-            }
+            styledDataUrl = await buildAssetTagQrDataUrl(qrData.url);
           } catch {
             styledDataUrl = '';
           }
@@ -156,8 +108,10 @@ export default function BulkLabelPrintPage() {
     textAlign: 'center'
   };
 
+  const qrSizeMm = ASSET_TAG_QR_PRINT_SIZE_MM.bulk;
+
   const qrFrameSx = {
-    width: '24mm',
+    width: `${qrSizeMm + 2}mm`,
     height: 'auto',
     p: 0,
     mb: 0.1,
@@ -167,15 +121,11 @@ export default function BulkLabelPrintPage() {
     bgcolor: '#fff'
   };
 
-  const qrImageSx = {
-    width: '22mm',
-    height: '22mm',
-    display: 'block'
-  };
+  const qrImageSx = assetTagQrImageSx(qrSizeMm);
 
   const textWithinQrWidthSx = {
-    width: '24mm',
-    maxWidth: '24mm',
+    width: `${qrSizeMm + 2}mm`,
+    maxWidth: `${qrSizeMm + 2}mm`,
     textAlign: 'center',
     overflowWrap: 'anywhere',
     wordBreak: 'break-word',

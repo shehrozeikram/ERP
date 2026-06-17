@@ -480,7 +480,7 @@ const NetworkErrorScreen = ({ error, onRetry }) => (
 function App() {
   const { user, loading, token, error, retryAuth } = useAuth();
   const location = useLocation();
-  const isScanOnlyPath = /^\/asset-tagging\/scan\/[^/]+/.test(location.pathname);
+  const isScanOnlyPath = /^\/(?:asset-tagging\/scan|at)\/[^/]+/.test(location.pathname);
 
   // Scan-only mode: always render this route without ERP chrome/sidebar,
   // regardless of auth state, for mobile-friendly QR access.
@@ -489,6 +489,7 @@ function App() {
       <NoChromeLayout>
         <Routes>
           <Route path="/asset-tagging/scan/:tagCode" element={<ScanAssetPage />} />
+          <Route path="/at/:tagCode" element={<ScanAssetPage />} />
           <Route path="*" element={<Navigate to={location.pathname} replace />} />
         </Routes>
       </NoChromeLayout>
@@ -518,6 +519,7 @@ function App() {
           <Route path="/taj-complaints/register" element={<RegisterComplaint />} />
           <Route path="/taj-complaints/my" element={<MyComplaints />} />
           <Route path="/asset-tagging/scan/:tagCode" element={<ScanAssetPage />} />
+          <Route path="/at/:tagCode" element={<ScanAssetPage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
@@ -1106,6 +1108,7 @@ function App() {
             <Route path="/asset-tagging/verification" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><VerificationPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/events" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><TagEventsPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/scan/:tagCode" element={<ScanAssetPage />} />
+          <Route path="/at/:tagCode" element={<ScanAssetPage />} />
             <Route path="/asset-tagging/label/:assetId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><LabelPrintPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/labels/print" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><BulkLabelPrintPage /></ProtectedRoute>} />
             <Route path="/finance/bank-reconciliation" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankReconciliation /></ProtectedRoute>} />

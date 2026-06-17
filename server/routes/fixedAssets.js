@@ -1,4 +1,7 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const asyncHandler = require('express-async-handler');
@@ -7,6 +10,107 @@ const FixedAsset = require('../models/finance/FixedAsset');
 const FinanceHelper = require('../utils/financeHelper');
 const Employee = require('../models/hr/Employee');
 const Project = require('../models/hr/Project');
+
+const fixedAssetUploadDir = path.join(__dirname, '../uploads/fixed-assets');
+const fixedAssetUploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(fixedAssetUploadDir)) {
+      fs.mkdirSync(fixedAssetUploadDir, { recursive: true });
+    }
+    cb(null, fixedAssetUploadDir);
+  },
+  filename: (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `fixed-asset-${unique}${path.extname(file.originalname)}`);
+  }
+});
+
+const fixedAssetUpload = multer({
+  storage: fixedAssetUploadStorage,
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Attachments must be a PDF or image file'), false);
+    }
+  }
+});
+
+const handleFixedAssetUpload = (req, res, next) => {
+  fixedAssetUpload.array('attachments', 5)(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ success: false, message: 'Each attachment must be 10 MB or less' });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ success: false, message: 'Maximum 5 attachments per asset' });
+    }
+    return res.status(400).json({ success: false, message: err.message || 'File upload error' });
+  });
+};
+
+const parseFixedAssetRequestBody = (req) => {
+  if (!req.body?.data) return req.body;
+  try {
+    return typeof req.body.data === 'string' ? JSON.parse(req.body.data) : req.body.data;
+  } catch {
+    const err = new Error('Invalid asset data');
+    err.status = 400;
+    throw err;
+  }
+};
+
+const mapUploadedAttachments = (files = []) => files.map((file) => ({
+  filename: file.filename,
+  originalName: file.originalname,
+  path: `/uploads/fixed-assets/${file.filename}`,
+  mimetype: file.mimetype,
+  size: file.size,
+  uploadedAt: new Date()
+}));
+
+const deleteAttachmentFile = (attachment) => {
+  if (!attachment?.path) return;
+  const filename = path.basename(attachment.path);
+  const filePath = path.join(fixedAssetUploadDir, filename);
+  if (fs.existsSync(filePath)) {
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  }
+};
+
+const parseRemovedAttachmentIds = (body) => {
+  const raw = body.removedAttachmentIds;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+  }
+};
+
+const applyAttachmentChanges = (asset, body, files) => {
+  const removedIds = new Set(parseRemovedAttachmentIds(body));
+  const kept = (asset.attachments || []).filter((att) => {
+    if (removedIds.has(String(att._id))) {
+      deleteAttachmentFile(att);
+      return false;
+    }
+    return true;
+  });
+  asset.attachments = [...kept, ...mapUploadedAttachments(files)];
+};
+
+const validateFixedAssetPayload = (body) => {
+  const errors = [];
+  if (!String(body.name || '').trim()) errors.push({ msg: 'Asset name is required' });
+  if (!body.purchaseDate) errors.push({ msg: 'Purchase date is required' });
+  const cost = Number(body.purchaseCost);
+  if (Number.isNaN(cost) || cost < 0) errors.push({ msg: 'Purchase cost must be >= 0' });
+  return errors;
+};
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -112,15 +216,15 @@ router.get('/:id([0-9a-fA-F]{24})', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/finance/fixed-assets
-router.post('/', authorize('super_admin', 'admin', 'finance_manager'),
-  [
-    body('name').trim().notEmpty().withMessage('Asset name is required'),
-    body('purchaseDate').isISO8601().withMessage('Purchase date is required'),
-    body('purchaseCost').isFloat({ min: 0 }).withMessage('Purchase cost must be >= 0')
-  ],
-  validate,
+router.post('/', authorize('super_admin', 'admin', 'finance_manager'), handleFixedAssetUpload,
   asyncHandler(async (req, res) => {
-    const payload = { ...req.body, createdBy: req.user.id };
+    const body = parseFixedAssetRequestBody(req);
+    const validationErrors = validateFixedAssetPayload(body);
+    if (validationErrors.length) {
+      return res.status(400).json({ success: false, errors: validationErrors });
+    }
+
+    const payload = { ...body, createdBy: req.user.id };
     payload.project = normalizeProjectInput(payload.project);
     if (!payload.serialNumber) {
       const assets = await FixedAsset.find({ serialNumber: { $exists: true, $ne: '' } }).select('serialNumber').lean();
@@ -135,33 +239,45 @@ router.post('/', authorize('super_admin', 'admin', 'finance_manager'),
       payload.serialNumber = `SN-${String(max + 1).padStart(5, '0')}`;
     }
 
+    if (req.files?.length) {
+      payload.attachments = mapUploadedAttachments(req.files);
+    }
+
     const asset = await FixedAsset.create(payload);
     res.status(201).json({ success: true, data: asset });
   })
 );
 
 // PUT /api/finance/fixed-assets/:id
-router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
-  const asset = await FixedAsset.findById(req.params.id);
-  if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), handleFixedAssetUpload,
+  asyncHandler(async (req, res) => {
+    const asset = await FixedAsset.findById(req.params.id);
+    if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
 
-  const allowed = ['name', 'description', 'category', 'residualValue', 'depreciationMethod',
-    'usefulLifeYears', 'depreciationRate', 'assetAccount', 'accumulatedDeprecAccount',
-    'depreciationExpenseAccount', 'location', 'assignedTo', 'project', 'costCenter', 'serialNumber',
-    'brand', 'model', 'condition', 'manufacturer', 'warrantyExpiryDate', 'characteristics'];
-  allowed.forEach((f) => {
-    if (req.body[f] === undefined) return;
-    if (f === 'project') {
-      asset[f] = normalizeProjectInput(req.body[f]);
-      return;
+    const body = parseFixedAssetRequestBody(req);
+    const allowed = ['name', 'description', 'category', 'residualValue', 'depreciationMethod',
+      'usefulLifeYears', 'depreciationRate', 'assetAccount', 'accumulatedDeprecAccount',
+      'depreciationExpenseAccount', 'location', 'assignedTo', 'project', 'costCenter', 'serialNumber',
+      'brand', 'model', 'condition', 'manufacturer', 'warrantyExpiryDate', 'characteristics'];
+    allowed.forEach((f) => {
+      if (body[f] === undefined) return;
+      if (f === 'project') {
+        asset[f] = normalizeProjectInput(body[f]);
+        return;
+      }
+      asset[f] = body[f];
+    });
+
+    if (req.files?.length || req.body?.removedAttachmentIds) {
+      applyAttachmentChanges(asset, req.body, req.files || []);
     }
-    asset[f] = req.body[f];
-  });
-  asset.updatedBy = req.user.id;
-  await asset.save();
 
-  res.json({ success: true, data: asset });
-}));
+    asset.updatedBy = req.user.id;
+    await asset.save();
+
+    res.json({ success: true, data: asset });
+  })
+);
 
 // POST /api/finance/fixed-assets/:id/depreciate — run monthly depreciation for asset
 router.post('/:id/depreciate', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {

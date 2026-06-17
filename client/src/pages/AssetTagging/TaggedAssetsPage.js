@@ -18,6 +18,7 @@ import {
   formatAssetLocationForDisplay,
   formatCustodianForDisplay
 } from '../../utils/assetLocationDisplay';
+import AssetAttachmentThumb from '../../components/AssetTagging/AssetAttachmentThumb';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -255,6 +256,7 @@ export default function TaggedAssetsPage() {
                     </Tooltip>
                   </TableCell>
                   <TableCell><b>Asset #</b></TableCell>
+                  <TableCell sx={{ width: 64 }}><b>Image</b></TableCell>
                   <TableCell><b>Name</b></TableCell>
                   <TableCell><b>Location</b></TableCell>
                   <TableCell><b>Custodian</b></TableCell>
@@ -265,7 +267,7 @@ export default function TaggedAssetsPage() {
               </TableHead>
               <TableBody>
                 {rows.length === 0 && (
-                  <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: 'text.secondary' }}>No assets — add fixed assets in Finance first.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>No assets — add fixed assets in Finance first.</TableCell></TableRow>
                 )}
                 {paginatedRows.map((a) => (
                   <TableRow key={a._id} hover>
@@ -278,6 +280,7 @@ export default function TaggedAssetsPage() {
                       />
                     </TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
+                    <TableCell><AssetAttachmentThumb asset={a} size={44} /></TableCell>
                     <TableCell>{a.name}</TableCell>
                     <TableCell>{formatAssetLocationForDisplay(a.location) || '—'}</TableCell>
                     <TableCell>{formatCustodianForDisplay(a.assignedTo) || '—'}</TableCell>

@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const asyncHandler = require('express-async-handler');
-const QRCode = require('qrcode');
 const { authorize } = require('../middleware/auth');
 const FixedAsset = require('../models/finance/FixedAsset');
 const Project = require('../models/hr/Project');
@@ -13,6 +12,7 @@ const {
   normalizeLookupString,
   applyRawFixedAssetLookupFallback
 } = require('../utils/fixedAssetLookupResolve');
+const { generateAssetTagQrDataUrl } = require('../utils/assetTagQr');
 
 const TAG_ROLES = ['super_admin', 'developer', 'admin', 'finance_manager', 'procurement_manager', 'audit_manager', 'higher_management'];
 
@@ -33,7 +33,8 @@ function clientOrigin() {
 
 function scanUrlForTag(tagCode) {
   const enc = encodeURIComponent(tagCode);
-  return `${clientOrigin().replace(/\/$/, '')}/asset-tagging/scan/${enc}`;
+  // Short public path keeps the QR matrix less dense and easier to scan at distance.
+  return `${clientOrigin().replace(/\/$/, '')}/at/${enc}`;
 }
 
 async function ensureAssetProjectObject(assetDoc) {
@@ -54,12 +55,22 @@ async function ensureAssetProjectObject(assetDoc) {
   return assetDoc;
 }
 
-/** Build unique tag code for an asset */
+/** Build globally unique tag code for an asset (voided/orphan tags still occupy their codes). */
 async function nextTagCodeForAsset(asset) {
-  const n = await AssetTag.countDocuments({ asset: asset._id });
   const base = asset.assetNumber || String(asset._id);
-  if (n === 0) return `TAG-${base}`;
-  return `TAG-${base}-R${n + 1}`;
+  const prefix = `TAG-${base}`;
+
+  let revision = 0;
+  while (revision < 1000) {
+    const tagCode = revision === 0 ? prefix : `${prefix}-R${revision}`;
+    const exists = await AssetTag.exists({ tagCode });
+    if (!exists) return tagCode;
+    revision += 1;
+  }
+
+  const err = new Error('Unable to allocate a unique tag code for this asset');
+  err.status = 500;
+  throw err;
 }
 
 async function logEvent(payload) {
@@ -204,7 +215,7 @@ router.get('/label-qr/:tagCode', authorize(...TAG_ROLES), asyncHandler(async (re
   if (!tag) return res.status(404).json({ success: false, message: 'Active tag not found' });
 
   const url = scanUrlForTag(tagCode);
-  const dataUrl = await QRCode.toDataURL(url, { width: 256, margin: 1, errorCorrectionLevel: 'M' });
+  const dataUrl = await generateAssetTagQrDataUrl(url);
   res.json({ success: true, data: { dataUrl, url, tagCode } });
 }));
 
