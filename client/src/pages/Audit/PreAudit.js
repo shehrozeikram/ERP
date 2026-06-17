@@ -61,7 +61,9 @@ import {
   Print as PrintIcon,
   ZoomIn as ZoomInIcon,
   ZoomOut as ZoomOutIcon,
-  RestartAlt as RestartAltIcon
+  RestartAlt as RestartAltIcon,
+  Store as StoreIcon,
+  Business as VendorIcon
 } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -90,6 +92,7 @@ import {
 import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
 import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
 import CentralizedStoreItemsAuditPanel from '../../components/Audit/CentralizedStoreItemsAuditPanel';
+import FinanceVendorsAuditPanel from '../../components/Audit/FinanceVendorsAuditPanel';
 import { collectUtilityBillWorkflowImages } from '../../utils/utilityBillAttachments';
 import {
   getStoreInvoiceOrgTitle,
@@ -199,6 +202,8 @@ const PreAudit = () => {
   const [returnComments, setReturnComments] = useState('');
   const [rejectionComments, setRejectionComments] = useState('');
   const [rejectObservations, setRejectObservations] = useState([{ observation: '', severity: 'medium' }]);
+  const [storeCatalogOpen, setStoreCatalogOpen] = useState(false);
+  const [vendorsCatalogOpen, setVendorsCatalogOpen] = useState(false);
 
   const normalizeRole = (value) =>
     String(value || '')
@@ -2310,7 +2315,24 @@ const PreAudit = () => {
             <Tab label="Returned" />
           </Tabs>
 
-          {tabValue === 2 && <CentralizedStoreItemsAuditPanel />}
+          {tabValue === 2 && (
+            <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+              <Button
+                variant="outlined"
+                startIcon={<StoreIcon />}
+                onClick={() => setStoreCatalogOpen(true)}
+              >
+                View Centralized Store Items
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<VendorIcon />}
+                onClick={() => setVendorsCatalogOpen(true)}
+              >
+                View Vendors &amp; Bills
+              </Button>
+            </Box>
+          )}
 
           {loading ? (
             <Box>
@@ -4541,6 +4563,52 @@ const PreAudit = () => {
             </Typography>
           </Box>
         </Box>
+      </Dialog>
+
+      {/* Centralized Store catalog (Audit Director reference) */}
+      <Dialog
+        open={storeCatalogOpen}
+        onClose={() => setStoreCatalogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        scroll="paper"
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <StoreIcon color="primary" />
+          Centralized Store Items
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Catalog reference for centralized store bills. Filter by category, location, or site while reviewing forwarded documents.
+          </Typography>
+          <CentralizedStoreItemsAuditPanel open={storeCatalogOpen} embedded />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStoreCatalogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Finance vendors & AP bills (Audit Director reference) */}
+      <Dialog
+        open={vendorsCatalogOpen}
+        onClose={() => setVendorsCatalogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        scroll="paper"
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <VendorIcon color="primary" />
+          Vendors &amp; Bills
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Finance vendor register and accounts payable bills — same data as Finance → Vendors. Use while reviewing forwarded documents.
+          </Typography>
+          <FinanceVendorsAuditPanel open={vendorsCatalogOpen} embedded />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVendorsCatalogOpen(false)}>Close</Button>
+        </DialogActions>
       </Dialog>
 
       {/* Forward to Audit Director Dialog */}

@@ -533,6 +533,45 @@ router.get('/centralized-store-items',
   })
 );
 
+// @route   GET /api/pre-audit/finance-vendors
+// @desc    Read-only vendor list with finance summary for audit reference
+router.get('/finance-vendors',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    if (!hasAuditAccess(req.user)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to audit resources.' });
+    }
+    const { listAuditFinanceVendors } = require('../utils/auditFinanceVendorReference');
+    const data = await listAuditFinanceVendors({
+      search: req.query.search,
+      status: req.query.status,
+      page: req.query.page,
+      limit: req.query.limit
+    });
+    res.json({ success: true, data });
+  })
+);
+
+// @route   GET /api/pre-audit/finance-vendors/:supplierId
+// @desc    Read-only vendor AP bills for audit reference
+router.get('/finance-vendors/:supplierId',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    if (!hasAuditAccess(req.user)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to audit resources.' });
+    }
+    const { getAuditFinanceVendorDetail } = require('../utils/auditFinanceVendorReference');
+    try {
+      const data = await getAuditFinanceVendorDetail(req.params.supplierId, {
+        billStatus: req.query.billStatus
+      });
+      res.json({ success: true, data });
+    } catch (err) {
+      res.status(err.status || 500).json({ success: false, message: err.message || 'Failed to load vendor' });
+    }
+  })
+);
+
 // @route   GET /api/pre-audit/:id
 // @desc    Get a single pre-audit document by ID
 // @access  Private (Super Admin, Audit Manager, Auditor)

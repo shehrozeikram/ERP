@@ -8,7 +8,7 @@ import api from '../../services/api';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function CentralizedStoreItemsAuditPanel() {
+export default function CentralizedStoreItemsAuditPanel({ open = true, embedded = false }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [storeName, setStoreName] = useState('Centralized Store');
@@ -39,8 +39,8 @@ export default function CentralizedStoreItemsAuditPanel() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (open) load();
+  }, [open, load]);
 
   const locationOptions = useMemo(() => {
     const values = new Set();
@@ -110,17 +110,21 @@ export default function CentralizedStoreItemsAuditPanel() {
     setSearch('');
   };
 
-  return (
-    <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-        <StoreIcon color="primary" />
-        <Box>
-          <Typography variant="h6" fontWeight={700}>{storeName} — reference for Audit Director</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Catalog items used on centralized store bills. Filter by category or location while reviewing forwarded documents.
-          </Typography>
-        </Box>
-      </Stack>
+  if (!open) return null;
+
+  const content = (
+    <>
+      {!embedded && (
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+          <StoreIcon color="primary" />
+          <Box>
+            <Typography variant="h6" fontWeight={700}>{storeName} — reference for Audit Director</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Catalog items used on centralized store bills. Filter by category or location while reviewing forwarded documents.
+            </Typography>
+          </Box>
+        </Stack>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
@@ -257,6 +261,16 @@ export default function CentralizedStoreItemsAuditPanel() {
           </Table>
         </TableContainer>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <Box>{content}</Box>;
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
+      {content}
     </Paper>
   );
 }
