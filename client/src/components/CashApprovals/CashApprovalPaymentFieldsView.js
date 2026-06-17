@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import { formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 
 const CashApprovalPaymentFieldsView = ({
   payeeEmployees,
@@ -115,9 +116,15 @@ const CashApprovalPaymentFieldsView = ({
           label="Pay From Account"
         >
           <MenuItem value="">— Auto (default bank) —</MenuItem>
-          {bankAccounts.map((a) => (
-            <MenuItem key={a._id} value={a._id}>{a.accountNumber} — {a.name}</MenuItem>
-          ))}
+          {bankAccounts.map((item) => {
+            const account = item?.account || item;
+            const depth = item?.depth || 0;
+            return (
+              <MenuItem key={account._id} value={account._id}>
+                {formatPayFromAccountLabel(account, depth)}
+              </MenuItem>
+            );
+          })}
         </Select>
       </FormControl>
     </Grid>

@@ -32,7 +32,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Collapse,
   Stack,
   Divider
 } from '@mui/material';
@@ -51,7 +50,8 @@ import {
   AdminPanelSettings as AdminIcon,
   Security as SecurityIcon,
   Refresh as RefreshIcon,
-  KeyboardArrowDown as KeyboardArrowDownIcon
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowRight as KeyboardArrowRightIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -329,25 +329,14 @@ const ChartOfAccounts = () => {
     return String(next);
   };
 
-  const filteredParentAccounts = useMemo(() => {
-    const base = (parentAccounts && parentAccounts.length > 0 ? parentAccounts : accounts || []);
-    const active = base.filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber));
-    if (!newAccountForm.accountType) return active;
-
-    const normalize = (v) => String(v || '').trim().toLowerCase();
-    const selectedType = normalize(newAccountForm.accountType);
-    const selectedSection = normalize(newAccountForm.section);
-
-    const exactTypeMatches = active.filter((a) =>
-      [a.category, a.accountType, a.name].some((v) => normalize(v) === selectedType)
-    );
-    if (exactTypeMatches.length > 0) return exactTypeMatches;
-
-    const sectionMatches = active.filter((a) => normalize(a.type) === selectedSection);
-    if (sectionMatches.length > 0) return sectionMatches;
-
-    return active;
-  }, [parentAccounts, accounts, newAccountForm.accountType, newAccountForm.section]);
+  const parentAccountOptions = useMemo(() => {
+    const base = (parentAccounts && parentAccounts.length > 0 ? parentAccounts : accounts) || [];
+    return base
+      .filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber))
+      .sort((a, b) =>
+        String(a.accountNumber || '').localeCompare(String(b.accountNumber || ''), undefined, { numeric: true })
+      );
+  }, [parentAccounts, accounts]);
 
   useEffect(() => {
     if (newAccountDialog && newAccountForm.isSubaccount) {
@@ -355,13 +344,38 @@ const ChartOfAccounts = () => {
     }
   }, [newAccountDialog, newAccountForm.isSubaccount]);
 
-  useEffect(() => {
-    if (!newAccountForm.parentAccount) return;
-    const parentStillValid = filteredParentAccounts.some((a) => a._id === newAccountForm.parentAccount);
-    if (!parentStillValid) {
-      setNewAccountForm((f) => ({ ...f, parentAccount: '' }));
-    }
-  }, [filteredParentAccounts, newAccountForm.parentAccount]);
+  const getParentAccountId = (account) => {
+    if (!account?.parentAccount) return null;
+    const parent = account.parentAccount;
+    return String(parent._id || parent);
+  };
+
+  const { rootAccounts, childrenByParentId } = useMemo(() => {
+    const byParent = {};
+    const roots = [];
+    const accountIds = new Set((accounts || []).map((a) => String(a._id)));
+
+    (accounts || []).forEach((account) => {
+      const parentId = getParentAccountId(account);
+      if (parentId && accountIds.has(parentId)) {
+        if (!byParent[parentId]) byParent[parentId] = [];
+        byParent[parentId].push(account);
+      } else {
+        roots.push(account);
+      }
+    });
+
+    const sortByNumber = (list) =>
+      [...list].sort((a, b) =>
+        String(a.accountNumber || '').localeCompare(String(b.accountNumber || ''), undefined, { numeric: true })
+      );
+
+    Object.keys(byParent).forEach((key) => {
+      byParent[key] = sortByNumber(byParent[key]);
+    });
+
+    return { rootAccounts: sortByNumber(roots), childrenByParentId: byParent };
+  }, [accounts]);
 
   const handleCreateAccount = async () => {
     if (!newAccountForm.name?.trim()) {
@@ -392,6 +406,9 @@ const ChartOfAccounts = () => {
         parentAccount: newAccountForm.isSubaccount && newAccountForm.parentAccount ? newAccountForm.parentAccount : undefined
       };
       await api.post('/finance/accounts', payload);
+      if (newAccountForm.isSubaccount && newAccountForm.parentAccount) {
+        setExpandedRows((prev) => new Set([...prev, newAccountForm.parentAccount]));
+      }
       await fetchAccounts();
       closeNewAccountDialog();
     } catch (err) {
@@ -432,14 +449,103 @@ const ChartOfAccounts = () => {
   };
 
   const toggleRowExpansion = (accountId) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(accountId)) {
-      newExpanded.delete(accountId);
-    } else {
-      newExpanded.add(accountId);
-    }
-    setExpandedRows(newExpanded);
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) {
+        next.delete(accountId);
+      } else {
+        next.add(accountId);
+      }
+      return next;
+    });
   };
+
+  const renderAccountRows = (accountList, depth = 0) =>
+    (accountList || []).flatMap((account) => {
+      const accountId = String(account._id);
+      const children = childrenByParentId[accountId] || [];
+      const hasChildren = children.length > 0;
+      const isExpanded = expandedRows.has(accountId);
+
+      const row = (
+        <TableRow
+          key={account._id}
+          hover
+          sx={{
+            bgcolor: depth > 0 ? alpha(theme.palette.primary.main, 0.03) : undefined,
+            '& td:first-of-type': { pl: depth > 0 ? 2 + depth * 2 : undefined }
+          }}
+        >
+          <TableCell padding="checkbox" sx={{ width: 48 }}>
+            {hasChildren ? (
+              <IconButton
+                size="small"
+                onClick={() => toggleRowExpansion(accountId)}
+                aria-label={isExpanded ? 'Collapse subaccounts' : 'Expand subaccounts'}
+              >
+                {isExpanded ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
+              </IconButton>
+            ) : (
+              <Box sx={{ width: 34 }} />
+            )}
+          </TableCell>
+          <TableCell>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: depth * 3 }}>
+              <Typography variant="body2" sx={{ fontWeight: depth === 0 ? 500 : 400 }}>
+                {account.accountNumber ? `${account.accountNumber} — ` : ''}
+                {account.name || '—'}
+              </Typography>
+              {hasChildren && (
+                <Chip
+                  label={`${children.length} subaccount${children.length === 1 ? '' : 's'}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ height: 22, fontSize: '0.7rem' }}
+                />
+              )}
+              {depth > 0 && (
+                <Chip label="Subaccount" size="small" color="primary" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} />
+              )}
+            </Box>
+          </TableCell>
+          <TableCell>
+            <Typography variant="body2">
+              {account.category || account.type || '—'}
+            </Typography>
+          </TableCell>
+          <TableCell>
+            <Typography variant="body2" color="text.secondary">
+              {account.detailType || '—'}
+            </Typography>
+          </TableCell>
+          <TableCell align="right">
+            <Typography variant="body2">
+              {formatPKR(account.balance || 0)}
+            </Typography>
+          </TableCell>
+          <TableCell align="right">
+            <Typography variant="body2" color="text.secondary">
+              {formatPKR(account.bankBalance || 0)}
+            </Typography>
+          </TableCell>
+          <TableCell>
+            <Button
+              variant="text"
+              size="small"
+              endIcon={<KeyboardArrowDownIcon />}
+              sx={{ textTransform: 'none', fontWeight: 600 }}
+            >
+              Account history
+            </Button>
+          </TableCell>
+        </TableRow>
+      );
+
+      if (hasChildren && isExpanded) {
+        return [row, ...renderAccountRows(children, depth + 1)];
+      }
+      return [row];
+    });
 
   const getAccountTypeColor = (type) => {
     const colorMap = {
@@ -670,48 +776,7 @@ const ChartOfAccounts = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {accounts.map((account) => (
-                  <TableRow key={account._id} hover>
-                    <TableCell padding="checkbox">
-                      <Checkbox size="small" />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {account.name || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {account.category || account.type || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {account.detailType || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2">
-                        {formatPKR(account.balance || 0)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" color="text.secondary">
-                        {formatPKR(account.bankBalance || 0)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="text"
-                        size="small"
-                        endIcon={<KeyboardArrowDownIcon />}
-                        sx={{ textTransform: 'none', fontWeight: 600 }}
-                      >
-                        Account history
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {renderAccountRows(rootAccounts)}
               </TableBody>
             </Table>
           </TableContainer>
@@ -894,10 +959,13 @@ const ChartOfAccounts = () => {
                       <MenuItem value="">
                         <em>{parentAccountsLoading ? 'Loading parent accounts...' : 'Select...'}</em>
                       </MenuItem>
-                      {filteredParentAccounts.map((a) => (
-                        <MenuItem key={a._id} value={a._id}>{a.accountNumber} - {a.name}</MenuItem>
+                      {parentAccountOptions.map((a) => (
+                        <MenuItem key={a._id} value={a._id}>
+                          {a.accountNumber} — {a.name}
+                          {a.type ? ` (${a.type})` : ''}
+                        </MenuItem>
                       ))}
-                      {!parentAccountsLoading && filteredParentAccounts.length === 0 && (
+                      {!parentAccountsLoading && parentAccountOptions.length === 0 && (
                         <MenuItem value="" disabled>
                           No parent accounts found
                         </MenuItem>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../../services/api';
+import { fetchPayFromAccounts } from '../../utils/payFromAccounts';
 
 const defaultPaymentData = () => ({
   amount: 0,
@@ -21,24 +22,16 @@ export const mapPaymentMethodToCaLabel = (paymentMethod) => {
 
 export const useCashApprovalPaymentFields = (ca, { active = false, includePendingFinance = false, seedCaId = null } = {}) => {
   const [payeeEmployees, setPayeeEmployees] = useState([]);
-  const [bankAccounts, setBankAccounts] = useState([]);
+  const [payFromAccountOptions, setPayFromAccountOptions] = useState([]);
   const [selectedPayee, setSelectedPayee] = useState({ employeeId: '', employeeName: '' });
   const [paymentData, setPaymentData] = useState(defaultPaymentData);
   const [outstandingTransactions, setOutstandingTransactions] = useState([]);
   const [loadingOutstanding, setLoadingOutstanding] = useState(false);
 
   const loadBankAccounts = useCallback(() => {
-    api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1 } })
-      .then((res) => {
-        const accounts = res.data?.data?.accounts || res.data?.accounts || [];
-        const filtered = accounts.filter((a) => {
-          const name = String(a?.name || '').toLowerCase();
-          const num = String(a?.accountNumber || '');
-          return /bank|cash|petty/i.test(name) || /^100[12]/.test(num);
-        });
-        setBankAccounts(filtered.length ? filtered : accounts);
-      })
-      .catch(() => setBankAccounts([]));
+    fetchPayFromAccounts(api)
+      .then(setPayFromAccountOptions)
+      .catch(() => setPayFromAccountOptions([]));
   }, []);
 
   const loadPayeeEmployees = useCallback((seedEmployee = null) => {
@@ -127,7 +120,8 @@ export const useCashApprovalPaymentFields = (ca, { active = false, includePendin
 
   return {
     payeeEmployees,
-    bankAccounts,
+    payFromAccountOptions,
+    bankAccounts: payFromAccountOptions,
     selectedPayee,
     setSelectedPayee,
     paymentData,

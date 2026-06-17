@@ -60,6 +60,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 import toast from 'react-hot-toast';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
@@ -288,32 +289,10 @@ const AccountsPayable = () => {
     return () => { cancelled = true; };
   }, [paymentDialogOpen]);
 
-  // Load bank/cash accounts from chart of accounts (transactional Current Asset accounts)
+  // Load bank/cash accounts from chart of accounts (includes subaccounts under pay-from parents)
   useEffect(() => {
-    api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1 } })
-      .then((res) => {
-        const payload = res.data?.data;
-        const all = Array.isArray(payload?.accounts)
-          ? payload.accounts
-          : Array.isArray(payload)
-            ? payload
-            : Array.isArray(res.data?.accounts)
-              ? res.data.accounts
-              : [];
-        const filtered = all.filter((a) => {
-          if (a?.isActive === false || a?.allowTransactions === false) return false;
-          const name = String(a?.name || '').toLowerCase();
-          const num = String(a?.accountNumber || '');
-          const detail = String(a?.detailType || '').toLowerCase();
-          return (
-            /^100[0-9]/.test(num) ||
-            /bank|cash|petty/i.test(name) ||
-            detail.includes('bank') ||
-            detail.includes('cash')
-          );
-        });
-        setBankAccounts(filtered.length ? filtered : all);
-      })
+    fetchPayFromAccounts(api)
+      .then(setBankAccounts)
       .catch(() => setBankAccounts([]));
   }, []);
 
@@ -2317,9 +2296,15 @@ const AccountsPayable = () => {
                   onChange={(e) => setPaymentData({ ...paymentData, bankAccountId: e.target.value })}
                   label="Pay From Account">
                   <MenuItem value="">— Auto (default bank) —</MenuItem>
-                  {bankAccounts.map(a => (
-                    <MenuItem key={a._id} value={a._id}>{a.accountNumber} — {a.name}</MenuItem>
-                  ))}
+                  {bankAccounts.map((item) => {
+                    const account = item?.account || item;
+                    const depth = item?.depth || 0;
+                    return (
+                      <MenuItem key={account._id} value={account._id}>
+                        {formatPayFromAccountLabel(account, depth)}
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
                 {bankAccounts.length === 0 && (
                   <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>

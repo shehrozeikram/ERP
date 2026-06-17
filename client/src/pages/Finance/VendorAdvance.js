@@ -31,6 +31,7 @@ import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 import toast from 'react-hot-toast';
 
 /** Issuance column: “Advance issued” only after the linked voucher’s signed document is recorded. */
@@ -120,21 +121,8 @@ const VendorAdvance = () => {
   }, [loadVendors]);
 
   useEffect(() => {
-    api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1 } })
-      .then((res) => {
-        const payload = res.data?.data;
-        const all = Array.isArray(payload?.accounts)
-          ? payload.accounts
-          : (Array.isArray(payload) ? payload : []);
-        setBankAccounts(
-          all.filter(
-            (a) =>
-              ['1001', '1002', '1003'].includes(a.accountNumber)
-              || String(a.name || '').toLowerCase().includes('bank')
-              || String(a.name || '').toLowerCase().includes('cash')
-          )
-        );
-      })
+    fetchPayFromAccounts(api)
+      .then(setBankAccounts)
       .catch(() => setBankAccounts([]));
   }, []);
 
@@ -568,17 +556,20 @@ const VendorAdvance = () => {
                     label="Pay from account"
                     onChange={(e) => setForm((f) => ({ ...f, bankAccountId: e.target.value }))}
                   >
-                    {bankAccounts.map((acc) => (
-                      <MenuItem key={acc._id} value={acc._id}>
-                        {acc.name}
-                        {acc.accountNumber ? ` (${acc.accountNumber})` : ''}
-                      </MenuItem>
-                    ))}
+                    {bankAccounts.map((item) => {
+                      const account = item?.account || item;
+                      const depth = item?.depth || 0;
+                      return (
+                        <MenuItem key={account._id} value={account._id}>
+                          {formatPayFromAccountLabel(account, depth)}
+                        </MenuItem>
+                      );
+                    })}
                   </Select>
                 </FormControl>
                 {bankAccounts.length === 0 ? (
                   <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-                    No suitable pay-from accounts found under Current Asset in the chart. Add accounts or run Chart of Accounts → Ensure System Accounts.
+                    No suitable pay-from accounts found in the chart. Add bank/cash accounts (or subaccounts under them) or run Chart of Accounts → Ensure System Accounts.
                   </Typography>
                 ) : null}
               </Grid>
