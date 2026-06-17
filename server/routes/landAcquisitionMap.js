@@ -4,7 +4,7 @@ const LandMoza = require('../models/tajResidencia/LandMoza');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const LandPossession = require('../models/tajResidencia/LandPossession');
 const { buildMozaAcquisitionStatus, deriveStatus } = require('../utils/landAcquisitionStatus');
-const { addAreas, normalizeArea, toSarsais } = require('../utils/landAreaUnits');
+const { addAreas, normalizeArea, toSarsais, subtractAreas } = require('../utils/landAreaUnits');
 
 const router = express.Router();
 
@@ -21,7 +21,7 @@ const statusKey = (slug, khasraNo) => `${slug}:${normalizeKhasraNo(khasraNo)}`;
 const mergeRegisteredLine = (status, line) => {
   const transferPercent = Math.min(100, Math.max(0, Number(line.transferPercent) || 0));
   if (transferPercent > 0) {
-    status.registryTransferPercent = Math.max(status.registryTransferPercent || 0, transferPercent);
+    status.registryTransferPercent = Math.min(100, (status.registryTransferPercent || 0) + transferPercent);
   }
 
   const patch = normalizeArea(line.acquiredArea);
@@ -36,7 +36,7 @@ const mergeRegisteredLine = (status, line) => {
 const mergePossessedLine = (status, line) => {
   const transferPercent = Math.min(100, Math.max(0, Number(line.transferPercent) || 0));
   if (transferPercent > 0) {
-    status.possessionTransferPercent = Math.max(status.possessionTransferPercent || 0, transferPercent);
+    status.possessionTransferPercent = Math.min(100, (status.possessionTransferPercent || 0) + transferPercent);
   }
 
   const patch = normalizeArea(line.possessedArea);
@@ -54,6 +54,7 @@ router.get('/map-status', asyncHandler(async (req, res) => {
     .lean();
 
   const status = {};
+  const recordsByMoza = {};
 
   for (const moza of mozas) {
     const rows = await buildMozaAcquisitionStatus(moza._id);
@@ -63,13 +64,13 @@ router.get('/map-status', asyncHandler(async (req, res) => {
         khasraEntryId: row.khasraEntryId,
         khewatNo: row.khewatNo,
         khasraNo: row.khasraNo,
-        purchaseStatus: row.purchaseStatus,
-        possessionStatus: row.possessionStatus,
+        purchaseStatus: 'not_purchased',
+        possessionStatus: 'not_possessed',
         baseline: row.baseline,
-        registered: row.registered,
-        possessed: row.possessed,
-        remainingToRegister: row.remainingToRegister,
-        remainingToPossess: row.remainingToPossess,
+        registered: { kanal: 0, marla: 0, sarsai: 0 },
+        possessed: { kanal: 0, marla: 0, sarsai: 0 },
+        remainingToRegister: row.baseline,
+        remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 },
         registryTransferPercent: 0,
         possessionTransferPercent: 0
       };
@@ -79,6 +80,11 @@ router.get('/map-status', asyncHandler(async (req, res) => {
       LandRegistry.find({ moza: moza._id, isActive: true }).lean(),
       LandPossession.find({ moza: moza._id, isActive: true }).lean()
     ]);
+
+    recordsByMoza[moza.slug] = {
+      registryCount: registries.length,
+      possessionCount: possessions.length
+    };
 
     registries.forEach((registry) => {
       (registry.lines || []).forEach((line) => {
@@ -132,6 +138,8 @@ router.get('/map-status', asyncHandler(async (req, res) => {
       .filter((key) => key.startsWith(`${moza.slug}:`))
       .forEach((key) => {
         const row = status[key];
+        row.remainingToRegister = subtractAreas(row.baseline, row.registered);
+        row.remainingToPossess = subtractAreas(row.registered, row.possessed);
         const derived = deriveStatus(row.baseline, row.registered, row.possessed);
         row.purchaseStatus = derived.purchaseStatus;
         row.possessionStatus = derived.possessionStatus;
@@ -139,16 +147,22 @@ router.get('/map-status', asyncHandler(async (req, res) => {
   }
 
   const summary = Object.values(status).reduce((acc, row) => {
-    if ((row.registryTransferPercent || 0) > 0) acc.registered += 1;
-    if ((row.possessionTransferPercent || 0) > 0) acc.possessed += 1;
+    if ((row.registryTransferPercent || 0) > 0) acc.khasrasWithRegistry += 1;
+    if ((row.possessionTransferPercent || 0) > 0) acc.khasrasWithPossession += 1;
     return acc;
-  }, { registered: 0, possessed: 0 });
+  }, { khasrasWithRegistry: 0, khasrasWithPossession: 0 });
+
+  summary.registryDocuments = Object.values(recordsByMoza)
+    .reduce((sum, row) => sum + (row.registryCount || 0), 0);
+  summary.possessionDocuments = Object.values(recordsByMoza)
+    .reduce((sum, row) => sum + (row.possessionCount || 0), 0);
 
   res.json({
     success: true,
     data: {
       mozas,
       status,
+      recordsByMoza,
       summary
     }
   });

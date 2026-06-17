@@ -64,6 +64,8 @@ const MOUZA_LABELS = {
   unknown: 'Other / Unmapped'
 };
 
+const formatCount = (value) => Number(value ?? 0).toLocaleString();
+
 const parcelIdForFeature = (feature, idx = 0) => {
   const k = feature?.properties?.k ?? idx;
   const moza = feature?.properties?.moza;
@@ -336,6 +338,7 @@ const LathaMapViewer = () => {
   const [parcels, setParcels] = useState([]);
   const [lines, setLines] = useState(null);
   const [statusMap, setStatusMap] = useState({});
+  const [recordsByMoza, setRecordsByMoza] = useState({});
   const [mozaKhasrasIndex, setMozaKhasrasIndex] = useState(null);
   const [mozas, setMozas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -400,6 +403,7 @@ const LathaMapViewer = () => {
         setMozaKhasrasIndex(mozaKhasrasRes);
         setMozas(statusRes.data?.data?.mozas || []);
         setStatusMap(statusRes.data?.data?.status || {});
+        setRecordsByMoza(statusRes.data?.data?.recordsByMoza || {});
         setLines(linesRes);
 
         if (parcelsRes?.features?.[0]?.geometry?.type === 'Polygon') {
@@ -508,28 +512,50 @@ const LathaMapViewer = () => {
   );
 
   const mapStats = useMemo(() => {
-    let registeredOnMap = 0;
-    let possessedOnMap = 0;
-    let erpOnMap = 0;
+    let registryDocuments = 0;
+    let possessionDocuments = 0;
+    let khasrasWithRegistry = 0;
+    let khasrasWithPossession = 0;
 
-    parcels.forEach((parcel) => {
-      if (mouzaFilter !== 'all' && !parcelBelongsToMouza(parcel, mouzaFilter)) return;
+    if (mouzaFilter === 'all') {
+      Object.values(recordsByMoza).forEach((row) => {
+        registryDocuments += row?.registryCount || 0;
+        possessionDocuments += row?.possessionCount || 0;
+      });
+    } else {
+      const row = recordsByMoza[mouzaFilter] || {};
+      registryDocuments = row.registryCount || 0;
+      possessionDocuments = row.possessionCount || 0;
+    }
 
-      const resolved = resolveStatusForKhasra(
-        parcel.k,
-        mouzaFilter === 'all' ? null : mouzaFilter,
-        statusMap,
-        mozas,
-        statusLookups
-      );
-      const status = resolved?.status;
-      if (hasPossessionTransfer(status)) possessedOnMap += 1;
-      if (hasRegistryTransfer(status)) registeredOnMap += 1;
-      if (hasRegistryTransfer(status) || hasPossessionTransfer(status)) erpOnMap += 1;
+    Object.entries(statusMap).forEach(([key, row]) => {
+      const sep = key.indexOf(':');
+      if (sep === -1) return;
+      const slug = key.slice(0, sep);
+      if (mouzaFilter !== 'all' && slug !== mouzaFilter) return;
+      if (hasRegistryTransfer(row)) khasrasWithRegistry += 1;
+      if (hasPossessionTransfer(row)) khasrasWithPossession += 1;
     });
 
-    return { registeredOnMap, possessedOnMap, erpOnMap };
-  }, [parcels, mouzaFilter, statusMap, mozas, statusLookups, parcelBelongsToMouza]);
+    return {
+      registryDocuments,
+      possessionDocuments,
+      khasrasWithRegistry,
+      khasrasWithPossession,
+      erpOnMap: khasrasWithRegistry + khasrasWithPossession
+    };
+  }, [mouzaFilter, statusMap, recordsByMoza]);
+
+  const stats = useMemo(
+    () => ({
+      registryDocuments: Number(mapStats?.registryDocuments) || 0,
+      possessionDocuments: Number(mapStats?.possessionDocuments) || 0,
+      khasrasWithRegistry: Number(mapStats?.khasrasWithRegistry) || 0,
+      khasrasWithPossession: Number(mapStats?.khasrasWithPossession) || 0,
+      erpOnMap: Number(mapStats?.erpOnMap) || 0
+    }),
+    [mapStats]
+  );
 
   const matchesRegistryLayer = useCallback((status) => (
     hasRegistryTransfer(status)
@@ -959,20 +985,22 @@ const LathaMapViewer = () => {
             <Typography variant="body2" color="text.secondary">
               Map fill uses Transfer % from registry &amp; possession records
             </Typography>
-            {!loading && mapStats.erpOnMap > 0 && (
+            {!loading && (stats.registryDocuments > 0 || stats.possessionDocuments > 0) && (
               <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
-                <Chip
-                  size="small"
-                  color="primary"
-                  variant="outlined"
-                  label={`${mapStats.registeredOnMap} registered on map`}
-                />
-                {mapStats.possessedOnMap > 0 && (
+                {stats.registryDocuments > 0 && (
+                  <Chip
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    label={`${stats.registryDocuments} ${stats.registryDocuments === 1 ? 'registry' : 'registries'}${stats.khasrasWithRegistry > 0 ? ` · ${stats.khasrasWithRegistry} ${stats.khasrasWithRegistry === 1 ? 'khasra' : 'khasras'}` : ''}`}
+                  />
+                )}
+                {stats.possessionDocuments > 0 && (
                   <Chip
                     size="small"
                     color="success"
                     variant="outlined"
-                    label={`${mapStats.possessedOnMap} possessed on map`}
+                    label={`${stats.possessionDocuments} ${stats.possessionDocuments === 1 ? 'possession' : 'possessions'}${stats.khasrasWithPossession > 0 ? ` · ${stats.khasrasWithPossession} ${stats.khasrasWithPossession === 1 ? 'khasra' : 'khasras'}` : ''}`}
                   />
                 )}
               </Stack>
@@ -1016,7 +1044,7 @@ const LathaMapViewer = () => {
                 || Boolean(loadError)
                 || !mapReady
                 || !showRegistryLayer
-                || mapStats.registeredOnMap === 0
+                || stats.khasrasWithRegistry === 0
               }
             >
               Focus registry
@@ -1031,7 +1059,7 @@ const LathaMapViewer = () => {
                 || Boolean(loadError)
                 || !mapReady
                 || !showPossessionLayer
-                || mapStats.possessedOnMap === 0
+                || stats.khasrasWithPossession === 0
               }
             >
               Focus possession
@@ -1316,15 +1344,25 @@ const LathaMapViewer = () => {
         </Stack>
         {mapIndex && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            {visibleParcels.length.toLocaleString()} khasra parcels shown
+            {formatCount(visibleParcels?.length)} khasra parcels shown
             {mouzaFilter !== 'all' ? ` · ${MOUZA_LABELS[mouzaFilter] || mouzaFilter} highlighted (yellow = mouza boundary)` : ''}
             {anyErpLayerOn
               ? ` · ${[
-                showRegistryLayer ? `${mapStats.registeredOnMap.toLocaleString()} registry` : null,
-                showPossessionLayer ? `${mapStats.possessedOnMap.toLocaleString()} possession` : null
-              ].filter(Boolean).join(' + ')} on map`
+                showRegistryLayer && stats.registryDocuments > 0
+                  ? `${formatCount(stats.registryDocuments)} ${stats.registryDocuments === 1 ? 'registry' : 'registries'}`
+                  : null,
+                showPossessionLayer && stats.possessionDocuments > 0
+                  ? `${formatCount(stats.possessionDocuments)} ${stats.possessionDocuments === 1 ? 'possession' : 'possessions'}`
+                  : null,
+                showRegistryLayer && stats.khasrasWithRegistry > 0
+                  ? `${formatCount(stats.khasrasWithRegistry)} ${stats.khasrasWithRegistry === 1 ? 'khasra' : 'khasras'} with registry`
+                  : null,
+                showPossessionLayer && stats.khasrasWithPossession > 0
+                  ? `${formatCount(stats.khasrasWithPossession)} ${stats.khasrasWithPossession === 1 ? 'khasra' : 'khasras'} with possession`
+                  : null
+              ].filter(Boolean).join(' · ')}`
               : ' · survey plan only (check Registry or Possession to show ERP data)'}
-            {mapIndex.counts?.parcels ? ` · ${mapIndex.counts.parcels.toLocaleString()} parcel shapes from KMZ` : ''}
+            {mapIndex.counts?.parcels != null ? ` · ${formatCount(mapIndex.counts.parcels)} parcel shapes from KMZ` : ''}
           </Typography>
         )}
       </Box>

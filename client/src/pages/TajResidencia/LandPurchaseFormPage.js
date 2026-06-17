@@ -35,7 +35,7 @@ import {
 import { numberToWords } from '../../utils/numberToWords';
 import { formatKhasraSelectLabel, sortKhasraEntries } from '../../utils/landKhasraDisplay';
 
-const STEPS = ['Seller Information', 'Deal Information', 'Payment Information', 'Dealer Information'];
+const STEPS = ['Parties Info', 'Deal Information', 'Payment Information', 'Dealer Information'];
 
 const AreaInputs = ({ value, onChange, readOnly = false }) => (
   <Stack direction="row" spacing={1}>
@@ -324,7 +324,7 @@ export default function LandPurchaseFormPage() {
         {activeStep === 0 && (
           <Grid container spacing={2}>
             <Grid item xs={12}>
-              <Typography variant="h6" fontWeight={700} gutterBottom>Land Acquisition</Typography>
+              <Typography variant="h6" fontWeight={700} gutterBottom>Parties Info</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Select the seller and purchaser for this land deal.
               </Typography>
