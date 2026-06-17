@@ -388,6 +388,17 @@ router.post('/:id/dispose', authorize('super_admin', 'admin', 'finance_manager')
   res.json({ success: true, message: 'Asset disposed', data: asset });
 }));
 
+// POST /api/finance/fixed-assets/import/ceo-office-far — idempotent CEO office FAR import
+router.post('/import/ceo-office-far', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
+  const { importCeoOfficeFixedAssets, CEO_OFFICE_ASSET_COUNT } = require('../services/ceoOfficeFixedAssetImport');
+  const result = await importCeoOfficeFixedAssets({ userId: req.user?.id });
+  res.json({
+    success: true,
+    message: `CEO office FAR import complete — ${result.created} created, ${result.skipped} already present (${CEO_OFFICE_ASSET_COUNT} in import set)`,
+    data: result
+  });
+}));
+
 // POST /api/finance/fixed-assets/depreciate-all — run depreciation for ALL active assets for a given period
 router.post('/depreciate-all', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
   const { year, month } = req.body;

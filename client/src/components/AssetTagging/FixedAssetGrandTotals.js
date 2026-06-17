@@ -48,7 +48,8 @@ function StatBlock({ icon: Icon, label, value, color, bgcolor }) {
   );
 }
 
-export default function FixedAssetGrandTotals({ totalCount = 0, totalBookValue = 0, sx }) {
+export default function FixedAssetGrandTotals({ totalCount = 0, totalBookValue = 0, scopeLabel, sx }) {
+  const scope = scopeLabel || 'all pages';
   return (
     <Paper
       variant="outlined"
@@ -65,7 +66,7 @@ export default function FixedAssetGrandTotals({ totalCount = 0, totalBookValue =
     >
       <StatBlock
         icon={AssetIcon}
-        label="Total assets (all pages)"
+        label={`Total assets (${scope})`}
         value={totalCount}
         color="primary.main"
         bgcolor="primary.50"
@@ -74,7 +75,7 @@ export default function FixedAssetGrandTotals({ totalCount = 0, totalBookValue =
       <Divider sx={{ width: '100%', display: { xs: 'block', sm: 'none' } }} />
       <StatBlock
         icon={BookValueIcon}
-        label="Total book value (all pages)"
+        label={`Total book value (${scope})`}
         value={`PKR ${fmt(totalBookValue)}`}
         color="success.dark"
         bgcolor="success.50"

@@ -21,9 +21,18 @@ import {
 import AssetAttachmentThumb from '../../components/AssetTagging/AssetAttachmentThumb';
 import FixedAssetPaginationBar from '../../components/AssetTagging/FixedAssetPaginationBar';
 import FixedAssetGrandTotals from '../../components/AssetTagging/FixedAssetGrandTotals';
+import CeoOfficeFarImportButton from '../../components/AssetTagging/CeoOfficeFarImportButton';
 import { computeFixedAssetTotals } from '../../utils/fixedAssetPaginationTotals';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const formatCategoryLabel = (category) => {
+  const value = String(category || '').trim();
+  if (!value) return '(No category)';
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const NO_LOCATION_VALUE = '__no_location__';
 
 export default function TaggedAssetsPage() {
   const navigate = useNavigate();
@@ -32,6 +41,8 @@ export default function TaggedAssetsPage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [tagStatus, setTagStatus] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
 
   const [transferOpen, setTransferOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
@@ -54,6 +65,7 @@ export default function TaggedAssetsPage() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [selectedAssetIds, setSelectedAssetIds] = useState([]);
+  const [success, setSuccess] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,15 +83,48 @@ export default function TaggedAssetsPage() {
     }
   }, [search, tagStatus]);
 
-  const paginatedRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  const totals = useMemo(() => computeFixedAssetTotals(rows), [rows]);
-  const taggedRows = rows.filter((a) => Boolean(a.currentTag));
+  const categoryOptions = useMemo(() => {
+    const values = new Set();
+    rows.forEach((row) => values.add(String(row.category || '').trim() || '__uncategorized__'));
+    return Array.from(values).sort((a, b) => formatCategoryLabel(a).localeCompare(formatCategoryLabel(b)));
+  }, [rows]);
+
+  const locationOptions = useMemo(() => {
+    const values = new Set();
+    rows.forEach((row) => {
+      const raw = String(row.location || '').trim();
+      values.add(raw || NO_LOCATION_VALUE);
+    });
+    return Array.from(values).sort((a, b) => {
+      const labelA = a === NO_LOCATION_VALUE ? '(No location)' : formatAssetLocationForDisplay(a);
+      const labelB = b === NO_LOCATION_VALUE ? '(No location)' : formatAssetLocationForDisplay(b);
+      return labelA.localeCompare(labelB);
+    });
+  }, [rows]);
+
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    if (categoryFilter) {
+      const rowCategory = String(row.category || '').trim() || '__uncategorized__';
+      if (rowCategory !== categoryFilter) return false;
+    }
+    if (locationFilter) {
+      const raw = String(row.location || '').trim() || NO_LOCATION_VALUE;
+      if (raw !== locationFilter) return false;
+    }
+    return true;
+  }), [rows, categoryFilter, locationFilter]);
+
+  const hasClientFilters = Boolean(categoryFilter || locationFilter);
+
+  const paginatedRows = filteredRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const totals = useMemo(() => computeFixedAssetTotals(filteredRows), [filteredRows]);
+  const taggedRows = filteredRows.filter((a) => Boolean(a.currentTag));
   const isAllTaggedSelected = taggedRows.length > 0 && taggedRows.every((a) => selectedAssetIds.includes(a._id));
   const isSomeTaggedSelected = taggedRows.some((a) => selectedAssetIds.includes(a._id)) && !isAllTaggedSelected;
 
   useEffect(() => {
     setPage(0);
-  }, [rows.length, rowsPerPage]);
+  }, [filteredRows.length, rowsPerPage, categoryFilter, locationFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -202,6 +247,11 @@ export default function TaggedAssetsPage() {
     setSelectedAssetIds(taggedRows.map((a) => a._id));
   };
 
+  const clearClientFilters = () => {
+    setCategoryFilter('');
+    setLocationFilter('');
+  };
+
   const printSelectedLabels = () => {
     if (!selectedAssetIds.length) return;
     navigate('/asset-tagging/labels/print', { state: { assetIds: selectedAssetIds } });
@@ -214,7 +264,17 @@ export default function TaggedAssetsPage() {
           <QrIcon color="primary" />
           <Typography variant="h5" fontWeight={700}>Tagged Assets</Typography>
         </Stack>
-        <Button startIcon={<RefreshIcon />} onClick={load} disabled={loading}>Refresh</Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <CeoOfficeFarImportButton
+            apiPath="/asset-tagging/import/ceo-office-far"
+            size="small"
+            onImported={(message) => {
+              setSuccess(message);
+              load();
+            }}
+          />
+          <Button startIcon={<RefreshIcon />} onClick={load} disabled={loading}>Refresh</Button>
+        </Stack>
       </Stack>
 
       <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" alignItems="center">
@@ -225,7 +285,38 @@ export default function TaggedAssetsPage() {
           <MenuItem value="tagged">Tagged only</MenuItem>
           <MenuItem value="untagged">Untagged only</MenuItem>
         </TextField>
+        <TextField
+          size="small"
+          select
+          label="Category"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          sx={{ minWidth: 160 }}
+        >
+          <MenuItem value="">All categories</MenuItem>
+          {categoryOptions.map((value) => (
+            <MenuItem key={value} value={value}>{formatCategoryLabel(value)}</MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          size="small"
+          select
+          label="Location"
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+          sx={{ minWidth: 260 }}
+        >
+          <MenuItem value="">All locations</MenuItem>
+          {locationOptions.map((value) => (
+            <MenuItem key={value} value={value}>
+              {value === NO_LOCATION_VALUE ? '(No location)' : formatAssetLocationForDisplay(value)}
+            </MenuItem>
+          ))}
+        </TextField>
         <Button variant="contained" onClick={load} disabled={loading}>Apply</Button>
+        {hasClientFilters && (
+          <Button variant="text" onClick={clearClientFilters}>Clear filters</Button>
+        )}
         <Button
           variant="outlined"
           startIcon={<PrintIcon />}
@@ -237,9 +328,14 @@ export default function TaggedAssetsPage() {
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-      {!loading && rows.length > 0 && (
-        <FixedAssetGrandTotals totalCount={totals.count} totalBookValue={totals.totalBookValue} />
+      {!loading && (
+        <FixedAssetGrandTotals
+          totalCount={totals.count}
+          totalBookValue={totals.totalBookValue}
+          scopeLabel={hasClientFilters ? 'matching filters' : 'all pages'}
+        />
       )}
 
       {loading ? (
@@ -266,6 +362,7 @@ export default function TaggedAssetsPage() {
                   <TableCell><b>Asset #</b></TableCell>
                   <TableCell sx={{ width: 64 }}><b>Image</b></TableCell>
                   <TableCell><b>Name</b></TableCell>
+                  <TableCell><b>Category</b></TableCell>
                   <TableCell><b>Location</b></TableCell>
                   <TableCell><b>Custodian</b></TableCell>
                   <TableCell><b>Book value</b></TableCell>
@@ -274,8 +371,14 @@ export default function TaggedAssetsPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rows.length === 0 && (
-                  <TableRow><TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>No assets — add fixed assets in Finance first.</TableCell></TableRow>
+                {filteredRows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={10} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                      {rows.length === 0
+                        ? 'No assets — add fixed assets in Finance first.'
+                        : 'No assets match the selected category or location filters.'}
+                    </TableCell>
+                  </TableRow>
                 )}
                 {paginatedRows.map((a) => (
                   <TableRow key={a._id} hover>
@@ -290,6 +393,7 @@ export default function TaggedAssetsPage() {
                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
                     <TableCell><AssetAttachmentThumb asset={a} size={44} /></TableCell>
                     <TableCell>{a.name}</TableCell>
+                    <TableCell sx={{ textTransform: 'capitalize' }}>{a.category || '—'}</TableCell>
                     <TableCell>{formatAssetLocationForDisplay(a.location) || '—'}</TableCell>
                     <TableCell>{formatCustodianForDisplay(a.assignedTo) || '—'}</TableCell>
                     <TableCell align="right">{fmt(a.currentBookValue)}</TableCell>
@@ -346,13 +450,13 @@ export default function TaggedAssetsPage() {
             </Table>
           </TableContainer>
 
-          {rows.length > 0 && (
+          {filteredRows.length > 0 && (
             <FixedAssetPaginationBar
               page={page}
               setPage={setPage}
               rowsPerPage={rowsPerPage}
               setRowsPerPage={setRowsPerPage}
-              totalCount={rows.length}
+              totalCount={filteredRows.length}
             />
           )}
         </Box>
