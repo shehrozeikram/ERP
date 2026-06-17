@@ -358,7 +358,8 @@ export const SUBMODULES = {
     'land_acquisition_registry',
     'land_acquisition_possession',
     'land_acquisition_parties',
-    'land_purchase'
+    'land_purchase',
+    'land_transfer'
   ],
   [MODULE_KEYS.ASSET_TAGGING]: [
     'asset_tagging_dashboard',
@@ -1007,6 +1008,10 @@ export const MODULES = {
       {
         name: 'Land Purchase',
         path: '/taj-residencia/land-purchase'
+      },
+      {
+        name: 'Land Transfers',
+        path: '/taj-residencia/land-transfers'
       }
     ]
   },
@@ -1525,7 +1530,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/taj-residencia/land-acquisition/maps': 'land_acquisition_maps',
       '/taj-residencia/land-acquisition': 'land_acquisition',
       '/taj-residencia/land-purchase/new': 'land_purchase',
-      '/taj-residencia/land-purchase': 'land_purchase'
+      '/taj-residencia/land-purchase': 'land_purchase',
+      '/taj-residencia/land-transfers': 'land_transfer'
     };
     
     // First try exact match

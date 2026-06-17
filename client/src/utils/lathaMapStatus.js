@@ -1,4 +1,4 @@
-import { formatKMS, normalizeArea } from './landAreaUnits';
+import { formatKMS, normalizeArea, toSarsais } from './landAreaUnits';
 import { formatKhasraKhewatLabel } from './landKhasraDisplay';
 
 export const STATUS_LEGEND = [
@@ -56,11 +56,33 @@ export const hasRegistryTransfer = (statusRow) =>
 export const hasPossessionTransfer = (statusRow) =>
   normalizeTransferPercent(statusRow?.possessionTransferPercent) > 0;
 
-export const registryCoverageFraction = (statusRow) =>
-  normalizeTransferPercent(statusRow?.registryTransferPercent) / 100;
+export const hasRegistryOnMap = (statusRow) =>
+  Boolean(statusRow && (hasRegistryTransfer(statusRow) || hasRegisteredArea(statusRow)));
 
-export const possessionCoverageFraction = (statusRow) =>
-  normalizeTransferPercent(statusRow?.possessionTransferPercent) / 100;
+export const hasPossessionOnMap = (statusRow) =>
+  Boolean(statusRow && (hasPossessionTransfer(statusRow) || hasPossessedArea(statusRow)));
+
+const coverageFractionFromAreas = (portion, baseline) => {
+  const portionSarsais = toSarsais(normalizeArea(portion));
+  const baselineSarsais = toSarsais(normalizeArea(baseline));
+  if (portionSarsais <= 0) return 0;
+  if (baselineSarsais <= 0) return 1;
+  return Math.min(1, portionSarsais / baselineSarsais);
+};
+
+export const registryCoverageFraction = (statusRow) => {
+  const fromTransfer = normalizeTransferPercent(statusRow?.registryTransferPercent) / 100;
+  if (fromTransfer > 0) return fromTransfer;
+  if (!hasRegisteredArea(statusRow)) return 0;
+  return coverageFractionFromAreas(statusRow.registered, statusRow.baseline);
+};
+
+export const possessionCoverageFraction = (statusRow) => {
+  const fromTransfer = normalizeTransferPercent(statusRow?.possessionTransferPercent) / 100;
+  if (fromTransfer > 0) return fromTransfer;
+  if (!hasPossessedArea(statusRow)) return 0;
+  return coverageFractionFromAreas(statusRow.possessed, statusRow.baseline);
+};
 
 export const isErpTrackedKhasra = (statusRow) =>
   Boolean(statusRow && (hasRegisteredArea(statusRow) || hasPossessedArea(statusRow)));

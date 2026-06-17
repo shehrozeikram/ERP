@@ -30,7 +30,65 @@ const parseLines = (lines = []) => {
 
 const mapPurchase = (doc) => {
   const row = doc?.toObject ? doc.toObject() : doc;
+  if (Array.isArray(row.installments)) {
+    row.installments = row.installments.map((inst) => ({
+      ...inst,
+      balance: roundMoney(inst.amount - (inst.paidAmount || 0))
+    }));
+  }
   return row;
+};
+
+const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+const startOfDay = (value) => {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const resolveInstallmentStatus = (installment) => {
+  const amount = roundMoney(installment.amount);
+  const paid = roundMoney(installment.paidAmount);
+  if (paid >= amount && amount > 0) return 'Paid';
+  if (paid > 0) return 'Partial';
+  if (installment.dueDate && startOfDay(installment.dueDate) < startOfDay(new Date())) return 'Overdue';
+  return 'Pending';
+};
+
+const syncInstallment = (installment) => {
+  installment.paidAmount = roundMoney(installment.paidAmount);
+  installment.amount = roundMoney(installment.amount);
+  installment.status = resolveInstallmentStatus(installment);
+  if (installment.status === 'Paid' && !installment.paymentDate) {
+    installment.paymentDate = new Date();
+  }
+  return installment;
+};
+
+const sumInstallmentPaid = (installments = []) =>
+  installments.reduce((sum, inst) => sum + roundMoney(inst.paidAmount), 0);
+
+const sumInstallmentAmount = (installments = []) =>
+  installments.reduce((sum, inst) => sum + roundMoney(inst.amount), 0);
+
+const syncPurchasePaymentBalances = (purchase) => {
+  (purchase.installments || []).forEach(syncInstallment);
+  const tokenAmount = roundMoney(purchase.tokenAmount);
+  const installmentPaid = sumInstallmentPaid(purchase.installments);
+  purchase.balanceAmount = Math.max(
+    0,
+    roundMoney((purchase.agreedAmount || 0) - tokenAmount - installmentPaid)
+  );
+};
+
+const getRemainingInstallmentCapacity = (purchase, excludeInstallmentId = null) => {
+  const agreed = roundMoney(purchase.agreedAmount);
+  const token = roundMoney(purchase.tokenAmount);
+  const scheduled = (purchase.installments || [])
+    .filter((inst) => String(inst._id) !== String(excludeInstallmentId))
+    .reduce((sum, inst) => sum + roundMoney(inst.amount), 0);
+  return Math.max(0, roundMoney(agreed - token - scheduled));
 };
 
 async function nextPurchaseNumbers() {
@@ -57,20 +115,16 @@ async function nextPurchaseNumbers() {
   };
 }
 
-const buildPurchasePayload = (body) => {
+const buildDealPayload = (body) => {
   const totalArea = parseAreaInput(body.totalArea);
   const ratePerKanal = Math.max(0, Number(body.ratePerKanal) || 0);
   const totalSizeInKanal = areaToDecimalKanal(totalArea);
   const agreedAmount = Math.round(totalSizeInKanal * ratePerKanal * 100) / 100;
-  const tokenAmount = Math.max(0, Number(body.tokenAmount) || 0);
-  const balanceAmount = Math.max(0, Math.round((agreedAmount - tokenAmount) * 100) / 100);
 
   return {
     purchaseDate: body.purchaseDate ? new Date(body.purchaseDate) : null,
     project: String(body.project || 'Taj Residencia').trim() || 'Taj Residencia',
     seller: body.seller || undefined,
-    purchaser: body.purchaser || undefined,
-    dealer: body.dealer || null,
     moza: body.moza || undefined,
     lines: parseLines(body.lines),
     totalArea,
@@ -80,14 +134,35 @@ const buildPurchasePayload = (body) => {
     agreedAmount,
     agreedAmountInWords: String(body.agreedAmountInWords || '').trim(),
     govtLandValue: Math.max(0, Number(body.govtLandValue) || 0),
-    govtLandValueInWords: String(body.govtLandValueInWords || '').trim(),
+    govtLandValueInWords: String(body.govtLandValueInWords || '').trim()
+  };
+};
+
+const buildPaymentPayload = (body, purchase) => {
+  const agreedAmount = roundMoney(purchase?.agreedAmount || 0);
+  const tokenAmount = Math.max(0, Number(body.tokenAmount) || 0);
+  const payload = {
     tokenAmount,
     tokenAmountInWords: String(body.tokenAmountInWords || '').trim(),
-    balanceAmount,
     paymentMode: String(body.paymentMode || '').trim(),
     paymentRemarks: String(body.paymentRemarks || '').trim()
   };
+  if (purchase) {
+    purchase.tokenAmount = payload.tokenAmount;
+    purchase.paymentMode = payload.paymentMode;
+    purchase.paymentRemarks = payload.paymentRemarks;
+    syncPurchasePaymentBalances(purchase);
+    payload.balanceAmount = purchase.balanceAmount;
+  } else {
+    payload.balanceAmount = Math.max(0, roundMoney(agreedAmount - tokenAmount));
+  }
+  return payload;
 };
+
+const buildPurchasePayload = (body) => ({
+  ...buildDealPayload(body),
+  ...buildPaymentPayload(body, buildDealPayload(body).agreedAmount)
+});
 
 const validatePurchasePayload = async (payload, { isCreate = false } = {}) => {
   if (!payload.purchaseDate || Number.isNaN(payload.purchaseDate.getTime())) {
@@ -97,11 +172,6 @@ const validatePurchasePayload = async (payload, { isCreate = false } = {}) => {
   }
   if (!payload.seller) {
     const err = new Error('Seller is required');
-    err.status = 400;
-    throw err;
-  }
-  if (!payload.purchaser) {
-    const err = new Error('Purchaser is required');
     err.status = 400;
     throw err;
   }
@@ -135,11 +205,13 @@ const validatePurchasePayload = async (payload, { isCreate = false } = {}) => {
     throw err;
   }
 
-  const purchaser = await LandParty.findOne({ _id: payload.purchaser, partyType: 'buyer', isActive: true });
-  if (!purchaser) {
-    const err = new Error('Purchaser not found');
-    err.status = 404;
-    throw err;
+  if (payload.purchaser) {
+    const purchaser = await LandParty.findOne({ _id: payload.purchaser, partyType: 'buyer', isActive: true });
+    if (!purchaser) {
+      const err = new Error('Purchaser not found');
+      err.status = 404;
+      throw err;
+    }
   }
 
   if (payload.dealer) {
@@ -149,10 +221,6 @@ const validatePurchasePayload = async (payload, { isCreate = false } = {}) => {
       err.status = 404;
       throw err;
     }
-  }
-
-  if (isCreate) {
-    // numbers assigned on create
   }
 };
 
@@ -222,7 +290,7 @@ router.get('/purchases/:id', asyncHandler(async (req, res) => {
 
 // POST /purchases
 router.post('/purchases', asyncHandler(async (req, res) => {
-  const payload = buildPurchasePayload(req.body);
+  const payload = buildDealPayload(req.body);
   await validatePurchasePayload(payload, { isCreate: true });
 
   const numbers = await nextPurchaseNumbers();
@@ -249,10 +317,11 @@ router.put('/purchases/:id', asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Land purchase not found' });
   }
 
-  const payload = buildPurchasePayload(req.body);
+  const payload = buildDealPayload(req.body);
   await validatePurchasePayload(payload);
 
   Object.assign(existing, payload);
+  syncPurchasePaymentBalances(existing);
   existing.updatedBy = req.user?._id || req.user?.id;
   await existing.save();
 
@@ -263,6 +332,207 @@ router.put('/purchases/:id', asyncHandler(async (req, res) => {
     .populate('moza', 'name slug');
 
   res.json({ success: true, message: 'Land purchase updated', data: mapPurchase(populated) });
+}));
+
+// PATCH /purchases/:id/payment
+router.patch('/purchases/:id/payment', asyncHandler(async (req, res) => {
+  const existing = await LandPurchase.findOne({ _id: req.params.id, isActive: true });
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Land purchase not found' });
+  }
+
+  const payment = buildPaymentPayload(req.body, existing);
+  Object.assign(existing, payment);
+  existing.updatedBy = req.user?._id || req.user?.id;
+  await existing.save();
+
+  const populated = await LandPurchase.findById(existing._id)
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('dealer', 'name cnic phoneNumber')
+    .populate('moza', 'name slug');
+
+  res.json({ success: true, message: 'Payment information updated', data: mapPurchase(populated) });
+}));
+
+// POST /purchases/:id/installments
+router.post('/purchases/:id/installments', asyncHandler(async (req, res) => {
+  const existing = await LandPurchase.findOne({ _id: req.params.id, isActive: true });
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Land purchase not found' });
+  }
+
+  const description = String(req.body.description || '').trim();
+  const amount = roundMoney(req.body.amount);
+  const dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
+
+  if (!description) {
+    return res.status(400).json({ success: false, message: 'Installment description is required' });
+  }
+  if (!amount) {
+    return res.status(400).json({ success: false, message: 'Installment amount is required' });
+  }
+  if (!dueDate || Number.isNaN(dueDate.getTime())) {
+    return res.status(400).json({ success: false, message: 'Due date is required' });
+  }
+
+  const capacity = getRemainingInstallmentCapacity(existing);
+  if (amount > capacity) {
+    return res.status(400).json({
+      success: false,
+      message: `Installment amount exceeds remaining schedulable balance (${capacity.toFixed(2)})`
+    });
+  }
+
+  existing.installments.push({
+    description,
+    amount,
+    paidAmount: 0,
+    dueDate,
+    status: 'Pending'
+  });
+  syncPurchasePaymentBalances(existing);
+  existing.updatedBy = req.user?._id || req.user?.id;
+  await existing.save();
+
+  const populated = await LandPurchase.findById(existing._id)
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('dealer', 'name cnic phoneNumber')
+    .populate('moza', 'name slug');
+
+  res.status(201).json({ success: true, message: 'Installment added', data: mapPurchase(populated) });
+}));
+
+// PUT /purchases/:id/installments/:installmentId
+router.put('/purchases/:id/installments/:installmentId', asyncHandler(async (req, res) => {
+  const existing = await LandPurchase.findOne({ _id: req.params.id, isActive: true });
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Land purchase not found' });
+  }
+
+  const installment = existing.installments.id(req.params.installmentId);
+  if (!installment) {
+    return res.status(404).json({ success: false, message: 'Installment not found' });
+  }
+  if (roundMoney(installment.paidAmount) > 0) {
+    return res.status(400).json({ success: false, message: 'Paid installments cannot be edited' });
+  }
+
+  const description = String(req.body.description || '').trim();
+  const amount = roundMoney(req.body.amount);
+  const dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
+
+  if (!description) {
+    return res.status(400).json({ success: false, message: 'Installment description is required' });
+  }
+  if (!amount) {
+    return res.status(400).json({ success: false, message: 'Installment amount is required' });
+  }
+  if (!dueDate || Number.isNaN(dueDate.getTime())) {
+    return res.status(400).json({ success: false, message: 'Due date is required' });
+  }
+
+  const capacity = getRemainingInstallmentCapacity(existing, installment._id);
+  if (amount > capacity) {
+    return res.status(400).json({
+      success: false,
+      message: `Installment amount exceeds remaining schedulable balance (${capacity.toFixed(2)})`
+    });
+  }
+
+  installment.description = description;
+  installment.amount = amount;
+  installment.dueDate = dueDate;
+  syncInstallment(installment);
+  syncPurchasePaymentBalances(existing);
+  existing.updatedBy = req.user?._id || req.user?.id;
+  await existing.save();
+
+  const populated = await LandPurchase.findById(existing._id)
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('dealer', 'name cnic phoneNumber')
+    .populate('moza', 'name slug');
+
+  res.json({ success: true, message: 'Installment updated', data: mapPurchase(populated) });
+}));
+
+// PATCH /purchases/:id/installments/:installmentId/pay
+router.patch('/purchases/:id/installments/:installmentId/pay', asyncHandler(async (req, res) => {
+  const existing = await LandPurchase.findOne({ _id: req.params.id, isActive: true });
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Land purchase not found' });
+  }
+
+  const installment = existing.installments.id(req.params.installmentId);
+  if (!installment) {
+    return res.status(404).json({ success: false, message: 'Installment not found' });
+  }
+  if (installment.status === 'Paid') {
+    return res.status(400).json({ success: false, message: 'Installment is already fully paid' });
+  }
+
+  const remaining = Math.max(0, roundMoney(installment.amount - installment.paidAmount));
+  const payAmount = req.body.payFull
+    ? remaining
+    : roundMoney(req.body.amount);
+
+  if (!payAmount) {
+    return res.status(400).json({ success: false, message: 'Payment amount is required' });
+  }
+  if (payAmount > remaining) {
+    return res.status(400).json({
+      success: false,
+      message: `Payment cannot exceed installment balance (${remaining.toFixed(2)})`
+    });
+  }
+
+  installment.paidAmount = roundMoney(installment.paidAmount + payAmount);
+  installment.paymentMode = String(req.body.paymentMode || installment.paymentMode || '').trim();
+  installment.paymentRemarks = String(req.body.paymentRemarks || installment.paymentRemarks || '').trim();
+  installment.paidBy = req.user?._id || req.user?.id;
+  syncInstallment(installment);
+  syncPurchasePaymentBalances(existing);
+  existing.updatedBy = req.user?._id || req.user?.id;
+  await existing.save();
+
+  const populated = await LandPurchase.findById(existing._id)
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('dealer', 'name cnic phoneNumber')
+    .populate('moza', 'name slug');
+
+  res.json({ success: true, message: 'Installment payment recorded', data: mapPurchase(populated) });
+}));
+
+// DELETE /purchases/:id/installments/:installmentId
+router.delete('/purchases/:id/installments/:installmentId', asyncHandler(async (req, res) => {
+  const existing = await LandPurchase.findOne({ _id: req.params.id, isActive: true });
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Land purchase not found' });
+  }
+
+  const installment = existing.installments.id(req.params.installmentId);
+  if (!installment) {
+    return res.status(404).json({ success: false, message: 'Installment not found' });
+  }
+  if (roundMoney(installment.paidAmount) > 0) {
+    return res.status(400).json({ success: false, message: 'Paid installments cannot be deleted' });
+  }
+
+  installment.deleteOne();
+  syncPurchasePaymentBalances(existing);
+  existing.updatedBy = req.user?._id || req.user?.id;
+  await existing.save();
+
+  const populated = await LandPurchase.findById(existing._id)
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('dealer', 'name cnic phoneNumber')
+    .populate('moza', 'name slug');
+
+  res.json({ success: true, message: 'Installment deleted', data: mapPurchase(populated) });
 }));
 
 // DELETE /purchases/:id

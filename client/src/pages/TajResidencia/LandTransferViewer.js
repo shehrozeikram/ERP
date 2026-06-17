@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   IconButton,
   InputAdornment,
@@ -21,31 +22,32 @@ import {
   Typography
 } from '@mui/material';
 import {
-  Add as AddIcon,
+  CheckCircle as CloseIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  Payments as PaymentIcon,
   Search as SearchIcon,
-  ShoppingCart as PurchaseIcon,
   SwapHoriz as TransferIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import landAcquisitionPurchaseService from '../../services/landAcquisitionPurchaseService';
+import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 import { getMozas } from '../../services/landAcquisitionMozaService';
 import { formatAreaReadable } from '../../utils/landAreaUnits';
-import LandPurchasePaymentDialog from '../../components/TajResidencia/LandPurchasePaymentDialog';
 import LandTransferDialog from '../../components/TajResidencia/LandTransferDialog';
 
 const formatDate = (value) => {
   if (!value) return '—';
-  return new Date(value).toLocaleDateString('en-GB');
+  return new Date(value).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
 };
 
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function LandPurchaseViewer() {
+export default function LandTransferViewer() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [mozas, setMozas] = useState([]);
@@ -58,8 +60,8 @@ export default function LandPurchaseViewer() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
-  const [paymentDialog, setPaymentDialog] = useState({ open: false, purchaseId: null, purchaseNo: '' });
-  const [transferDialog, setTransferDialog] = useState({ open: false, purchaseId: null, purchaseNo: '' });
+  const [closingId, setClosingId] = useState(null);
+  const [editDialog, setEditDialog] = useState({ open: false, transferId: null });
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 300);
@@ -78,17 +80,17 @@ export default function LandPurchaseViewer() {
     setLoading(true);
     setError('');
     try {
-      const res = await landAcquisitionPurchaseService.getPurchases({
+      const res = await landAcquisitionTransferService.getTransfers({
         page: page + 1,
         limit: rowsPerPage,
         ...(searchDebounced && { search: searchDebounced }),
         ...(mozaFilter && { moza: mozaFilter })
       });
       const payload = res.data;
-      setRows(payload?.purchases || []);
+      setRows(payload?.transfers || []);
       setTotal(payload?.pagination?.total || 0);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load land purchases');
+      setError(err.response?.data?.message || 'Failed to load land transfers');
     } finally {
       setLoading(false);
     }
@@ -99,11 +101,11 @@ export default function LandPurchaseViewer() {
   }, [load]);
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`Delete land purchase ${row.purchaseNo}?`)) return;
+    if (!window.confirm(`Delete transfer ${row.referenceNo}?`)) return;
     setDeletingId(row._id);
     try {
-      await landAcquisitionPurchaseService.deletePurchase(row._id);
-      toast.success('Land purchase deleted');
+      await landAcquisitionTransferService.deleteTransfer(row._id);
+      toast.success('Land transfer deleted');
       await load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Delete failed');
@@ -112,34 +114,39 @@ export default function LandPurchaseViewer() {
     }
   };
 
+  const handleCloseTransfer = async (row) => {
+    if (!window.confirm(`Close transfer ${row.referenceNo}?`)) return;
+    setClosingId(row._id);
+    try {
+      await landAcquisitionTransferService.closeTransfer(row._id);
+      toast.success('Land transfer closed');
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to close transfer');
+    } finally {
+      setClosingId(null);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={3} flexWrap="wrap" gap={2}>
         <Stack direction="row" spacing={1.5} alignItems="center">
-          <PurchaseIcon color="primary" sx={{ fontSize: 36 }} />
+          <TransferIcon color="primary" sx={{ fontSize: 36 }} />
           <Box>
-            <Typography variant="h4" fontWeight={700}>Land Purchase</Typography>
+            <Typography variant="h4" fontWeight={700}>Manage Transfers</Typography>
             <Typography variant="body2" color="text.secondary">
-              Create and view land purchase deals for Taj Residencia.
+              View and manage land transfers linked to land purchases.
             </Typography>
           </Box>
         </Stack>
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="outlined"
-            startIcon={<TransferIcon />}
-            onClick={() => navigate('/taj-residencia/land-transfers')}
-          >
-            Manage Transfers
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => navigate('/taj-residencia/land-purchase/new')}
-          >
-            Create Land Purchase
-          </Button>
-        </Stack>
+        <Button
+          variant="contained"
+          startIcon={<TransferIcon />}
+          onClick={() => navigate('/taj-residencia/land-purchase')}
+        >
+          Create from Land Purchase
+        </Button>
       </Stack>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
@@ -149,8 +156,8 @@ export default function LandPurchaseViewer() {
             label="Search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Purchase no, deal no, seller, moza..."
-            sx={{ minWidth: 260 }}
+            placeholder="Reference, transfer no, purchase, moza..."
+            sx={{ minWidth: 280 }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -182,75 +189,88 @@ export default function LandPurchaseViewer() {
           <TableHead>
             <TableRow sx={{ bgcolor: 'grey.50' }}>
               <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>LAND PURCHASE NO.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>DEAL NO.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>PROJECT</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>SELLER NAME</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>CNIC</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>MOZA</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>SIZE</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">TOTAL LAND PRICE</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Reference No.</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Land Transfer No.</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Deal No.</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Land Purchase No.</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Inteqal #</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Registry #</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Transfer Moza</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="right">Transferred Cost</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="right">Transfer Charges</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Created At</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 5 }}>
+                <TableCell colSpan={14} align="center" sx={{ py: 5 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 5, color: 'text.secondary' }}>
-                  No land purchases yet — click Create Land Purchase to add one.
+                <TableCell colSpan={14} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                  No land transfers yet — create one from a land purchase record.
                 </TableCell>
               </TableRow>
             ) : (
               rows.map((row, idx) => (
                 <TableRow key={row._id} hover>
                   <TableCell>{page * rowsPerPage + idx + 1}</TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{row.purchaseNo}</TableCell>
-                  <TableCell>{row.dealNo}</TableCell>
-                  <TableCell>{row.project || '—'}</TableCell>
-                  <TableCell>{row.seller?.name || '—'}</TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.seller?.cnic || '—'}</TableCell>
-                  <TableCell>{row.moza?.name || '—'}</TableCell>
-                  <TableCell>{formatAreaReadable(row.totalArea)}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    {formatMoney(row.agreedAmount)}
+                  <TableCell>
+                    <Button
+                      size="small"
+                      variant="text"
+                      sx={{ fontFamily: 'monospace', fontWeight: 700, p: 0, minWidth: 0 }}
+                      onClick={() => setEditDialog({ open: true, transferId: row._id })}
+                    >
+                      {row.referenceNo}
+                    </Button>
                   </TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.transferNo}</TableCell>
+                  <TableCell>{row.dealNo}</TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace' }}>{row.purchaseNo}</TableCell>
+                  <TableCell>{row.intiqalNo || '—'}</TableCell>
+                  <TableCell>{row.registryNo || '—'}</TableCell>
+                  <TableCell>{row.moza?.name || '—'}</TableCell>
+                  <TableCell>{formatAreaReadable(row.transferArea)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>
+                    {formatMoney(row.transferredCost)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600, color: 'warning.dark' }}>
+                    {formatMoney(row.totalTransferPayments)}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={row.status === 'Closed' ? 'Close' : row.status}
+                      size="small"
+                      color={row.status === 'Closed' ? 'default' : 'warning'}
+                      variant={row.status === 'Closed' ? 'filled' : 'outlined'}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </TableCell>
+                  <TableCell>{formatDate(row.createdAt)}</TableCell>
                   <TableCell align="right">
-                    <Tooltip title="Land Transfer">
-                      <IconButton
-                        size="small"
-                        color="secondary"
-                        onClick={() => setTransferDialog({
-                          open: true,
-                          purchaseId: row._id,
-                          purchaseNo: row.purchaseNo
-                        })}
-                      >
-                        <TransferIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Payment Information">
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => setPaymentDialog({
-                          open: true,
-                          purchaseId: row._id,
-                          purchaseNo: row.purchaseNo
-                        })}
-                      >
-                        <PaymentIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    {row.status !== 'Closed' && (
+                      <Tooltip title="Close transfer">
+                        <IconButton
+                          size="small"
+                          color="success"
+                          disabled={closingId === row._id}
+                          onClick={() => handleCloseTransfer(row)}
+                        >
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Edit">
                       <IconButton
                         size="small"
-                        onClick={() => navigate(`/taj-residencia/land-purchase/${row._id}/edit`)}
+                        onClick={() => setEditDialog({ open: true, transferId: row._id })}
                       >
                         <EditIcon fontSize="small" />
                       </IconButton>
@@ -285,18 +305,10 @@ export default function LandPurchaseViewer() {
         />
       </TableContainer>
 
-      <LandPurchasePaymentDialog
-        open={paymentDialog.open}
-        purchaseId={paymentDialog.purchaseId}
-        purchaseNo={paymentDialog.purchaseNo}
-        onClose={() => setPaymentDialog({ open: false, purchaseId: null, purchaseNo: '' })}
-        onSaved={load}
-      />
-
       <LandTransferDialog
-        open={transferDialog.open}
-        purchaseId={transferDialog.purchaseId}
-        onClose={() => setTransferDialog({ open: false, purchaseId: null, purchaseNo: '' })}
+        open={editDialog.open}
+        transferId={editDialog.transferId}
+        onClose={() => setEditDialog({ open: false, transferId: null })}
         onSaved={load}
       />
     </Box>

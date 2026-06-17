@@ -32,8 +32,8 @@ import {
   fillOpacityForStatus,
   formatTransferPercentLabel,
   formatStatusSummary,
-  hasPossessionTransfer,
-  hasRegistryTransfer,
+  hasPossessionOnMap,
+  hasRegistryOnMap,
   khasraLabelClassForStatus,
   normalizeKhasraNo,
   possessionCoverageFraction,
@@ -178,8 +178,9 @@ const KhasraParcelLayer = ({
         leafletLayer.on('click', (event) => clickRef.current(event, parcel));
 
         const label = String(feature.properties?.k || '');
-        const labelClass = labelClassRef.current(feature.properties?.k);
-        const tooltipLabel = tooltipRef.current?.(feature.properties?.k) || `Khasra ${label}`;
+        const moza = feature.properties?.moza || null;
+        const labelClass = labelClassRef.current(feature.properties?.k, moza);
+        const tooltipLabel = tooltipRef.current?.(feature.properties?.k, moza) || `Khasra ${label}`;
         const isTracked = labelClass.includes('--registered') || labelClass.includes('--possessed');
 
         if (isTracked) {
@@ -220,8 +221,9 @@ const KhasraParcelLayer = ({
       if (!leafletLayer.feature) return;
 
       const khasraNo = leafletLayer.feature.properties?.k;
-      const labelClass = labelClassRef.current(khasraNo);
-      const tooltipLabel = tooltipRef.current(khasraNo) || `Khasra ${khasraNo}`;
+      const moza = leafletLayer.feature.properties?.moza || null;
+      const labelClass = labelClassRef.current(khasraNo, moza);
+      const tooltipLabel = tooltipRef.current(khasraNo, moza) || `Khasra ${khasraNo}`;
       const isTracked = labelClass.includes('--registered') || labelClass.includes('--possessed');
 
       leafletLayer.unbindTooltip();
@@ -533,8 +535,8 @@ const LathaMapViewer = () => {
       if (sep === -1) return;
       const slug = key.slice(0, sep);
       if (mouzaFilter !== 'all' && slug !== mouzaFilter) return;
-      if (hasRegistryTransfer(row)) khasrasWithRegistry += 1;
-      if (hasPossessionTransfer(row)) khasrasWithPossession += 1;
+      if (hasRegistryOnMap(row)) khasrasWithRegistry += 1;
+      if (hasPossessionOnMap(row)) khasrasWithPossession += 1;
     });
 
     return {
@@ -558,11 +560,11 @@ const LathaMapViewer = () => {
   );
 
   const matchesRegistryLayer = useCallback((status) => (
-    hasRegistryTransfer(status)
+    hasRegistryOnMap(status)
   ), []);
 
   const matchesPossessionLayer = useCallback((status) => (
-    hasPossessionTransfer(status)
+    hasPossessionOnMap(status)
   ), []);
 
   const matchesActiveLayer = useCallback((status) => (
@@ -812,10 +814,10 @@ const LathaMapViewer = () => {
     setSelectedParcel((prev) => (prev?.id === parcel.id ? null : parcel));
   }, []);
 
-  const getKhasraLabelClass = useCallback((khasraNo) => {
+  const getKhasraLabelClass = useCallback((khasraNo, parcelMoza = null) => {
     const resolved = resolveStatusForKhasra(
       khasraNo,
-      mouzaFilter === 'all' ? null : mouzaFilter,
+      parcelMoza || (mouzaFilter === 'all' ? null : mouzaFilter),
       statusMap,
       mozas,
       statusLookups
@@ -839,10 +841,10 @@ const LathaMapViewer = () => {
     matchesPossessionLayer
   ]);
 
-  const getTooltipLabel = useCallback((khasraNo) => {
+  const getTooltipLabel = useCallback((khasraNo, parcelMoza = null) => {
     const resolved = resolveStatusForKhasra(
       khasraNo,
-      mouzaFilter === 'all' ? null : mouzaFilter,
+      parcelMoza || (mouzaFilter === 'all' ? null : mouzaFilter),
       statusMap,
       mozas,
       statusLookups
@@ -917,17 +919,21 @@ const LathaMapViewer = () => {
     statusLookups,
     selectedParcel,
     anyErpLayerOn,
-    matchesActiveLayer,
-    mouzaFilter
+    matchesActiveLayer
   ]);
 
-  const registryFillStyle = useCallback(() => ({
-    color: 'rgba(21, 101, 192, 0.9)',
-    fillColor: 'rgba(21, 101, 192, 0.72)',
-    fillOpacity: 0.78,
-    weight: 1,
-    opacity: 0.95
-  }), []);
+  const registryFillStyle = useCallback((feature) => {
+    const featureId = parcelIdForFeature(feature);
+    const isSelected = selectedParcel?.id === featureId;
+
+    return {
+      color: 'rgba(21, 101, 192, 0.9)',
+      fillColor: 'rgba(21, 101, 192, 0.72)',
+      fillOpacity: isSelected ? 0.9 : 0.78,
+      weight: 1,
+      opacity: 0.95
+    };
+  }, [selectedParcel]);
 
   const possessionFillStyle = useCallback((feature) => {
     const resolved = resolveStatusForKhasra(
@@ -1323,7 +1329,7 @@ const LathaMapViewer = () => {
         }}
       >
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Fill height = Transfer % from ERP record — registry from bottom (blue), possession from top (green/orange/teal)
+          Fill area = Transfer % from ERP — clipped inside each khasra parcel along survey boundaries
         </Typography>
         <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
           {STATUS_LEGEND.map((item) => (

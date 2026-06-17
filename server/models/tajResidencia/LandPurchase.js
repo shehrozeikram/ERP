@@ -16,6 +16,22 @@ const purchaseLineSchema = new mongoose.Schema({
   khasraArea: { type: landAreaSchema, default: () => ({}) }
 }, { _id: true });
 
+const installmentSchema = new mongoose.Schema({
+  description: { type: String, trim: true, required: true },
+  amount: { type: Number, required: true, min: 0 },
+  paidAmount: { type: Number, default: 0, min: 0 },
+  dueDate: { type: Date, required: true },
+  status: {
+    type: String,
+    enum: ['Pending', 'Partial', 'Paid', 'Overdue'],
+    default: 'Pending'
+  },
+  paymentDate: { type: Date },
+  paymentMode: { type: String, trim: true, default: '' },
+  paymentRemarks: { type: String, trim: true, default: '' },
+  paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+}, { timestamps: true });
+
 const landPurchaseSchema = new mongoose.Schema({
   purchaseNo: {
     type: String,
@@ -37,8 +53,7 @@ const landPurchaseSchema = new mongoose.Schema({
   },
   purchaser: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'LandParty',
-    required: true
+    ref: 'LandParty'
   },
   dealer: {
     type: mongoose.Schema.Types.ObjectId,
@@ -64,6 +79,7 @@ const landPurchaseSchema = new mongoose.Schema({
   balanceAmount: { type: Number, default: 0, min: 0 },
   paymentMode: { type: String, trim: true, default: '' },
   paymentRemarks: { type: String, trim: true, default: '' },
+  installments: { type: [installmentSchema], default: [] },
   isActive: { type: Boolean, default: true, index: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }

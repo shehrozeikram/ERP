@@ -147,8 +147,10 @@ router.get('/map-status', asyncHandler(async (req, res) => {
   }
 
   const summary = Object.values(status).reduce((acc, row) => {
-    if ((row.registryTransferPercent || 0) > 0) acc.khasrasWithRegistry += 1;
-    if ((row.possessionTransferPercent || 0) > 0) acc.khasrasWithPossession += 1;
+    const registered = toSarsais(row.registered || {});
+    const possessed = toSarsais(row.possessed || {});
+    if ((row.registryTransferPercent || 0) > 0 || registered > 0) acc.khasrasWithRegistry += 1;
+    if ((row.possessionTransferPercent || 0) > 0 || possessed > 0) acc.khasrasWithPossession += 1;
     return acc;
   }, { khasrasWithRegistry: 0, khasrasWithPossession: 0 });
 

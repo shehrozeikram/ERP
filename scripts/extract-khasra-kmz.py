@@ -173,6 +173,76 @@ def poly_to_geojson(poly, khasra: str, moza: str | None = None) -> dict:
     }
 
 
+def iter_linestrings(geom):
+    if geom is None or geom.is_empty:
+        return
+    if geom.geom_type == 'LineString':
+        yield geom
+        return
+    if geom.geom_type == 'MultiLineString':
+        for part in geom.geoms:
+            yield from iter_linestrings(part)
+        return
+    if geom.geom_type == 'GeometryCollection':
+        for part in geom.geoms:
+            yield from iter_linestrings(part)
+
+
+def extend_segment(seg, factor: float = 2.0):
+    from shapely.geometry import LineString
+
+    x1, y1 = seg.coords[0]
+    x2, y2 = seg.coords[-1]
+    dx = x2 - x1
+    dy = y2 - y1
+    return LineString([(x1 - dx * factor, y1 - dy * factor), (x2 + dx * factor, y2 + dy * factor)])
+
+
+def refine_parcel_with_interior_lines(polygon, label_point, line_geoms):
+    """Split a parcel along interior survey lines and keep the face containing the label."""
+    from shapely.geometry import Point
+    from shapely.ops import split
+
+    if polygon is None or polygon.is_empty:
+        return polygon
+
+    internal_segments = []
+    for line in line_geoms:
+        intersection = polygon.intersection(line)
+        for segment in iter_linestrings(intersection):
+            if segment.length < 1e-5:
+                continue
+            if polygon.contains(segment.representative_point()):
+                internal_segments.append(segment)
+
+    if not internal_segments:
+        return polygon
+
+    parts = [polygon]
+    for segment in sorted(internal_segments, key=lambda item: -item.length):
+        cutter = extend_segment(segment)
+        next_parts = []
+        for part in parts:
+            try:
+                split_result = split(part, cutter)
+                next_parts.extend(list(split_result.geoms))
+            except Exception:
+                next_parts.append(part)
+        parts = [part for part in next_parts if part.area > MIN_PARCEL_AREA]
+
+    if not parts:
+        return polygon
+
+    containing = [
+        part for part in parts
+        if part.contains(label_point) or part.buffer(1e-9).contains(label_point)
+    ]
+    if not containing:
+        return polygon
+
+    return min(containing, key=lambda item: item.area)
+
+
 def split_polygon_for_points(polygon, point_features: list[dict]) -> list[tuple[dict, object]]:
     from shapely.geometry import MultiPoint, Point
     from shapely.ops import voronoi_diagram
@@ -253,9 +323,11 @@ def build_khasra_parcels(point_features: list[dict], line_features: list[dict]) 
     for parcel_id, grouped_features in assignments_by_polygon.items():
         polygon = polygon_by_id[parcel_id]
         for feature, sub_polygon in split_polygon_for_points(polygon, grouped_features):
+            lon, lat = feature['geometry']['coordinates']
+            refined = refine_parcel_with_interior_lines(sub_polygon, Point(lon, lat), lines)
             khasra = feature['properties']['k']
             moza = feature['properties'].get('moza')
-            parcel_features.append(poly_to_geojson(sub_polygon, khasra, moza))
+            parcel_features.append(poly_to_geojson(refined, khasra, moza))
 
     return parcel_features
 
