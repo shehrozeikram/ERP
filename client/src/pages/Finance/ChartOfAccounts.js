@@ -33,7 +33,8 @@ import {
   DialogContent,
   DialogActions,
   Stack,
-  Divider
+  Divider,
+  Pagination
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -74,8 +75,10 @@ const ChartOfAccounts = () => {
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
-    totalCount: 0
+    totalCount: 0,
+    limit: 25
   });
+  const [summaryAccounts, setSummaryAccounts] = useState([]);
   const [newAccountDialog, setNewAccountDialog] = useState(false);
   const [accountTypesGrouped, setAccountTypesGrouped] = useState({
     Asset: ['Cash and cash equivalents', 'Accounts receivable (A/R)', 'Current assets', 'Fixed assets', 'Non-current assets'],
@@ -261,8 +264,34 @@ const ChartOfAccounts = () => {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    fetchAccounts();
+    fetchSummaryAccounts();
   }, [filters]);
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [filters, pagination.currentPage, pagination.limit]);
+
+  const buildAccountQueryParams = (page, limit) => {
+    const params = new URLSearchParams();
+    if (filters.type) params.append('type', filters.type);
+    if (filters.department) params.append('department', filters.department);
+    if (filters.search) params.append('search', filters.search);
+    params.append('page', String(page));
+    params.append('limit', String(limit));
+    return params;
+  };
+
+  const fetchSummaryAccounts = async () => {
+    try {
+      const params = buildAccountQueryParams(1, 10000);
+      const response = await api.get(`/finance/accounts?${params}`);
+      if (response.data.success) {
+        setSummaryAccounts(response.data.data.accounts || []);
+      }
+    } catch {
+      setSummaryAccounts([]);
+    }
+  };
 
   const fetchDetailTypes = async () => {
     try {
@@ -328,7 +357,8 @@ const ChartOfAccounts = () => {
     const ranges = { Asset: [1000, 1999], Liability: [2000, 2999], Equity: [3000, 3999], Revenue: [4000, 4999], Income: [4000, 4999], Expense: [5000, 5999] };
     const type = section === 'Income' ? 'Revenue' : section;
     const [min, max] = ranges[section] || [1000, 1999];
-    const sameType = accounts.filter(a => a.type === type).map(a => parseInt(a.accountNumber)).filter(n => !isNaN(n) && n >= min && n <= max);
+    const source = parentAccounts.length > 0 ? parentAccounts : summaryAccounts.length > 0 ? summaryAccounts : accounts;
+    const sameType = source.filter(a => a.type === type).map(a => parseInt(a.accountNumber)).filter(n => !isNaN(n) && n >= min && n <= max);
     const next = sameType.length ? Math.max(...sameType) + 1 : min;
     return String(next);
   };
@@ -414,6 +444,7 @@ const ChartOfAccounts = () => {
         setExpandedRows((prev) => new Set([...prev, newAccountForm.parentAccount]));
       }
       await fetchAccounts();
+      await fetchSummaryAccounts();
       closeNewAccountDialog();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create account');
@@ -425,17 +456,19 @@ const ChartOfAccounts = () => {
   const fetchAccounts = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (filters.type) params.append('type', filters.type);
-      if (filters.department) params.append('department', filters.department);
-      if (filters.search) params.append('search', filters.search);
-      params.append('limit', '1000');
+      const params = buildAccountQueryParams(pagination.currentPage, pagination.limit);
       params.append('_t', new Date().getTime());
 
       const response = await api.get(`/finance/accounts?${params}`);
       if (response.data.success) {
         setAccounts(response.data.data.accounts || []);
-        setPagination(response.data.data.pagination || {});
+        const apiPagination = response.data.data.pagination || {};
+        setPagination((prev) => ({
+          ...prev,
+          currentPage: apiPagination.currentPage || prev.currentPage,
+          totalPages: apiPagination.totalPages || 1,
+          totalCount: apiPagination.totalCount ?? apiPagination.totalItems ?? 0
+        }));
       }
     } catch (error) {
       console.error('Error fetching accounts:', error);
@@ -446,10 +479,27 @@ const ChartOfAccounts = () => {
   };
 
   const handleFilterChange = (field) => (event) => {
+    setPagination((prev) => ({ ...prev, currentPage: 1 }));
     setFilters(prev => ({
       ...prev,
       [field]: event.target.value
     }));
+  };
+
+  const handlePageChange = (_event, page) => {
+    setPagination((prev) => ({ ...prev, currentPage: page }));
+  };
+
+  const handlePageSizeChange = (event) => {
+    setPagination((prev) => ({
+      ...prev,
+      currentPage: 1,
+      limit: Number(event.target.value)
+    }));
+  };
+
+  const refreshAccounts = async () => {
+    await Promise.all([fetchSummaryAccounts(), fetchAccounts()]);
   };
 
   const openDeleteDialog = (account) => {
@@ -477,6 +527,7 @@ const ChartOfAccounts = () => {
       setDeleteDialogOpen(false);
       setAccountToDelete(null);
       await fetchAccounts();
+      await fetchSummaryAccounts();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete account');
       setDeleteDialogOpen(false);
@@ -652,8 +703,8 @@ const ChartOfAccounts = () => {
     return <AccountBalanceIcon color="disabled" />;
   };
 
-  // Group accounts by type
-  const groupedAccounts = accounts.reduce((acc, account) => {
+  // Group accounts by type (summary across all filtered accounts, not just current page)
+  const groupedAccounts = summaryAccounts.reduce((acc, account) => {
     if (!acc[account.type]) {
       acc[account.type] = [];
     }
@@ -665,6 +716,11 @@ const ChartOfAccounts = () => {
     totals[type] = groupedAccounts[type].reduce((sum, account) => sum + account.balance, 0);
     return totals;
   }, {});
+
+  const pageStart = pagination.totalCount === 0
+    ? 0
+    : (pagination.currentPage - 1) * pagination.limit + 1;
+  const pageEnd = Math.min(pagination.currentPage * pagination.limit, pagination.totalCount);
 
   if (loading) {
     return (
@@ -697,7 +753,7 @@ const ChartOfAccounts = () => {
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
-              onClick={fetchAccounts}
+              onClick={refreshAccounts}
             >
               Refresh
             </Button>
@@ -711,6 +767,7 @@ const ChartOfAccounts = () => {
                   const res = await api.post('/finance/accounts/ensure-defaults');
                   alert(res.data.message);
                   fetchAccounts();
+                  fetchSummaryAccounts();
                 } catch (e) {
                   alert(e.response?.data?.message || 'Failed to ensure system accounts');
                 }
@@ -819,9 +876,31 @@ const ChartOfAccounts = () => {
       {/* Chart of Accounts Table */}
       <Card>
         <CardContent>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Account Details
-          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+            <Typography variant="h6">
+              Account Details
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <Typography variant="body2" color="text.secondary">
+                {pagination.totalCount > 0
+                  ? `Showing ${pageStart}–${pageEnd} of ${pagination.totalCount} accounts`
+                  : 'No accounts'}
+              </Typography>
+              <FormControl size="small" sx={{ minWidth: 110 }}>
+                <InputLabel>Rows</InputLabel>
+                <Select
+                  value={pagination.limit}
+                  label="Rows"
+                  onChange={handlePageSizeChange}
+                >
+                  <MenuItem value={10}>10</MenuItem>
+                  <MenuItem value={25}>25</MenuItem>
+                  <MenuItem value={50}>50</MenuItem>
+                  <MenuItem value={100}>100</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+          </Box>
           <TableContainer>
             <Table>
               <TableHead>
@@ -843,7 +922,7 @@ const ChartOfAccounts = () => {
             </Table>
           </TableContainer>
 
-          {accounts.length === 0 && (
+          {pagination.totalCount === 0 && !loading && (
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <Typography variant="h6" color="textSecondary">
                 No accounts found
@@ -858,6 +937,19 @@ const ChartOfAccounts = () => {
               >
                 Create First Account
               </Button>
+            </Box>
+          )}
+
+          {pagination.totalPages > 1 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+              <Pagination
+                count={pagination.totalPages}
+                page={pagination.currentPage}
+                onChange={handlePageChange}
+                color="primary"
+                showFirstButton
+                showLastButton
+              />
             </Box>
           )}
         </CardContent>
