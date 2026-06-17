@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Button, Chip, IconButton, Dialog, DialogTitle,
@@ -18,6 +18,9 @@ import api from '../../services/api';
 import storeService from '../../services/storeService';
 import LocationSelector from '../../components/Procurement/Store/LocationSelector';
 import { resolveUploadFileHref } from '../../utils/uploadPaths';
+import { computeFixedAssetTotals } from '../../utils/fixedAssetPaginationTotals';
+import FixedAssetPaginationBar from '../../components/AssetTagging/FixedAssetPaginationBar';
+import FixedAssetGrandTotals from '../../components/AssetTagging/FixedAssetGrandTotals';
 
 const CATEGORIES = ['land','building','machinery','vehicle','furniture','computer','equipment','other'];
 const METHODS = [
@@ -34,8 +37,8 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-PK') : '—';
 
 const emptyForm = {
   name: '', description: '', category: 'equipment',
-  purchaseDate: new Date().toISOString().split('T')[0],
-  purchaseCost: '', residualValue: 0,
+  purchaseDate: '',
+  purchaseCost: '', residualValue: '',
   depreciationMethod: 'straight_line', usefulLifeYears: 5, depreciationRate: 20,
   location: '',
   locationBuilding: HQ_LOCATION,
@@ -137,7 +140,7 @@ export default function FixedAssets() {
   const [selectedMainStoreId, setSelectedMainStoreId] = useState('');
   const [selectedSubStores, setSelectedSubStores] = useState([]);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [newFiles, setNewFiles] = useState([]);
   const [removedAttachmentIds, setRemovedAttachmentIds] = useState([]);
 
@@ -332,7 +335,6 @@ export default function FixedAssets() {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.purchaseDate || !form.purchaseCost) { setError('Name, date and cost are required'); return; }
     setSaving(true);
     try {
       const isStore = form.locationBuilding !== HQ_LOCATION;
@@ -344,6 +346,10 @@ export default function FixedAssets() {
       const normalizedLocation = locationParts.map((part) => String(part || '').trim()).filter(Boolean).join(', ');
       const payload = {
         ...form,
+        name: String(form.name || '').trim(),
+        purchaseDate: form.purchaseDate || null,
+        purchaseCost: form.purchaseCost === '' || form.purchaseCost == null ? 0 : Number(form.purchaseCost),
+        residualValue: form.residualValue === '' || form.residualValue == null ? 0 : Number(form.residualValue),
         depreciationRate:
           form.depreciationMethod === 'none'
             ? 0
@@ -452,6 +458,8 @@ export default function FixedAssets() {
   };
 
   const paginatedAssets = assets.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const grandTotals = useMemo(() => computeFixedAssetTotals(assets), [assets]);
+  const displayTotals = summary?.totals || grandTotals;
 
   useEffect(() => {
     setPage(0);
@@ -480,27 +488,31 @@ export default function FixedAssets() {
       {error   && <Alert severity="error"   onClose={() => setError('')}   sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 2 }}>{success}</Alert>}
 
-      {/* Summary cards */}
-      {summary && (
-        <Grid container spacing={2} mb={3}>
-          {[
-            { label: 'Total Assets',            value: summary.totals?.count || 0,           color: 'primary.main',  raw: true },
-            { label: 'Total Purchase Cost',     value: fmt(summary.totals?.totalCost),        color: 'primary.main'              },
-            { label: 'Accumulated Depreciation',value: fmt(summary.totals?.totalAccumDepreciation), color: 'warning.main'       },
-            { label: 'Net Book Value',          value: fmt(summary.totals?.totalBookValue),   color: 'success.main'              }
-          ].map(c => (
-            <Grid item xs={12} sm={6} md={3} key={c.label}>
-              <Card variant="outlined">
-                <CardContent sx={{ py: 1.5 }}>
-                  <Typography variant="caption" color="text.secondary">{c.label}</Typography>
-                  <Typography variant="h6" fontWeight={700} color={c.color}>
-                    {c.raw ? c.value : `PKR ${c.value}`}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+      {/* Summary — totals across all assets, not just the current page */}
+      {(summary || assets.length > 0) && (
+        <>
+          <FixedAssetGrandTotals
+            totalCount={displayTotals.count || 0}
+            totalBookValue={displayTotals.totalBookValue}
+          />
+          <Grid container spacing={2} mb={3}>
+            {[
+              { label: 'Total Purchase Cost',     value: fmt(displayTotals.totalCost),        color: 'primary.main'              },
+              { label: 'Accumulated Depreciation',value: fmt(displayTotals.totalAccumDepreciation), color: 'warning.main'       }
+            ].map(c => (
+              <Grid item xs={12} sm={6} key={c.label}>
+                <Card variant="outlined">
+                  <CardContent sx={{ py: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary">{c.label}</Typography>
+                    <Typography variant="h6" fontWeight={700} color={c.color}>
+                      PKR {c.value}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        </>
       )}
 
       <Alert severity="info" sx={{ mb: 2 }} icon={<ScheduleIcon />}>
@@ -559,36 +571,13 @@ export default function FixedAssets() {
         </TableContainer>
       )}
       {!loading && assets.length > 0 && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
-          <TextField
-            select
-            size="small"
-            label="Rows"
-            value={rowsPerPage}
-            onChange={(e) => {
-              setRowsPerPage(Number(e.target.value));
-              setPage(0);
-            }}
-            sx={{ width: 110, mr: 1 }}
-          >
-            {[5, 10, 25, 50].map((n) => (
-              <MenuItem key={n} value={n}>{n}</MenuItem>
-            ))}
-          </TextField>
-          <Button size="small" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
-            Prev
-          </Button>
-          <Typography variant="body2" sx={{ px: 1.5, alignSelf: 'center' }}>
-            Page {page + 1} / {Math.max(1, Math.ceil(assets.length / rowsPerPage))}
-          </Typography>
-          <Button
-            size="small"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={(page + 1) * rowsPerPage >= assets.length}
-          >
-            Next
-          </Button>
-        </Box>
+        <FixedAssetPaginationBar
+          page={page}
+          setPage={setPage}
+          rowsPerPage={rowsPerPage}
+          setRowsPerPage={setRowsPerPage}
+          totalCount={displayTotals.count || assets.length}
+        />
       )}
 
       {/* Add/Edit Dialog */}
@@ -596,7 +585,7 @@ export default function FixedAssets() {
         <DialogTitle>{editing ? 'Edit Asset' : 'Add Fixed Asset'}</DialogTitle>
         <DialogContent>
           <Stack gap={2} mt={1}>
-            <TextField label="Asset Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} fullWidth size="small" />
+            <TextField label="Asset Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} fullWidth size="small" />
             <Stack direction="row" gap={2}>
               <TextField select label="Category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} fullWidth size="small">
                 {CATEGORIES.map(c => <MenuItem key={c} value={c} sx={{ textTransform: 'capitalize' }}>{c}</MenuItem>)}
@@ -607,7 +596,7 @@ export default function FixedAssets() {
                 onChange={e => setForm({ ...form, serialNumber: e.target.value })}
                 fullWidth
                 size="small"
-                helperText="Auto-generated with +1 sequence; you can still edit if required."
+                helperText="Auto-generated with +1 sequence; you can still edit if needed."
               />
             </Stack>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -648,8 +637,8 @@ export default function FixedAssets() {
               placeholder="Key specs, configuration, distinguishing details"
             />
             <Stack direction="row" gap={2}>
-              <TextField label="Purchase Date *" type="date" value={form.purchaseDate} onChange={e => setForm({ ...form, purchaseDate: e.target.value })} fullWidth size="small" InputLabelProps={{ shrink: true }} />
-              <TextField label="Purchase Cost *" type="number" value={form.purchaseCost} onChange={e => setForm({ ...form, purchaseCost: e.target.value })} fullWidth size="small" inputProps={{ min: 0 }} />
+              <TextField label="Purchase Date" type="date" value={form.purchaseDate || ''} onChange={e => setForm({ ...form, purchaseDate: e.target.value })} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+              <TextField label="Purchase Cost" type="number" value={form.purchaseCost} onChange={e => setForm({ ...form, purchaseCost: e.target.value })} fullWidth size="small" inputProps={{ min: 0 }} />
             </Stack>
             <Stack direction="row" gap={2}>
               <TextField label="Residual Value" type="number" value={form.residualValue} onChange={e => setForm({ ...form, residualValue: e.target.value })} fullWidth size="small" inputProps={{ min: 0 }} />
@@ -695,7 +684,7 @@ export default function FixedAssets() {
                 }}
                 fullWidth
                 size="small"
-                inputProps={{ min: 1 }}
+                inputProps={{ min: 0 }}
               />
               <TextField
                 label="Residual Life (Years)"
@@ -715,12 +704,11 @@ export default function FixedAssets() {
               size="small"
               inputProps={{ min: 0, max: 100, step: 0.01 }}
               disabled={form.depreciationMethod === 'none' || form.depreciationMethod === 'straight_line'}
-              required={form.depreciationMethod === 'declining_balance'}
               helperText={
                 form.depreciationMethod === 'straight_line'
                   ? 'Auto-derived from useful life (100 / years).'
                   : form.depreciationMethod === 'declining_balance'
-                  ? 'Required for declining balance method.'
+                  ? 'Optional for declining balance method.'
                   : 'Depreciation rate is not used when method is None.'
               }
             />

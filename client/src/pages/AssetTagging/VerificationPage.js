@@ -24,9 +24,9 @@ export default function VerificationPage() {
   const [cLoc, setCLoc] = useState('');
   const [busy, setBusy] = useState(false);
   const [sessionPage, setSessionPage] = useState(0);
-  const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10);
+  const [sessionRowsPerPage, setSessionRowsPerPage] = useState(100);
   const [linePage, setLinePage] = useState(0);
-  const [lineRowsPerPage, setLineRowsPerPage] = useState(10);
+  const [lineRowsPerPage, setLineRowsPerPage] = useState(100);
 
   const loadList = useCallback(async () => {
     try {
@@ -202,7 +202,7 @@ export default function VerificationPage() {
               }}
               sx={{ width: 110, mr: 1 }}
             >
-              {[5, 10, 25, 50].map((n) => (
+              {[100, 250, 500].map((n) => (
                 <MenuItem key={n} value={n}>{n}</MenuItem>
               ))}
             </TextField>
@@ -279,7 +279,7 @@ export default function VerificationPage() {
                 }}
                 sx={{ width: 110, mr: 1 }}
               >
-                {[5, 10, 25, 50].map((n) => (
+                {[100, 250, 500].map((n) => (
                   <MenuItem key={n} value={n}>{n}</MenuItem>
                 ))}
               </TextField>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, TextField, MenuItem, CircularProgress, Alert, Stack, Chip, Dialog, DialogTitle,
@@ -19,6 +19,9 @@ import {
   formatCustodianForDisplay
 } from '../../utils/assetLocationDisplay';
 import AssetAttachmentThumb from '../../components/AssetTagging/AssetAttachmentThumb';
+import FixedAssetPaginationBar from '../../components/AssetTagging/FixedAssetPaginationBar';
+import FixedAssetGrandTotals from '../../components/AssetTagging/FixedAssetGrandTotals';
+import { computeFixedAssetTotals } from '../../utils/fixedAssetPaginationTotals';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -49,7 +52,7 @@ export default function TaggedAssetsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [selectedAssetIds, setSelectedAssetIds] = useState([]);
 
   const load = useCallback(async () => {
@@ -69,6 +72,7 @@ export default function TaggedAssetsPage() {
   }, [search, tagStatus]);
 
   const paginatedRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const totals = useMemo(() => computeFixedAssetTotals(rows), [rows]);
   const taggedRows = rows.filter((a) => Boolean(a.currentTag));
   const isAllTaggedSelected = taggedRows.length > 0 && taggedRows.every((a) => selectedAssetIds.includes(a._id));
   const isSomeTaggedSelected = taggedRows.some((a) => selectedAssetIds.includes(a._id)) && !isAllTaggedSelected;
@@ -234,6 +238,10 @@ export default function TaggedAssetsPage() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
+      {!loading && rows.length > 0 && (
+        <FixedAssetGrandTotals totalCount={totals.count} totalBookValue={totals.totalBookValue} />
+      )}
+
       {loading ? (
         <Box py={6} textAlign="center"><CircularProgress /></Box>
       ) : (
@@ -338,36 +346,15 @@ export default function TaggedAssetsPage() {
             </Table>
           </TableContainer>
 
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
-            <TextField
-              select
-              size="small"
-              label="Rows"
-              value={rowsPerPage}
-              onChange={(e) => {
-                setRowsPerPage(Number(e.target.value));
-                setPage(0);
-              }}
-              sx={{ width: 110, mr: 1 }}
-            >
-              {[5, 10, 25, 50].map((n) => (
-                <MenuItem key={n} value={n}>{n}</MenuItem>
-              ))}
-            </TextField>
-            <Button size="small" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
-              Prev
-            </Button>
-            <Typography variant="body2" sx={{ px: 1.5, alignSelf: 'center' }}>
-              Page {rows.length === 0 ? 0 : page + 1} / {Math.max(1, Math.ceil(rows.length / rowsPerPage))}
-            </Typography>
-            <Button
-              size="small"
-              onClick={() => setPage((p) => p + 1)}
-              disabled={(page + 1) * rowsPerPage >= rows.length}
-            >
-              Next
-            </Button>
-          </Box>
+          {rows.length > 0 && (
+            <FixedAssetPaginationBar
+              page={page}
+              setPage={setPage}
+              rowsPerPage={rowsPerPage}
+              setRowsPerPage={setRowsPerPage}
+              totalCount={rows.length}
+            />
+          )}
         </Box>
       )}
 

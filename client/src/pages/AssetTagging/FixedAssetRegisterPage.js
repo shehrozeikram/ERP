@@ -11,6 +11,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatAssetLocationForDisplay } from '../../utils/assetLocationDisplay';
 import AssetAttachmentThumb from '../../components/AssetTagging/AssetAttachmentThumb';
+import FixedAssetPaginationBar from '../../components/AssetTagging/FixedAssetPaginationBar';
+import FixedAssetGrandTotals from '../../components/AssetTagging/FixedAssetGrandTotals';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
@@ -25,7 +27,7 @@ export default function FixedAssetRegisterPage() {
   const [ledgerStatus, setLedgerStatus] = useState(''); // '' = active + fully_depreciated
   const [tagStatus, setTagStatus] = useState('');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,19 +91,19 @@ export default function FixedAssetRegisterPage() {
         </Stack>
       </Stack>
 
+      <FixedAssetGrandTotals totalCount={rows.length} totalBookValue={totals.nbv} />
+
       <Grid container spacing={2} sx={{ mb: 2 }}>
         {[
-          { label: 'Rows in view', value: rows.length, color: 'primary.main', raw: true },
           { label: 'Total cost (PKR)', value: fmt(totals.cost), color: 'primary.main' },
-          { label: 'Accum. depreciation', value: fmt(totals.accum), color: 'warning.main' },
-          { label: 'Net book value', value: fmt(totals.nbv), color: 'success.main' }
+          { label: 'Accum. depreciation', value: fmt(totals.accum), color: 'warning.main' }
         ].map((c) => (
-          <Grid item xs={12} sm={6} md={3} key={c.label}>
+          <Grid item xs={12} sm={6} key={c.label}>
             <Card variant="outlined">
               <CardContent sx={{ py: 1.5 }}>
                 <Typography variant="caption" color="text.secondary">{c.label}</Typography>
                 <Typography variant="h6" fontWeight={700} color={c.color}>
-                  {c.raw ? c.value : `PKR ${c.value}`}
+                  PKR {c.value}
                 </Typography>
               </CardContent>
             </Card>
@@ -204,36 +206,13 @@ export default function FixedAssetRegisterPage() {
       )}
 
       {!loading && rows.length > 0 && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1, alignItems: 'center' }}>
-          <TextField
-            select
-            size="small"
-            label="Rows"
-            value={rowsPerPage}
-            onChange={(e) => {
-              setRowsPerPage(Number(e.target.value));
-              setPage(0);
-            }}
-            sx={{ width: 110, mr: 1 }}
-          >
-            {[10, 25, 50, 100].map((n) => (
-              <MenuItem key={n} value={n}>{n}</MenuItem>
-            ))}
-          </TextField>
-          <Button size="small" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
-            Prev
-          </Button>
-          <Typography variant="body2" sx={{ px: 1.5, alignSelf: 'center' }}>
-            Page {page + 1} / {Math.max(1, Math.ceil(rows.length / rowsPerPage))}
-          </Typography>
-          <Button
-            size="small"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={(page + 1) * rowsPerPage >= rows.length}
-          >
-            Next
-          </Button>
-        </Box>
+        <FixedAssetPaginationBar
+          page={page}
+          setPage={setPage}
+          rowsPerPage={rowsPerPage}
+          setRowsPerPage={setRowsPerPage}
+          totalCount={rows.length}
+        />
       )}
     </Box>
   );

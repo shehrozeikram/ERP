@@ -30,8 +30,8 @@ const fixedAssetSchema = new mongoose.Schema(
     },
     name: {
       type: String,
-      required: [true, 'Asset name is required'],
-      trim: true
+      trim: true,
+      default: ''
     },
     description: { type: String, trim: true },
     category: {
@@ -40,8 +40,8 @@ const fixedAssetSchema = new mongoose.Schema(
       default: 'other'
     },
     // Acquisition
-    purchaseDate: { type: Date, required: [true, 'Purchase date is required'] },
-    purchaseCost: { type: Number, required: [true, 'Purchase cost is required'], min: 0 },
+    purchaseDate: { type: Date },
+    purchaseCost: { type: Number, default: 0, min: 0 },
     residualValue: { type: Number, default: 0, min: 0 },
     // Depreciation
     depreciationMethod: {
@@ -100,7 +100,9 @@ fixedAssetSchema.pre('save', async function (next) {
     this.assetNumber = `FA-${String(count + 1).padStart(5, '0')}`;
   }
   if (this.isNew) {
-    this.currentBookValue = this.purchaseCost - this.accumulatedDepreciation;
+    const cost = Number(this.purchaseCost) || 0;
+    const accum = Number(this.accumulatedDepreciation) || 0;
+    this.currentBookValue = cost - accum;
   }
   next();
 });
@@ -108,14 +110,17 @@ fixedAssetSchema.pre('save', async function (next) {
 // Calculate monthly straight-line depreciation
 fixedAssetSchema.methods.calcMonthlyDepreciation = function () {
   if (this.depreciationMethod === 'none' || this.status !== 'active') return 0;
+  const purchaseCost = Number(this.purchaseCost) || 0;
+  const residualValue = Number(this.residualValue) || 0;
+  const usefulLifeYears = Number(this.usefulLifeYears) || 0;
   if (this.depreciationMethod === 'straight_line') {
-    const depreciableAmount = this.purchaseCost - this.residualValue;
-    const totalMonths = this.usefulLifeYears * 12;
+    const depreciableAmount = purchaseCost - residualValue;
+    const totalMonths = usefulLifeYears * 12;
     return totalMonths > 0 ? Math.round((depreciableAmount / totalMonths) * 100) / 100 : 0;
   }
   if (this.depreciationMethod === 'declining_balance') {
-    const rate = (this.depreciationRate / 100) / 12;
-    return Math.round(this.currentBookValue * rate * 100) / 100;
+    const rate = (Number(this.depreciationRate) || 0) / 100 / 12;
+    return Math.round((Number(this.currentBookValue) || 0) * rate * 100) / 100;
   }
   return 0;
 };

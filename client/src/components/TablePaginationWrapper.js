@@ -9,17 +9,17 @@ import { TablePagination } from '@mui/material';
  * @param {number} props.total - Total number of items
  * @param {Function} props.onPageChange - Handler for page change
  * @param {Function} props.onRowsPerPageChange - Handler for rows per page change
- * @param {Array} props.rowsPerPageOptions - Options for rows per page (default: [25, 50, 100, 200])
+ * @param {Array} props.rowsPerPageOptions - Options for rows per page (default: [100, 250, 500])
  * @param {string} props.labelRowsPerPage - Label for rows per page (default: "Rows per page:")
  * @param {Function} props.onResetExpanded - Optional callback to reset expanded rows on page change
  */
 const TablePaginationWrapper = ({
   page = 0,
-  rowsPerPage = 50,
+  rowsPerPage = 100,
   total = 0,
   onPageChange,
   onRowsPerPageChange,
-  rowsPerPageOptions = [25, 50, 100, 200],
+  rowsPerPageOptions = [100, 250, 500],
   labelRowsPerPage = 'Rows per page:',
   onResetExpanded
 }) => {
@@ -33,7 +33,7 @@ const TablePaginationWrapper = ({
   // Ensure total is always a valid number
   const validTotal = typeof total === 'number' && !isNaN(total) ? total : 0;
   const validPage = typeof page === 'number' && !isNaN(page) ? page : 0;
-  const validRowsPerPage = typeof rowsPerPage === 'number' && !isNaN(rowsPerPage) ? rowsPerPage : 50;
+  const validRowsPerPage = typeof rowsPerPage === 'number' && !isNaN(rowsPerPage) ? rowsPerPage : 100;
 
   return (
     <TablePagination

@@ -103,12 +103,29 @@ const applyAttachmentChanges = (asset, body, files) => {
   asset.attachments = [...kept, ...mapUploadedAttachments(files)];
 };
 
+const normalizeFixedAssetPayload = (body = {}) => {
+  const normalized = { ...body };
+  normalized.name = String(body.name || '').trim();
+  normalized.purchaseCost = body.purchaseCost === '' || body.purchaseCost == null
+    ? 0
+    : Number(body.purchaseCost);
+  if (Number.isNaN(normalized.purchaseCost) || normalized.purchaseCost < 0) {
+    normalized.purchaseCost = 0;
+  }
+  if (body.purchaseDate === null || body.purchaseDate === '') {
+    normalized.purchaseDate = null;
+  } else if (!body.purchaseDate) {
+    delete normalized.purchaseDate;
+  }
+  return normalized;
+};
+
 const validateFixedAssetPayload = (body) => {
   const errors = [];
-  if (!String(body.name || '').trim()) errors.push({ msg: 'Asset name is required' });
-  if (!body.purchaseDate) errors.push({ msg: 'Purchase date is required' });
-  const cost = Number(body.purchaseCost);
-  if (Number.isNaN(cost) || cost < 0) errors.push({ msg: 'Purchase cost must be >= 0' });
+  if (body.purchaseCost !== undefined && body.purchaseCost !== null && body.purchaseCost !== '') {
+    const cost = Number(body.purchaseCost);
+    if (Number.isNaN(cost) || cost < 0) errors.push({ msg: 'Purchase cost must be >= 0' });
+  }
   return errors;
 };
 
@@ -218,7 +235,7 @@ router.get('/:id([0-9a-fA-F]{24})', asyncHandler(async (req, res) => {
 // POST /api/finance/fixed-assets
 router.post('/', authorize('super_admin', 'admin', 'finance_manager'), handleFixedAssetUpload,
   asyncHandler(async (req, res) => {
-    const body = parseFixedAssetRequestBody(req);
+    const body = normalizeFixedAssetPayload(parseFixedAssetRequestBody(req));
     const validationErrors = validateFixedAssetPayload(body);
     if (validationErrors.length) {
       return res.status(400).json({ success: false, errors: validationErrors });
@@ -254,8 +271,8 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), handleF
     const asset = await FixedAsset.findById(req.params.id);
     if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
 
-    const body = parseFixedAssetRequestBody(req);
-    const allowed = ['name', 'description', 'category', 'residualValue', 'depreciationMethod',
+    const body = normalizeFixedAssetPayload(parseFixedAssetRequestBody(req));
+    const allowed = ['name', 'description', 'category', 'purchaseDate', 'purchaseCost', 'residualValue', 'depreciationMethod',
       'usefulLifeYears', 'depreciationRate', 'assetAccount', 'accumulatedDeprecAccount',
       'depreciationExpenseAccount', 'location', 'assignedTo', 'project', 'costCenter', 'serialNumber',
       'brand', 'model', 'condition', 'manufacturer', 'warrantyExpiryDate', 'characteristics'];
@@ -263,6 +280,10 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), handleF
       if (body[f] === undefined) return;
       if (f === 'project') {
         asset[f] = normalizeProjectInput(body[f]);
+        return;
+      }
+      if (f === 'purchaseDate' && body[f] === null) {
+        asset[f] = undefined;
         return;
       }
       asset[f] = body[f];

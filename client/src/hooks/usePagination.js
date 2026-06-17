@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
  */
 export const usePagination = ({
   defaultPage = 0,
-  defaultRowsPerPage = 50,
+  defaultRowsPerPage = 100,
   resetDependencies = []
 } = {}) => {
   const [page, setPage] = useState(defaultPage);
