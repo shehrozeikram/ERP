@@ -5,6 +5,9 @@ const KPIWorksheet = require('../models/hr/KPIWorksheet');
 const Employee = require('../models/hr/Employee');
 const { getOrCreateWorksheet, ensureWorksheetsForMonth } = require('../utils/kpiWorksheetService');
 const { findEmployeeForAuthUser } = require('../utils/employeeUserLink');
+const { checkSubRoleAccess } = require('../config/permissions');
+const Project = require('../models/hr/Project');
+const Department = require('../models/hr/Department');
 
 const router = express.Router();
 
@@ -18,6 +21,13 @@ async function employeeFromUser(userCtx) {
 
 function isHrAdmin(role) {
   return ['super_admin', 'admin', 'developer', 'hr_manager', 'higher_management'].includes(role);
+}
+
+async function canAccessKpiManagement(user, action = 'read') {
+  if (!user) return false;
+  const userId = user.id || user._id;
+  if (!userId) return false;
+  return checkSubRoleAccess(userId, 'hr', 'kpi_management', action);
 }
 
 /** Employee has committed their row once total assigned is set (> 0). Achieved may be 0. */
@@ -304,8 +314,11 @@ router.get(
 router.get(
   '/submissions',
   asyncHandler(async (req, res) => {
-    if (!isHrAdmin(req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'HR or admin access required' });
+    if (!(await canAccessKpiManagement(req.user, 'read'))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view KPI submissions'
+      });
     }
 
     const now = new Date();
@@ -396,6 +409,11 @@ router.get(
       notStarted: allRecords.filter((row) => row.status === 'not_started').length
     };
 
+    const [projects, departments] = await Promise.all([
+      Project.find({}).select('name code').sort({ name: 1 }).lean(),
+      Department.find({ isActive: true }).select('name code').sort({ name: 1 }).lean()
+    ]);
+
     res.json({
       success: true,
       data: {
@@ -403,7 +421,11 @@ router.get(
         month,
         summary,
         groups: groupSubmissionRecords(records),
-        records
+        records,
+        filterOptions: {
+          projects,
+          departments
+        }
       }
     });
   })

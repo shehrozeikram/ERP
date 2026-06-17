@@ -178,6 +178,7 @@ const Sidebar = () => {
       '/hr/kpi/templates': 'kpi_management',
       '/hr/kpi/cycles': 'kpi_management',
       '/hr/kpi/review': 'kpi_management',
+      '/hr/kpi/submissions': 'kpi_management',
       '/hr/reports': 'reports',
       
       // General Module - Documents Tracking

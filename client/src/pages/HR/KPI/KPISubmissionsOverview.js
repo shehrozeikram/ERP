@@ -26,7 +26,6 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import api from '../../../services/api';
 import { fetchKpiSubmissions } from '../../../services/kpiWorksheetService';
 
 const MONTHS = [
@@ -89,14 +88,15 @@ const KPISubmissionsOverview = () => {
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const [projectsRes, departmentsRes] = await Promise.all([
-          api.get('/hr/projects'),
-          api.get('/hr/departments')
-        ]);
-        const projectList = projectsRes.data?.data || projectsRes.data || [];
-        const departmentList = departmentsRes.data?.data || departmentsRes.data || [];
-        setProjects(Array.isArray(projectList) ? projectList : []);
-        setDepartments(Array.isArray(departmentList) ? departmentList : []);
+        const now = new Date();
+        const res = await fetchKpiSubmissions({
+          year: now.getFullYear(),
+          month: now.getMonth() + 1,
+          submittedOnly: false
+        });
+        const filterOptions = res.data?.data?.filterOptions || {};
+        setProjects(Array.isArray(filterOptions.projects) ? filterOptions.projects : []);
+        setDepartments(Array.isArray(filterOptions.departments) ? filterOptions.departments : []);
       } catch {
         setProjects([]);
         setDepartments([]);
