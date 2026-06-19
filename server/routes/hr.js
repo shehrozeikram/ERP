@@ -2246,6 +2246,38 @@ router.post('/projects', [
   })
 );
 
+// @route   DELETE /api/hr/projects/:id
+// @desc    Delete project (blocked if employees are assigned)
+// @access  Private (HR and Admin)
+router.delete('/projects/:id',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid project ID' });
+    }
+
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    const assignedCount = await Employee.countDocuments({ placementProject: project._id });
+    if (assignedCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete "${project.name}" — ${assignedCount} employee(s) are assigned to this project. Reassign them first.`
+      });
+    }
+
+    await Project.findByIdAndDelete(project._id);
+
+    res.json({
+      success: true,
+      message: 'Project deleted successfully'
+    });
+  })
+);
+
 // ==================== SECTION ROUTES ====================
 
 // @route   GET /api/hr/sections
