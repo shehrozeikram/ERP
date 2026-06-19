@@ -152,6 +152,7 @@ const Sidebar = () => {
       
       // HR Module
       '/hr/employees': 'employee_management',
+      '/hr/companies': 'employee_management',
       '/hr/projects': 'employee_management',
       '/hr/departments': 'employee_management',
       '/hr/attendance': 'attendance_management',

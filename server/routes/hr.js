@@ -231,7 +231,7 @@ router.get('/employees',
       // Apply pagination for regular list views
       employees = await Employee.find(query)
         .populate('bankName', 'name type')
-        .populate('placementCompany', 'name code type')
+        .populate('placementCompany', 'name type')
         .populate('placementSector', 'name code')
         .populate('placementProject', 'name company')
         .populate('placementDepartment', 'name code')
@@ -878,7 +878,7 @@ router.get('/employees/:id',
       .populate('department', 'name code')
       .populate('position', 'title level')
       .populate('placementDesignation', 'title level')
-      .populate('placementCompany', 'name code type')
+      .populate('placementCompany', 'name type')
       .populate('placementSector', 'name code')
       .populate('placementProject', 'name company')
       .populate('placementDepartment', 'name code')
@@ -2006,9 +2006,12 @@ router.delete('/sectors/:id',
 router.get('/companies', 
   authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const { type, search } = req.query;
+    const { type, search, status = 'active' } = req.query;
     
-    const query = { isActive: true };
+    const query = {};
+    const normalizedStatus = String(status || 'active').toLowerCase();
+    if (normalizedStatus === 'active') query.isActive = true;
+    else if (normalizedStatus === 'inactive') query.isActive = false;
     
     if (type) {
       query.type = type;
@@ -2034,7 +2037,6 @@ router.get('/companies',
 router.post('/companies', [
   authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Company name is required'),
-  body('code').trim().notEmpty().withMessage('Company code is required'),
   body('type').optional().isIn(['Private Limited', 'Public Limited', 'Partnership', 'Sole Proprietorship', 'Government', 'NGO', 'Other']).withMessage('Valid type is required')
 ],
   asyncHandler(async (req, res) => {

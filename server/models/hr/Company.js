@@ -8,14 +8,6 @@ const companySchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Company name cannot exceed 100 characters']
   },
-  code: {
-    type: String,
-    required: [true, 'Company code is required'],
-    unique: true,
-    trim: true,
-    uppercase: true,
-    maxlength: [10, 'Company code cannot exceed 10 characters']
-  },
   type: {
     type: String,
     enum: ['Private Limited', 'Public Limited', 'Partnership', 'Sole Proprietorship', 'Government', 'NGO', 'Other'],
@@ -54,7 +46,6 @@ const companySchema = new mongoose.Schema({
 
 // Indexes
 companySchema.index({ name: 1 });
-companySchema.index({ code: 1 });
 companySchema.index({ isActive: 1 });
 companySchema.index({ type: 1 });
 

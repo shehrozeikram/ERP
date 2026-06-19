@@ -69,7 +69,6 @@ router.get('/:id',
 router.post('/', [
   authorize('admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Company name is required'),
-  body('code').trim().notEmpty().withMessage('Company code is required'),
   body('type').optional().isIn(['Client', 'Partner', 'Subsidiary', 'Parent', 'Other']).withMessage('Valid company type is required')
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
@@ -97,7 +96,6 @@ router.post('/', [
 router.put('/:id', [
   authorize('admin', 'hr_manager'),
   body('name').optional().trim().notEmpty().withMessage('Company name is required'),
-  body('code').optional().trim().notEmpty().withMessage('Company code is required'),
   body('type').optional().isIn(['Client', 'Partner', 'Subsidiary', 'Parent', 'Other']).withMessage('Valid company type is required')
 ], asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {

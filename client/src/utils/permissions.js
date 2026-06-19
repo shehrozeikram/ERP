@@ -506,6 +506,7 @@ export const MODULES = {
     subItems: [
       { name: 'HR Dashboard', path: '/hr' },
       { name: 'Employees', path: '/hr/employees' },
+      { name: 'Companies', path: '/hr/companies' },
       { name: 'Projects', path: '/hr/projects' },
       { name: 'Departments', path: '/hr/departments' },
       { name: 'Attendance', path: '/hr/attendance' },
@@ -1353,6 +1354,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       
       // HR Module
       '/hr/employees': 'employee_management',
+      '/hr/companies': 'employee_management',
       '/hr/departments': 'employee_management',
       '/hr/attendance': 'attendance_management',
       '/hr/attendance-record': 'attendance_management',

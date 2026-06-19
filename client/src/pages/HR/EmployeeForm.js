@@ -116,7 +116,6 @@ const EmployeeForm = () => {
   // New data states for placement dialogs
   const [newCompanyData, setNewCompanyData] = useState({
     name: '',
-    code: '',
     type: 'Private Limited',
     description: ''
   });
@@ -1385,7 +1384,7 @@ const EmployeeForm = () => {
   // Save functions for new placement items
   const handleSaveNewCompany = async () => {
     try {
-      if (!newCompanyData.name || !newCompanyData.code) {
+      if (!newCompanyData.name) {
         setSnackbar({
           open: true,
           message: 'Please fill in all required fields',
@@ -1403,7 +1402,7 @@ const EmployeeForm = () => {
       });
 
       setShowAddCompanyDialog(false);
-      setNewCompanyData({ name: '', code: '', type: 'Private Limited', description: '' });
+      setNewCompanyData({ name: '', type: 'Private Limited', description: '' });
       
       // Refresh companies
       await fetchCompanies();
@@ -2997,10 +2996,6 @@ const EmployeeForm = () => {
                       return;
                     }
                     formik.setFieldValue('placementCompany', e.target.value);
-                    formik.setFieldValue('placementProject', '');
-                    formik.setFieldValue('placementDepartment', '');
-                    formik.setFieldValue('placementSection', '');
-                    formik.setFieldValue('placementDesignation', '');
                   }}
                   error={formik.touched.placementCompany && Boolean(formik.errors.placementCompany)}
                   label="Company"
@@ -4439,21 +4434,12 @@ const EmployeeForm = () => {
         <DialogContent>
           <Box sx={{ pt: 2 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Company Name"
                   value={newCompanyData.name}
                   onChange={(e) => handleNewCompanyChange('name', e.target.value)}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Company Code"
-                  value={newCompanyData.code}
-                  onChange={(e) => handleNewCompanyChange('code', e.target.value)}
                   required
                 />
               </Grid>

@@ -39,6 +39,8 @@
     "list:employees-without-gross": "node server/scripts/list-active-employees-without-gross-salary.js",
     "assign:employees-three-projects:dry-run": "node server/scripts/assign-employees-to-three-projects.js --dry-run",
     "assign:employees-three-projects": "node server/scripts/assign-employees-to-three-projects.js --yes",
+    "seed:hr-companies:dry-run": "node server/scripts/seed-hr-companies.js --dry-run",
+    "seed:hr-companies": "node server/scripts/seed-hr-companies.js --yes",
     "mongo:show-target": "node scripts/show-mongodb-target.js",
     "mongo:show-target:prod": "NODE_ENV=production node scripts/show-mongodb-target.js",
     "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect",
