@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -40,7 +40,8 @@ import {
   Add as AddIcon,
   PhotoCamera as PhotoCameraIcon,
   Upload as UploadIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useFormik } from 'formik';
@@ -52,6 +53,7 @@ import { computeAutoSalaryBreakdown } from '../../utils/salaryBreakdown';
 import AutoCalculatedSalaryBreakdown from '../../components/AutoCalculatedSalaryBreakdown';
 import { useData } from '../../contexts/DataContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
+import { printEmployeeFormStep } from '../../utils/employeeFormPrint';
 
 const steps = ['Joining Report', 'Personal Information', 'Employment Details', 'Contact & Address', 'Salary & Benefits'];
 
@@ -1319,8 +1321,50 @@ const EmployeeForm = () => {
     setActiveStep(step);
   };
 
+  const handlePrintStep = useCallback(() => {
+    const employeeLabel = `${formik.values.firstName || ''} ${formik.values.lastName || ''}`.trim()
+      || formik.values.joiningReport?.employeeName
+      || '';
 
+    const result = printEmployeeFormStep(activeStep, formik.values, {
+      employeeLabel,
+      lookups: {
+        companies,
+        sectors,
+        projects,
+        departments,
+        sections,
+        designations,
+        locations,
+        banks,
+        countries,
+        provinces,
+        cities
+      }
+    });
 
+    if (result?.ok === false) {
+      setSnackbar({
+        open: true,
+        message: result.message || 'Unable to print this section.',
+        severity: 'warning'
+      });
+    }
+  }, [
+    activeStep,
+    formik.values,
+    companies,
+    sectors,
+    projects,
+    departments,
+    sections,
+    designations,
+    locations,
+    banks,
+    countries,
+    provinces,
+    cities
+  ]);
 
   // Handler functions for new placement items
   const handleNewCompanyChange = (field, value) => {
@@ -4377,12 +4421,19 @@ const EmployeeForm = () => {
         </Box>
 
         {/* Navigation Buttons */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Button
             disabled={activeStep === 0}
             onClick={handleBack}
           >
             Back
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={handlePrintStep}
+          >
+            Print {steps[activeStep]}
           </Button>
           <Box>
             {activeStep === steps.length - 1 ? (
