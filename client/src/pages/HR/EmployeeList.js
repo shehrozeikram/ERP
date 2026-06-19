@@ -61,16 +61,18 @@ import {
 import { getEmployeeStatusLabel, getEmployeeStatusColor, isEmployedEmployee } from '../../utils/employeeStatus';
 
 const EmployeeList = () => {
-  const { employees, departments, projects, loading: dataLoading, fetchEmployees, fetchDepartments, fetchProjects, errors } = useData();
+  const { employees, departments, projects, companies, loading: dataLoading, fetchEmployees, fetchDepartments, fetchProjects, fetchCompanies, errors } = useData();
   const { user } = useAuth();
   const [paginationLoading, setPaginationLoading] = useState(false);
   const fetchAttemptedRef = useRef(false);
   const departmentsFetchAttemptedRef = useRef(false);
   const projectsFetchAttemptedRef = useRef(false);
+  const companiesFetchAttemptedRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
+  const [companyFilter, setCompanyFilter] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -137,6 +139,17 @@ const EmployeeList = () => {
     }
   }, [projects.length, dataLoading.projects, errors.projects, fetchProjects]);
 
+  useEffect(() => {
+    if (companies.length === 0 && !dataLoading.companies && !companiesFetchAttemptedRef.current && !errors.companies) {
+      companiesFetchAttemptedRef.current = true;
+      fetchCompanies().catch((err) => {
+        if (err.response?.status !== 403) {
+          companiesFetchAttemptedRef.current = false;
+        }
+      });
+    }
+  }, [companies.length, dataLoading.companies, errors.companies, fetchCompanies]);
+
   // Pagination handlers
   const handleChangePage = useCallback((event, newPage) => {
     setPaginationLoading(true);
@@ -174,11 +187,17 @@ const EmployeeList = () => {
     setPage(0); // Reset to first page when project filter changes
   }, []);
 
+  const handleCompanyFilterChange = useCallback((value) => {
+    setCompanyFilter(value);
+    setPage(0);
+  }, []);
+
   const clearAllFilters = useCallback(() => {
     setSearchTerm('');
     setDepartmentFilter('');
     setStatusFilter('');
     setProjectFilter('');
+    setCompanyFilter('');
     setPage(0); // Reset to first page when clearing filters
   }, []);
 
@@ -188,6 +207,7 @@ const EmployeeList = () => {
     setSearchTerm('');
     setDepartmentFilter('');
     setProjectFilter('');
+    setCompanyFilter('');
     setStatusFilter('');
     setPage(0);
     setSnackbar({
@@ -233,6 +253,11 @@ const EmployeeList = () => {
       // Handle project filter
       const employeeProject = typeof employee.placementProject === 'object' ? employee.placementProject?.name : employee.placementProject;
       const matchesProject = !projectFilter || employeeProject === projectFilter;
+
+      const employeeCompany = typeof employee.placementCompany === 'object'
+        ? employee.placementCompany?.name
+        : employee.placementCompany;
+      const matchesCompany = !companyFilter || employeeCompany === companyFilter;
       
       // Handle status filter
       let matchesStatus = true;
@@ -246,9 +271,9 @@ const EmployeeList = () => {
         }
       }
 
-      return matchesSearch && matchesDepartment && matchesProject && matchesStatus;
+      return matchesSearch && matchesDepartment && matchesProject && matchesCompany && matchesStatus;
     });
-  }, [employees, searchTerm, departmentFilter, projectFilter, statusFilter]);
+  }, [employees, searchTerm, departmentFilter, projectFilter, companyFilter, statusFilter]);
 
   // Sort filtered employees by status first (active at top, inactive at end), then by Employee ID
   const sortedEmployees = useMemo(() => {
@@ -643,7 +668,32 @@ const EmployeeList = () => {
               }}
             />
           </Grid>
-          <Grid item xs={12} md={2.5}>
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth>
+              <InputLabel>Company</InputLabel>
+              <Select
+                value={companyFilter}
+                onChange={(e) => handleCompanyFilterChange(e.target.value)}
+                label="Company"
+                sx={{
+                  '& .MuiSelect-select': { paddingRight: '32px' },
+                  '& .MuiSelect-icon': { right: '8px' }
+                }}
+              >
+                <MenuItem value="">
+                  <em>All Companies</em>
+                </MenuItem>
+                {companies
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((company) => (
+                    <MenuItem key={company._id} value={company.name}>
+                      {company.name}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
             <FormControl fullWidth>
               <InputLabel>Department</InputLabel>
               <Select
@@ -670,7 +720,7 @@ const EmployeeList = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2.5}>
+          <Grid item xs={12} sm={6} md={2}>
             <FormControl fullWidth>
               <InputLabel>Project</InputLabel>
               <Select
@@ -699,7 +749,7 @@ const EmployeeList = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} sm={6} md={1.5}>
             <FormControl fullWidth>
               <InputLabel>Status</InputLabel>
               <Select
@@ -722,7 +772,7 @@ const EmployeeList = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} sm={6} md={1.5}>
             <Button
               variant="outlined"
               onClick={clearAllFilters}
@@ -735,7 +785,7 @@ const EmployeeList = () => {
         </Grid>
         
         {/* Search Results Summary */}
-        {(searchTerm || departmentFilter || projectFilter || statusFilter) && (
+        {(searchTerm || departmentFilter || projectFilter || companyFilter || statusFilter) && (
           <Box sx={{ mt: 2, p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
             <Typography variant="body2" color="info.main" sx={{ fontWeight: 500 }}>
               🔍 Filtered Results: Found {totalItems} employee(s)
@@ -747,6 +797,7 @@ const EmployeeList = () => {
               {searchTerm && `Search: "${searchTerm}"`}
               {departmentFilter && ` • Department: ${departmentFilter}`}
               {projectFilter && ` • Project: ${projectFilter}`}
+              {companyFilter && ` • Company: ${companyFilter}`}
               {statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : statusFilter === 'draft' ? 'Draft' : 'Inactive'}`}
             </Typography>
           </Box>
@@ -910,7 +961,7 @@ const EmployeeList = () => {
                     <TableCell>
                       <Box>
                         <Typography variant="caption" display="block">
-                          Company: SGC
+                          Company: {employee.placementCompany?.name || 'N/A'}
                         </Typography>
                         <Typography variant="caption" display="block">
                           {employee.placementDepartment?.name ? `Dept: ${employee.placementDepartment.name}` : 'Dept: N/A'}
@@ -967,7 +1018,7 @@ const EmployeeList = () => {
                       <Typography variant="body2" color="textSecondary">
                         {dataLoading.employees 
                           ? 'Please wait while we fetch your employee data...' 
-                          : searchTerm || departmentFilter || statusFilter
+                          : searchTerm || departmentFilter || projectFilter || companyFilter || statusFilter
                             ? 'Try adjusting your search criteria or filters'
                             : 'No employees in the system yet'
                         }

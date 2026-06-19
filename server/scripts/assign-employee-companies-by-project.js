@@ -51,6 +51,42 @@ const COMPANY_PROJECT_MAPPINGS = [
       'political staff',
       'Political Staff'
     ]
+  },
+  {
+    companyNames: ['HAMZA PAPER BRAIN (PVT)LTD'],
+    projectNames: [
+      'Hamza Paper Pvt Ltd',
+      'Hamza Paper Pvt. Ltd',
+      'Hamza Paper'
+    ]
+  },
+  {
+    companyNames: ['USMAN SOLAR (PVT)LTD'],
+    projectNames: [
+      'Usman Solar Pvt Ltd',
+      'Usman Solar Pvt. Ltd',
+      'Usman Solar'
+    ]
+  },
+  {
+    companyNames: ['CICON'],
+    projectNames: [
+      'CHIC - CICON',
+      'CHIC-CICON',
+      'CHIC CICON'
+    ]
+  },
+  {
+    companyNames: ['TIGES'],
+    projectNames: ['TIGES']
+  },
+  {
+    companyNames: ['ROYAL CRETE SOLUTIONS'],
+    projectNames: [
+      'Royal Creat Services',
+      'Royal Crete Services',
+      'Royal Crete Solutions'
+    ]
   }
 ];
 

@@ -212,8 +212,9 @@ router.get('/employees',
       // Get all employees without pagination for dropdowns and forms
       // Select only essential fields and populate only what's needed for list view
       employees = await Employee.find(query)
-        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate probationPeriodMonths endOfProbationDate confirmationDate placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus createdAt profileImage user')
+        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate probationPeriodMonths endOfProbationDate confirmationDate placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus createdAt profileImage user')
         .populate('bankName', 'name type')
+        .populate('placementCompany', 'name type')
         .populate('placementProject', 'name company')
         .populate('placementDepartment', 'name code')
         .populate('placementSection', 'name department')
