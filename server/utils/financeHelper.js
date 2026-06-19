@@ -10,6 +10,15 @@ const Employee = require('../models/hr/Employee');
 const FiscalPeriod = require('../models/finance/FiscalPeriod');
 const FinanceJournal = require('../models/finance/FinanceJournal');
 const { ensureStaffAdvanceAccount } = require('./staffAdvanceAccount');
+const {
+  getBillNarration,
+  getCashApprovalNarration,
+  getGrnNarration,
+  getSinNarration,
+  getArInvoiceNarration,
+  getVendorAdvanceNarration,
+  withVoucherNarration
+} = require('./documentNarration');
 
 /**
  * Finance Helper Utility
@@ -648,19 +657,21 @@ const FinanceHelper = {
             }
           }
 
-          await FinanceHelper.createAndPostJournalEntry({
-            date: billDateNorm,
-            reference: billNumber,
-            description: `AP Bill: ${billNumber} from ${vendorName}`,
-            department,
-            module,
-            referenceId: apEntry._id,
-            referenceType: 'bill',
-            journalCode: 'PURCH',
-            voucherSeries: 'BILL',
-            createdBy,
-            lines: journalLines
-          });
+          await FinanceHelper.createAndPostJournalEntry(
+            withVoucherNarration({
+              date: billDateNorm,
+              reference: billNumber,
+              description: `AP Bill: ${billNumber} from ${vendorName}`,
+              department,
+              module,
+              referenceId: apEntry._id,
+              referenceType: 'bill',
+              journalCode: 'PURCH',
+              voucherSeries: 'BILL',
+              createdBy,
+              lines: journalLines
+            }, getBillNarration(apEntry))
+          );
         }
       }
 
@@ -716,21 +727,23 @@ const FinanceHelper = {
       }
 
       if (arAccount && bankAccount) {
-        await FinanceHelper.createAndPostJournalEntry({
-          date:          date || new Date(),
-          reference:     reference || invoice.invoiceNumber,
-          description:   `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}`,
-          department:    invoice.department,
-          module:        invoice.module,
-          referenceId:   invoice._id,
-          referenceType: 'receipt',
-          journalCode:   'BANK',
-          createdBy,
-          lines: [
-            { account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit:  amount, department: invoice.department },
-            { account: arAccount._id,   description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department }
-          ]
-        });
+        await FinanceHelper.createAndPostJournalEntry(
+          withVoucherNarration({
+            date:          date || new Date(),
+            reference:     reference || invoice.invoiceNumber,
+            description:   `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}`,
+            department:    invoice.department,
+            module:        invoice.module,
+            referenceId:   invoice._id,
+            referenceType: 'receipt',
+            journalCode:   'BANK',
+            createdBy,
+            lines: [
+              { account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit:  amount, department: invoice.department },
+              { account: arAccount._id,   description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department }
+            ]
+          }, getArInvoiceNarration(invoice))
+        );
       }
 
       return invoice;
@@ -813,7 +826,7 @@ const FinanceHelper = {
         sourceType: 'bank_payment',
         createdBy,
         financeApprovalAuthorities: authorities,
-        journalPayload: {
+        journalPayload: withVoucherNarration({
           date: date || new Date(),
           reference: reference || bill.billNumber,
           description: `Payment: ${bill.billNumber} – ${bill.vendor.name} (pending finance signatures)`,
@@ -823,7 +836,7 @@ const FinanceHelper = {
           journalCode: 'BANK',
           voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
           lines
-        },
+        }, getBillNarration(bill)),
         paymentMeta: {
           paymentMethod,
           reference: reference || bill.billNumber,
@@ -932,19 +945,21 @@ const FinanceHelper = {
       { account: bankAccount._id, description: `Advance payment (${advance.reference})`, credit: amount_, department }
     ];
 
-    const journalEntry = await FinanceHelper.createDraftJournalEntry({
-      date: date || new Date(),
-      reference: advance.reference,
-      description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
-      department,
-      module,
-      referenceId: advance._id,
-      referenceType: 'payment',
-      journalCode: 'BANK',
-      voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
-      createdBy,
-      lines: linePayload
-    });
+    const journalEntry = await FinanceHelper.createDraftJournalEntry(
+      withVoucherNarration({
+        date: date || new Date(),
+        reference: advance.reference,
+        description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
+        department,
+        module,
+        referenceId: advance._id,
+        referenceType: 'payment',
+        journalCode: 'BANK',
+        voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+        createdBy,
+        lines: linePayload
+      }, getVendorAdvanceNarration(advance) || reference)
+    );
     advance.journalEntryId = journalEntry._id;
     await advance.save();
     return advance;
@@ -993,7 +1008,7 @@ const FinanceHelper = {
         financeApprovalAuthorities: options.financeApprovalAuthorities,
         authoritySourceDoc: adv,
         vendorAdvanceId: adv._id,
-        journalPayload: {
+        journalPayload: withVoucherNarration({
           date: new Date(),
           reference: `ADV-ADJ-${bill.billNumber}`,
           description: `Vendor advance adjusted against ${bill.billNumber} (pending finance signatures)`,
@@ -1006,7 +1021,7 @@ const FinanceHelper = {
             { account: apAccount._id, description: `Advance adjusted – ${bill.billNumber}`, debit: applyAmount, department: bill.department },
             { account: advAccount._id, description: `Advance utilization – ${adv.reference || adv._id}`, credit: applyAmount, department: bill.department }
           ]
-        }
+        }, getBillNarration(bill)),
       });
 
       adjustments.push({ advanceId: adv._id, reference: adv.reference, amount: applyAmount, pending: true });
@@ -1068,7 +1083,7 @@ const FinanceHelper = {
       financeApprovalAuthorities: options.financeApprovalAuthorities,
       authoritySourceDoc: ca,
       cashApprovalId: ca._id,
-      journalPayload: {
+      journalPayload: withVoucherNarration({
         date: new Date(),
         reference: `CA-ADJ-${bill.billNumber}`,
         description: `Cash approval ${ca.caNumber} applied to bill ${bill.billNumber} (pending finance signatures)`,
@@ -1081,7 +1096,7 @@ const FinanceHelper = {
           { account: apAccount._id, description: `Advance applied – ${bill.billNumber}`, debit: amount, department: bill.department },
           { account: advAccount._id, description: `CA ${ca.caNumber} utilized`, credit: amount, department: bill.department || 'general' }
         ]
-      }
+      }, getBillNarration(bill))
     });
 
     return {
@@ -1292,18 +1307,20 @@ const FinanceHelper = {
     }
 
     try {
-      await FinanceHelper.createAndPostJournalEntry({
-        date:          sinDoc.issueDate || new Date(),
-        reference:     sinDoc.issueNumber || 'SIN',
-        description:   `COGS – Store Issue ${sinDoc.issueNumber || ''}`,
-        department:    sinDoc.department || 'procurement',
-        module:        'procurement',
-        referenceId:   sinDoc._id,
-        referenceType: 'expense',
-        journalCode:   'INV',
-        createdBy,
-        lines
-      });
+      await FinanceHelper.createAndPostJournalEntry(
+        withVoucherNarration({
+          date:          sinDoc.issueDate || new Date(),
+          reference:     sinDoc.issueNumber || 'SIN',
+          description:   `COGS – Store Issue ${sinDoc.issueNumber || ''}`,
+          department:    sinDoc.department || 'procurement',
+          module:        'procurement',
+          referenceId:   sinDoc._id,
+          referenceType: 'expense',
+          journalCode:   'INV',
+          createdBy,
+          lines
+        }, getSinNarration(sinDoc))
+      );
     } catch (cogsErr) {
       console.warn('[COGS] GL posting skipped:', cogsErr.message);
     }
@@ -1356,32 +1373,34 @@ const FinanceHelper = {
       // ──────────────────────────────────────────────────────────────────────
 
       const referenceNumber = grnDoc.receiveNumber || grnDoc._id?.toString() || 'GRN';
-      await FinanceHelper.createAndPostJournalEntry({
-        date: grnDoc.receiveDate || new Date(),
-        reference: referenceNumber,
-        description: `GRN ${referenceNumber}: Stock received – ${inventoryItem.name}`,
-        department: 'procurement',
-        module: 'procurement',
-        referenceId: grnDoc._id,
-        referenceType: 'grn',
-        journalCode: 'INV',
-        voucherSeries: 'GRN',
-        createdBy,
-        lines: [
-          {
-            account: inventoryAccountId,
-            description: `Inventory in – ${inventoryItem.name} (${qty_} × ${unitPrice_})`,
-            debit: amount,
-            department: 'procurement'
-          },
-          {
-            account: grniAccountId,
-            description: `GRNI – ${inventoryItem.name} via GRN ${referenceNumber}`,
-            credit: amount,
-            department: 'procurement'
-          }
-        ]
-      });
+      await FinanceHelper.createAndPostJournalEntry(
+        withVoucherNarration({
+          date: grnDoc.receiveDate || new Date(),
+          reference: referenceNumber,
+          description: `GRN ${referenceNumber}: Stock received – ${inventoryItem.name}`,
+          department: 'procurement',
+          module: 'procurement',
+          referenceId: grnDoc._id,
+          referenceType: 'grn',
+          journalCode: 'INV',
+          voucherSeries: 'GRN',
+          createdBy,
+          lines: [
+            {
+              account: inventoryAccountId,
+              description: `Inventory in – ${inventoryItem.name} (${qty_} × ${unitPrice_})`,
+              debit: amount,
+              department: 'procurement'
+            },
+            {
+              account: grniAccountId,
+              description: `GRNI – ${inventoryItem.name} via GRN ${referenceNumber}`,
+              credit: amount,
+              department: 'procurement'
+            }
+          ]
+        }, getGrnNarration(grnDoc))
+      );
 
       console.log(`[GRN Journal] Posted: DR Inventory ${amount} / CR GRNI ${amount} for ${inventoryItem.name}`);
     } catch (err) {
@@ -1422,32 +1441,34 @@ const FinanceHelper = {
       }
 
       const referenceNumber = sinDoc.issueNumber || sinDoc.sinNumber || sinDoc._id?.toString() || 'SIN';
-      await FinanceHelper.createAndPostJournalEntry({
-        date: sinDoc.issueDate || new Date(),
-        reference: referenceNumber,
-        description: `SIN ${referenceNumber}: Stock issued – ${inventoryItem.name}`,
-        department: 'procurement',
-        module: 'procurement',
-        referenceId: sinDoc._id,
-        referenceType: 'sin',
-        journalCode: 'INV',
-        voucherSeries: 'SIN',
-        createdBy,
-        lines: [
-          {
-            account: cogsAccountId,
-            description: `COGS – ${inventoryItem.name} (${qty_} × WAC ${unitCost})`,
-            debit: amount,
-            department: 'procurement'
-          },
-          {
-            account: inventoryAccountId,
-            description: `Inventory out – ${inventoryItem.name} via SIN ${referenceNumber}`,
-            credit: amount,
-            department: 'procurement'
-          }
-        ]
-      });
+      await FinanceHelper.createAndPostJournalEntry(
+        withVoucherNarration({
+          date: sinDoc.issueDate || new Date(),
+          reference: referenceNumber,
+          description: `SIN ${referenceNumber}: Stock issued – ${inventoryItem.name}`,
+          department: 'procurement',
+          module: 'procurement',
+          referenceId: sinDoc._id,
+          referenceType: 'sin',
+          journalCode: 'INV',
+          voucherSeries: 'SIN',
+          createdBy,
+          lines: [
+            {
+              account: cogsAccountId,
+              description: `COGS – ${inventoryItem.name} (${qty_} × WAC ${unitCost})`,
+              debit: amount,
+              department: 'procurement'
+            },
+            {
+              account: inventoryAccountId,
+              description: `Inventory out – ${inventoryItem.name} via SIN ${referenceNumber}`,
+              credit: amount,
+              department: 'procurement'
+            }
+          ]
+        }, getSinNarration(sinDoc))
+      );
 
       console.log(`[SIN Journal] Posted: DR COGS ${amount} / CR Inventory ${amount} for ${inventoryItem.name}`);
     } catch (err) {
@@ -1495,6 +1516,7 @@ const FinanceHelper = {
       );
 
       if (payableAccount && bankAccount) {
+        const isCash = paymentMethod === 'cash';
         await FinanceHelper.createAndPostJournalEntry({
           date: new Date(),
           reference: `SAL-PAY-${payroll.month}-${payroll.year}`,
@@ -1503,6 +1525,8 @@ const FinanceHelper = {
           module: 'payroll',
           referenceId: payroll._id,
           referenceType: 'payment',
+          journalCode: 'BANK',
+          voucherSeries: isCash ? 'CPV' : 'BPV',
           createdBy,
           lines: [
             { account: payableAccount._id, description: `Debit Salaries Payable`, debit: payroll.netSalary, department: 'hr' },

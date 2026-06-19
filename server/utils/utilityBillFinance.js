@@ -11,6 +11,7 @@ const User = require('../models/User');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const JournalEntry = require('../models/finance/JournalEntry');
 const FinanceHelper = require('./financeHelper');
+const { getBillNarration, withVoucherNarration } = require('./documentNarration');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
 const UTILITY_EXPENSE_ACCOUNT = '6200';
@@ -209,19 +210,21 @@ const postJournalForUtilityAp = async (apEntry, bill, createdByUserId) => {
     ];
   }
 
-  await FinanceHelper.createAndPostJournalEntry({
-    date: billDateNorm,
-    reference: apEntry.billNumber,
-    description: `AP Bill: ${apEntry.billNumber} from ${vendorName}`,
-    department,
-    module,
-    referenceId: apEntry._id,
-    referenceType: 'bill',
-    journalCode: 'PURCH',
-    voucherSeries: 'BILL',
-    createdBy: createdByUserId,
-    lines: journalLines
-  });
+  await FinanceHelper.createAndPostJournalEntry(
+    withVoucherNarration({
+      date: billDateNorm,
+      reference: apEntry.billNumber,
+      description: `AP Bill: ${apEntry.billNumber} from ${vendorName}`,
+      department,
+      module,
+      referenceId: apEntry._id,
+      referenceType: 'bill',
+      journalCode: 'PURCH',
+      voucherSeries: 'BILL',
+      createdBy: createdByUserId,
+      lines: journalLines
+    }, getBillNarration(apEntry) || getBillNarration(bill))
+  );
 
   return { journalPosted: true, repaired: true };
 };

@@ -30,7 +30,9 @@ const {
 } = require('../utils/allowanceTaxCalculator');
 const { queryApproverCandidateUsers } = require('../utils/utilityBillApproverEligibility');
 const { markEmployeeArrearsPaidForPeriod } = require('../utils/employeeArrearsUpdate');
-const { applyBulkPayrollStatusForAuthoritySlot, PAYROLL_STATUS_BY_AUTHORITY_SLOT, applyComparisonReportStatusForAuthoritySlot } = require('../utils/payrollAuthorityPayrollStatus');
+const { applyBulkPayrollStatusForAuthoritySlot, PAYROLL_STATUS_BY_AUTHORITY_SLOT, applyComparisonReportStatusForAuthoritySlot, isPayrollFinalApprovedStatus } = require('../utils/payrollAuthorityPayrollStatus');
+const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const { MONTH_NAMES: PAYROLL_MONTH_NAMES } = require('../utils/financePayrollQueue');
 const {
   savePayrollMonthlyComparisonReport,
   getPayrollMonthlyComparisonReport
@@ -1046,6 +1048,8 @@ router.patch('/monthly-approval/:month/:year/authority-approve',
       ? await applyComparisonReportStatusForAuthoritySlot(month, year, actedSlot.key, req.user.id)
       : { matched: 0, modified: 0 };
 
+    const remaining = slots.filter((slot) => !getApprovedAuthorityKeys(doc).has(slot.key)).length;
+
     if (actedSlot?.key === 'accountsManagerUser' && bulkResult.payrollIds?.length) {
       const finalizedPayrolls = await Payroll.find({ _id: { $in: bulkResult.payrollIds } });
       for (const payroll of finalizedPayrolls) {
@@ -1057,7 +1061,31 @@ router.patch('/monthly-approval/:month/:year/authority-approve',
       }
     }
 
-    const remaining = slots.filter((slot) => !getApprovedAuthorityKeys(doc).has(slot.key)).length;
+    if (actedSlot?.key === 'accountsManagerUser' && remaining === 0) {
+      const financeUsers = await User.find({ role: { $in: ['finance_manager', 'admin', 'super_admin'] }, isActive: true })
+        .select('_id')
+        .lean();
+      const recipientIds = financeUsers.map((u) => u._id);
+      if (recipientIds.length) {
+        await createAndEmitNotification({
+          recipientIds,
+          actorId: req.user.id,
+          title: 'Monthly payroll ready for Finance',
+          message: `${PAYROLL_MONTH_NAMES[month]} ${year} payroll and comparison report are AVP-approved. Process salary payment and bank letter.`,
+          type: 'info',
+          category: 'approval',
+          priority: 'high',
+          actionUrl: `/finance/payroll-queue?month=${month}&year=${year}`,
+          metadata: {
+            module: 'finance',
+            entityType: 'PayrollMonthlyApproval',
+            month,
+            year
+          }
+        });
+      }
+    }
+
     const populated = await populateMonthlyApproval(PayrollMonthlyApproval.findById(doc._id));
     const payrollUpdateNote = bulkResult.modified > 0
       ? ` ${bulkResult.modified} payroll(s) updated to "${PAYROLL_STATUS_BY_AUTHORITY_SLOT[actedSlot?.key] || 'new status'}".`
@@ -1168,7 +1196,7 @@ router.get('/current-overview',
     try {
       // Get all active employees with salary information
       const activeEmployees = await Employee.find({
-        employmentStatus: 'Active',
+        employmentStatus: { $in: ['Active', 'Reinstated'] },
         'salary.gross': { $exists: true, $gt: 0 }
       })
         .select(PAYROLL_EMPLOYEE_SELECT)
@@ -1615,7 +1643,7 @@ router.post('/', [
 
     // Get all active employees with salary information
     const activeEmployees = await Employee.find({
-      employmentStatus: 'Active',
+      employmentStatus: { $in: ['Active', 'Reinstated'] },
       'salary.gross': { $exists: true, $gt: 0 }
     }).select(PAYROLL_EMPLOYEE_SELECT);
 
@@ -2695,10 +2723,10 @@ router.patch('/:id/mark-paid', [
     });
   }
 
-  if (payroll.status !== 'Approved') {
+  if (!isPayrollFinalApprovedStatus(payroll.status)) {
     return res.status(400).json({
       success: false,
-      message: 'Only approved payrolls can be marked as paid'
+      message: 'Only AVP-approved payrolls can be marked as paid'
     });
   }
 

@@ -152,13 +152,16 @@ export default function CompanyProfile() {
 
       <Section icon={<BankIcon color="secondary" fontSize="small" />} title="Bank Details (Printed on Bills/Invoices)">
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
             <TextField fullWidth size="small" label="Bank Name" value={form.bankName || ''} onChange={set('bankName')} />
           </Grid>
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
             <TextField fullWidth size="small" label="Account Number" value={form.bankAccount || ''} onChange={set('bankAccount')} />
           </Grid>
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
+            <TextField fullWidth size="small" label="Branch Code" value={form.bankBranchCode || ''} onChange={set('bankBranchCode')} />
+          </Grid>
+          <Grid item xs={12} sm={3}>
             <TextField fullWidth size="small" label="IBAN" value={form.bankIBAN || ''} onChange={set('bankIBAN')} placeholder="PK00AAAA0000000000000000" />
           </Grid>
         </Grid>

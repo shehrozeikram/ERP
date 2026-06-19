@@ -58,6 +58,7 @@ import {
   formatProbationEndLabel,
   formatProbationDaysLeftLabel
 } from '../../utils/probationAlerts';
+import { getEmployeeStatusLabel, getEmployeeStatusColor, isEmployedEmployee } from '../../utils/employeeStatus';
 
 const EmployeeList = () => {
   const { employees, departments, projects, loading: dataLoading, fetchEmployees, fetchDepartments, fetchProjects, errors } = useData();
@@ -237,11 +238,11 @@ const EmployeeList = () => {
       let matchesStatus = true;
       if (statusFilter) {
         if (statusFilter === 'active') {
-          matchesStatus = employee.isActive === true && employee.employmentStatus === 'Active';
+          matchesStatus = isEmployedEmployee(employee);
         } else if (statusFilter === 'draft') {
           matchesStatus = employee.employmentStatus === 'Draft';
         } else if (statusFilter === 'inactive') {
-          matchesStatus = employee.isActive === false && employee.employmentStatus !== 'Draft';
+          matchesStatus = !isEmployedEmployee(employee) && employee.employmentStatus !== 'Draft';
         }
       }
 
@@ -253,8 +254,8 @@ const EmployeeList = () => {
   const sortedEmployees = useMemo(() => {
     return [...filteredEmployees].sort((a, b) => {
       // First priority: Active employees first, inactive/draft at the end
-      const aIsActive = a.isActive === true && a.employmentStatus === 'Active';
-      const bIsActive = b.isActive === true && b.employmentStatus === 'Active';
+      const aIsActive = isEmployedEmployee(a);
+      const bIsActive = isEmployedEmployee(b);
       
       if (aIsActive !== bIsActive) {
         return aIsActive ? -1 : 1; // active first
@@ -269,9 +270,9 @@ const EmployeeList = () => {
 
   // Memoize statistics calculations
   const statistics = useMemo(() => {
-    const activeEmployees = employees.filter(emp => emp.isActive === true && emp.employmentStatus === 'Active').length;
+    const activeEmployees = employees.filter((emp) => isEmployedEmployee(emp)).length;
     const draftEmployees = employees.filter(emp => emp.employmentStatus === 'Draft').length;
-    const inactiveEmployees = employees.filter(emp => emp.isActive === false && emp.employmentStatus !== 'Draft').length;
+    const inactiveEmployees = employees.filter((emp) => !isEmployedEmployee(emp) && emp.employmentStatus !== 'Draft').length;
     
     const newThisMonth = employees.filter(emp => {
       const hireDate = new Date(emp.hireDate);
@@ -361,25 +362,9 @@ const EmployeeList = () => {
     }
   }, [selectedEmployee, fetchEmployees]);
 
-  const getStatusColor = (employee) => {
-    if (employee.isActive === true && employee.employmentStatus === 'Active') {
-      return 'success';
-    } else if (employee.employmentStatus === 'Draft') {
-      return 'warning';
-    } else {
-      return 'error';
-    }
-  };
+  const getStatusColor = (employee) => getEmployeeStatusColor(employee);
 
-  const getStatusText = (employee) => {
-    if (employee.isActive === true && employee.employmentStatus === 'Active') {
-      return 'Active';
-    } else if (employee.employmentStatus === 'Draft') {
-      return 'Draft';
-    } else {
-      return 'Inactive';
-    }
-  };
+  const getStatusText = (employee) => getEmployeeStatusLabel(employee);
 
 
 
@@ -894,20 +879,11 @@ const EmployeeList = () => {
                         <Box>
                           <Typography variant="subtitle2">
                             {employee.firstName} {employee.lastName}
-                            {employee.employmentStatus === 'Draft' && (
+                            {employee.employmentStatus && employee.employmentStatus !== 'Active' && (
                               <Chip 
-                                label="Draft" 
+                                label={getEmployeeStatusLabel(employee)} 
                                 size="small" 
-                                color="warning" 
-                                variant="outlined"
-                                sx={{ ml: 1, fontSize: '0.6rem', height: 18 }}
-                              />
-                            )}
-                            {employee.isActive === false && employee.employmentStatus !== 'Draft' && (
-                              <Chip 
-                                label="Inactive" 
-                                size="small" 
-                                color="error" 
+                                color={getEmployeeStatusColor(employee)} 
                                 variant="outlined"
                                 sx={{ ml: 1, fontSize: '0.6rem', height: 18 }}
                               />

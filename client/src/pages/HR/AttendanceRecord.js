@@ -33,6 +33,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { PageLoading } from '../../components/LoadingSpinner';
 import api from '../../services/api';
+import { getEmployeeStatusLabel, getEmployeeStatusColor, isEmployedEmployee } from '../../utils/employeeStatus';
 
 const AttendanceRecord = () => {
   const [employees, setEmployees] = useState([]);
@@ -164,11 +165,11 @@ const AttendanceRecord = () => {
       let matchesStatus = true;
       if (statusFilter) {
         if (statusFilter === 'active') {
-          matchesStatus = employee.isActive === true && employee.employmentStatus === 'Active';
+          matchesStatus = isEmployedEmployee(employee);
         } else if (statusFilter === 'draft') {
           matchesStatus = employee.employmentStatus === 'Draft';
         } else if (statusFilter === 'inactive') {
-          matchesStatus = employee.isActive === false && employee.employmentStatus !== 'Draft';
+          matchesStatus = !isEmployedEmployee(employee) && employee.employmentStatus !== 'Draft';
         }
       }
 
@@ -179,8 +180,8 @@ const AttendanceRecord = () => {
   // Sort employees by status and employee ID
   const sortedEmployees = useMemo(() => {
     return [...filteredEmployees].sort((a, b) => {
-      const aIsActive = a.isActive === true && a.employmentStatus === 'Active';
-      const bIsActive = b.isActive === true && b.employmentStatus === 'Active';
+      const aIsActive = isEmployedEmployee(a);
+      const bIsActive = isEmployedEmployee(b);
       
       if (aIsActive !== bIsActive) {
         return aIsActive ? 1 : -1;
@@ -202,9 +203,9 @@ const AttendanceRecord = () => {
 
   // Statistics
   const statistics = useMemo(() => {
-    const activeEmployees = employees.filter(emp => emp.isActive === true && emp.employmentStatus === 'Active').length;
+    const activeEmployees = employees.filter((emp) => isEmployedEmployee(emp)).length;
     const draftEmployees = employees.filter(emp => emp.employmentStatus === 'Draft').length;
-    const inactiveEmployees = employees.filter(emp => emp.isActive === false && emp.employmentStatus !== 'Draft').length;
+    const inactiveEmployees = employees.filter((emp) => !isEmployedEmployee(emp) && emp.employmentStatus !== 'Draft').length;
     
     return {
       totalEmployees: employees.length,
@@ -215,25 +216,9 @@ const AttendanceRecord = () => {
     };
   }, [employees, departments]);
 
-  const getStatusColor = (employee) => {
-    if (employee.isActive === true && employee.employmentStatus === 'Active') {
-      return 'success';
-    } else if (employee.employmentStatus === 'Draft') {
-      return 'warning';
-    } else {
-      return 'error';
-    }
-  };
+  const getStatusColor = (employee) => getEmployeeStatusColor(employee);
 
-  const getStatusText = (employee) => {
-    if (employee.isActive === true && employee.employmentStatus === 'Active') {
-      return 'Active';
-    } else if (employee.employmentStatus === 'Draft') {
-      return 'Draft';
-    } else {
-      return 'Inactive';
-    }
-  };
+  const getStatusText = (employee) => getEmployeeStatusLabel(employee);
 
   const formatEmployeeId = (employeeId) => {
     if (!employeeId) return '';

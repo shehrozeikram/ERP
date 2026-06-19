@@ -596,7 +596,8 @@ router.post('/employees', [
       employeeData.allowances = buildAllowancesPayload(employeeData.allowances);
     }
 
-    const employee = new Employee(employeeData);
+    const { applyEmploymentStatusSync } = require('../utils/employeeEmploymentStatus');
+    const employee = new Employee(applyEmploymentStatusSync(employeeData));
     await employee.save();
 
     res.status(201).json({
@@ -1129,8 +1130,11 @@ router.put('/employees/:id', [
       employeeData.allowances = buildAllowancesPayload(employeeData.allowances);
     }
 
+    const { applyEmploymentStatusSync } = require('../utils/employeeEmploymentStatus');
+    const syncedEmployeeData = applyEmploymentStatusSync(employeeData);
+
     // Explicitly handle array fields to ensure they're properly updated
-    const updateData = { ...employeeData };
+    const updateData = { ...syncedEmployeeData };
     
     // Always include arrays if they were provided in the request (even if empty to clear)
     // This ensures MongoDB properly updates the arrays

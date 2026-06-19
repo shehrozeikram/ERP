@@ -10,7 +10,7 @@ const MONTH_NAMES = [
 ];
 
 const EMPLOYEE_REPORT_SELECT =
-  'firstName lastName employeeId joiningDate hireDate appointmentDate terminationDate terminationReason employmentStatus placementDepartment department';
+  'firstName lastName employeeId joiningDate hireDate appointmentDate terminationDate terminationReason employmentStatus placementDepartment department updatedAt';
 const EMPLOYEE_POPULATE = [
   { path: 'placementDepartment', select: 'name' },
   { path: 'department', select: 'name' }
@@ -43,21 +43,6 @@ const mapEmployeeRow = (emp, extra = {}) => ({
   reason: emp?.terminationReason || '',
   ...extra
 });
-
-const getEmployeeJoinDate = (emp) => {
-  const dates = [emp?.joiningDate, emp?.hireDate, emp?.appointmentDate]
-    .filter(Boolean)
-    .map((value) => new Date(value))
-    .filter((date) => !Number.isNaN(date.getTime()));
-  if (!dates.length) return null;
-  return new Date(Math.min(...dates.map((date) => date.getTime())));
-};
-
-const isNewHireInMonth = (emp, periodStart) => {
-  const joinDate = getEmployeeJoinDate(emp);
-  if (!joinDate) return true;
-  return joinDate >= periodStart;
-};
 
 const mapIncrementRow = (increment) => {
   const emp = increment?.employee;
@@ -188,12 +173,33 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
     ? Math.round((headcountChange / previous.payrollCount) * 1000) / 10
     : (current.payrollCount > 0 ? 100 : 0);
 
-  const resumedEmployees = addedEmployees
-    .filter((emp) => !isNewHireInMonth(emp, start))
-    .map((emp) => mapEmployeeRow(emp, {
-      note: 'Existing employee resumed on payroll this month',
-      employmentStatus: emp.employmentStatus || 'Active'
+  const reinstatedEmployees = [];
+  const reinstatedSeen = new Set();
+
+  currentUnique.forEach((row) => {
+    const emp = row.employee;
+    if (!emp?._id || emp.employmentStatus !== 'Reinstated') return;
+
+    const id = String(emp._id);
+    if (reinstatedSeen.has(id)) return;
+
+    const returnedToPayroll = !previousIdSet.has(id);
+    const updatedAt = emp.updatedAt ? new Date(emp.updatedAt) : null;
+    const statusUpdatedThisMonth = updatedAt
+      && !Number.isNaN(updatedAt.getTime())
+      && updatedAt >= start
+      && updatedAt <= end;
+
+    if (!returnedToPayroll && !statusUpdatedThisMonth) return;
+
+    reinstatedSeen.add(id);
+    reinstatedEmployees.push(mapEmployeeRow(emp, {
+      note: returnedToPayroll
+        ? 'Employee reinstated on payroll this month'
+        : 'Employee status set to Reinstated this month',
+      employmentStatus: 'Reinstated'
     }));
+  });
 
   return {
     month,
@@ -215,7 +221,7 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
     hirings: hirings.map((emp) => mapEmployeeRow(emp)),
     separations: [...separationMap.values()],
     salaryIncrements: salaryIncrements.map((row) => mapIncrementRow(row)),
-    resumedEmployees,
+    reinstatedEmployees,
     newOnPayroll: addedEmployees.map((emp) => mapEmployeeRow(emp, { note: 'Added to payroll vs last month' })),
     removedFromPayroll: removedEmployees.map((emp) => mapEmployeeRow(emp, { note: 'On last month payroll, not this month' }))
   };

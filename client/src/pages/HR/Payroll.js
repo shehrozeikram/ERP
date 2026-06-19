@@ -683,7 +683,7 @@ const Payroll = () => {
   const isPayrollEligibleEmployee = (employee = {}) => {
     const status = String(employee.employmentStatus || '').trim();
     const gross = Number(employee.salary?.gross ?? employee.grossSalary ?? 0);
-    return status === 'Active' && gross > 0;
+    return (status === 'Active' || status === 'Reinstated') && gross > 0;
   };
 
   const bulkPayrollEligibleCount =

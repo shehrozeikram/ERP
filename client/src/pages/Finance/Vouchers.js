@@ -99,7 +99,6 @@ const VOUCHER_TYPE_FILTER_OPTIONS = [
   { value: 'sin', label: 'SIN' },
   { value: 'manual', label: 'MANUAL' },
   { value: 'adjustment', label: 'ADJUSTMENT' },
-  { value: 'payroll', label: 'PAYROLL' },
   { value: 'purchase_order', label: 'PURCHASE ORDER' },
   { value: 'depreciation', label: 'DEPRECIATION' },
   { value: 'expense', label: 'EXPENSE' },
@@ -189,6 +188,8 @@ const Vouchers = () => {
       if (status && status !== 'signed') params.append('status', status);
       if (search.trim()) params.append('search', search.trim());
       if (voucherType) params.append('referenceType', voucherType);
+      // Payroll accrual JVs are auto-posted backend entries; finance uses Payroll Queue + BPV on payment.
+      params.append('excludeReferenceTypes', 'payroll');
       const res = await api.get(`/finance/journal-entries?${params.toString()}`);
       setEntries(res?.data?.data?.entries || []);
     } catch (_e) {

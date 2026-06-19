@@ -80,6 +80,7 @@ import BulkLabelPrintPage from './pages/AssetTagging/BulkLabelPrintPage';
 import BankReconciliation from './pages/Finance/BankReconciliation';
 import VendorStatement from './pages/Finance/VendorStatement';
 import FinanceVendorsList from './pages/Finance/FinanceVendorsList';
+import FinancePayroll from './pages/Finance/FinancePayroll';
 import BudgetVsActual from './pages/Finance/BudgetVsActual';
 import AgedPayables from './pages/Finance/AgedPayables';
 import PaymentTerms from './pages/Finance/PaymentTerms';
@@ -1120,6 +1121,7 @@ function App() {
             <Route path="/asset-tagging/label/:assetId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><LabelPrintPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/labels/print" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><BulkLabelPrintPage /></ProtectedRoute>} />
             <Route path="/finance/bank-reconciliation" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankReconciliation /></ProtectedRoute>} />
+            <Route path="/finance/payroll-queue" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinancePayroll /></ProtectedRoute>} />
             <Route path="/finance/vendors" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "procurement_manager"]}><FinanceVendorsList /></ProtectedRoute>} />
             <Route path="/finance/vendor-statement" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "procurement_manager"]}><VendorStatement /></ProtectedRoute>} />
             <Route path="/finance/budget-vs-actual" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetVsActual /></ProtectedRoute>} />

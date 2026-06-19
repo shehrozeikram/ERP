@@ -214,7 +214,7 @@ const EmployeeForm = () => {
     hireDate: Yup.date().required('Hire date is required'),
     jobDescription: Yup.string().optional(),
     // Employment status
-    employmentStatus: Yup.string().oneOf(['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'], 'Invalid employment status'),
+    employmentStatus: Yup.string().oneOf(['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired', 'Reinstated'], 'Invalid employment status'),
     // Placement fields
     placementCompany: Yup.string().optional(),
     placementSector: Yup.string().optional(),
@@ -681,7 +681,7 @@ const EmployeeForm = () => {
   // Handle employment status change
   const handleEmploymentStatusChange = (newStatus) => {
     // Auto-sync isActive when employment status changes
-    if (newStatus === 'Active') {
+    if (newStatus === 'Active' || newStatus === 'Reinstated') {
       formik.setFieldValue('isActive', true);
     } else if (newStatus === 'Draft') {
       formik.setFieldValue('isActive', false);
@@ -2138,7 +2138,7 @@ const EmployeeForm = () => {
                   <Chip 
                     label={formik.values.employmentStatus || 'Draft'} 
                     color={
-                      formik.values.employmentStatus === 'Active' ? 'success' : 
+                      formik.values.employmentStatus === 'Active' || formik.values.employmentStatus === 'Reinstated' ? 'success' : 
                       formik.values.employmentStatus === 'Draft' ? 'warning' : 'error'
                     }
                     variant="outlined"
@@ -3452,6 +3452,7 @@ const EmployeeForm = () => {
                   <MenuItem value="Terminated">Terminated</MenuItem>
                   <MenuItem value="Resigned">Resigned</MenuItem>
                   <MenuItem value="Retired">Retired</MenuItem>
+                  <MenuItem value="Reinstated">Reinstated</MenuItem>
                 </Select>
                 {formik.touched.employmentStatus && formik.errors.employmentStatus && (
                   <FormHelperText error>{formik.errors.employmentStatus}</FormHelperText>

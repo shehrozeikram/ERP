@@ -25,6 +25,7 @@ const companyProfileSchema = new mongoose.Schema({
   currency:    { type: String, default: 'PKR' },
   bankName:    { type: String, default: '' },
   bankAccount: { type: String, default: '' },
+  bankBranchCode: { type: String, default: '' },
   bankIBAN:    { type: String, default: '' },
   invoiceFooter: { type: String, default: 'Thank you for your business.' },
 }, { _id: false });

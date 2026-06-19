@@ -17,6 +17,7 @@ const JournalEntry = require('../models/finance/JournalEntry');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
 const FinanceHelper = require('../utils/financeHelper');
+const { getCashApprovalNarration, withVoucherNarration } = require('../utils/documentNarration');
 const {
   GENERAL_MODULE,
   isGeneralCashApproval,
@@ -496,23 +497,26 @@ const ensureVoucherForCashApproval = async (ca, userId, options = {}) => {
   }
 
   const isCashVoucher = paymentMethod === 'cash';
-  const voucher = await FinanceHelper.createAndPostJournalEntry({
-    date: new Date(),
-    reference: ca.caNumber,
-    description: remarks || `Cash Approval voucher created for ${ca.caNumber}`,
-    department: 'finance',
-    module: 'finance',
-    referenceId: ca._id,
-    referenceType: ['payment', 'receipt', 'adjustment', 'manual', 'expense'].includes(voucherType) ? voucherType : 'payment',
-    journalCode: isCashVoucher ? 'CASH' : 'BANK',
-    voucherSeries: isCashVoucher ? 'CPV' : 'BPV',
-    createdBy: userId,
-    notes: remarks || undefined,
-    lines: [
-      { account: debitAccount._id, description: `Cash approval expense (${ca.caNumber})`, debit: amount, department: 'finance' },
-      { account: creditAccount._id, description: `Payable for cash approval (${ca.caNumber})`, credit: amount, department: 'finance' }
-    ]
-  });
+  const caNarration = getCashApprovalNarration(ca);
+  const voucher = await FinanceHelper.createAndPostJournalEntry(
+    withVoucherNarration({
+      date: new Date(),
+      reference: ca.caNumber,
+      description: remarks || `Cash Approval voucher created for ${ca.caNumber}`,
+      department: 'finance',
+      module: 'finance',
+      referenceId: ca._id,
+      referenceType: ['payment', 'receipt', 'adjustment', 'manual', 'expense'].includes(voucherType) ? voucherType : 'payment',
+      journalCode: isCashVoucher ? 'CASH' : 'BANK',
+      voucherSeries: isCashVoucher ? 'CPV' : 'BPV',
+      createdBy: userId,
+      notes: remarks || undefined,
+      lines: [
+        { account: debitAccount._id, description: `Cash approval expense (${ca.caNumber})`, debit: amount, department: 'finance' },
+        { account: creditAccount._id, description: `Payable for cash approval (${ca.caNumber})`, credit: amount, department: 'finance' }
+      ]
+    }, caNarration || remarks)
+  );
   ca.voucherEntryId = voucher._id;
   return voucher._id;
 };
@@ -2330,7 +2334,8 @@ const ensurePostedBpvForGeneralCashApproval = async (ca, userId, opts = {}) => {
   });
 
   const employeeName = employeeDisplayName(employee);
-  const meta = {
+  const caNarration = getCashApprovalNarration(ca);
+  const meta = withVoucherNarration({
     date: postingDate,
     reference: payRef,
     description: `Cash approval advance — ${employeeName} — ${ca.caNumber}`,
@@ -2340,25 +2345,23 @@ const ensurePostedBpvForGeneralCashApproval = async (ca, userId, opts = {}) => {
     referenceType: 'payment',
     journalCode: isCash ? 'CASH' : 'BANK',
     voucherSeries: isCash ? 'CPV' : 'BPV'
-  };
+  }, caNarration);
 
   if (ca.voucherEntryId) {
     const existing = await JournalEntry.findById(ca.voucherEntryId);
     if (existing?.status === 'posted') return existing;
     if (existing?.status === 'draft') {
-      Object.assign(existing, meta);
-      existing.lines = jeLines;
+      const narrated = withVoucherNarration({ ...meta, lines: jeLines }, caNarration);
+      Object.assign(existing, narrated);
       const posted = await postJournalEntryWithGl(existing, userId);
       ca.advanceVoucherNo = posted.entryNumber || ca.advanceVoucherNo;
       return posted;
     }
   }
 
-  const voucher = await FinanceHelper.createAndPostJournalEntry({
-    ...meta,
-    createdBy: userId,
-    lines: jeLines
-  });
+  const voucher = await FinanceHelper.createAndPostJournalEntry(
+    withVoucherNarration({ ...meta, createdBy: userId, lines: jeLines }, caNarration)
+  );
   ca.voucherEntryId = voucher._id;
   ca.advanceVoucherNo = voucher.entryNumber || '';
   return voucher;
@@ -2453,6 +2456,7 @@ const postGeneralCashApprovalAdvancePayment = async ({
   const payRef = String(reference || primaryCa?.caNumber || '').trim();
   const bankAccount = await resolveBankAccountForCaPayment(bankAccountId, paymentMethod, req.user.id);
   const employeeName = employeeDisplayName(employee);
+  const caNarration = getCashApprovalNarration(primaryCa || cas[0]);
   const { jeLines, isCash } = await buildGeneralAdvancePaymentLines({
     cas,
     employee,
@@ -2473,8 +2477,12 @@ const postGeneralCashApprovalAdvancePayment = async ({
     } else if (draft?.status === 'draft') {
       draft.date = postingDate;
       draft.reference = payRef || cas.map((c) => c.caNumber).join(', ');
-      draft.description = `Cash approval advance payment to ${employeeName}`;
-      draft.lines = jeLines;
+      const narratedDraft = withVoucherNarration(
+        { description: `Cash approval advance payment to ${employeeName}`, lines: jeLines },
+        caNarration
+      );
+      draft.description = narratedDraft.description;
+      draft.lines = narratedDraft.lines;
       draft.voucherSeries = isCash ? 'CPV' : 'BPV';
       draft.journalCode = isCash ? 'CASH' : 'BANK';
       voucher = await postJournalEntryWithGl(draft, req.user.id);
@@ -2482,19 +2490,21 @@ const postGeneralCashApprovalAdvancePayment = async ({
   }
 
   if (!voucher) {
-    voucher = await FinanceHelper.createAndPostJournalEntry({
-      date: postingDate,
-      reference: payRef || cas.map((c) => c.caNumber).join(', '),
-      description: `Cash approval advance payment to ${employeeName}`,
-      department: 'general',
-      module: 'general',
-      referenceId: primaryCa?._id || cas[0]._id,
-      referenceType: 'payment',
-      journalCode: isCash ? 'CASH' : 'BANK',
-      voucherSeries: isCash ? 'CPV' : 'BPV',
-      createdBy: req.user.id,
-      lines: jeLines
-    });
+    voucher = await FinanceHelper.createAndPostJournalEntry(
+      withVoucherNarration({
+        date: postingDate,
+        reference: payRef || cas.map((c) => c.caNumber).join(', '),
+        description: `Cash approval advance payment to ${employeeName}`,
+        department: 'general',
+        module: 'general',
+        referenceId: primaryCa?._id || cas[0]._id,
+        referenceType: 'payment',
+        journalCode: isCash ? 'CASH' : 'BANK',
+        voucherSeries: isCash ? 'CPV' : 'BPV',
+        createdBy: req.user.id,
+        lines: jeLines
+      }, caNarration)
+    );
   }
 
   for (const ca of cas) {
@@ -2679,32 +2689,35 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
     if (debitAdvanceAcc && cashBankAcc) {
       const jeDept = isGeneralCashApproval(ca) ? 'general' : 'procurement';
       const jeModule = isGeneralCashApproval(ca) ? 'general' : 'procurement';
-      const voucher = await FinanceHelper.createAndPostJournalEntry({
-        date: new Date(),
-        reference: advanceVoucherNo || ca.caNumber,
-        description: `Cash Advance issued for ${ca.caNumber}${advanceToName ? ` to ${advanceToName}` : ''}`,
-        department: jeDept,
-        module: jeModule,
-        referenceId: ca._id,
-        referenceType: 'payment',
-        journalCode: isCash ? 'CASH' : 'BANK',
-        voucherSeries: isCash ? 'CPV' : 'BPV',
-        createdBy: req.user.id,
-        lines: [
-          {
-            account: debitAdvanceAcc._id,
-            description: `Employee advance for ${ca.caNumber}${advanceToName ? ` — ${advanceToName}` : ''}${ca.advanceGlAccountNumber ? ` (${ca.advanceGlAccountNumber})` : ''}`,
-            debit: amount,
-            department: jeDept
-          },
-          {
-            account: cashBankAcc._id,
-            description: `${isCash ? 'Cash' : 'Bank'} payment — advance for ${ca.caNumber}`,
-            credit: amount,
-            department: 'finance'
-          }
-        ]
-      });
+      const caNarration = getCashApprovalNarration(ca);
+      const voucher = await FinanceHelper.createAndPostJournalEntry(
+        withVoucherNarration({
+          date: new Date(),
+          reference: advanceVoucherNo || ca.caNumber,
+          description: `Cash Advance issued for ${ca.caNumber}${advanceToName ? ` to ${advanceToName}` : ''}`,
+          department: jeDept,
+          module: jeModule,
+          referenceId: ca._id,
+          referenceType: 'payment',
+          journalCode: isCash ? 'CASH' : 'BANK',
+          voucherSeries: isCash ? 'CPV' : 'BPV',
+          createdBy: req.user.id,
+          lines: [
+            {
+              account: debitAdvanceAcc._id,
+              description: `Employee advance for ${ca.caNumber}${advanceToName ? ` — ${advanceToName}` : ''}${ca.advanceGlAccountNumber ? ` (${ca.advanceGlAccountNumber})` : ''}`,
+              debit: amount,
+              department: jeDept
+            },
+            {
+              account: cashBankAcc._id,
+              description: `${isCash ? 'Cash' : 'Bank'} payment — advance for ${ca.caNumber}`,
+              credit: amount,
+              department: 'finance'
+            }
+          ]
+        }, caNarration)
+      );
       if (voucher?.entryNumber) {
         ca.advanceVoucherNo = voucher.entryNumber;
         ca.voucherEntryId = voucher._id;

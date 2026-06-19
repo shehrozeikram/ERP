@@ -5,6 +5,7 @@ const { authorize } = require('../middleware/auth');
 const PurchaseReturn = require('../models/procurement/PurchaseReturn');
 const Inventory = require('../models/procurement/Inventory');
 const FinanceHelper = require('../utils/financeHelper');
+const { getPurchaseReturnNarration, withVoucherNarration } = require('../utils/documentNarration');
 
 // GET /api/procurement/purchase-returns
 router.get('/', asyncHandler(async (req, res) => {
@@ -103,18 +104,20 @@ router.post('/:id/confirm', authorize('super_admin', 'admin', 'procurement_manag
   let journalEntry = null;
   if (journalLines.length > 0) {
     try {
-      journalEntry = await FinanceHelper.createAndPostJournalEntry({
-        date: pr.returnDate || new Date(),
-        reference: pr.returnNumber,
-        description: `Purchase Return ${pr.returnNumber}`,
-        department: 'procurement',
-        module: 'procurement',
-        referenceId: pr._id,
-        referenceType: 'purchase_return',
-        journalCode: 'INV',
-        createdBy: req.user.id,
-        lines: journalLines
-      });
+      journalEntry = await FinanceHelper.createAndPostJournalEntry(
+        withVoucherNarration({
+          date: pr.returnDate || new Date(),
+          reference: pr.returnNumber,
+          description: `Purchase Return ${pr.returnNumber}`,
+          department: 'procurement',
+          module: 'procurement',
+          referenceId: pr._id,
+          referenceType: 'purchase_return',
+          journalCode: 'INV',
+          createdBy: req.user.id,
+          lines: journalLines
+        }, getPurchaseReturnNarration(pr))
+      );
     } catch (e) {
       console.warn('[PurchaseReturn] Journal entry failed:', e.message);
     }

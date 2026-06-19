@@ -342,9 +342,9 @@ const PayrollMonthlyComparisonDialog = ({
             />
 
             <EmployeeTable
-              title="Resumed Employees This Month"
-              rows={report?.resumedEmployees}
-              emptyMessage="No employees resumed on payroll this month."
+              title="Reinstated Employees This Month"
+              rows={report?.reinstatedEmployees ?? report?.resumedEmployees}
+              emptyMessage="No reinstated employees on payroll this month."
               showNote
             />
 

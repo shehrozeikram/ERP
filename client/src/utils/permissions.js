@@ -623,6 +623,7 @@ export const MODULES = {
         name: 'Vendors',
         path: '/finance/accounts-payable',
         subItems: [
+          { name: 'Payroll (Finance)',     path: '/finance/payroll-queue'        },
           { name: 'Vendor List',          path: '/finance/vendors'              },
           { name: 'Vendor Bills',         path: '/finance/accounts-payable'     },
           { name: 'Vendor Advance',       path: '/finance/vendor-advance'        },
@@ -1419,6 +1420,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/utility-bills': 'accounts_payable',
       '/finance/cash-approvals': 'accounts_payable',
+      '/finance/payroll-queue': 'payroll_management',
       '/finance/vendor-advance': 'accounts_payable',
       '/finance/banking': 'banking',
       '/finance/taxes': 'tax_management',

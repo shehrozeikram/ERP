@@ -45,6 +45,7 @@ import api from '../../services/api';
 import { useData } from '../../contexts/DataContext';
 import ArrearsDialog from '../../components/ArrearsDialog';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
+import { getEmployeeStatusLabel, getEmployeeStatusColor, isEmployedEmployee } from '../../utils/employeeStatus';
 import leaveService from '../../services/leaveService';
 import TextField from '@mui/material/TextField';
 import { fetchEmployeeKpiWorksheet } from '../../services/kpiWorksheetService';
@@ -245,12 +246,14 @@ const EmployeeView = () => {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const getStatusColor = (isActive) => {
-    return isActive ? 'success' : 'error';
-  };
+  const getStatusColor = (employee) => getEmployeeStatusColor(employee);
 
-  const getStatusText = (isActive) => {
-    return isActive ? 'Active' : 'Inactive';
+  const getStatusText = (employee) => getEmployeeStatusLabel(employee);
+
+  const getStatusLabelColor = (employee) => {
+    const color = getStatusColor(employee);
+    if (color === 'default') return 'text.secondary';
+    return `${color}.main`;
   };
 
   const safeRenderText = (value) => {
@@ -707,16 +710,16 @@ const EmployeeView = () => {
             <FormControlLabel
               control={
                 <Switch
-                  checked={employee?.isActive || false}
+                  checked={isEmployedEmployee(employee)}
                   onChange={handleToggleStatus}
-                  disabled={updatingStatus}
+                  disabled={updatingStatus || employee?.employmentStatus === 'Reinstated'}
                   color="primary"
                   size="medium"
                 />
               }
               label={
-                <Typography variant="body2" fontWeight="medium" color={employee?.isActive ? 'success.main' : 'error.main'}>
-                  {updatingStatus ? 'Updating...' : (employee?.isActive ? 'Active' : 'Inactive')}
+                <Typography variant="body2" fontWeight="medium" color={getStatusLabelColor(employee)}>
+                  {updatingStatus ? 'Updating...' : getStatusText(employee)}
                 </Typography>
               }
               sx={{ margin: 0 }}
@@ -769,8 +772,8 @@ const EmployeeView = () => {
               </Typography>
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 <Chip
-                  label={getStatusText(employee.isActive)}
-                  color={getStatusColor(employee.isActive)}
+                  label={getStatusText(employee)}
+                  color={getStatusColor(employee)}
                   size="small"
                 />
                 <Typography variant="body2" color="textSecondary">
@@ -1046,6 +1049,15 @@ const EmployeeView = () => {
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Bank Account Number</Typography>
                   <Typography variant="body1">{safeRenderText(employee.bankAccountNumber || employee.accountNumber)}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Employment Status</Typography>
+                  <Chip
+                    label={getStatusText(employee)}
+                    color={getStatusColor(employee)}
+                    size="small"
+                    sx={{ mt: 0.5 }}
+                  />
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Hire Date</Typography>

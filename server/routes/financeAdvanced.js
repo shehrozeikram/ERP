@@ -26,6 +26,12 @@ const {
   resolveEmployeeForFinanceQuery,
   buildCashApprovalEmployeeFilter
 } = require('../utils/employeeAdvanceAccount');
+const {
+  listFinancePayrollQueue,
+  getFinancePayrollPeriodDetail,
+  getFinancePayrollBankLetter,
+  markFinancePayrollPeriodPaid
+} = require('../utils/financePayrollQueue');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
@@ -510,7 +516,8 @@ router.get('/journal-entries',
       startDate,
       endDate,
       search,
-      referenceType
+      referenceType,
+      excludeReferenceTypes
     } = req.query;
 
     const filters = {};
@@ -520,8 +527,15 @@ router.get('/journal-entries',
       'grn', 'sin', 'purchase_order', 'stock_adjustment', 'purchase_return',
       'depreciation', 'expense'
     ]);
+    const excludedTypes = String(excludeReferenceTypes || '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => allowedReferenceTypes.has(value));
+
     if (referenceType && allowedReferenceTypes.has(String(referenceType).toLowerCase())) {
       filters.referenceType = String(referenceType).toLowerCase();
+    } else if (excludedTypes.length) {
+      filters.referenceType = { $nin: excludedTypes };
     }
 
     if (department) filters.department = department;
@@ -5735,7 +5749,7 @@ router.put('/company-profile',
     const settings = await SystemSettings.getSingleton();
     const allowed = ['name', 'legalName', 'ntn', 'strn', 'address', 'city', 'country',
                      'phone', 'email', 'website', 'logoUrl', 'currency',
-                     'bankName', 'bankAccount', 'bankIBAN', 'invoiceFooter'];
+                     'bankName', 'bankAccount', 'bankIBAN', 'bankBranchCode', 'invoiceFooter'];
     if (!settings.companyProfile) settings.companyProfile = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) settings.companyProfile[f] = req.body[f]; });
     settings.updatedBy = req.user.id;
@@ -6108,6 +6122,57 @@ router.delete('/journal-entries/:id/attachments/:filename',
     await entry.save();
     const fresh = await JournalEntry.findById(entry._id).lean();
     res.json({ success: true, message: 'Attachment deleted', data: fresh });
+  })
+);
+
+// @route   GET /api/finance/payroll-queue
+// @desc    AVP-approved monthly payroll periods awaiting finance processing
+router.get('/payroll-queue',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const queue = await listFinancePayrollQueue();
+    res.json({ success: true, data: queue });
+  })
+);
+
+// @route   GET /api/finance/payroll-queue/:month/:year
+router.get('/payroll-queue/:month/:year',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const detail = await getFinancePayrollPeriodDetail(req.params.month, req.params.year);
+    res.json({ success: true, data: detail });
+  })
+);
+
+// @route   GET /api/finance/payroll-queue/:month/:year/bank-letter
+router.get('/payroll-queue/:month/:year/bank-letter',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const letter = await getFinancePayrollBankLetter(req.params.month, req.params.year);
+    res.json({ success: true, data: letter });
+  })
+);
+
+// @route   POST /api/finance/payroll-queue/:month/:year/mark-paid
+router.post('/payroll-queue/:month/:year/mark-paid',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('paymentMethod').optional().isIn(['bank_transfer', 'cash', 'check']).withMessage('Invalid payment method')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const result = await markFinancePayrollPeriodPaid(req.params.month, req.params.year, {
+      paymentMethod: req.body.paymentMethod || 'bank_transfer',
+      actorId: req.user.id
+    });
+    res.json({
+      success: true,
+      message: `${result.paid} payroll record(s) marked as paid${result.failed ? `; ${result.failed} failed` : ''}.`,
+      data: result
+    });
   })
 );
 

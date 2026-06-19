@@ -516,7 +516,7 @@ const employeeSchema = new mongoose.Schema({
   },
   employmentStatus: {
     type: String,
-    enum: ['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'],
+    enum: ['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired', 'Reinstated'],
     default: 'Draft'
   },
   // Flexible Allowance Structure (House Rent removed as it's part of distributed salary)
