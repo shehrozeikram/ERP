@@ -80,7 +80,8 @@ router.post('/', [
     });
   }
 
-  const company = new Company(req.body);
+  const { sanitizeCompanyPayload } = require('../utils/companyPayload');
+  const company = new Company(sanitizeCompanyPayload(req.body));
   await company.save();
 
   res.status(201).json({
@@ -114,9 +115,10 @@ router.put('/:id', [
     });
   }
 
+  const { sanitizeCompanyPayload } = require('../utils/companyPayload');
   const company = await Company.findByIdAndUpdate(
     req.params.id,
-    req.body,
+    { ...sanitizeCompanyPayload(req.body), $unset: { code: '' } },
     { new: true, runValidators: true }
   );
 

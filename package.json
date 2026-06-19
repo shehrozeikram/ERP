@@ -41,6 +41,8 @@
     "assign:employees-three-projects": "node server/scripts/assign-employees-to-three-projects.js --yes",
     "seed:hr-companies:dry-run": "node server/scripts/seed-hr-companies.js --dry-run",
     "seed:hr-companies": "node server/scripts/seed-hr-companies.js --yes",
+    "drop:company-code-index": "node server/scripts/drop-company-code-index.js",
+    "drop:company-code-index:prod": "NODE_ENV=production node server/scripts/drop-company-code-index.js",
     "mongo:show-target": "node scripts/show-mongodb-target.js",
     "mongo:show-target:prod": "NODE_ENV=production node scripts/show-mongodb-target.js",
     "mongo:show-target:prod:connect": "NODE_ENV=production node scripts/show-mongodb-target.js --connect",
