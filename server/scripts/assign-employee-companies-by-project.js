@@ -87,6 +87,24 @@ const COMPANY_PROJECT_MAPPINGS = [
       'Royal Crete Services',
       'Royal Crete Solutions'
     ]
+  },
+  {
+    companyNames: ['TENACIOUS'],
+    projectNames: [
+      'Educational Secretariat',
+      'The Tenacious Education System',
+      'Tenacious Education System'
+    ]
+  },
+  {
+    companyNames: ['TAJ RESIDENCIA'],
+    projectNames: [
+      'TAJ RESIDENCIA I-14',
+      'Taj Residencia I-14',
+      'Taj Facilty Management',
+      'Taj Facility Management',
+      'Project Management Company'
+    ]
   }
 ];
 
