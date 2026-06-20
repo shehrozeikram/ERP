@@ -15,3 +15,8 @@ export function isEmployedEmployee(employee = {}) {
   if (employee.employmentStatus === 'Reinstated') return true;
   return employee.isActive === true && employee.employmentStatus === 'Active';
 }
+
+/** Left the organization — matches Employee List inactive filter (includes Inactive status). */
+export function isSeparatedEmployee(employee = {}) {
+  return !isEmployedEmployee(employee) && employee.employmentStatus !== 'Draft';
+}

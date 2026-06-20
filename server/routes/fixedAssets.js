@@ -8,6 +8,8 @@ const asyncHandler = require('express-async-handler');
 const { authorize } = require('../middleware/auth');
 const FixedAsset = require('../models/finance/FixedAsset');
 const FinanceHelper = require('../utils/financeHelper');
+const { financeScope, assertDocCompany } = require('../utils/financeRouteScope');
+const { withCompany } = require('../utils/financePosting');
 const Employee = require('../models/hr/Employee');
 const Project = require('../models/hr/Project');
 
@@ -148,7 +150,8 @@ function normalizeProjectInput(input) {
 // GET /api/finance/fixed-assets
 router.get('/', asyncHandler(async (req, res) => {
   const { status, category } = req.query;
-  const filter = {};
+  const { q } = await financeScope(req);
+  const filter = q({});
   if (status) filter.status = status;
   if (category) filter.category = category;
 
@@ -221,7 +224,8 @@ router.get('/projects', authorize(
 
 // GET /api/finance/fixed-assets/:id
 router.get('/:id([0-9a-fA-F]{24})', asyncHandler(async (req, res) => {
-  const asset = await FixedAsset.findById(req.params.id)
+  const { q } = await financeScope(req);
+  const asset = await FixedAsset.findOne(q({ _id: req.params.id }))
     .populate('assetAccount', 'name accountNumber')
     .populate('accumulatedDeprecAccount', 'name accountNumber')
     .populate('depreciationExpenseAccount', 'name accountNumber')
@@ -241,7 +245,8 @@ router.post('/', authorize('super_admin', 'admin', 'finance_manager'), handleFix
       return res.status(400).json({ success: false, errors: validationErrors });
     }
 
-    const payload = { ...body, createdBy: req.user.id };
+    const { companyId } = await financeScope(req);
+    const payload = { ...body, createdBy: req.user.id, companyId };
     payload.project = normalizeProjectInput(payload.project);
     if (!payload.serialNumber) {
       const assets = await FixedAsset.find({ serialNumber: { $exists: true, $ne: '' } }).select('serialNumber').lean();
@@ -268,8 +273,10 @@ router.post('/', authorize('super_admin', 'admin', 'finance_manager'), handleFix
 // PUT /api/finance/fixed-assets/:id
 router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), handleFixedAssetUpload,
   asyncHandler(async (req, res) => {
-    const asset = await FixedAsset.findById(req.params.id);
+    const { companyId, q } = await financeScope(req);
+    const asset = await FixedAsset.findOne(q({ _id: req.params.id }));
     if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+    assertDocCompany(asset, companyId, 'Fixed asset');
 
     const body = normalizeFixedAssetPayload(parseFixedAssetRequestBody(req));
     const allowed = ['name', 'description', 'category', 'purchaseDate', 'purchaseCost', 'residualValue', 'depreciationMethod',
@@ -302,8 +309,10 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), handleF
 
 // POST /api/finance/fixed-assets/:id/depreciate — run monthly depreciation for asset
 router.post('/:id/depreciate', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
-  const asset = await FixedAsset.findById(req.params.id);
+  const { companyId, q, withCo } = await financeScope(req);
+  const asset = await FixedAsset.findOne(q({ _id: req.params.id }));
   if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+  assertDocCompany(asset, companyId, 'Fixed asset');
   if (asset.status !== 'active') return res.status(400).json({ success: false, message: 'Asset is not active' });
 
   const { year, month } = req.body;
@@ -329,7 +338,7 @@ router.post('/:id/depreciate', authorize('super_admin', 'admin', 'finance_manage
   let journalEntry = null;
   if (asset.depreciationExpenseAccount && asset.accumulatedDeprecAccount) {
     try {
-      journalEntry = await FinanceHelper.createAndPostJournalEntry({
+      journalEntry = await FinanceHelper.createAndPostJournalEntry(withCo({
         date: new Date(year, month - 1, 28),
         reference: `DEP-${asset.assetNumber}-${period}`,
         description: `Depreciation – ${asset.name} (${period})`,
@@ -343,7 +352,7 @@ router.post('/:id/depreciate', authorize('super_admin', 'admin', 'finance_manage
           { account: asset.depreciationExpenseAccount, description: `Depreciation expense – ${asset.name}`, debit: depreciationAmt, department: 'finance', costCenter: asset.costCenter },
           { account: asset.accumulatedDeprecAccount, description: `Accum. depreciation – ${asset.name}`, credit: depreciationAmt, department: 'finance', costCenter: asset.costCenter }
         ]
-      });
+      }));
     } catch (e) {
       console.warn('[FixedAsset] Depreciation JE failed:', e.message);
     }
@@ -375,8 +384,10 @@ router.post('/:id/depreciate', authorize('super_admin', 'admin', 'finance_manage
 
 // POST /api/finance/fixed-assets/:id/dispose — dispose of asset
 router.post('/:id/dispose', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
-  const asset = await FixedAsset.findById(req.params.id);
+  const { companyId, q } = await financeScope(req);
+  const asset = await FixedAsset.findOne(q({ _id: req.params.id }));
   if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+  assertDocCompany(asset, companyId, 'Fixed asset');
 
   const { disposalDate, disposalValue = 0, notes } = req.body;
   asset.status = 'disposed';
@@ -400,7 +411,10 @@ router.post('/depreciate-all', authorize('super_admin', 'admin', 'finance_manage
 
 // GET /api/finance/fixed-assets/reports/summary — summary by category
 router.get('/reports/summary', asyncHandler(async (req, res) => {
+  const { q } = await financeScope(req);
+  const companyMatch = q({});
   const summary = await FixedAsset.aggregate([
+    { $match: companyMatch },
     { $group: {
       _id: '$category',
       count: { $sum: 1 },

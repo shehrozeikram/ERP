@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const accountsReceivableSchema = new mongoose.Schema({
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    default: null,
+    index: true
+  },
   // Customer information
   customer: {
     name: {
@@ -439,8 +445,12 @@ accountsReceivableSchema.methods.recordPayment = async function(paymentData) {
 };
 
 // Static methods
-accountsReceivableSchema.statics.getAgingReport = async function() {
-  const pipeline = [
+accountsReceivableSchema.statics.getAgingReport = async function(preMatch = {}) {
+  const pipeline = [];
+  if (preMatch && Object.keys(preMatch).length) {
+    pipeline.push({ $match: preMatch });
+  }
+  pipeline.push(
     {
       $group: {
         _id: null,
@@ -452,7 +462,7 @@ accountsReceivableSchema.statics.getAgingReport = async function() {
         total: { $sum: '$balanceDue' }
       }
     }
-  ];
+  );
 
   const result = await this.aggregate(pipeline);
   return result[0] || {

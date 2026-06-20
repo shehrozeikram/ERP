@@ -15,6 +15,8 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 import storeService from '../../services/storeService';
 import LocationSelector from '../../components/Procurement/Store/LocationSelector';
 import { resolveUploadFileHref } from '../../utils/uploadPaths';
@@ -179,6 +181,7 @@ export default function FixedAssets() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useFinanceCompanyReload(load, { skipInitial: true });
 
   const loadEmployees = useCallback(async () => {
     try {
@@ -467,23 +470,20 @@ export default function FixedAssets() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-        <Box>
-          <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1}>
-            <AssetIcon color="primary" /> Fixed Assets
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Fixed Asset Register (FAR) — same records as <strong>Asset Tagging → Fixed Asset Register</strong>; manage depreciation and disposal here.
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1}>
+      <FinanceCompanyPageHeader
+        title="Fixed Assets"
+        icon={AssetIcon}
+        sx={{ mb: 2 }}
+      >
           <Button variant="outlined" color="warning" startIcon={<DepAllIcon />}
             onClick={() => { setBulkResult(null); setBulkOpen(true); }}>
             Depreciate All
           </Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={openAdd}>Add Asset</Button>
-        </Stack>
-      </Stack>
+      </FinanceCompanyPageHeader>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: -1 }}>
+        Fixed Asset Register (FAR) — same records as <strong>Asset Tagging → Fixed Asset Register</strong>; manage depreciation and disposal here.
+      </Typography>
 
       {error   && <Alert severity="error"   onClose={() => setError('')}   sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 2 }}>{success}</Alert>}

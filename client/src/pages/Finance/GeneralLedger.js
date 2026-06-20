@@ -30,8 +30,6 @@ import {
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
-  Search as SearchIcon,
-  FilterList as FilterIcon,
   Download as DownloadIcon,
   Business as BusinessIcon,
   People as PeopleIcon,
@@ -45,10 +43,13 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 const GeneralLedger = () => {
   const navigate = useNavigate();
   const theme = useTheme();
+  const { selectedCompanyId } = useFinanceCompany();
   
   const [entries, setEntries] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -70,13 +71,22 @@ const GeneralLedger = () => {
   });
 
   useEffect(() => {
+    if (!selectedCompanyId) {
+      setLoading(false);
+      setEntries([]);
+      setAccounts([]);
+      return;
+    }
     fetchAccounts();
     fetchGeneralLedger();
-  }, [filters, pagination.currentPage]);
+  }, [filters, pagination.currentPage, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchAccounts = async () => {
+    if (!selectedCompanyId) return;
     try {
-      const response = await api.get('/finance/accounts?limit=1000');
+      const response = await api.get('/finance/accounts', {
+        params: { limit: 1000, companyId: selectedCompanyId }
+      });
       if (response.data.success) {
         setAccounts(response.data.data.accounts || []);
       }
@@ -86,6 +96,7 @@ const GeneralLedger = () => {
   };
 
   const fetchGeneralLedger = async () => {
+    if (!selectedCompanyId) return;
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -97,6 +108,7 @@ const GeneralLedger = () => {
       if (filters.search) params.append('search', filters.search);
       params.append('page', pagination.currentPage);
       params.append('limit', pagination.limit);
+      params.append('companyId', selectedCompanyId);
       params.append('_t', new Date().getTime());
 
       const response = await api.get(`/finance/general-ledger?${params}`);
@@ -175,7 +187,7 @@ const GeneralLedger = () => {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Paper sx={{ p: 3, mb: 3, background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, ${alpha(theme.palette.secondary.main, 0.1)} 100%)` }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Avatar sx={{ bgcolor: theme.palette.primary.main }}>
               <AccountBalanceIcon />
@@ -189,7 +201,8 @@ const GeneralLedger = () => {
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <FinanceCompanySelector minWidth={280} showHelper={false} />
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}

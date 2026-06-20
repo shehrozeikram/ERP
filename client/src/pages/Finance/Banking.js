@@ -45,6 +45,8 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 
@@ -80,7 +82,13 @@ const Banking = () => {
   useEffect(() => {
     fetchBankAccounts();
     fetchTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when filters/page change only
   }, [filters, pagination.currentPage]);
+
+  useFinanceCompanyReload(() => {
+    fetchBankAccounts();
+    fetchTransactions();
+  }, { skipInitial: true });
 
   const fetchBankAccounts = async () => {
     try {
@@ -196,7 +204,8 @@ const Banking = () => {
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <FinanceCompanySelector showHelper={false} minWidth={220} />
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}

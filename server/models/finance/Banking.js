@@ -251,6 +251,11 @@ const bankingSchema = new mongoose.Schema({
     }
   }],
   // Audit trail
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    index: true
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -269,7 +274,7 @@ bankingSchema.index({ accountNumber: 1 });
 bankingSchema.index({ bankName: 1 });
 bankingSchema.index({ accountType: 1 });
 bankingSchema.index({ isActive: 1 });
-bankingSchema.index({ department: 1 });
+bankingSchema.index({ companyId: 1, isActive: 1 });
 bankingSchema.index({ 'transactions.transactionDate': 1 });
 
 // Virtuals
@@ -492,8 +497,12 @@ bankingSchema.statics.getCashFlowReport = async function(startDate, endDate) {
   return this.aggregate(pipeline);
 };
 
-bankingSchema.statics.getAccountSummary = async function() {
-  const pipeline = [
+bankingSchema.statics.getAccountSummary = async function(preMatch = {}) {
+  const pipeline = [];
+  if (preMatch && Object.keys(preMatch).length) {
+    pipeline.push({ $match: preMatch });
+  }
+  pipeline.push(
     {
       $group: {
         _id: '$accountType',
@@ -502,7 +511,7 @@ bankingSchema.statics.getAccountSummary = async function() {
         totalAvailable: { $sum: '$availableBalance' }
       }
     }
-  ];
+  );
 
   return this.aggregate(pipeline);
 };

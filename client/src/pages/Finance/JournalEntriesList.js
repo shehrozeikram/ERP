@@ -52,11 +52,14 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 const JournalEntriesList = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const fileInputRef = useRef(null);
+  const { selectedCompanyId } = useFinanceCompany();
   
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -110,15 +113,22 @@ const JournalEntriesList = () => {
   };
 
   useEffect(() => {
+    if (!selectedCompanyId) {
+      setLoading(false);
+      setEntries([]);
+      return;
+    }
     fetchJournalEntries();
-  }, []);
+  }, [selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchJournalEntries = async () => {
+    if (!selectedCompanyId) return;
     try {
       setLoading(true);
       const params = new URLSearchParams();
       params.append('limit', '100');
       params.append('page', '1');
+      params.append('companyId', selectedCompanyId);
       const response = await api.get(`/finance/journal-entries?${params}`);
       if (response.data.success) {
         setEntries(response.data.data.entries || []);
@@ -181,7 +191,7 @@ const JournalEntriesList = () => {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Paper sx={{ p: 3, mb: 3, background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, ${alpha(theme.palette.secondary.main, 0.1)} 100%)` }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Avatar sx={{ bgcolor: theme.palette.primary.main }}>
               <AccountBalanceIcon />
@@ -195,13 +205,17 @@ const JournalEntriesList = () => {
               </Typography>
             </Box>
           </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <FinanceCompanySelector minWidth={280} showHelper={false} />
           <Button
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => navigate('/finance/journal-entries/new')}
+            disabled={!selectedCompanyId}
           >
             New Entry
           </Button>
+          </Box>
         </Box>
       </Paper>
 

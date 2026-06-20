@@ -20,7 +20,8 @@ import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 import ComparativeStatementView from './ComparativeStatementView';
 import QuotationDetailView from './QuotationDetailView';
 import { formatPKR } from '../../utils/currency';
-import { resolveUploadPublicUrl } from '../CashApprovals/cashApprovalGeneralDocumentUtils';
+import { resolveUploadPublicUrl, getCashApprovalCompanyLabel } from '../CashApprovals/cashApprovalGeneralDocumentUtils';
+import CashApprovalCompanyChip from '../CashApprovals/CashApprovalCompanyChip';
 import LineAttachmentsView from '../UtilityBill/LineAttachmentsView';
 
 const formatDateForPrint = (date) => {
@@ -128,6 +129,9 @@ const CashApprovalDetailTabsView = ({
   const safeTabValue = (!showFinanceOnlyTabs && tabValue > 4) ? 0 : tabValue;
   return (
     <>
+      <Box sx={{ px: 2, pt: 1.5, pb: 0.5, '@media print': { display: 'none' } }} className="app-print-hide">
+        <CashApprovalCompanyChip ca={cashApproval} />
+      </Box>
       <Tabs
         value={safeTabValue}
         onChange={(_, v) => onTabChange?.(v)}
@@ -236,6 +240,7 @@ const CashApprovalDetailTabsView = ({
             <Box><Typography component="span" fontWeight={600}>CA Number:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval.caNumber || '—'}</Typography></Box>
             <Box><Typography component="span" fontWeight={600}>Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(cashApproval.approvalDate)}</Typography></Box>
             <Box><Typography component="span" fontWeight={600}>Status:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval.status || '—'}</Typography></Box>
+            <Box><Typography component="span" fontWeight={600}>Finance company:</Typography><Typography component="span" sx={{ ml: 1 }}>{getCashApprovalCompanyLabel(cashApproval) || '—'}</Typography></Box>
           </Box>
           <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             <Box><Typography component="span" fontWeight={600}>Vendor:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval.vendor?.name || '—'}</Typography></Box>
@@ -478,6 +483,7 @@ const CashApprovalDetailTabsView = ({
               <Box><Typography component="span" fontWeight={600}>CA Number:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.caNumber || '—'}</Typography></Box>
               <Box><Typography component="span" fontWeight={600}>ERP Ref:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.indent?.erpRef || '—'}</Typography></Box>
               <Box><Typography component="span" fontWeight={600}>Status:</Typography><Typography component="span" sx={{ ml: 1 }}>{cashApproval?.status || '—'}</Typography></Box>
+              <Box><Typography component="span" fontWeight={600}>Finance company:</Typography><Typography component="span" sx={{ ml: 1 }}>{getCashApprovalCompanyLabel(cashApproval) || '—'}</Typography></Box>
             </Box>
             <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
               <Table size="small">

@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { BalanceOutlined as TBIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import api from '../../services/api';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFmt = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
@@ -76,6 +77,14 @@ export default function VendorTrialBalancePanel({ supplierId, supplierName }) {
       setLoading(false);
     }
   }, [supplierId, fromDate, asOfDate]);
+
+  useFinanceCompanyReload(() => {
+    setData(null);
+    setSelectedAccount(null);
+    setLedgerRows([]);
+    setSelectedLedgerRow(null);
+    setVoucher(null);
+  }, { skipInitial: true });
 
   const loadLedger = useCallback(async (account) => {
     setLedgerLoading(true);

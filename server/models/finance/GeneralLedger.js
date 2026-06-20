@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const generalLedgerSchema = new mongoose.Schema({
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    index: true,
+    default: null
+  },
   // Reference to journal entry
   journalEntry: {
     type: mongoose.Schema.Types.ObjectId,

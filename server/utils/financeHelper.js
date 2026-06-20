@@ -19,6 +19,8 @@ const {
   getVendorAdvanceNarration,
   withVoucherNarration
 } = require('./documentNarration');
+const { co, acct, withCompany } = require('./financePosting');
+const { resolveDocumentCompanyId } = require('./financeCompanyContext');
 
 /**
  * Finance Helper Utility
@@ -32,16 +34,22 @@ const FinanceHelper = {
     INVENTORY: '1200',       // Stock Valuation Asset — DR on GRN
     VENDOR_ADVANCE: '1110',  // Advance to Suppliers (asset) — vendor prepayments
     STAFF_ADVANCE: '1120',   // Cash Advance to Staff — petty cash / cash purchase advances
+    EMPLOYEE_LOAN: '1125',
     RECEIVABLE: '1100',
     PAYABLE: '2001',
+    WHT_PAYABLE: '2004',
     GRNI: '2140',            // Goods Received Not Invoiced — CR on GRN, DR on AP Bill (THE KEY CLEARING ACCOUNT)
     SALARIES_PAYABLE: '2200',
+    PF_PAYABLE: '2210',
+    EOBI_PAYABLE: '2211',
+    EOBI_EXPENSE: '5015',
+    OTHER_PAYROLL_DED: '2212',
     REVENUE_CAM: '4010',
     REVENUE_ELECTRICITY: '4020',
     REVENUE_RENT: '4030',
     COGS: '5000',            // Cost of Goods Sold — DR on SIN
     EXPENSE_GENERAL: '5001',
-    EXPENSE_SALARIES: '5001',
+    EXPENSE_SALARIES: '5002',
     UTILITIES: '6200'
   },
 
@@ -50,32 +58,34 @@ const FinanceHelper = {
    * Priority: item-level field → category defaults → global account number defaults.
    * Returns { inventoryAccountId, grniAccountId, cogsAccountId }
    */
-  resolveInventoryAccounts: async (inventoryItem) => {
+  resolveInventoryAccounts: async (inventoryItem, companyId = null) => {
     const InventoryCategory = mongoose.model('InventoryCategory');
-    const findByNumber = async (num) => Account.findOne({ accountNumber: String(num) });
+    const A = acct(companyId);
+    const cid = co(companyId);
+    const scoped = (query) => (cid ? { ...query, companyId: cid } : query);
+    const mapRef = async (id) => {
+      if (!id) return null;
+      const mapped = await A.map(id);
+      return mapped?._id || id;
+    };
     const findGrniFallback = async () => {
-      // Prefer semantic GRNI head first (safer when account numbers vary by environment).
-      let acc = await Account.findOne({
+      let acc = await Account.findOne(scoped({
         type: 'Liability',
         name: { $regex: 'goods\\s*received\\s*not\\s*invoiced|\\bgrni\\b', $options: 'i' }
-      });
-      // Then fallback to canonical configured number.
-      if (!acc) acc = await findByNumber(FinanceHelper.ACCOUNTS.GRNI);
-      // Final guard: must be liability and not AP.
+      }));
+      if (!acc) acc = await A.resolve(FinanceHelper.ACCOUNTS.GRNI);
       const looksLikeAp = /\baccounts?\s*payable\b|\bap\b/i.test(String(acc?.name || ''));
       if (acc && (String(acc.type || '').toLowerCase() !== 'liability' || looksLikeAp)) return null;
       return acc;
     };
     const findInventoryFallback = async () => {
-      // Prefer configured inventory code, but reject non-asset mappings.
-      let acc = await findByNumber(FinanceHelper.ACCOUNTS.INVENTORY);
+      let acc = await A.resolve(FinanceHelper.ACCOUNTS.INVENTORY);
       const looksLikeReceivable = /\baccounts?\s*receivable\b|\bar\b/i.test(String(acc?.name || ''));
       if (acc && String(acc.type || '').toLowerCase() === 'asset' && !looksLikeReceivable) return acc;
-      // Try a semantic inventory asset fallback if account numbers differ by environment.
-      return Account.findOne({
+      return Account.findOne(scoped({
         type: 'Asset',
         name: { $regex: 'inventory|stock|raw material', $options: 'i' }
-      });
+      }));
     };
 
     let inventoryAccountId = inventoryItem.inventoryAccount;
@@ -103,9 +113,13 @@ const FinanceHelper = {
       grniAccountId = acc?._id;
     }
     if (!cogsAccountId) {
-      const acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.COGS });
+      const acc = await A.resolve(FinanceHelper.ACCOUNTS.COGS);
       cogsAccountId = acc?._id;
     }
+
+    inventoryAccountId = await mapRef(inventoryAccountId);
+    grniAccountId = await mapRef(grniAccountId);
+    cogsAccountId = await mapRef(cogsAccountId);
 
     // Safety guards: if item/category has wrong account head linked, auto-correct at posting time.
     if (inventoryAccountId) {
@@ -137,14 +151,19 @@ const FinanceHelper = {
    *      inventory by productCode / description (same idea as GRN stock sync)
    *   3) Global GRNI account number fallback (ACCOUNTS.GRNI, often 2100)
    */
-  resolveGrniAccountForBill: async ({ referenceType, referenceId }) => {
+  resolveGrniAccountForBill: async ({ referenceType, referenceId, companyId = null } = {}) => {
     const GoodsReceive = mongoose.model('GoodsReceive');
     const Inventory = mongoose.model('Inventory');
     const PurchaseOrder = mongoose.model('PurchaseOrder');
 
+    const cid = co({ companyId }) || await resolveDocumentCompanyId({
+      grnId: referenceType === 'grn' ? referenceId : null,
+      purchaseOrderId: referenceType === 'purchase_order' ? referenceId : null
+    });
+
     const grniFromInventoryDoc = async (inv) => {
       if (!inv) return null;
-      const { grniAccountId } = await FinanceHelper.resolveInventoryAccounts(inv);
+      const { grniAccountId } = await FinanceHelper.resolveInventoryAccounts(inv, cid);
       if (!grniAccountId) return null;
       const acc = await Account.findById(grniAccountId);
       const looksLikeAp = /\baccounts?\s*payable\b|\bap\b/i.test(String(acc?.name || ''));
@@ -213,7 +232,7 @@ const FinanceHelper = {
       }
     }
 
-    return await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.GRNI);
+    return (await acct(cid).resolve(FinanceHelper.ACCOUNTS.GRNI)) || null;
   },
 
   /**
@@ -231,10 +250,15 @@ const FinanceHelper = {
   },
 
   /**
-   * Helper to find an account by its number
+   * Helper to find an account by number (optionally scoped to a company).
+   * Usage: getAccountByNumber('1002') OR getAccountByNumber(companyId, '1002')
    */
-  getAccountByNumber: async (accountNumber) => {
-    return await Account.findOne({ accountNumber });
+  getAccountByNumber: async (accountNumberOrCompanyId, accountNumberMaybe) => {
+    const AccountResolver = require('./accountResolver');
+    if (accountNumberMaybe !== undefined) {
+      return AccountResolver.resolveSystemAccount(accountNumberOrCompanyId, accountNumberMaybe);
+    }
+    return AccountResolver.resolveSystemAccount(null, accountNumberOrCompanyId);
   },
 
   /** @see staffAdvanceAccount.js */
@@ -263,6 +287,7 @@ const FinanceHelper = {
         }
 
         ledgerEntries.push({
+          companyId: entry.companyId || currentAccount.companyId || null,
           journalEntry: entry._id,
           account: accountRef,
           date: entry.date,
@@ -296,7 +321,7 @@ const FinanceHelper = {
   createDraftJournalEntry: async (data) => {
     const postingDate = data.date || new Date();
     try {
-      await FiscalPeriod.validatePostingDate(postingDate);
+      await FiscalPeriod.validatePostingDate(postingDate, data.companyId || null);
     } catch (periodErr) {
       throw periodErr;
     }
@@ -328,7 +353,7 @@ const FinanceHelper = {
       // Validate fiscal period (lenient: skips if no periods configured)
       const postingDate = data.date || new Date();
       try {
-        await FiscalPeriod.validatePostingDate(postingDate);
+        await FiscalPeriod.validatePostingDate(postingDate, data.companyId || null);
       } catch (periodErr) {
         throw periodErr; // Re-throw period validation errors
       }
@@ -396,6 +421,8 @@ const FinanceHelper = {
         amount, department, module, referenceId,
         charges, createdBy 
       } = options;
+      const companyId = co(options);
+      const A = acct(companyId);
 
       // Check if AR already exists (e.g. orphaned from deleted invoice - avoid E11000 duplicate key)
       let arEntry = await AccountsReceivable.findOne({ invoiceNumber });
@@ -407,12 +434,14 @@ const FinanceHelper = {
         arEntry.subtotal = amount;
         arEntry.referenceId = referenceId;
         arEntry.referenceType = 'invoice';
+        if (companyId && !arEntry.companyId) arEntry.companyId = companyId;
         if (createdBy) arEntry.updatedBy = createdBy;
         await arEntry.save();
         return arEntry; // Skip GL posting - existing entry already has it
       }
 
       arEntry = new AccountsReceivable({
+        companyId: companyId || undefined,
         customer: { name: customerName, email: customerEmail, customerId: customerId },
         invoiceNumber,
         invoiceDate: invoiceDate || new Date(),
@@ -429,14 +458,14 @@ const FinanceHelper = {
 
       await arEntry.save();
 
-      const arAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.RECEIVABLE);
+      const arAccount = await A.resolve(FinanceHelper.ACCOUNTS.RECEIVABLE);
       if (arAccount) {
         const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
         const amountRounded = round2(amount);
         const lines = [{ account: arAccount._id, description: `Receivable from ${customerName}`, debit: amountRounded, department }];
 
         if (charges && charges.length > 0) {
-          const fallbackRev = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.REVENUE_CAM);
+          const fallbackRev = await A.resolve(FinanceHelper.ACCOUNTS.REVENUE_CAM);
           let sumCredits = 0;
           const creditLines = [];
 
@@ -450,7 +479,7 @@ const FinanceHelper = {
               'RENT': FinanceHelper.ACCOUNTS.REVENUE_RENT
             }[String(charge.type || '').toUpperCase()] || FinanceHelper.ACCOUNTS.REVENUE_CAM;
 
-            let revAccount = await FinanceHelper.getAccountByNumber(revAccountNum);
+            let revAccount = await A.resolve(revAccountNum);
             if (!revAccount) revAccount = fallbackRev;
             if (!revAccount) continue;
 
@@ -482,7 +511,7 @@ const FinanceHelper = {
 
         if (lines.length === 1) {
           const revAccountNum = options.revenueAccountNum || FinanceHelper.ACCOUNTS.REVENUE_CAM;
-          const revAccount = await FinanceHelper.getAccountByNumber(revAccountNum);
+          const revAccount = await A.resolve(revAccountNum);
           if (revAccount) {
             lines.push({ account: revAccount._id, description: `Revenue from ${invoiceNumber}`, credit: amountRounded, department });
           }
@@ -492,7 +521,7 @@ const FinanceHelper = {
           throw new Error('Could not build balanced journal entry: missing revenue account(s)');
         }
 
-        await FinanceHelper.createAndPostJournalEntry({
+        await FinanceHelper.createAndPostJournalEntry(withCompany({
           date: invoiceDate,
           reference: invoiceNumber,
           description: `AR Invoice: ${invoiceNumber} for ${customerName}`,
@@ -502,7 +531,7 @@ const FinanceHelper = {
           referenceType: 'invoice',
           createdBy,
           lines
-        });
+        }, companyId));
       }
 
       return arEntry;
@@ -533,6 +562,8 @@ const FinanceHelper = {
         multiLineExpenseJournal = false,
         expenseJournalLines = null
       } = options;
+      const companyId = co(options);
+      const A = acct(companyId);
 
       // Normalize billDate to start of day so the bill appears in default date filters (e.g. current month)
       let billDateNorm = billDate ? new Date(billDate) : new Date();
@@ -545,6 +576,7 @@ const FinanceHelper = {
         : [{ description: lineDescription || `Amount as per approved document`, quantity: 1, unitPrice: amount }];
 
       apEntry = new AccountsPayable({
+        companyId: companyId || undefined,
         vendor: { name: vendorName, email: vendorEmail, vendorId: vendorId },
         payeeEmployee: options.payeeEmployeeId || options.payeeEmployee || null,
         billNumber,
@@ -567,7 +599,7 @@ const FinanceHelper = {
 
       await apEntry.save();
 
-      const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+      const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
 
       if (apAccount) {
         // ─── CORRECT ODOO-STYLE AP JOURNAL ────────────────────────────────────────
@@ -583,13 +615,13 @@ const FinanceHelper = {
         let debitAccount = null;
 
         if (isGrnBacked) {
-          debitAccount = await FinanceHelper.resolveGrniAccountForBill({ referenceType, referenceId });
+          debitAccount = await FinanceHelper.resolveGrniAccountForBill({ referenceType, referenceId, companyId });
         }
         if (!debitAccount && debitAccountNumber) {
-          debitAccount = await FinanceHelper.getAccountByNumber(String(debitAccountNumber));
+          debitAccount = await A.resolve(String(debitAccountNumber));
         }
         if (!debitAccount) {
-          debitAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
+          debitAccount = await A.resolve(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
         }
 
         if (debitAccount || (Array.isArray(expenseJournalLines) && expenseJournalLines.length > 0)) {
@@ -601,7 +633,7 @@ const FinanceHelper = {
             for (const row of expenseJournalLines) {
               let accRef = row.account;
               if (!accRef && row.accountNumber) {
-                accRef = (await FinanceHelper.getAccountByNumber(String(row.accountNumber)))?._id;
+                accRef = (await A.resolve(String(row.accountNumber)))?._id;
               }
               if (!accRef) continue;
               journalLines.push({
@@ -658,7 +690,7 @@ const FinanceHelper = {
           }
 
           await FinanceHelper.createAndPostJournalEntry(
-            withVoucherNarration({
+            withVoucherNarration(withCompany({
               date: billDateNorm,
               reference: billNumber,
               description: `AP Bill: ${billNumber} from ${vendorName}`,
@@ -670,7 +702,7 @@ const FinanceHelper = {
               voucherSeries: 'BILL',
               createdBy,
               lines: journalLines
-            }, getBillNarration(apEntry))
+            }, companyId), getBillNarration(apEntry))
           );
         }
       }
@@ -718,17 +750,19 @@ const FinanceHelper = {
       FinanceHelper._updateDocumentStatus(invoice);
       await invoice.save();
 
-      const arAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.RECEIVABLE);
-      let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+      const companyId = co(invoice);
+      const A = acct(companyId);
+      const arAccount = await A.resolve(FinanceHelper.ACCOUNTS.RECEIVABLE);
+      let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
       if (!bankAccount) {
-        bankAccount = await FinanceHelper.getAccountByNumber(
+        bankAccount = await A.resolve(
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
 
       if (arAccount && bankAccount) {
         await FinanceHelper.createAndPostJournalEntry(
-          withVoucherNarration({
+          withVoucherNarration(withCompany({
             date:          date || new Date(),
             reference:     reference || invoice.invoiceNumber,
             description:   `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}`,
@@ -742,7 +776,7 @@ const FinanceHelper = {
               { account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit:  amount, department: invoice.department },
               { account: arAccount._id,   description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department }
             ]
-          }, getArInvoiceNarration(invoice))
+          }, companyId), getArInvoiceNarration(invoice))
         );
       }
 
@@ -792,10 +826,12 @@ const FinanceHelper = {
           .filter((a) => a.grnId && a.amount > 0)
         : [];
 
-      const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
-      let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+      const companyId = co(bill);
+      const A = acct(companyId);
+      const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
+      let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
       if (!bankAccount) {
-        bankAccount = await FinanceHelper.getAccountByNumber(
+        bankAccount = await A.resolve(
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
@@ -806,7 +842,7 @@ const FinanceHelper = {
         { account: bankAccount._id, description: `Bank payment – ${bill.billNumber} (pending signatures)`, credit: netBankAmount, department: bill.department }
       ];
       if (whtAmount > 0) {
-        const whtAccount = await FinanceHelper.getAccountByNumber('2004');
+        const whtAccount = await A.resolve('2004');
         if (whtAccount) {
           lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${bill.vendor.name}`, credit: whtAmount, department: bill.department });
         } else {
@@ -826,7 +862,7 @@ const FinanceHelper = {
         sourceType: 'bank_payment',
         createdBy,
         financeApprovalAuthorities: authorities,
-        journalPayload: withVoucherNarration({
+        journalPayload: withVoucherNarration(withCompany({
           date: date || new Date(),
           reference: reference || bill.billNumber,
           description: `Payment: ${bill.billNumber} – ${bill.vendor.name} (pending finance signatures)`,
@@ -836,7 +872,7 @@ const FinanceHelper = {
           journalCode: 'BANK',
           voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
           lines
-        }, getBillNarration(bill)),
+        }, companyId), getBillNarration(bill)),
         paymentMeta: {
           paymentMethod,
           reference: reference || bill.billNumber,
@@ -874,10 +910,14 @@ const FinanceHelper = {
     bankAccountId = null,
     referenceType = 'advance',
     referenceId = null,
-    financeApprovalAuthorities = null
+    financeApprovalAuthorities = null,
+    companyId: optsCompanyId = null
   }) => {
     const amount_ = Math.round((Number(amount) || 0) * 100) / 100;
     if (amount_ <= 0) throw new Error('Advance amount must be greater than zero');
+
+    const companyId = co({ companyId: optsCompanyId });
+    const A = acct(companyId);
 
     const fa = financeApprovalAuthorities || {};
     const am = fa.accountsManagerUser || fa.accountsManager;
@@ -888,7 +928,7 @@ const FinanceHelper = {
     // Accounts Officer / AM is always the user who records the advance (not client-assigned).
     const nowPreparer = new Date();
 
-    let advAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    let advAccount = await A.resolve(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
     if (!advAccount) {
       advAccount = await Account.create({
         accountNumber: FinanceHelper.ACCOUNTS.VENDOR_ADVANCE,
@@ -898,15 +938,16 @@ const FinanceHelper = {
         detailType: 'Other Current Assets',
         description: 'Vendor advances paid before bill settlement',
         isSystem: true,
+        companyId: companyId || undefined,
         createdBy
       });
     }
-    let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+    let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
     if (bankAccountId && !bankAccount) {
       throw new Error('Selected bank or cash account was not found. Pick a valid chart account.');
     }
     if (!bankAccount) {
-      bankAccount = await FinanceHelper.getAccountByNumber(
+      bankAccount = await A.resolve(
         (paymentMethod || 'bank_transfer') === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
       );
     }
@@ -946,19 +987,22 @@ const FinanceHelper = {
     ];
 
     const journalEntry = await FinanceHelper.createDraftJournalEntry(
-      withVoucherNarration({
-        date: date || new Date(),
-        reference: advance.reference,
-        description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
-        department,
-        module,
-        referenceId: advance._id,
-        referenceType: 'payment',
-        journalCode: 'BANK',
-        voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
-        createdBy,
-        lines: linePayload
-      }, getVendorAdvanceNarration(advance) || reference)
+      withVoucherNarration(
+        withCompany({
+          date: date || new Date(),
+          reference: advance.reference,
+          description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
+          department,
+          module,
+          referenceId: advance._id,
+          referenceType: 'payment',
+          journalCode: 'BANK',
+          voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+          createdBy,
+          lines: linePayload
+        }, companyId),
+        getVendorAdvanceNarration(advance) || reference
+      )
     );
     advance.journalEntryId = journalEntry._id;
     await advance.save();
@@ -976,8 +1020,10 @@ const FinanceHelper = {
     let remainingRequest = requestedAmount == null ? remainingBill : Math.round((Number(requestedAmount) || 0) * 100) / 100;
     if (remainingRequest <= 0) throw new Error('Apply amount must be greater than zero');
 
-    const advAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
-    const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+    const companyId = co(bill);
+    const A = acct(companyId);
+    const advAccount = await A.resolve(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
     if (!advAccount || !apAccount) throw new Error('AP or Vendor Advance account not found');
 
     const query = bill.vendor?.vendorId
@@ -1008,7 +1054,7 @@ const FinanceHelper = {
         financeApprovalAuthorities: options.financeApprovalAuthorities,
         authoritySourceDoc: adv,
         vendorAdvanceId: adv._id,
-        journalPayload: withVoucherNarration({
+        journalPayload: withVoucherNarration(withCompany({
           date: new Date(),
           reference: `ADV-ADJ-${bill.billNumber}`,
           description: `Vendor advance adjusted against ${bill.billNumber} (pending finance signatures)`,
@@ -1021,7 +1067,7 @@ const FinanceHelper = {
             { account: apAccount._id, description: `Advance adjusted – ${bill.billNumber}`, debit: applyAmount, department: bill.department },
             { account: advAccount._id, description: `Advance utilization – ${adv.reference || adv._id}`, credit: applyAmount, department: bill.department }
           ]
-        }, getBillNarration(bill)),
+        }, companyId), getBillNarration(bill)),
       });
 
       adjustments.push({ advanceId: adv._id, reference: adv.reference, amount: applyAmount, pending: true });
@@ -1052,7 +1098,9 @@ const FinanceHelper = {
 
   _applyOneCashApprovalToBill: async (ca, bill, applyAmount, employee, createdBy, options = {}) => {
     const ApPayment = require('./apPaymentApplication');
-    const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+    const companyId = co(bill);
+    const A = acct(companyId);
+    const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
     if (!apAccount) throw new Error('Accounts Payable account not found');
 
     const caRemaining = await FinanceHelper._getCaOpenAdvanceForAp(ca);
@@ -1068,9 +1116,9 @@ const FinanceHelper = {
     }
     if (!advAccount) {
       const { resolveEmployeeAdvanceAccount, ensureEmployeeAdvanceAccount } = require('./employeeAdvanceAccount');
-      advAccount = await resolveEmployeeAdvanceAccount(employee, { createdBy });
+      advAccount = await resolveEmployeeAdvanceAccount(employee, { createdBy, companyId });
       if (!advAccount) {
-        advAccount = await ensureEmployeeAdvanceAccount(employee, { createdBy });
+        advAccount = await ensureEmployeeAdvanceAccount(employee, createdBy, companyId);
       }
     }
     if (!advAccount) throw new Error(`No advance account for ${ca.caNumber}`);
@@ -1083,7 +1131,7 @@ const FinanceHelper = {
       financeApprovalAuthorities: options.financeApprovalAuthorities,
       authoritySourceDoc: ca,
       cashApprovalId: ca._id,
-      journalPayload: withVoucherNarration({
+      journalPayload: withVoucherNarration(withCompany({
         date: new Date(),
         reference: `CA-ADJ-${bill.billNumber}`,
         description: `Cash approval ${ca.caNumber} applied to bill ${bill.billNumber} (pending finance signatures)`,
@@ -1096,7 +1144,7 @@ const FinanceHelper = {
           { account: apAccount._id, description: `Advance applied – ${bill.billNumber}`, debit: amount, department: bill.department },
           { account: advAccount._id, description: `CA ${ca.caNumber} utilized`, credit: amount, department: bill.department || 'general' }
         ]
-      }, getBillNarration(bill))
+      }, companyId), getBillNarration(bill))
     });
 
     return {
@@ -1271,7 +1319,13 @@ const FinanceHelper = {
    * Post COGS journal for goods issued from store.
    * DR Cost of Goods Sold / CR Inventory
    */
-  postCOGSJournal: async ({ items, sinDoc, createdBy }) => {
+  postCOGSJournal: async ({ items, sinDoc, createdBy, companyId }) => {
+    const cid = await resolveDocumentCompanyId({
+      companyId,
+      userId: createdBy,
+      grnId: sinDoc?.goodsReceive || sinDoc?.grn,
+      purchaseOrderId: sinDoc?.purchaseOrder
+    });
     const lineGroups = [];
     for (const item of items) {
       try {
@@ -1279,15 +1333,13 @@ const FinanceHelper = {
         if (!inv) continue;
         const qty = Number(item.qtyIssued || item.quantity) || 0;
         if (qty <= 0) continue;
-        // Use WAC (averageCost) first; fall back to unitPrice so newly added items
-        // with no GRN history still produce a COGS entry at their list price.
         const unitCost = Number(inv.averageCost) > 0 ? Number(inv.averageCost) : Number(inv.unitPrice) || 0;
         if (unitCost <= 0) {
           console.warn(`[COGS] Skipped ${inv.name || inv._id}: no WAC or unit price set`);
           continue;
         }
         const cost = Math.round(qty * unitCost * 100) / 100;
-        const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(inv);
+        const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(inv, cid);
         if (inventoryAccountId && cogsAccountId) {
           lineGroups.push({ inventoryAccountId, cogsAccountId, cost, itemName: inv.name || item.itemName });
         } else {
@@ -1308,7 +1360,7 @@ const FinanceHelper = {
 
     try {
       await FinanceHelper.createAndPostJournalEntry(
-        withVoucherNarration({
+        withVoucherNarration(withCompany({
           date:          sinDoc.issueDate || new Date(),
           reference:     sinDoc.issueNumber || 'SIN',
           description:   `COGS – Store Issue ${sinDoc.issueNumber || ''}`,
@@ -1319,7 +1371,7 @@ const FinanceHelper = {
           journalCode:   'INV',
           createdBy,
           lines
-        }, getSinNarration(sinDoc))
+        }, cid), getSinNarration(sinDoc))
       );
     } catch (cogsErr) {
       console.warn('[COGS] GL posting skipped:', cogsErr.message);
@@ -1338,14 +1390,18 @@ const FinanceHelper = {
    *
    * Safe to call – silently skips if accounts cannot be resolved or amount is zero.
    */
-  postGRNJournal: async ({ inventoryItem, grnDoc, qty, unitPrice, createdBy }) => {
+  postGRNJournal: async ({ inventoryItem, grnDoc, qty, unitPrice, createdBy, companyId }) => {
     try {
       const qty_ = Number(qty) || 0;
       const unitPrice_ = Number(unitPrice) || 0;
       if (qty_ <= 0 || unitPrice_ <= 0) return;
 
-      // Resolve accounts: item-level → category → global defaults
-      const { inventoryAccountId, grniAccountId } = await FinanceHelper.resolveInventoryAccounts(inventoryItem);
+      const cid = await resolveDocumentCompanyId({
+        companyId,
+        grnId: grnDoc?._id,
+        purchaseOrderId: grnDoc?.purchaseOrder?._id || grnDoc?.purchaseOrder
+      });
+      const { inventoryAccountId, grniAccountId } = await FinanceHelper.resolveInventoryAccounts(inventoryItem, cid);
       if (!inventoryAccountId || !grniAccountId) {
         console.warn(`[GRN Journal] Skipped – no inventory/GRNI accounts for item: ${inventoryItem.name || inventoryItem._id}`);
         return;
@@ -1374,7 +1430,7 @@ const FinanceHelper = {
 
       const referenceNumber = grnDoc.receiveNumber || grnDoc._id?.toString() || 'GRN';
       await FinanceHelper.createAndPostJournalEntry(
-        withVoucherNarration({
+        withVoucherNarration(withCompany({
           date: grnDoc.receiveDate || new Date(),
           reference: referenceNumber,
           description: `GRN ${referenceNumber}: Stock received – ${inventoryItem.name}`,
@@ -1399,7 +1455,7 @@ const FinanceHelper = {
               department: 'procurement'
             }
           ]
-        }, getGrnNarration(grnDoc))
+        }, cid), getGrnNarration(grnDoc))
       );
 
       console.log(`[GRN Journal] Posted: DR Inventory ${amount} / CR GRNI ${amount} for ${inventoryItem.name}`);
@@ -1418,13 +1474,18 @@ const FinanceHelper = {
    * Uses Weighted Average Cost for the issued qty.
    * Safe to call – silently skips if accounts cannot be resolved or amount is zero.
    */
-  postSINJournal: async ({ inventoryItem, sinDoc, qty, createdBy }) => {
+  postSINJournal: async ({ inventoryItem, sinDoc, qty, createdBy, companyId }) => {
     try {
       const qty_ = Number(qty) || 0;
       if (qty_ <= 0) return;
 
-      // Resolve accounts: item-level → category → global defaults
-      const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(inventoryItem);
+      const cid = await resolveDocumentCompanyId({
+        companyId,
+        userId: createdBy,
+        grnId: sinDoc?.goodsReceive || sinDoc?.grn,
+        purchaseOrderId: sinDoc?.purchaseOrder
+      });
+      const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(inventoryItem, cid);
       if (!cogsAccountId || !inventoryAccountId) {
         console.warn(`[SIN Journal] Skipped – no COGS/inventory accounts for item: ${inventoryItem.name || inventoryItem._id}`);
         return;
@@ -1442,7 +1503,7 @@ const FinanceHelper = {
 
       const referenceNumber = sinDoc.issueNumber || sinDoc.sinNumber || sinDoc._id?.toString() || 'SIN';
       await FinanceHelper.createAndPostJournalEntry(
-        withVoucherNarration({
+        withVoucherNarration(withCompany({
           date: sinDoc.issueDate || new Date(),
           reference: referenceNumber,
           description: `SIN ${referenceNumber}: Stock issued – ${inventoryItem.name}`,
@@ -1467,7 +1528,7 @@ const FinanceHelper = {
               department: 'procurement'
             }
           ]
-        }, getSinNarration(sinDoc))
+        }, cid), getSinNarration(sinDoc))
       );
 
       console.log(`[SIN Journal] Posted: DR COGS ${amount} / CR Inventory ${amount} for ${inventoryItem.name}`);
@@ -1477,31 +1538,60 @@ const FinanceHelper = {
   },
 
   /**
-   * Record Payroll Accrual (Expense)
+   * Record Payroll Accrual — gross expense + deduction liabilities + net salaries payable.
+   * BPV later clears net Salaries Payable only.
    */
   recordPayrollAccrual: async (payroll, createdBy) => {
     try {
-      const expAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_SALARIES);
-      const payableAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.SALARIES_PAYABLE);
+      const {
+        buildPayrollAccrualJournalLines,
+        payrollAccrualAlreadyPosted
+      } = require('./payrollAccrual');
+      const { extractPayrollBreakdown } = require('./payrollBreakdown');
+      const { MONTH_NAMES } = require('./financePayrollQueue');
 
-      if (expAccount && payableAccount) {
-        await FinanceHelper.createAndPostJournalEntry({
-          date: new Date(),
-          reference: `PAYROLL-${payroll.month}-${payroll.year}`,
-          description: `Payroll Accrual for ${payroll.employeeName} (${payroll.month}/${payroll.year})`,
-          department: 'hr',
-          module: 'payroll',
-          referenceId: payroll._id,
-          referenceType: 'payroll',
-          createdBy,
-          lines: [
-            { account: expAccount._id, description: `Salary Expense`, debit: payroll.netSalary, department: 'hr' },
-            { account: payableAccount._id, description: `Salary Payable`, credit: payroll.netSalary, department: 'hr' }
-          ]
-        });
+      if (await payrollAccrualAlreadyPosted(payroll._id)) {
+        return null;
       }
+
+      const companyId = await resolveDocumentCompanyId({ employeeId: payroll.employee });
+      if (!companyId) return null;
+
+      const payrollDoc = payroll.toObject ? payroll.toObject() : payroll;
+      const totals = extractPayrollBreakdown(payrollDoc);
+      if (!totals.grossSalary || totals.grossSalary <= 0) return null;
+
+      const periodLabel = `${MONTH_NAMES[payroll.month] || payroll.month} ${payroll.year}`;
+      const employeeName = payroll.employeeName
+        || payrollDoc.employeeName
+        || 'Employee';
+
+      const lines = await buildPayrollAccrualJournalLines({
+        companyId,
+        totals,
+        periodLabel,
+        companyName: employeeName,
+        employeeName
+      });
+
+      if (!lines.length) return null;
+
+      return FinanceHelper.createAndPostJournalEntry(withCompany({
+        date: new Date(),
+        reference: `PAYROLL-ACCR-${payroll.month}-${payroll.year}-${payroll._id}`,
+        description: `Payroll Accrual — ${employeeName} — ${periodLabel}`,
+        department: 'hr',
+        module: 'payroll',
+        referenceId: payroll._id,
+        referenceType: 'payroll',
+        journalCode: 'PAY',
+        voucherSeries: 'PAYAC',
+        createdBy,
+        lines
+      }, companyId));
     } catch (error) {
       console.error('❌ Error recording payroll accrual:', error);
+      return null;
     }
   },
 
@@ -1510,14 +1600,16 @@ const FinanceHelper = {
    */
   recordPayrollPayment: async (payroll, paymentMethod, createdBy) => {
     try {
-      const payableAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.SALARIES_PAYABLE);
-      const bankAccount = await FinanceHelper.getAccountByNumber(
+      const companyId = await resolveDocumentCompanyId({ employeeId: payroll.employee });
+      const A = acct(companyId);
+      const payableAccount = await A.resolve(FinanceHelper.ACCOUNTS.SALARIES_PAYABLE);
+      const bankAccount = await A.resolve(
         paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
       );
 
       if (payableAccount && bankAccount) {
         const isCash = paymentMethod === 'cash';
-        await FinanceHelper.createAndPostJournalEntry({
+        await FinanceHelper.createAndPostJournalEntry(withCompany({
           date: new Date(),
           reference: `SAL-PAY-${payroll.month}-${payroll.year}`,
           description: `Salary Payment to ${payroll.employeeName}`,
@@ -1532,7 +1624,7 @@ const FinanceHelper = {
             { account: payableAccount._id, description: `Debit Salaries Payable`, debit: payroll.netSalary, department: 'hr' },
             { account: bankAccount._id, description: `Credit Bank/Cash`, credit: payroll.netSalary, department: 'hr' }
           ]
-        });
+        }, companyId));
       }
     } catch (error) {
       console.error('❌ Error recording payroll payment:', error);

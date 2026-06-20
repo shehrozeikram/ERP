@@ -34,6 +34,8 @@ import {
   Refresh as RefreshIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 import VendorTrialBalancePanel from './VendorTrialBalancePanel';
 import EmployeeTrialBalancePanel from './EmployeeTrialBalancePanel';
 
@@ -112,6 +114,15 @@ export default function FinanceVendorsList() {
     if (listTab === 0) loadVendors();
     else loadEmployees();
   }, [listTab, loadVendors, loadEmployees]);
+
+  useFinanceCompanyReload(() => {
+    setSelected(null);
+    setSelectedEmployee(null);
+    setDetail(null);
+    setEmployeeDetail(null);
+    if (listTab === 0) loadVendors();
+    else loadEmployees();
+  }, { skipInitial: true });
 
   const openVendor = async (vendor) => {
     setSelected(vendor);
@@ -455,10 +466,12 @@ export default function FinanceVendorsList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1} mb={1}>
-        <VendorIcon color="primary" /> Vendors &amp; Employees
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <FinanceCompanyPageHeader title="Vendors & Employees" icon={VendorIcon}>
+        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={refreshList} size="small">
+          Refresh
+        </Button>
+      </FinanceCompanyPageHeader>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: -2 }}>
         {listTab === 0
           ? 'View vendor master data and finance summary (bills, payments, outstanding balance).'
           : 'View employees with cash advance activity and linked GL accounts (1120).'}

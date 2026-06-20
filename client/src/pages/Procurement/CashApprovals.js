@@ -39,7 +39,6 @@ import {
   serializeCashApprovalItemsForSubmit
 } from '../../utils/cashApprovalFormAttachments';
 import { resolveUploadPublicUrl } from '../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
-import LineAttachmentsView from '../../components/UtilityBill/LineAttachmentsView';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const STATUS_COLORS = {
@@ -1735,6 +1734,7 @@ const CashApprovalsPage = () => {
             {isGeneralCreateVoucherOpen && (
             <>
               <CashApprovalPaymentFieldsView
+                ca={actionDialog.ca}
                 payeeEmployees={generalPayment.payeeEmployees}
                 selectedPayee={generalPayment.selectedPayee}
                 onPayeeChange={async (employeeId) => {

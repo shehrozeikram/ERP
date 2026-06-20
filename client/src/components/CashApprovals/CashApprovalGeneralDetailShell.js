@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Button, Chip, Stack } from '@mui/material';
 import { ArrowBack as ArrowBackIcon, Print as PrintIcon } from '@mui/icons-material';
 import CashApprovalGeneralDocument from './CashApprovalGeneralDocument';
+import CashApprovalCompanyChip from './CashApprovalCompanyChip';
 import { WorkflowAuditFeedbackPanel } from '../Admin/workflowAuditReturn';
 import {
   formatDateTime,
@@ -51,6 +52,7 @@ const CashApprovalGeneralDetailShell = ({
             <Box />
           )}
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+            <CashApprovalCompanyChip ca={ca} className="app-print-hide" />
             {showStatusChips && (
               <>
                 <Chip label={`Status: ${ca.status}`} color={getStatusColor(ca.status)} size="small" />

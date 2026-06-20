@@ -12,6 +12,12 @@ const cashApprovalSchema = new mongoose.Schema({
     default: 'procurement',
     index: true
   },
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    default: null,
+    index: true
+  },
   requestingDepartment: {
     type: String,
     trim: true,
@@ -359,6 +365,18 @@ cashApprovalSchema.pre('save', async function (next) {
     }, 0);
     this.discountAmount = this.items.reduce((sum, item) => sum + (item.discount || 0), 0);
     this.totalAmount = this.subtotal + this.taxAmount + (this.shippingCost || 0);
+  }
+
+  if (!this.companyId) {
+    try {
+      const { resolveDocumentCompanyId } = require('../../utils/financeCompanyContext');
+      this.companyId = await resolveDocumentCompanyId({
+        employeeId: this.advanceToEmployee,
+        indentId: this.indent
+      });
+    } catch {
+      /* keep null — historical fallback at posting time */
+    }
   }
 
   next();

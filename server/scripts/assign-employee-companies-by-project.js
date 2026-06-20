@@ -4,6 +4,7 @@
  * Usage:
  *   node server/scripts/assign-employee-companies-by-project.js --dry-run
  *   node server/scripts/assign-employee-companies-by-project.js --yes
+ *   node server/scripts/assign-employee-companies-by-project.js --yes --fallback-company "SARDAR GROUP OF COMPANIES"
  *   NODE_ENV=production node server/scripts/assign-employee-companies-by-project.js --dry-run
  *   NODE_ENV=production node server/scripts/assign-employee-companies-by-project.js --yes
  *   node server/scripts/assign-employee-companies-by-project.js --list-projects
@@ -37,19 +38,26 @@ const COMPANY_PROJECT_MAPPINGS = [
     projectNames: [
       'SGC-Head Office',
       'SGC Head Office',
+      'SGC-SGHQ',
+      'SGHQ',
       'Commcraft',
       '22 Commcraft',
       'P . Personal',
       'P. Personal',
       'P Personal',
-      'Sardar Prime Builders Pvt Ltd',
-      'Sardar Prime Builders Pvt. Ltd',
-      'Sardar Prime Builders',
-      'SARDAR PRIME BUILDERS',
       'SGC-Remote Sites',
       'SGC Remote Sites',
       'political staff',
       'Political Staff'
+    ]
+  },
+  {
+    companyNames: ['SARDAR PRIME BUILDERS'],
+    projectNames: [
+      'Sardar Prime Builders Pvt Ltd',
+      'Sardar Prime Builders Pvt. Ltd',
+      'Sardar Prime Builders',
+      'SARDAR PRIME BUILDERS'
     ]
   },
   {
@@ -85,7 +93,8 @@ const COMPANY_PROJECT_MAPPINGS = [
     projectNames: [
       'Royal Creat Services',
       'Royal Crete Services',
-      'Royal Crete Solutions'
+      'Royal Crete Solutions',
+      'Royal Creat Pvt Ltd'
     ]
   },
   {
@@ -105,6 +114,14 @@ const COMPANY_PROJECT_MAPPINGS = [
       'Taj Facility Management',
       'Project Management Company'
     ]
+  },
+  {
+    companyNames: ['TAJ PROJECTS'],
+    projectNames: ['TAJ PROJECTS', 'Taj Projects']
+  },
+  {
+    companyNames: ['RADIANT MENTOR'],
+    projectNames: ['RADIANT MENTOR', 'Radiant Mentor']
   }
 ];
 
@@ -154,6 +171,8 @@ async function main() {
   const dryRun = process.argv.includes('--dry-run');
   const confirmed = process.argv.includes('--yes');
   const listProjects = process.argv.includes('--list-projects');
+  const fallbackIdx = process.argv.indexOf('--fallback-company');
+  const fallbackCompanyName = fallbackIdx >= 0 ? String(process.argv[fallbackIdx + 1] || '').trim() : '';
 
   if (!listProjects && !dryRun && !confirmed) {
     console.error('Pass --dry-run to preview, --yes to apply, or --list-projects to see project names.');
@@ -231,8 +250,105 @@ async function main() {
     }
   }
 
-  // Employees with unmapped projects are left unchanged (informational only).
+  // Employees with unmapped projects are left unchanged unless --fallback-company is set.
+  if (fallbackCompanyName) {
+    const fallbackCompany = await findByExactName(Company, [fallbackCompanyName]);
+    if (!fallbackCompany) {
+      throw new Error(`Fallback company not found: ${fallbackCompanyName}`);
+    }
+
+    const validCompanyIds = new Set(
+      (await Company.find({}).select('_id')).map((c) => String(c._id))
+    );
+    const validProjectIds = new Set(
+      (await Project.find({}).select('_id')).map((p) => String(p._id))
+    );
+
+    const fallbackEmployees = await Employee.find({
+      $or: [
+        { placementProject: null },
+        { placementProject: { $exists: false } },
+        { placementCompany: null },
+        { placementCompany: { $exists: false } }
+      ]
+    }).select('_id employeeId firstName lastName placementCompany placementProject');
+
+    const allEmployees = await Employee.find({})
+      .select('_id employeeId placementCompany placementProject')
+      .lean();
+
+    const orphaned = allEmployees.filter((emp) => {
+      const projectId = emp.placementProject ? String(emp.placementProject) : '';
+      const companyId = emp.placementCompany ? String(emp.placementCompany) : '';
+      const badProject = projectId && !validProjectIds.has(projectId);
+      const badCompany = !companyId || !validCompanyIds.has(companyId);
+      return badProject || badCompany;
+    });
+
+    const fallbackById = new Map();
+    [...fallbackEmployees, ...orphaned].forEach((emp) => {
+      fallbackById.set(String(emp._id), emp);
+    });
+    const fallbackList = [...fallbackById.values()];
+
+    console.log(`\n=== Fallback: ${fallbackCompany.name} ===`);
+    console.log(`Employees without project / stale company or project refs: ${fallbackList.length}`);
+
+    for (const emp of fallbackList) {
+      const alreadyQueued = bulkOps.some((op) => String(op.updateOne.filter._id) === String(emp._id));
+      if (alreadyQueued) continue;
+
+      const currentCompanyId = emp.placementCompany ? String(emp.placementCompany) : '';
+      const targetCompanyId = String(fallbackCompany._id);
+      if (currentCompanyId === targetCompanyId) {
+        totalAlreadyCorrect += 1;
+        continue;
+      }
+      totalWouldUpdate += 1;
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: emp._id },
+          update: { $set: { placementCompany: fallbackCompany._id } }
+        }
+      });
+    }
+  }
+
+  const totalEmployees = await Employee.countDocuments({});
+  const stillUnmapped = totalEmployees - totalWouldUpdate - totalAlreadyCorrect;
+  if (stillUnmapped > 0 && !fallbackCompanyName) {
+    const validCompanyIds = new Set(
+      (await Company.find({}).select('_id')).map((c) => String(c._id))
+    );
+    const unmappedSample = await Employee.find({})
+      .populate('placementProject', 'name')
+      .populate('placementCompany', 'name')
+      .select('employeeId firstName lastName placementProject placementCompany')
+      .lean();
+
+    const remaining = unmappedSample.filter((emp) => {
+      const targetFromQueue = bulkOps.some((op) => String(op.updateOne.filter._id) === String(emp._id));
+      if (targetFromQueue) return false;
+      const currentId = emp.placementCompany ? String(emp.placementCompany._id || emp.placementCompany) : '';
+      return !currentId || !validCompanyIds.has(currentId);
+    });
+
+    if (remaining.length) {
+      console.log(`\nStill unmapped after project rules (${remaining.length} employees):`);
+      const byProject = new Map();
+      remaining.forEach((emp) => {
+        const key = emp.placementProject?.name || '(no project)';
+        byProject.set(key, (byProject.get(key) || 0) + 1);
+      });
+      [...byProject.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([project, count]) => console.log(`  ${count} × ${project}`));
+      console.log('Tip: add project names to COMPANY_PROJECT_MAPPINGS or re-run with --fallback-company "Company Name"');
+    }
+  }
+
   console.log('\n--- Summary ---');
+  console.log(`Total employees:                ${totalEmployees}`);
   console.log(`To update (placementCompany only): ${totalWouldUpdate}`);
   console.log(`Already correct company:          ${totalAlreadyCorrect}`);
   console.log(`Bulk operations queued:           ${bulkOps.length}`);

@@ -7,9 +7,10 @@ import {
 } from '@mui/material';
 import {
   CloudUpload as UploadIcon, AccountBalance as BankIcon,
-  CheckCircle as DoneIcon, TableView as CsvIcon, Preview as PreviewIcon
+  CheckCircle as DoneIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import { financeListFromResponse } from '../../utils/financeApiData';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 });
 
@@ -33,7 +34,7 @@ export default function BankStatementImport() {
   const loadAccounts = useCallback(async () => {
     try {
       const res = await api.get('/finance/banking/accounts');
-      setBankAccounts(res.data.data || res.data.accounts || []);
+      setBankAccounts(financeListFromResponse(res));
     } catch (e) {
       setError('Failed to load bank accounts');
     }

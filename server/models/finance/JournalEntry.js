@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const journalEntrySchema = new mongoose.Schema({
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    index: true,
+    default: null
+  },
   entryNumber: {
     type: String,
     unique: true,
@@ -192,6 +198,7 @@ const journalEntrySchema = new mongoose.Schema({
 });
 
 // Indexes
+journalEntrySchema.index({ companyId: 1, date: -1 });
 journalEntrySchema.index({ entryNumber: 1 });
 journalEntrySchema.index({ journal: 1 });
 journalEntrySchema.index({ date: 1 });
@@ -255,7 +262,13 @@ journalEntrySchema.pre('save', async function(next) {
         else if (this.referenceType === 'bill') series = 'BILL';
         else series = 'JV';
       }
-      this.entryNumber = await getNextJournalEntryNumber(series);
+      let companyCode = '';
+      if (this.companyId) {
+        const PlacementCompany = mongoose.model('PlacementCompany');
+        const company = await PlacementCompany.findById(this.companyId).select('companyCode').lean();
+        companyCode = company?.companyCode || '';
+      }
+      this.entryNumber = await getNextJournalEntryNumber(series, companyCode);
     }
 
     // Set posted date if status is posted

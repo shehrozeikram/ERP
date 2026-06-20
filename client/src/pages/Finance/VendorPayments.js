@@ -9,6 +9,8 @@ import {
   Refresh as RefreshIcon, Payment as PaymentIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 
 const METHOD_COLORS = {
   bank_transfer: 'primary', check: 'secondary', cheque: 'secondary',
@@ -39,6 +41,7 @@ export default function VendorPayments() {
   }, [filters]);
 
   useEffect(() => { load(); }, [load]);
+  useFinanceCompanyReload(load, { skipInitial: true });
 
   const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-PK') : '—';
@@ -46,13 +49,9 @@ export default function VendorPayments() {
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <PaymentIcon color="secondary" />
-          <Typography variant="h5" fontWeight={700}>Vendor Payments</Typography>
-        </Box>
+      <FinanceCompanyPageHeader title="Vendor Payments" icon={PaymentIcon}>
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">Refresh</Button>
-      </Box>
+      </FinanceCompanyPageHeader>
 
       {/* Summary */}
       <Grid container spacing={2} mb={3}>

@@ -93,9 +93,11 @@ const withVoucherNarration = (payload, narration) => {
   const text = trim(narration);
   if (!text || !payload) return payload;
 
-  const next = { ...payload, description: text };
+  const entryDesc = text.slice(0, 500);
+  const lineDesc = text.slice(0, 200);
+  const next = { ...payload, description: entryDesc };
   if (Array.isArray(next.lines)) {
-    next.lines = next.lines.map((line) => ({ ...line, description: text }));
+    next.lines = next.lines.map((line) => ({ ...line, description: lineDesc }));
   }
   return next;
 };

@@ -41,12 +41,15 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 const JournalEntryForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const theme = useTheme();
   const isEdit = Boolean(id);
+  const { selectedCompanyId } = useFinanceCompany();
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -69,16 +72,21 @@ const JournalEntryForm = () => {
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    fetchAccounts();
+    if (selectedCompanyId) {
+      fetchAccounts();
+    }
     if (isEdit) {
       fetchJournalEntry();
     }
-  }, [isEdit, id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch fns are stable for this form lifecycle
+  }, [isEdit, id, selectedCompanyId]);
 
   const fetchAccounts = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/finance/accounts?limit=1000');
+      const response = await api.get('/finance/accounts', {
+        params: { limit: 1000, companyId: selectedCompanyId }
+      });
       if (response.data.success) {
         setAccounts(response.data.data.accounts || []);
       }
@@ -200,13 +208,19 @@ const JournalEntryForm = () => {
       return;
     }
 
+    if (!selectedCompanyId) {
+      setError('Select a finance company before creating a journal entry');
+      return;
+    }
+
     try {
       setSaving(true);
       setError('');
       
+      const payload = { ...formData, companyId: selectedCompanyId };
       const response = isEdit 
-        ? await api.put(`/finance/journal-entries/${id}`, formData)
-        : await api.post('/finance/journal-entries', formData);
+        ? await api.put(`/finance/journal-entries/${id}`, payload)
+        : await api.post('/finance/journal-entries', payload);
       
       if (response.data.success) {
         setSuccess(isEdit ? 'Journal entry updated successfully!' : 'Journal entry created successfully!');
@@ -343,7 +357,8 @@ const JournalEntryForm = () => {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Paper sx={{ p: 3, mb: 3, background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, ${alpha(theme.palette.secondary.main, 0.1)} 100%)` }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <IconButton onClick={handleCancel} sx={{ bgcolor: alpha(theme.palette.primary.main, 0.1) }}>
             <ArrowBackIcon />
           </IconButton>
@@ -358,6 +373,8 @@ const JournalEntryForm = () => {
               {isEdit ? 'Modify journal entry details and lines' : 'Create a new journal entry with double-entry accounting'}
             </Typography>
           </Box>
+          </Box>
+          {!isEdit && <FinanceCompanySelector minWidth={280} showHelper={false} />}
         </Box>
       </Paper>
 

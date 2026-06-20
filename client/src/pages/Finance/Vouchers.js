@@ -40,6 +40,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 /** YYYY-MM-DD in local calendar from a Date or ISO string */
 function clearedAtToYmd(value) {
@@ -108,6 +110,7 @@ const VOUCHER_TYPE_FILTER_OPTIONS = [
 
 const Vouchers = () => {
   const navigate = useNavigate();
+  const { selectedCompanyId } = useFinanceCompany();
   const fileInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
@@ -190,6 +193,7 @@ const Vouchers = () => {
       if (voucherType) params.append('referenceType', voucherType);
       // Payroll accrual JVs are auto-posted backend entries; finance uses Payroll Queue + BPV on payment.
       params.append('excludeReferenceTypes', 'payroll');
+      if (selectedCompanyId) params.append('companyId', selectedCompanyId);
       const res = await api.get(`/finance/journal-entries?${params.toString()}`);
       setEntries(res?.data?.data?.entries || []);
     } catch (_e) {
@@ -201,7 +205,7 @@ const Vouchers = () => {
 
   useEffect(() => {
     fetchEntries();
-  }, [status, voucherType]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [status, voucherType, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voucherRows = useMemo(() => {
     let rows = entries.map((entry) => ({
@@ -293,9 +297,12 @@ const Vouchers = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <VoucherIcon color="primary" />
           <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
+          </Box>
+          <FinanceCompanySelector minWidth={280} showHelper={false} />
         </Box>
       </Paper>
 

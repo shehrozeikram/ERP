@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const { withCompany } = require('./financePosting');
 
 async function runDeferredEntryRecognition() {
   const DeferredEntry = require('../models/finance/DeferredEntry');
@@ -21,7 +22,7 @@ async function runDeferredEntryRecognition() {
       let journalEntry = null;
       const isRevenue = entry.type === 'deferred_revenue';
 
-      journalEntry = await FinanceHelper.createAndPostJournalEntry({
+      journalEntry = await FinanceHelper.createAndPostJournalEntry(withCompany({
         date:          new Date(),
         reference:     `DEFERRED-${entry._id}-${period}`,
         description:   `${isRevenue ? 'Revenue' : 'Expense'} Recognition – ${entry.name} (${period})`,
@@ -39,7 +40,7 @@ async function runDeferredEntryRecognition() {
               { account: entry.recognitionAccount, description: `Expense recognized – ${entry.name}`,            debit:  line.amount, department: entry.department },
               { account: entry.deferredAccount,    description: `Deferred expense recognition – ${entry.name}`, credit: line.amount, department: entry.department }
             ]
-      });
+      }, entry.companyId));
 
       line.journalEntry = journalEntry._id;
       line.postedAt     = new Date();

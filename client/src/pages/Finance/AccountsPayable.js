@@ -67,12 +67,14 @@ import QuotationDetailView from '../../components/Procurement/QuotationDetailVie
 import NarrationTableCell from '../../components/common/NarrationTableCell';
 import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
 import { useAuth } from '../../contexts/AuthContext';
-import FinanceApprovalAuthorityPicker from '../../components/finance/FinanceApprovalAuthorityPicker';
+import FinanceApprovalAuthorityPicker from '../../components/Finance/FinanceApprovalAuthorityPicker';
 import {
   buildFinanceApprovalAuthoritiesPayload,
   fetchFinanceAuthorityCandidates,
   validateFinanceAuthoritySelection
 } from '../../services/financeApprovalAuthorityService';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 const getBillPayeeEmployeeId = (bill) => {
   const pe = bill?.payeeEmployee;
@@ -92,6 +94,7 @@ const getBillPayeeEmployeeDisplayName = (bill) => {
 };
 
 const AccountsPayable = () => {
+  const { selectedCompanyId } = useFinanceCompany();
   const { user: currentUser } = useAuth();
   const preparerUserId = String(currentUser?.id || currentUser?._id || '');
   const preparerDisplayName = [currentUser?.firstName, currentUser?.lastName]
@@ -291,10 +294,11 @@ const AccountsPayable = () => {
 
   // Load bank/cash accounts from chart of accounts (includes subaccounts under pay-from parents)
   useEffect(() => {
-    fetchPayFromAccounts(api)
+    if (!selectedCompanyId) return;
+    fetchPayFromAccounts(api, { companyId: selectedCompanyId })
       .then(setBankAccounts)
       .catch(() => setBankAccounts([]));
-  }, []);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
     api.get('/procurement/vendors', { params: { limit: 1000 } })
@@ -340,6 +344,7 @@ const AccountsPayable = () => {
   useEffect(() => { fetchPosForBilling(); }, [viewDialogOpen]);
 
   const fetchAccountsPayable = useCallback(async () => {
+    if (!selectedCompanyId) return;
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -350,6 +355,7 @@ const AccountsPayable = () => {
       if (filters.search) params.append('search', filters.search);
       params.append('page', pagination.currentPage);
       params.append('limit', pagination.limit);
+      params.append('companyId', selectedCompanyId);
       params.append('_t', new Date().getTime());
 
       const response = await api.get(`/finance/accounts-payable?${params}`, {
@@ -376,11 +382,15 @@ const AccountsPayable = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, pagination.currentPage, pagination.limit]);
+  }, [filters, pagination.currentPage, pagination.limit, selectedCompanyId]);
 
   useEffect(() => {
+    if (!selectedCompanyId) {
+      setLoading(false);
+      return;
+    }
     fetchAccountsPayable();
-  }, [fetchAccountsPayable]);
+  }, [fetchAccountsPayable, selectedCompanyId]);
 
   const handleFilterChange = (field) => (event) => {
     setFilters(prev => ({
@@ -900,6 +910,7 @@ const AccountsPayable = () => {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <FinanceCompanySelector minWidth={240} showHelper={false} />
             <Button variant="outlined" size="small" color="info"
               onClick={() => navigate('/finance/vendor-advance')} sx={{ fontSize: 12 }}>
               Vendor advance

@@ -42,7 +42,8 @@ const recurringJournalSchema = new mongoose.Schema({
   postedEntries: [{ type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' }],
 
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true }
 }, { timestamps: true });
 
 // Compute nextRunDate from frequency + dayOfMonth + startDate

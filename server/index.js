@@ -151,6 +151,7 @@ const taxesRoutes = require('./routes/taxes');
 const fixedAssetsRoutes = require('./routes/fixedAssets');
 const assetTaggingRoutes = require('./routes/assetTagging');
 const paymentTermsRoutes = require('./routes/paymentTerms');
+const financeCompaniesRoutes = require('./routes/financeCompanies');
 const purchaseReturnsRoutes = require('./routes/purchaseReturns');
 const cashApprovalsRoutes = require('./routes/cashApprovals');
 // Pre-load new models so Mongoose registers them before any route uses them
@@ -162,6 +163,8 @@ require('./models/assetTagging/AssetTag');
 require('./models/assetTagging/AssetTagEvent');
 require('./models/assetTagging/AssetVerificationSession');
 require('./models/finance/PaymentTerm');
+require('./models/finance/CompanyBank');
+require('./models/finance/PayrollPeriodPaymentApplication');
 require('./models/procurement/PurchaseReturn');
 require('./models/procurement/InventoryCategory');
 require('./models/procurement/CashApproval');
@@ -567,6 +570,7 @@ app.use('/api/finance/recovery-assignments', authMiddleware, activityLogger, rec
 app.use('/api/finance/recovery-task-rules', authMiddleware, activityLogger, recoveryTaskAssignmentRulesRoutes);
 app.use('/api/finance/recovery-tasks', authMiddleware, activityLogger, recoveryTasksRoutes);
 app.use('/api/finance/recovery-campaigns', authMiddleware, activityLogger, recoveryCampaignsRoutes);
+app.use('/api/finance/companies', authMiddleware, activityLogger, financeCompaniesRoutes);
 app.use('/api/finance', authMiddleware, activityLogger, financeAdvancedRoutes);
 app.use('/api/finance/journals', authMiddleware, activityLogger, financeJournalsRoutes);
 app.use('/api/finance/fiscal-periods', authMiddleware, activityLogger, fiscalPeriodsRoutes);

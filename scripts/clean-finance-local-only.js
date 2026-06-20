@@ -5,11 +5,15 @@
  *   - NODE_ENV is production
  *   - MONGODB_URI_LOCAL is missing or does not point at localhost / 127.0.0.1 / ::1
  *
+ * Also clears Payroll — Finance data (payment applications, bank letters) and
+ * resets HR payroll rows marked Paid back to AVP-approved (pending finance payment).
+ *
  * By default keeps Chart of Accounts (Account collection). To remove accounts too:
  *   node scripts/clean-finance-local-only.js --yes --include-accounts
  *
  * Usage:
  *   node scripts/clean-finance-local-only.js --yes
+ *   npm run clean:finance-local
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
@@ -32,6 +36,8 @@ function loadModels() {
     GeneralLedger: require(path.join(root, 'server/models/finance/GeneralLedger')),
     JournalEntry: require(path.join(root, 'server/models/finance/JournalEntry')),
     PaymentTerm: require(path.join(root, 'server/models/finance/PaymentTerm')),
+    PayrollBankLetter: require(path.join(root, 'server/models/finance/PayrollBankLetter')),
+    PayrollPeriodPaymentApplication: require(path.join(root, 'server/models/finance/PayrollPeriodPaymentApplication')),
     RecurringJournal: require(path.join(root, 'server/models/finance/RecurringJournal')),
     RecoveryAssignment: require(path.join(root, 'server/models/finance/RecoveryAssignment')),
     RecoveryCampaign: require(path.join(root, 'server/models/finance/RecoveryCampaign')),
@@ -47,6 +53,8 @@ function loadModels() {
 
 /** Same ordering as clean-finance-procurement-keep-masters.js (finance slice). */
 const DELETE_ORDER = [
+  'PayrollBankLetter',
+  'PayrollPeriodPaymentApplication',
   'GeneralLedger',
   'JournalEntry',
   'AccountsPayable',
@@ -70,6 +78,33 @@ const DELETE_ORDER = [
   'WhatsAppIncomingMessage',
   'WhatsAppOutgoingMessage'
 ];
+
+async function resetFinancePayrollStatuses() {
+  const Payroll = require(path.join(root, 'server/models/hr/Payroll'));
+  try {
+    const res = await Payroll.updateMany(
+      { status: 'Paid' },
+      {
+        $set: { status: 'Approved by AVP' },
+        $unset: { paymentMethod: '', paymentDate: '' }
+      }
+    );
+    const modified = res.modifiedCount ?? res.nModified ?? 0;
+    summaryLine('Payroll (reset Paid → Approved by AVP)', modified);
+    return { key: 'PayrollPaidReset', modified };
+  } catch (error) {
+    summaryLine('Payroll (reset Paid → Approved by AVP)', 0, error.message);
+    return { key: 'PayrollPaidReset', modified: 0, error: error.message };
+  }
+}
+
+function summaryLine(label, count, error) {
+  if (error) {
+    console.error(`  ${label}: FAILED`, error);
+  } else {
+    console.log(`  ${label}: ${count}`);
+  }
+}
 
 async function main() {
   if (!process.argv.includes('--yes')) {
@@ -111,6 +146,8 @@ async function main() {
   const models = loadModels();
   const summary = [];
 
+  summary.push(await resetFinancePayrollStatuses());
+
   for (const key of DELETE_ORDER) {
     const Model = models[key];
     if (!Model || typeof Model.deleteMany !== 'function') {
@@ -143,7 +180,10 @@ async function main() {
   await mongoose.connection.close();
   console.log('\nDone. Summary:', JSON.stringify(summary, null, 2));
   if (!includeAccounts) {
-    console.log('\nPreserved: Account (Chart of Accounts). Procurement and other modules untouched.');
+    console.log(
+      '\nPreserved: Account (Chart of Accounts), CompanyBank. ' +
+        'Procurement and other modules untouched.'
+    );
   }
 }
 

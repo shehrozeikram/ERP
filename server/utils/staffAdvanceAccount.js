@@ -3,11 +3,19 @@
  * Kept separate from financeHelper to avoid circular requires with employeeAdvanceAccount.
  */
 const Account = require('../models/finance/Account');
+const AccountResolver = require('./accountResolver');
 
 const STAFF_ADVANCE_ACCOUNT_NUMBER = '1120';
 
-const ensureStaffAdvanceAccount = async (createdBy) => {
-  let acc = await Account.findOne({ accountNumber: STAFF_ADVANCE_ACCOUNT_NUMBER });
+const ensureStaffAdvanceAccount = async (createdBy, companyId = null) => {
+  let acc = companyId
+    ? await AccountResolver.resolveSystemAccount(companyId, STAFF_ADVANCE_ACCOUNT_NUMBER)
+    : null;
+  if (!acc) {
+    const query = { accountNumber: STAFF_ADVANCE_ACCOUNT_NUMBER };
+    if (companyId) query.companyId = companyId;
+    acc = await Account.findOne(query);
+  }
   if (!acc) {
     acc = await Account.create({
       accountNumber: STAFF_ADVANCE_ACCOUNT_NUMBER,
@@ -19,6 +27,7 @@ const ensureStaffAdvanceAccount = async (createdBy) => {
         'Temporary cash advances issued to procurement / staff for cash purchases. Cleared on settlement.',
       isSystem: true,
       isActive: true,
+      companyId: companyId || undefined,
       createdBy
     });
   }

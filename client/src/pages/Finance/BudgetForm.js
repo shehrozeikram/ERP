@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Box, Typography, Paper, Button, TextField, MenuItem, CircularProgress, Alert,
+  Box, Typography, Paper, Button, TextField, CircularProgress, Alert,
   Stack, Grid, IconButton, Divider, Tooltip, Chip, Autocomplete
 } from '@mui/material';
 import {
@@ -9,6 +9,7 @@ import {
   BarChart as BudgetIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import { financeListFromResponse } from '../../utils/financeApiData';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
 
@@ -39,7 +40,7 @@ export default function BudgetForm() {
         api.get('/finance/accounts', { params: { type: 'Expense,Revenue', limit: 500 } }),
         ...(isNew ? [] : [api.get(`/finance/budgets/${id}`)])
       ]);
-      const accs = accRes.data.data || accRes.data.accounts || [];
+      const accs = financeListFromResponse(accRes);
       setAccounts(accs.filter(a => ['Expense', 'Revenue'].includes(a.type)));
 
       if (!isNew && rest[0]) {

@@ -372,6 +372,7 @@ export default function FinanceDashboard() {
               { label: 'Finance Journals',    path: '/finance/journals'             },
               { label: 'Fiscal Periods',      path: '/finance/fiscal-periods'       },
               { label: 'Inventory Categories',path: '/finance/inventory-categories' },
+              { label: 'Companies & Banks',   path: '/finance/companies'            },
               { label: 'Company Profile',     path: '/finance/company-profile'      },
             ],
           },

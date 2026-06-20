@@ -12,6 +12,12 @@ const mongoose = require('mongoose');
  */
 const fiscalPeriodSchema = new mongoose.Schema(
   {
+    companyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PlacementCompany',
+      index: true,
+      default: null
+    },
     name: {
       type: String,
       required: [true, 'Period name is required'],
@@ -65,8 +71,9 @@ const fiscalPeriodSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Each year/month combination must be unique
-fiscalPeriodSchema.index({ year: 1, month: 1 }, { unique: true });
+// Each company + year/month combination must be unique
+fiscalPeriodSchema.index({ companyId: 1, year: 1, month: 1 }, { unique: true });
+fiscalPeriodSchema.index({ year: 1, month: 1 });
 fiscalPeriodSchema.index({ status: 1 });
 fiscalPeriodSchema.index({ startDate: 1, endDate: 1 });
 
@@ -74,12 +81,15 @@ fiscalPeriodSchema.index({ startDate: 1, endDate: 1 });
  * Check if a given date falls within an open fiscal period.
  * Returns the period if found and open, throws if closed/locked.
  */
-fiscalPeriodSchema.statics.validatePostingDate = async function (date) {
+fiscalPeriodSchema.statics.validatePostingDate = async function (date, companyId = null) {
   const d = new Date(date);
-  const period = await this.findOne({
+  const query = {
     startDate: { $lte: d },
     endDate: { $gte: d }
-  });
+  };
+  if (companyId) query.companyId = companyId;
+
+  const period = await this.findOne(query);
 
   if (!period) return null; // No period defined — allow posting (lenient mode)
   if (period.status === 'closed') {
@@ -98,7 +108,7 @@ fiscalPeriodSchema.statics.validatePostingDate = async function (date) {
 /**
  * Auto-generate fiscal periods for a full year.
  */
-fiscalPeriodSchema.statics.generateYear = async function (year, createdBy) {
+fiscalPeriodSchema.statics.generateYear = async function (year, createdBy, companyId = null) {
   const months = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -107,7 +117,9 @@ fiscalPeriodSchema.statics.generateYear = async function (year, createdBy) {
   for (let m = 1; m <= 12; m++) {
     const startDate = new Date(year, m - 1, 1);
     const endDate = new Date(year, m, 0, 23, 59, 59);
-    const exists = await this.findOne({ year, month: m });
+    const existsQuery = { year, month: m };
+    if (companyId) existsQuery.companyId = companyId;
+    const exists = await this.findOne(existsQuery);
     if (!exists) {
       const period = await this.create({
         name: `${months[m - 1]} ${year}`,
@@ -116,6 +128,7 @@ fiscalPeriodSchema.statics.generateYear = async function (year, createdBy) {
         startDate,
         endDate,
         status: 'open',
+        companyId: companyId || undefined,
         createdBy
       });
       created.push(period);

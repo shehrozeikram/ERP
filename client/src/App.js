@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress, Typography, Button } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
+import { FinanceCompanyProvider } from './context/FinanceCompanyContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
 // Layout Components
@@ -106,6 +107,7 @@ import BillPrint from './pages/Finance/BillPrint';
 import RecurringJournals from './pages/Finance/RecurringJournals';
 import BatchPayment from './pages/Finance/BatchPayment';
 import CompanyProfile from './pages/Finance/CompanyProfile';
+import FinanceCompanies from './pages/Finance/FinanceCompanies';
 import ComparativePL from './pages/Finance/ComparativePL';
 import CostCenterPL from './pages/Finance/CostCenterPL';
 import BudgetList from './pages/Finance/BudgetList';
@@ -536,6 +538,7 @@ function App() {
   // If user is authenticated, show the full application with layout
   return (
     <DataProvider>
+      <FinanceCompanyProvider>
       <Layout>
         <Sidebar />
         <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
@@ -1163,6 +1166,7 @@ function App() {
             <Route path="/finance/recurring-journals" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><RecurringJournals /></ProtectedRoute>} />
             <Route path="/finance/batch-payment" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BatchPayment /></ProtectedRoute>} />
             <Route path="/finance/company-profile" element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><CompanyProfile /></ProtectedRoute>} />
+            <Route path="/finance/companies" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinanceCompanies /></ProtectedRoute>} />
             <Route path="/finance/comparative-pl" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><ComparativePL /></ProtectedRoute>} />
             <Route path="/finance/cost-center-pl" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CostCenterPL /></ProtectedRoute>} />
             <Route path="/finance/budgets" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetList /></ProtectedRoute>} />
@@ -2247,6 +2251,7 @@ function App() {
           </Box>
         </Box>
       </Layout>
+      </FinanceCompanyProvider>
     </DataProvider>
     );
 }

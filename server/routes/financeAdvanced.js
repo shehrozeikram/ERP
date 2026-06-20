@@ -32,6 +32,12 @@ const {
   getFinancePayrollBankLetter,
   markFinancePayrollPeriodPaid
 } = require('../utils/financePayrollQueue');
+const PayrollPeriodPaymentHelper = require('../utils/payrollPeriodPayment');
+const PayrollBankLetterService = require('../utils/payrollBankLetterService');
+const { requireCompanyFromRequest, findHistoricalCompany, resolveCompanyForFinanceRoute, companyQuery, resolveDocumentCompanyId } = require('../utils/financeCompanyContext');
+const { financeScope, assertDocCompany, loadScopedDoc } = require('../utils/financeRouteScope');
+const { co, acct, withCompany } = require('../utils/financePosting');
+const { seedChartOfAccountsForCompany } = require('../utils/companyChartOfAccounts');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
@@ -238,6 +244,13 @@ router.get('/accounts',
   authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'), 
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    let company = null;
+    try {
+      company = await requireCompanyFromRequest(req);
+    } catch (err) {
+      company = await findHistoricalCompany();
+      if (!company) throw err;
+    }
     const { 
       page = 1, 
       limit = 20, 
@@ -248,7 +261,7 @@ router.get('/accounts',
       search 
     } = req.query;
 
-    const query = { isActive: true };
+    const query = { isActive: true, companyId: company._id };
 
     // Add filters
     if (type) query.type = type;
@@ -259,12 +272,14 @@ router.get('/accounts',
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
         { accountNumber: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { description: { $regex: search, $options: 'i' } },
+        { accountCode: { $regex: search, $options: 'i' } }
       ];
     }
 
     const accounts = await Account.find(query)
       .populate('parentAccount', 'accountNumber name')
+      .populate('companyId', 'name companyCode')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ accountNumber: 1 });
@@ -274,6 +289,7 @@ router.get('/accounts',
     res.json({
       success: true,
       data: {
+        company,
         accounts,
         pagination: {
           currentPage: parseInt(page),
@@ -294,10 +310,11 @@ router.get('/accounts',
 router.get('/accounts/hierarchy', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const hierarchy = await Account.getHierarchy();
+    const company = await requireCompanyFromRequest(req);
+    const hierarchy = await Account.getHierarchy(company._id);
     res.json({
       success: true,
-      data: hierarchy
+      data: { company, hierarchy }
     });
   })
 );
@@ -308,10 +325,11 @@ router.get('/accounts/hierarchy',
 router.get('/accounts/trial-balance', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const trialBalance = await Account.getTrialBalance();
+    const company = await requireCompanyFromRequest(req);
+    const trialBalance = await Account.getTrialBalance(company._id);
     res.json({
       success: true,
-      data: trialBalance
+      data: { company, trialBalance }
     });
   })
 );
@@ -322,56 +340,18 @@ router.get('/accounts/trial-balance',
 router.post('/accounts/ensure-defaults',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    // Account model enum: type ∈ ['Asset','Liability','Equity','Revenue','Expense'], category is required
-    const defaults = [
-      { accountNumber: '1001', name: 'Cash',                    type: 'Asset',     category: 'Current Asset',       detailType: 'Cash and Cash Equivalents' },
-      { accountNumber: '1002', name: 'Bank Account',            type: 'Asset',     category: 'Current Asset',       detailType: 'Bank'                      },
-      {
-        accountNumber: '1003',
-        name: 'Allied Bank Ltd — Operating (placeholder)',
-        type: 'Asset',
-        category: 'Current Asset',
-        detailType: 'Bank',
-        description: 'Dummy operating bank — rename or replace in Chart of Accounts when ready.'
-      },
-      { accountNumber: '1100', name: 'Inventory',               type: 'Asset',     category: 'Current Asset',       detailType: 'Inventory Asset'            },
-      { accountNumber: '1120', name: 'Cash Advance to Staff',   type: 'Asset',     category: 'Current Asset',       detailType: 'Other Current Assets'       },
-      { accountNumber: '1200', name: 'Accounts Receivable',     type: 'Asset',     category: 'Current Asset',       detailType: 'Accounts Receivable'        },
-      { accountNumber: '2001', name: 'Accounts Payable',   type: 'Liability', category: 'Current Liability',   detailType: 'Accounts Payable'           },
-      { accountNumber: '2004', name: 'WHT Payable',        type: 'Liability', category: 'Current Liability',   detailType: 'Other Current Liabilities'  },
-      { accountNumber: '2100', name: 'GRNI Clearing',      type: 'Liability', category: 'Current Liability',   detailType: 'Other Current Liabilities'  },
-      { accountNumber: '2200', name: 'Salaries Payable',   type: 'Liability', category: 'Current Liability',   detailType: 'Other Current Liabilities'  },
-      { accountNumber: '3001', name: 'Share Capital',      type: 'Equity',    category: 'Equity',              detailType: "Owner's Equity"             },
-      { accountNumber: '3002', name: 'Retained Earnings',  type: 'Equity',    category: 'Equity',              detailType: 'Retained Earnings'          },
-      { accountNumber: '4001', name: 'Sales Revenue',      type: 'Revenue',   category: 'Operating Revenue',   detailType: 'Sales'                      },
-      { accountNumber: '5000', name: 'Cost of Goods Sold', type: 'Expense',   category: 'Cost of Sales',       detailType: 'Cost of Goods Sold'         },
-      { accountNumber: '5001', name: 'General Expenses',   type: 'Expense',   category: 'Operating Expense',   detailType: 'Other Operating Expenses'   },
-      { accountNumber: '5002', name: 'Salaries Expense',   type: 'Expense',   category: 'Operating Expense',   detailType: 'Payroll Expenses'           },
-      { accountNumber: '5003', name: 'Depreciation Expense',type:'Expense',   category: 'Operating Expense',   detailType: 'Depreciation'               },
-    ];
+    const company = await requireCompanyFromRequest(req);
+    const result = await seedChartOfAccountsForCompany(company._id, {
+      createdBy: req.user._id || req.user.id,
+      skipExisting: true
+    });
 
-    const results = [];
-    for (const acc of defaults) {
-      const existing = await Account.findOne({ accountNumber: acc.accountNumber });
-      if (!existing) {
-        const { description: accDesc, ...accRest } = acc;
-        const created = await Account.create({
-          ...accRest,
-          isActive: true,
-          isSystemAccount: true,
-          description: accDesc || 'Auto-created system account'
-        });
-        results.push({ status: 'created', accountNumber: acc.accountNumber, name: acc.name, _id: created._id });
-      } else {
-        results.push({ status: 'exists', accountNumber: acc.accountNumber, name: existing.name, _id: existing._id });
-      }
-    }
-
-    const created = results.filter(r => r.status === 'created').length;
     res.json({
       success: true,
-      message: created > 0 ? `${created} system account(s) created, ${results.length - created} already existed` : 'All system accounts already exist',
-      data: results
+      message: result.created > 0
+        ? `${result.created} system account(s) created for ${company.name}, ${result.existing} already existed`
+        : `All system accounts already exist for ${company.name}`,
+      data: { company, ...result }
     });
   })
 );
@@ -400,10 +380,11 @@ router.post('/accounts',
     const accountType = req.body.accountType || req.body.category; // e.g. "Cash and cash equivalents"
     const section = require('../config/accountDetailTypes').getSectionForAccountType(accountType) || 'Asset';
     const type = section === 'Income' ? 'Revenue' : section;
+    const company = await requireCompanyFromRequest(req);
     const { accountType: _, ...rest } = req.body;
     let accountNumber;
     try {
-      accountNumber = await Account.resolveAccountNumber(req.body.accountNumber, type);
+      accountNumber = await Account.resolveAccountNumber(req.body.accountNumber, type, company._id);
     } catch (err) {
       return res.status(400).json({
         success: false,
@@ -412,6 +393,7 @@ router.post('/accounts',
     }
     const accountData = {
       ...rest,
+      companyId: company._id,
       accountNumber,
       type,
       category: accountType,
@@ -425,7 +407,7 @@ router.post('/accounts',
       await account.save();
     } catch (err) {
       if (err?.code === 11000) {
-        account.accountNumber = await Account.resolveAccountNumber(null, type);
+        account.accountNumber = await Account.resolveAccountNumber(null, type, company._id);
         await account.save();
       } else {
         throw err;
@@ -522,6 +504,17 @@ router.get('/journal-entries',
 
     const filters = {};
 
+    let company = null;
+    try {
+      company = await requireCompanyFromRequest(req);
+    } catch (err) {
+      company = await findHistoricalCompany();
+      if (!company) throw err;
+    }
+    if (company?._id) {
+      filters.companyId = company._id;
+    }
+
     const allowedReferenceTypes = new Set([
       'payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual',
       'grn', 'sin', 'purchase_order', 'stock_adjustment', 'purchase_return',
@@ -566,6 +559,7 @@ router.get('/journal-entries',
     
     const [entries, totalCount] = await Promise.all([
       JournalEntry.find(filters)
+        .populate('companyId', 'name companyCode')
         .populate('lines.account', 'accountNumber name type')
         .populate('createdBy', 'firstName lastName')
         .populate('approvedBy', 'firstName lastName')
@@ -581,6 +575,7 @@ router.get('/journal-entries',
     res.json({
       success: true,
       data: {
+        company,
         entries: entriesWithCaFlags,
         pagination: {
           currentPage: parseInt(page),
@@ -601,7 +596,9 @@ router.get('/journal-entries',
 router.get('/journal-entries/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const entry = await JournalEntry.findById(req.params.id)
+    const { q } = await financeScope(req);
+    const entry = await JournalEntry.findOne(q({ _id: req.params.id }))
+      .populate('companyId', 'name companyCode')
       .populate('lines.account', 'accountNumber name type category')
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
@@ -611,6 +608,10 @@ router.get('/journal-entries/:id',
     // Normalize lines so the form receives { account: ObjectId-string, ... }
     // but also provide account details for display
     const normalized = entry.toObject();
+    if (normalized.module === 'payroll') {
+      const PayrollPeriodPaymentHelper = require('../utils/payrollPeriodPayment');
+      normalized.payrollVoucherSummary = await PayrollPeriodPaymentHelper.resolvePayrollVoucherSummaryForJournalEntry(entry._id);
+    }
     res.json({ success: true, data: normalized });
   })
 );
@@ -786,8 +787,23 @@ router.post('/journal-entries',
       });
     }
 
+    const company = await requireCompanyFromRequest(req);
+    const accountIds = (req.body.lines || []).map((line) => line.account).filter(Boolean);
+    const matchedAccounts = await Account.countDocuments({
+      _id: { $in: accountIds },
+      companyId: company._id,
+      isActive: true
+    });
+    if (matchedAccounts !== accountIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'All journal lines must use accounts from the selected finance company'
+      });
+    }
+
     const entryData = {
       ...req.body,
+      companyId: company._id,
       createdBy: req.user._id
     };
 
@@ -862,6 +878,17 @@ router.get('/general-ledger',
 
     const filters = { status: 'posted' };
 
+    let company = null;
+    try {
+      company = await requireCompanyFromRequest(req);
+    } catch (err) {
+      company = await findHistoricalCompany();
+      if (!company) throw err;
+    }
+    if (company?._id) {
+      filters.companyId = company._id;
+    }
+
     if (accountId) filters.account = accountId;
     if (department) filters.department = department;
     if (module) filters.module = module;
@@ -904,6 +931,7 @@ router.get('/general-ledger',
     res.json({
       success: true,
       data: {
+        company,
         entries,
         pagination: {
           currentPage: parseInt(page),
@@ -968,7 +996,8 @@ router.get('/accounts-receivable',
       search 
     } = req.query;
 
-    const filters = {};
+    const company = await resolveCompanyForFinanceRoute(req);
+    const filters = companyQuery({}, company);
 
     if (status) filters.status = status;
     if (customerId) filters['customer.customerId'] = customerId;
@@ -1028,7 +1057,8 @@ router.get('/accounts-receivable',
 router.get('/accounts-receivable/aging', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const agingReport = await AccountsReceivable.getAgingReport();
+    const { q } = await financeScope(req);
+    const agingReport = await AccountsReceivable.getAgingReport(q({}));
     res.json({
       success: true,
       data: agingReport
@@ -1058,7 +1088,9 @@ router.post('/accounts-receivable',
     }
 
     // Use FinanceHelper to create AR and post to GL
+    const company = await resolveCompanyForFinanceRoute(req);
     const arEntry = await FinanceHelper.createARFromInvoice({
+      companyId: company._id,
       customerName: req.body.customer.name,
       customerEmail: req.body.customer.email || '',
       customerId: req.body.customer.customerId || null,
@@ -1119,13 +1151,8 @@ router.put('/accounts-receivable/:id',
 router.get('/accounts-receivable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const invoice = await AccountsReceivable.findById(req.params.id).lean();
-    if (!invoice) {
-      return res.status(404).json({
-        success: false,
-        message: 'Invoice not found'
-      });
-    }
+    const { doc } = await loadScopedDoc(AccountsReceivable, req, { _id: req.params.id }, 'Invoice');
+    const invoice = doc.toObject ? doc.toObject() : doc;
 
     res.json({
       success: true,
@@ -1243,7 +1270,9 @@ router.post('/accounts-payable/create-from-po',
       quantity: it.quantity || 1,
       unitPrice: it.unitPrice || 0
     }));
+    const company = await resolveCompanyForFinanceRoute(req);
     const apEntry = await FinanceHelper.createAPFromBill({
+      companyId: company._id,
       vendorName: po.vendor?.name || 'Unknown',
       vendorEmail: po.vendor?.email || '',
       vendorId: po.vendor?._id || po.vendor,
@@ -1272,7 +1301,8 @@ router.post('/accounts-payable/create-from-po',
 router.get('/accounts-payable/aging',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const agingReport = await AccountsPayable.getAgingReport();
+    const { q } = await financeScope(req);
+    const agingReport = await AccountsPayable.getAgingReport(q({}));
     res.json({ success: true, data: agingReport });
   })
 );
@@ -1293,7 +1323,8 @@ router.get('/accounts-payable/vendor-advances',
       search
     } = req.query;
 
-    const filters = {};
+    const { q } = await financeScope(req);
+    const filters = q({});
     if (vendorId) filters['vendor.vendorId'] = vendorId;
     if (status) filters.status = status;
 
@@ -1747,7 +1778,8 @@ router.get('/accounts-payable/payee-cash-approvals',
       }
     }
 
-    const cas = await CashApproval.find(filter)
+    const company = await resolveCompanyForFinanceRoute(req);
+    const cas = await CashApproval.find({ ...filter, ...companyQuery({}, company) })
       .select(
         'caNumber status totalAmount advanceAmount apAdvanceApplied advanceIssuedAt approvalDate expectedPurchaseDate originatingModule advanceToName advanceGlAccountNumber advanceToEmployee'
       )
@@ -1867,7 +1899,8 @@ router.post('/accounts-payable/apply-employee-advance-batch',
 router.get('/accounts-payable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const bill = await AccountsPayable.findById(req.params.id)
+    const { q, companyId } = await financeScope(req);
+    const bill = await AccountsPayable.findOne(q({ _id: req.params.id }))
       .populate('payeeEmployee', 'firstName lastName employeeId')
       .lean();
     if (!bill) {
@@ -1876,6 +1909,7 @@ router.get('/accounts-payable/:id',
         message: 'Bill not found'
       });
     }
+    assertDocCompany(bill, companyId, 'Bill');
     let poDetail = null;
     if (bill.referenceType === 'purchase_order' && bill.referenceId) {
       const Quotation = require('../models/procurement/Quotation');
@@ -2152,7 +2186,8 @@ router.get('/accounts-payable',
       search 
     } = req.query;
 
-    const filters = {};
+    const company = await resolveCompanyForFinanceRoute(req);
+    const filters = companyQuery({}, company);
 
     if (status) filters.status = status;
     if (vendorId) filters['vendor.vendorId'] = vendorId;
@@ -2324,7 +2359,9 @@ router.post('/accounts-payable',
       quantity: Number(li.quantity) || 1,
       unitPrice: Number(li.unitPrice) ?? Number(li.amount) ?? 0
     })).filter(li => li.unitPrice >= 0);
+    const company = await resolveCompanyForFinanceRoute(req);
     const apEntry = await FinanceHelper.createAPFromBill({
+      companyId: company._id,
       vendorName: req.body.vendor.name,
       vendorEmail: req.body.vendor.email || '',
       vendorId: req.body.vendor.vendorId || null,
@@ -2366,7 +2403,8 @@ router.get('/banking/accounts',
       search 
     } = req.query;
 
-    const filters = {};
+    const { q } = await financeScope(req);
+    const filters = q({});
 
     if (accountType) filters.accountType = accountType;
     if (department) filters.department = department;
@@ -2423,7 +2461,8 @@ router.get('/banking',
       search 
     } = req.query;
 
-    const filters = {};
+    const { q } = await financeScope(req);
+    const filters = q({});
 
     if (accountType) filters.accountType = accountType;
     if (department) filters.department = department;
@@ -2448,7 +2487,7 @@ router.get('/banking',
       Banking.countDocuments(filters)
     ]);
 
-    const summary = await Banking.getAccountSummary();
+    const summary = await Banking.getAccountSummary(q({}));
 
     res.json({
       success: true,
@@ -2510,8 +2549,8 @@ router.get('/banking/transactions',
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Get all bank accounts first
-    const bankAccounts = await Banking.find({}).exec();
+    const { q } = await financeScope(req);
+    const bankAccounts = await Banking.find(q({})).exec();
     
     // Extract transactions from all accounts
     let allTransactions = [];
@@ -2584,7 +2623,8 @@ router.get('/banking/transactions',
 router.get('/banking/summary', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const summary = await Banking.getAccountSummary();
+    const { q } = await financeScope(req);
+    const summary = await Banking.getAccountSummary(q({}));
     res.json({
       success: true,
       data: summary
@@ -2613,9 +2653,11 @@ router.post('/banking',
       });
     }
 
+    const { companyId } = await financeScope(req);
     const accountData = {
       ...req.body,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      companyId
     };
 
     const account = new Banking(accountData);
@@ -2978,9 +3020,18 @@ router.get('/reports/trial-balance-v2',
     const from = fromDate ? new Date(fromDate) : new Date(asOf.getFullYear(), 0, 1);
     from.setHours(0, 0, 0, 0);
 
+    let company = null;
+    try {
+      company = await requireCompanyFromRequest(req);
+    } catch (err) {
+      company = await findHistoricalCompany();
+      if (!company) throw err;
+    }
+    const companyMatch = company?._id ? { companyId: company._id } : {};
+
     // Opening = balance before period start
     const openingRows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $lt: from } } },
+      { $match: { status: 'posted', date: { $lt: from }, ...companyMatch } },
       { $unwind: '$lines' },
       {
         $group: {
@@ -2998,7 +3049,7 @@ router.get('/reports/trial-balance-v2',
 
     // Movement = debit/credit within selected period
     const movementRows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $gte: from, $lte: asOf } } },
+      { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, ...companyMatch } },
       { $unwind: '$lines' },
       {
         $group: {
@@ -3066,15 +3117,16 @@ router.get('/reports/trial-balance-v2',
 // FINANCE VENDOR DIRECTORY (master + AP summary)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const collectVendorJournalEntryIds = async (vendorObjectId) => {
+const collectVendorJournalEntryIds = async (vendorObjectId, companyId) => {
   const mongoose = require('mongoose');
   const UtilityBill = require('../models/hr/UtilityBill');
   const PurchaseOrder = require('../models/procurement/PurchaseOrder');
   const GoodsReceive = require('../models/procurement/GoodsReceive');
+  const coFilter = companyId ? { companyId } : {};
 
   const [apIds, advanceIds, utilityBills, poIds, grnIds] = await Promise.all([
-    AccountsPayable.find({ 'vendor.vendorId': vendorObjectId }).distinct('_id'),
-    VendorAdvance.find({ 'vendor.vendorId': vendorObjectId }).distinct('_id'),
+    AccountsPayable.find({ 'vendor.vendorId': vendorObjectId, ...coFilter }).distinct('_id'),
+    VendorAdvance.find({ 'vendor.vendorId': vendorObjectId, ...coFilter }).distinct('_id'),
     UtilityBill.find({ vendorId: vendorObjectId }).select('_id financeApBillId').lean(),
     PurchaseOrder.find({ vendor: vendorObjectId }).distinct('_id'),
     GoodsReceive.find({ supplier: vendorObjectId }).distinct('_id')
@@ -3101,11 +3153,12 @@ const collectVendorJournalEntryIds = async (vendorObjectId) => {
 
   return JournalEntry.find({
     status: 'posted',
-    referenceId: { $in: referenceIds }
+    referenceId: { $in: referenceIds },
+    ...coFilter
   }).distinct('_id');
 };
 
-const buildVendorTrialBalanceRows = async ({ vendorJeIds, from, asOf }) => {
+const buildVendorTrialBalanceRows = async ({ vendorJeIds, from, asOf, companyId }) => {
   const round2 = (n) => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
   if (!vendorJeIds.length) {
     return {
@@ -3115,7 +3168,7 @@ const buildVendorTrialBalanceRows = async ({ vendorJeIds, from, asOf }) => {
   }
 
   const openingRows = await JournalEntry.aggregate([
-    { $match: { status: 'posted', date: { $lt: from }, _id: { $in: vendorJeIds } } },
+    { $match: { status: 'posted', date: { $lt: from }, _id: { $in: vendorJeIds }, ...(companyId ? { companyId } : {}) } },
     { $unwind: '$lines' },
     {
       $group: {
@@ -3128,7 +3181,7 @@ const buildVendorTrialBalanceRows = async ({ vendorJeIds, from, asOf }) => {
   ]);
 
   const movementRows = await JournalEntry.aggregate([
-    { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: vendorJeIds } } },
+    { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: vendorJeIds }, ...(companyId ? { companyId } : {}) } },
     { $unwind: '$lines' },
     {
       $group: {
@@ -3145,7 +3198,10 @@ const buildVendorTrialBalanceRows = async ({ vendorJeIds, from, asOf }) => {
   );
 
   const accountIds = Array.from(new Set([...openingByAccount.keys(), ...movementByAccount.keys()]));
-  const accounts = await Account.find({ _id: { $in: accountIds } }).select('accountNumber name type').lean();
+  const accounts = await Account.find({
+    _id: { $in: accountIds },
+    ...(companyId ? { companyId } : {})
+  }).select('accountNumber name type').lean();
 
   const rows = accounts
     .map((acc) => {
@@ -3214,9 +3270,10 @@ router.get('/vendors',
     ]);
 
     const supplierIds = suppliers.map((s) => s._id);
+    const { q } = await financeScope(req);
     const financeAgg = supplierIds.length
       ? await AccountsPayable.aggregate([
-        { $match: { 'vendor.vendorId': { $in: supplierIds } } },
+        { $match: q({ 'vendor.vendorId': { $in: supplierIds } }) },
         {
           $group: {
             _id: '$vendor.vendorId',
@@ -3287,8 +3344,9 @@ router.get('/vendors/:supplierId/trial-balance',
     from.setHours(0, 0, 0, 0);
 
     const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
-    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId);
-    const { rows, totals } = await buildVendorTrialBalanceRows({ vendorJeIds, from, asOf });
+    const { companyId } = await financeScope(req);
+    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId, companyId);
+    const { rows, totals } = await buildVendorTrialBalanceRows({ vendorJeIds, from, asOf, companyId });
 
     res.json({
       success: true,
@@ -3322,14 +3380,15 @@ router.get('/vendors/:supplierId/trial-balance/ledger/:accountId',
 
     const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
     const accountObjectId = new mongoose.Types.ObjectId(accountId);
-    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId);
+    const { companyId } = await financeScope(req);
+    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId, companyId);
 
     if (!vendorJeIds.length) {
       return res.json({ success: true, data: [] });
     }
 
     const rows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: vendorJeIds } } },
+      { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: vendorJeIds }, companyId } },
       { $unwind: '$lines' },
       { $match: { 'lines.account': accountObjectId } },
       { $sort: { date: 1, entryNumber: 1 } },
@@ -3371,13 +3430,14 @@ router.get('/vendors/:supplierId/trial-balance/voucher/:journalEntryId',
     }
 
     const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
-    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId);
+    const { companyId } = await financeScope(req);
+    const vendorJeIds = await collectVendorJournalEntryIds(vendorObjectId, companyId);
     const allowed = vendorJeIds.some((id) => String(id) === String(journalEntryId));
     if (!allowed) {
       return res.status(404).json({ success: false, message: 'Voucher not found for this vendor' });
     }
 
-    const entry = await JournalEntry.findById(journalEntryId).populate('lines.account', 'accountNumber name type');
+    const entry = await JournalEntry.findOne({ _id: journalEntryId, companyId }).populate('lines.account', 'accountNumber name type');
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Journal entry not found' });
     }
@@ -3401,12 +3461,13 @@ router.get('/vendors/:supplierId',
     }
 
     const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
+    const { q } = await financeScope(req);
     const [bills, advances] = await Promise.all([
-      AccountsPayable.find({ 'vendor.vendorId': vendorObjectId })
+      AccountsPayable.find(q({ 'vendor.vendorId': vendorObjectId }))
         .sort({ billDate: -1 })
         .limit(200)
         .lean(),
-      VendorAdvance.find({ 'vendor.vendorId': vendorObjectId })
+      VendorAdvance.find(q({ 'vendor.vendorId': vendorObjectId }))
         .sort({ paymentDate: -1 })
         .limit(50)
         .lean()
@@ -3459,11 +3520,13 @@ router.get('/vendors/:supplierId',
   })
 );
 
-const collectEmployeeJournalEntryIds = async (employeeObjectId, advanceAccountId) => {
+const collectEmployeeJournalEntryIds = async (employeeObjectId, advanceAccountId, companyId) => {
   const mongoose = require('mongoose');
   const idSet = new Set();
+  const caFilter = { advanceToEmployee: employeeObjectId };
+  if (companyId) caFilter.companyId = companyId;
 
-  const cas = await CashApproval.find({ advanceToEmployee: employeeObjectId })
+  const cas = await CashApproval.find(caFilter)
     .select('_id voucherEntryId')
     .lean();
 
@@ -3477,9 +3540,10 @@ const collectEmployeeJournalEntryIds = async (employeeObjectId, advanceAccountId
     .map((id) => new mongoose.Types.ObjectId(id));
 
   const jeIds = new Set();
+  const jeFilter = { status: 'posted', ...(companyId ? { companyId } : {}) };
   if (referenceIds.length) {
     const fromRef = await JournalEntry.find({
-      status: 'posted',
+      ...jeFilter,
       referenceId: { $in: referenceIds }
     })
       .distinct('_id')
@@ -3490,7 +3554,7 @@ const collectEmployeeJournalEntryIds = async (employeeObjectId, advanceAccountId
   if (advanceAccountId && mongoose.Types.ObjectId.isValid(String(advanceAccountId))) {
     const accountObjectId = new mongoose.Types.ObjectId(advanceAccountId);
     const fromAccount = await JournalEntry.find({
-      status: 'posted',
+      ...jeFilter,
       'lines.account': accountObjectId
     })
       .distinct('_id')
@@ -3539,9 +3603,10 @@ router.get('/employees',
     ]);
 
     const employeeIds = employees.map((e) => e._id);
+    const { q } = await financeScope(req);
     const financeAgg = employeeIds.length
       ? await CashApproval.aggregate([
-        { $match: { advanceToEmployee: { $in: employeeIds } } },
+        { $match: q({ advanceToEmployee: { $in: employeeIds } }) },
         {
           $group: {
             _id: '$advanceToEmployee',
@@ -3631,8 +3696,9 @@ router.get('/employees/:employeeId/trial-balance',
 
     const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
     const advanceAccountId = employee.employeeAdvanceAccount;
-    const employeeJeIds = await collectEmployeeJournalEntryIds(employeeObjectId, advanceAccountId);
-    const { rows, totals } = await buildVendorTrialBalanceRows({ vendorJeIds: employeeJeIds, from, asOf });
+    const { companyId } = await financeScope(req);
+    const employeeJeIds = await collectEmployeeJournalEntryIds(employeeObjectId, advanceAccountId, companyId);
+    const { rows, totals } = await buildVendorTrialBalanceRows({ vendorJeIds: employeeJeIds, from, asOf, companyId });
 
     res.json({
       success: true,
@@ -3674,9 +3740,11 @@ router.get('/employees/:employeeId/trial-balance/ledger/:accountId',
 
     const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
     const accountObjectId = new mongoose.Types.ObjectId(accountId);
+    const { companyId } = await financeScope(req);
     const employeeJeIds = await collectEmployeeJournalEntryIds(
       employeeObjectId,
-      employee.employeeAdvanceAccount
+      employee.employeeAdvanceAccount,
+      companyId
     );
 
     if (!employeeJeIds.length) {
@@ -3684,7 +3752,7 @@ router.get('/employees/:employeeId/trial-balance/ledger/:accountId',
     }
 
     const rows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: employeeJeIds } } },
+      { $match: { status: 'posted', date: { $gte: from, $lte: asOf }, _id: { $in: employeeJeIds }, companyId } },
       { $unwind: '$lines' },
       { $match: { 'lines.account': accountObjectId } },
       { $sort: { date: 1, entryNumber: 1 } },
@@ -3731,16 +3799,18 @@ router.get('/employees/:employeeId/trial-balance/voucher/:journalEntryId',
     }
 
     const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
+    const { companyId } = await financeScope(req);
     const employeeJeIds = await collectEmployeeJournalEntryIds(
       employeeObjectId,
-      employee.employeeAdvanceAccount
+      employee.employeeAdvanceAccount,
+      companyId
     );
     const allowed = employeeJeIds.some((id) => String(id) === String(journalEntryId));
     if (!allowed) {
       return res.status(404).json({ success: false, message: 'Voucher not found for this employee' });
     }
 
-    const entry = await JournalEntry.findById(journalEntryId).populate('lines.account', 'accountNumber name type');
+    const entry = await JournalEntry.findOne({ _id: journalEntryId, companyId }).populate('lines.account', 'accountNumber name type');
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Journal entry not found' });
     }
@@ -3768,9 +3838,9 @@ router.get('/employees/:employeeId',
 
     const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
     const employeeFilter = await buildCashApprovalEmployeeFilter(employee);
-    const cashApprovals = await CashApproval.find(
-      employeeFilter || { advanceToEmployee: employeeObjectId }
-    )
+    const { q } = await financeScope(req);
+    const baseFilter = employeeFilter || { advanceToEmployee: employeeObjectId };
+    const cashApprovals = await CashApproval.find(q(baseFilter))
       .sort({ approvalDate: -1, createdAt: -1 })
       .limit(200)
       .select(
@@ -3843,7 +3913,8 @@ router.get('/reports/vendor-statement/:supplierId',
     }
 
     const { fromDate, toDate } = req.query;
-    const matchFilter = { supplier: new mongoose.Types.ObjectId(supplierId) };
+    const { q } = await financeScope(req);
+    const matchFilter = q({ supplier: new mongoose.Types.ObjectId(supplierId) });
     if (fromDate || toDate) {
       matchFilter.createdAt = {};
       if (fromDate) matchFilter.createdAt.$gte = new Date(fromDate);
@@ -3879,8 +3950,9 @@ router.get('/reports/vendor-statement',
   authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const mongoose = require('mongoose');
+    const { q } = await financeScope(req);
     const summary = await AccountsPayable.aggregate([
-      { $match: { supplier: { $exists: true, $ne: null } } },
+      { $match: q({ supplier: { $exists: true, $ne: null } }) },
       { $group: {
         _id: '$supplier',
         supplierName: { $first: '$supplierName' },
@@ -3901,10 +3973,11 @@ router.get('/reports/vendor-statement',
 router.get('/reports/customer-statement',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    // customer is an embedded object {name,email,...} — group by customer.name as the key
+    const { q } = await financeScope(req);
     const summary = await AccountsReceivable.aggregate([
+      { $match: q({}) },
       { $group: {
-        _id:           '$customer.name',          // plain string — safe to use as URL param
+        _id:           '$customer.name',
         customerEmail: { $first: '$customer.email' },
         totalInvoiced: { $sum: '$totalAmount' },
         totalReceived: { $sum: '$paidAmount' },
@@ -3924,8 +3997,9 @@ router.get('/reports/customer-statement/:customerName',
     // :customerName is URL-encoded customer.name (the embedded field)
     const customerName = decodeURIComponent(req.params.customerName);
     const { fromDate, toDate } = req.query;
+    const { q } = await financeScope(req);
 
-    const matchFilter = { 'customer.name': customerName };
+    const matchFilter = q({ 'customer.name': customerName });
     if (fromDate || toDate) {
       matchFilter.createdAt = {};
       if (fromDate) matchFilter.createdAt.$gte = new Date(fromDate);
@@ -3961,17 +4035,20 @@ router.get('/reports/bank-reconciliation',
   asyncHandler(async (req, res) => {
     const { accountId, asOfDate } = req.query;
     const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    const { q, jeMatch } = await financeScope(req);
+    const mongoose = require('mongoose');
 
-    // GL balance for the bank account
+    const glMatch = jeMatch({ date: { $lte: asOf } });
+    if (accountId) glMatch.account = new mongoose.Types.ObjectId(accountId);
+
     const glRows = await GeneralLedger.aggregate([
-      { $match: { account: accountId ? new (require('mongoose').Types.ObjectId)(accountId) : { $exists: true }, date: { $lte: asOf } } },
+      { $match: glMatch },
       { $group: { _id: '$account', totalDebit: { $sum: '$debit' }, totalCredit: { $sum: '$credit' } } }
     ]);
     const glBalance = glRows.reduce((s, r) => s + r.totalDebit - r.totalCredit, 0);
 
-    // Banking transactions
-    const filter = { date: { $lte: asOf } };
-    if (accountId) filter.bankAccount = accountId;
+    const filter = q({ date: { $lte: asOf } });
+    if (accountId) filter._id = accountId;
     const bankTxns = await Banking.find(filter).sort({ date: 1 });
     const bankBalance = bankTxns.reduce((s, t) => {
       if (t.type === 'credit') return s + (t.amount || 0);
@@ -4020,7 +4097,8 @@ router.get('/reports/cost-center-pl',
   asyncHandler(async (req, res) => {
     const mongoose = require('mongoose');
     const { costCenterId, fromDate, toDate } = req.query;
-    const match = { status: 'posted' };
+    const { jeMatch } = await financeScope(req);
+    const match = jeMatch({ status: 'posted' });
     if (fromDate || toDate) {
       match.date = {};
       if (fromDate) match.date.$gte = new Date(fromDate);
@@ -4028,7 +4106,7 @@ router.get('/reports/cost-center-pl',
     }
 
     const pipeline = [
-      { $match: { status: 'posted', ...(match.date ? { date: match.date } : {}) } },
+      { $match: match },
       { $unwind: '$lines' },
       ...(costCenterId ? [{ $match: { 'lines.costCenter': new mongoose.Types.ObjectId(costCenterId) } }] : [{ $match: { 'lines.costCenter': { $exists: true, $ne: null } } }]),
       {
@@ -4081,6 +4159,7 @@ router.get('/reports/budget-vs-actual',
     const mongoose = require('mongoose');
     const CostCenter = require('../models/procurement/CostCenter');
     const { fromDate, toDate } = req.query;
+    const { jeMatch } = await financeScope(req);
 
     const costCenters = await CostCenter.find({ isActive: true }).populate('department', 'name');
 
@@ -4088,9 +4167,8 @@ router.get('/reports/budget-vs-actual',
     if (fromDate) dateMatch.$gte = new Date(fromDate);
     if (toDate)   dateMatch.$lte = new Date(toDate);
 
-    // Actual expenditure per cost center from GL
     const actuals = await JournalEntry.aggregate([
-      { $match: { status: 'posted', ...(Object.keys(dateMatch).length ? { date: dateMatch } : {}) } },
+      { $match: jeMatch({ status: 'posted', ...(Object.keys(dateMatch).length ? { date: dateMatch } : {}) }) },
       { $unwind: '$lines' },
       { $match: { 'lines.costCenter': { $exists: true, $ne: null } } },
       {
@@ -4153,8 +4231,9 @@ router.get('/reports/aged-payables',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const asOf = req.query.asOfDate ? new Date(req.query.asOfDate) : new Date();
+    const { q } = await financeScope(req);
 
-    const bills = await AccountsPayable.find({ status: { $in: ['pending', 'partial'] } })
+    const bills = await AccountsPayable.find(q({ status: { $in: ['pending', 'partial'] } }))
       .populate('supplier', 'name code');
 
     const buckets = { current: 0, days1_30: 0, days31_60: 0, days61_90: 0, over90: 0 };
@@ -4181,8 +4260,9 @@ router.get('/reports/aged-receivables',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const asOf = req.query.asOfDate ? new Date(req.query.asOfDate) : new Date();
+    const { q } = await financeScope(req);
 
-    const invoices = await AccountsReceivable.find({ status: { $in: ['pending', 'partial'] } })
+    const invoices = await AccountsReceivable.find(q({ status: { $in: ['pending', 'partial'] } }))
       .populate('customer', 'name code');
 
     const buckets = { current: 0, days1_30: 0, days31_60: 0, days61_90: 0, over90: 0 };
@@ -4239,11 +4319,13 @@ router.post('/accounts-receivable/:id/credit-note',
     await creditNote.save();
 
     // Journal: DR Revenue (or AR) / CR AR — reversal
-    const arAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.RECEIVABLE);
-    const revenueAccount = await FinanceHelper.getAccountByNumber('4001');
+    const companyId = co(invoice);
+    const A = acct(companyId);
+    const arAccount = await A.resolve(FinanceHelper.ACCOUNTS.RECEIVABLE);
+    const revenueAccount = await A.resolve('4001');
 
     if (arAccount && revenueAccount) {
-      await FinanceHelper.createAndPostJournalEntry({
+      await FinanceHelper.createAndPostJournalEntry(withCompany({
         date: creditNote.invoiceDate,
         reference: creditNoteNumber,
         description: `Credit Note: ${creditNoteNumber} – ${reason || 'Customer refund'}`,
@@ -4257,7 +4339,7 @@ router.post('/accounts-receivable/:id/credit-note',
           { account: revenueAccount._id, description: `Revenue reversal – ${creditNoteNumber}`, debit: creditAmount, department: invoice.department },
           { account: arAccount._id, description: `AR credit – ${creditNoteNumber}`, credit: creditAmount, department: invoice.department }
         ]
-      });
+      }, companyId));
     }
 
     res.status(201).json({
@@ -4301,7 +4383,9 @@ router.post('/sales-orders/:orderId/create-invoice',
 
     const billDueDate = dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+    const company = await resolveCompanyForFinanceRoute(req);
     const arInvoice = await FinanceHelper.createARFromInvoice({
+      companyId: company._id,
       customerName:  order.customer?.name || order.customerName || 'Customer',
       customerEmail: order.customer?.email || '',
       customerId:    order.customer?._id || null,
@@ -4343,12 +4427,13 @@ router.post('/year-end-closing',
     const { year, retainedEarningsAccountId } = req.body;
     if (!year) return res.status(400).json({ success: false, message: 'Year is required' });
 
+    const { companyId, jeMatch, withCo } = await financeScope(req);
+    const A = acct(companyId);
     const from = new Date(`${year}-01-01`);
     const to   = new Date(`${year}-12-31T23:59:59.999Z`);
 
-    // Aggregate income/expense balances for the year
     const rows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $gte: from, $lte: to } } },
+      { $match: jeMatch({ status: 'posted', date: { $gte: from, $lte: to } }) },
       { $unwind: '$lines' },
       { $group: { _id: '$lines.account', totalDebit: { $sum: '$lines.debit' }, totalCredit: { $sum: '$lines.credit' } } },
       { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },
@@ -4374,9 +4459,9 @@ router.post('/year-end-closing',
 
     // Resolve retained earnings account
     let reAccount = retainedEarningsAccountId
-      ? await Account.findById(retainedEarningsAccountId)
-      : await Account.findOne({ accountNumber: '3002' }); // Retained Earnings default
-    if (!reAccount) reAccount = await Account.findOne({ type: { $in: ['retained_earnings','equity'] } });
+      ? await A.map(retainedEarningsAccountId)
+      : await A.resolve('3002');
+    if (!reAccount) reAccount = await Account.findOne({ companyId, type: { $in: ['retained_earnings', 'equity', 'Equity'] } });
     if (!reAccount) return res.status(400).json({ success: false, message: 'Retained Earnings account not found. Please provide retainedEarningsAccountId.' });
 
     // Close income/expense accounts via a closing entry
@@ -4392,10 +4477,9 @@ router.post('/year-end-closing',
       : [];
 
     if (netIncome > 0) {
-      // Use a simple closing: DR Income Summary concept — post net income to retained earnings
-      const revAccount = await Account.findOne({ type: { $in: ['revenue','income'] } });
+      const revAccount = await Account.findOne({ companyId, type: { $in: ['revenue', 'income', 'Revenue'] } });
       if (revAccount) {
-        await FinanceHelper.createAndPostJournalEntry({
+        await FinanceHelper.createAndPostJournalEntry(withCo({
           date: new Date(`${year}-12-31`),
           reference: `CLOSE-${year}`,
           description: `Year-End Closing — Net Income for ${year}`,
@@ -4408,12 +4492,12 @@ router.post('/year-end-closing',
             { account: revAccount._id, description: `Closing revenue to retained earnings`, debit: netIncome, department: 'finance' },
             { account: reAccount._id,  description: `Net income ${year} — retained earnings`, credit: netIncome, department: 'finance' }
           ]
-        });
+        }));
       }
     } else {
-      const expAccount = await Account.findOne({ type: { $in: ['expense','operating_expense'] } });
+      const expAccount = await Account.findOne({ companyId, type: { $in: ['expense', 'operating_expense', 'Expense'] } });
       if (expAccount) {
-        await FinanceHelper.createAndPostJournalEntry({
+        await FinanceHelper.createAndPostJournalEntry(withCo({
           date: new Date(`${year}-12-31`),
           reference: `CLOSE-${year}`,
           description: `Year-End Closing — Net Loss for ${year}`,
@@ -4426,7 +4510,7 @@ router.post('/year-end-closing',
             { account: reAccount._id,  description: `Net loss ${year} — retained earnings`, debit: Math.abs(netIncome), department: 'finance' },
             { account: expAccount._id, description: `Closing expense to retained earnings`, credit: Math.abs(netIncome), department: 'finance' }
           ]
-        });
+        }));
       }
     }
 
@@ -4447,17 +4531,14 @@ router.get('/reports/cash-flow',
     const { fromDate, toDate } = req.query;
     const from = fromDate ? new Date(fromDate) : new Date(new Date().getFullYear(), 0, 1);
     const to   = toDate   ? new Date(toDate)   : new Date();
-
-    // Operating: P&L accounts + AR/AP changes
-    // Investing: Fixed Asset / Capex accounts
-    // Financing: Equity + Long-term Liability changes
+    const { jeMatch } = await financeScope(req);
 
     const operatingTypes  = ['revenue','income','other_income','expense','cost_of_goods_sold','operating_expense','other_expense','depreciation','accounts_receivable','accounts_payable','current_asset','current_liability'];
     const investingTypes  = ['fixed_asset','other_asset'];
     const financingTypes  = ['equity','long_term_liability','retained_earnings','owners_equity'];
 
     const allRows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $gte: from, $lte: to } } },
+      { $match: jeMatch({ status: 'posted', date: { $gte: from, $lte: to } }) },
       { $unwind: '$lines' },
       { $group: { _id: '$lines.account', totalDebit: { $sum: '$lines.debit' }, totalCredit: { $sum: '$lines.credit' } } },
       { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },
@@ -4526,8 +4607,16 @@ router.post('/grn/:grnId/create-bill',
       ? new Date(dueDate)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+    const company = await resolveCompanyForFinanceRoute(req);
+    const companyId = await resolveDocumentCompanyId({
+      companyId: company._id,
+      grnId: grn._id,
+      purchaseOrderId: grn.purchaseOrder?._id || grn.purchaseOrder
+    });
+
     // Create AP bill via FinanceHelper (posts GRNI → AP journal)
     const apBill = await FinanceHelper.createAPFromBill({
+      companyId,
       vendorName:  grn.supplierName || grn.supplier?.name || 'Unknown Vendor',
       vendorEmail: grn.supplier?.email || '',
       vendorId:    grn.supplier?._id || null,
@@ -4582,6 +4671,8 @@ router.post('/journal-entries/:id/reverse',
   asyncHandler(async (req, res) => {
     const original = await JournalEntry.findById(req.params.id).populate('lines.account');
     if (!original) return res.status(404).json({ success: false, message: 'Journal entry not found' });
+    const { companyId } = await financeScope(req);
+    assertDocCompany(original, companyId, 'Journal entry');
     if (original.status !== 'posted') {
       return res.status(400).json({ success: false, message: 'Only posted entries can be reversed' });
     }
@@ -4602,7 +4693,7 @@ router.post('/journal-entries/:id/reverse',
       costCenter:  line.costCenter
     }));
 
-    const reversalEntry = await FinanceHelper.createAndPostJournalEntry({
+    const reversalEntry = await FinanceHelper.createAndPostJournalEntry(withCompany({
       date:          reversalDate,
       reference:     `REV-${original.entryNumber}`,
       description:   reason || `Reversal of ${original.entryNumber}`,
@@ -4613,7 +4704,7 @@ router.post('/journal-entries/:id/reverse',
       journalCode:   'GEN',
       createdBy:     req.user.id,
       lines:         reversalLines
-    });
+    }, original.companyId || companyId));
 
     // Mark original as reversed
     original.isReversed   = true;
@@ -4636,10 +4727,10 @@ router.get('/reports/balance-sheet',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const asOf = req.query.asOfDate ? new Date(req.query.asOfDate) : new Date();
+    const { jeMatch } = await financeScope(req);
 
-    // Aggregate balances from posted journal entries
     const rows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $lte: asOf } } },
+      { $match: jeMatch({ status: 'posted', date: { $lte: asOf } }) },
       { $unwind: '$lines' },
       { $group: { _id: '$lines.account', totalDebit: { $sum: '$lines.debit' }, totalCredit: { $sum: '$lines.credit' } } },
       { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },
@@ -4725,9 +4816,10 @@ router.get('/reports/profit-loss',
       ? new Date(`${fromDate}T00:00:00.000Z`)
       : new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1, 0, 0, 0, 0));
     const to = toDate ? new Date(`${toDate}T23:59:59.999Z`) : new Date();
+    const { jeMatch } = await financeScope(req);
 
     const rows = await JournalEntry.aggregate([
-      { $match: { status: 'posted', date: { $gte: from, $lte: to } } },
+      { $match: jeMatch({ status: 'posted', date: { $gte: from, $lte: to } }) },
       { $unwind: '$lines' },
       { $group: { _id: '$lines.account', totalDebit: { $sum: '$lines.debit' }, totalCredit: { $sum: '$lines.credit' } } },
       { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },
@@ -4791,19 +4883,17 @@ router.get('/reports/tax-summary',
     const { fromDate, toDate } = req.query;
     const from = fromDate ? new Date(fromDate) : new Date(new Date().getFullYear(), 0, 1);
     const to   = toDate   ? new Date(toDate)   : new Date();
+    const { q } = await financeScope(req);
 
-    // Input tax (GST paid on purchases)
-    const inputTaxBills = await AccountsPayable.find({
+    const inputTaxBills = await AccountsPayable.find(q({
       createdAt: { $gte: from, $lte: to },
       taxAmount: { $gt: 0 }
-    }).select('billNumber vendor totalAmount taxAmount subtotal createdAt');
+    })).select('billNumber vendor totalAmount taxAmount subtotal createdAt');
 
-    // Output tax (GST collected on sales)
-    const AccountsReceivable = require('../models/finance/AccountsReceivable');
-    const outputTaxInvoices = await AccountsReceivable.find({
+    const outputTaxInvoices = await AccountsReceivable.find(q({
       createdAt: { $gte: from, $lte: to },
       taxAmount: { $gt: 0 }
-    }).select('invoiceNumber customerName amount taxAmount createdAt');
+    })).select('invoiceNumber customerName amount taxAmount createdAt');
 
     const totalInputTax  = inputTaxBills.reduce((s, b) => s + (b.taxAmount || 0), 0);
     const totalOutputTax = outputTaxInvoices.reduce((s, i) => s + (i.taxAmount || 0), 0);
@@ -4842,6 +4932,7 @@ router.post('/opening-balances',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { date, lines, notes } = req.body;
+    const { withCo } = await financeScope(req);
 
     if (!lines || lines.length === 0) {
       return res.status(400).json({ success: false, message: 'At least one balance line is required' });
@@ -4857,7 +4948,7 @@ router.post('/opening-balances',
       });
     }
 
-    const entry = await FinanceHelper.createAndPostJournalEntry({
+    const entry = await FinanceHelper.createAndPostJournalEntry(withCo({
       date:          date ? new Date(date) : new Date(),
       reference:     'OPEN-BAL',
       description:   notes || 'Opening balances — system setup',
@@ -4873,7 +4964,7 @@ router.post('/opening-balances',
         credit:      Number(l.credit) || 0,
         department:  'finance'
       }))
-    });
+    }));
 
     res.status(201).json({
       success: true,
@@ -4887,7 +4978,8 @@ router.post('/opening-balances',
 router.get('/opening-balances',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const entries = await JournalEntry.find({ reference: 'OPEN-BAL' })
+    const { q } = await financeScope(req);
+    const entries = await JournalEntry.find(q({ reference: 'OPEN-BAL' }))
       .populate('lines.account', 'name accountNumber type')
       .populate('createdBy', 'name')
       .sort({ date: -1 });
@@ -4902,15 +4994,9 @@ router.get('/customer-payments',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { fromDate, toDate, search } = req.query;
+    const { q } = await financeScope(req);
 
-    // Match AR docs that have at least one payment recorded
-    const match = { 'payments.0': { $exists: true } };
-    if (fromDate || toDate) {
-      match['payments.paymentDate'] = {};
-      if (fromDate) match['payments.paymentDate'].$gte = new Date(fromDate);
-      if (toDate)   match['payments.paymentDate'].$lte = new Date(toDate);
-    }
-
+    const match = q({ 'payments.0': { $exists: true } });
     const records = await AccountsReceivable.find(match)
       .select('invoiceNumber customer payments paidAmount totalAmount department')
       .sort({ 'payments.paymentDate': -1 })
@@ -4960,7 +5046,8 @@ router.get('/credit-notes',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { fromDate, toDate, search } = req.query;
-    const match = { totalAmount: { $lt: 0 } };   // credit notes are stored as negative
+    const { q } = await financeScope(req);
+    const match = q({ totalAmount: { $lt: 0 } });
     if (fromDate || toDate) {
       match.invoiceDate = {};
       if (fromDate) match.invoiceDate.$gte = new Date(fromDate);
@@ -4990,8 +5077,9 @@ router.get('/vendor-payments',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { fromDate, toDate, search } = req.query;
+    const { q } = await financeScope(req);
 
-    const match = { 'payments.0': { $exists: true } };
+    const match = q({ 'payments.0': { $exists: true } });
     const records = await AccountsPayable.find(match)
       .select('billNumber vendor payments amountPaid totalAmount department')
       .sort({ 'payments.paymentDate': -1 })
@@ -5166,7 +5254,8 @@ router.get('/billed-not-received',
 router.get('/recurring-journals',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const journals = await RecurringJournal.find()
+    const { q } = await financeScope(req);
+    const journals = await RecurringJournal.find(q())
       .populate('lines.account', 'accountNumber name type')
       .populate('createdBy', 'firstName lastName')
       .sort({ nextRunDate: 1 })
@@ -5179,7 +5268,8 @@ router.get('/recurring-journals',
 router.get('/recurring-journals/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const j = await RecurringJournal.findById(req.params.id)
+    const { companyId, q } = await financeScope(req);
+    const j = await RecurringJournal.findOne(q({ _id: req.params.id }))
       .populate('lines.account', 'accountNumber name type')
       .lean();
     if (!j) return res.status(404).json({ success: false, message: 'Not found' });
@@ -5191,6 +5281,7 @@ router.get('/recurring-journals/:id',
 router.post('/recurring-journals',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
+    const { companyId } = await financeScope(req);
     const { name, description, frequency, dayOfMonth, startDate, endDate, journalCode, department, lines, isActive } = req.body;
 
     if (!lines || lines.length < 2) {
@@ -5205,7 +5296,7 @@ router.post('/recurring-journals',
     const rj = new RecurringJournal({
       name, description, frequency, dayOfMonth, startDate, endDate,
       journalCode: journalCode || 'GEN', department: department || 'finance',
-      lines, isActive: isActive !== false, createdBy: req.user.id
+      lines, isActive: isActive !== false, createdBy: req.user.id, companyId
     });
     // Set initial nextRunDate = startDate
     rj.nextRunDate = new Date(startDate);
@@ -5218,8 +5309,10 @@ router.post('/recurring-journals',
 router.put('/recurring-journals/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const rj = await RecurringJournal.findById(req.params.id);
+    const { companyId, q } = await financeScope(req);
+    const rj = await RecurringJournal.findOne(q({ _id: req.params.id }));
     if (!rj) return res.status(404).json({ success: false, message: 'Not found' });
+    assertDocCompany(rj, companyId, 'Recurring journal');
     const allowed = ['name', 'description', 'frequency', 'dayOfMonth', 'startDate', 'endDate', 'journalCode', 'department', 'lines', 'isActive'];
     allowed.forEach(f => { if (req.body[f] !== undefined) rj[f] = req.body[f]; });
     rj.updatedBy = req.user.id;
@@ -5232,7 +5325,8 @@ router.put('/recurring-journals/:id',
 router.delete('/recurring-journals/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    await RecurringJournal.findByIdAndDelete(req.params.id);
+    const { q } = await financeScope(req);
+    await RecurringJournal.findOneAndDelete(q({ _id: req.params.id }));
     res.json({ success: true, message: 'Deleted' });
   })
 );
@@ -5241,11 +5335,12 @@ router.delete('/recurring-journals/:id',
 router.post('/recurring-journals/:id/run',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const rj = await RecurringJournal.findById(req.params.id).populate('lines.account', 'accountNumber name type');
+    const { companyId, q, withCo } = await financeScope(req);
+    const rj = await RecurringJournal.findOne(q({ _id: req.params.id })).populate('lines.account', 'accountNumber name type');
     if (!rj) return res.status(404).json({ success: false, message: 'Not found' });
+    assertDocCompany(rj, companyId, 'Recurring journal');
 
-    // Build journal entry
-    const entry = await FinanceHelper.createAndPostJournalEntry({
+    const entry = await FinanceHelper.createAndPostJournalEntry(withCo({
       date:          new Date(),
       reference:     `REC-${rj.name.substring(0, 20).replace(/\s/g, '-')}-${Date.now()}`,
       description:   `[Recurring] ${rj.name}`,
@@ -5261,7 +5356,7 @@ router.post('/recurring-journals/:id/run',
         credit:      l.credit || 0,
         department:  l.department || rj.department
       }))
-    });
+    }));
 
     rj.lastRunDate  = new Date();
     rj.runCount     += 1;
@@ -5378,7 +5473,8 @@ router.get('/budgets',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { fiscalYear, department, status } = req.query;
-    const filter = {};
+    const { q } = await financeScope(req);
+    const filter = q({});
     if (fiscalYear)  filter.fiscalYear  = Number(fiscalYear);
     if (department)  filter.department  = department;
     if (status)      filter.status      = status;
@@ -5393,7 +5489,8 @@ router.get('/budgets',
 router.get('/budgets/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const budget = await Budget.findById(req.params.id)
+    const { q } = await financeScope(req);
+    const budget = await Budget.findOne(q({ _id: req.params.id }))
       .populate('lines.account', 'name accountNumber type')
       .populate('createdBy', 'name').populate('approvedBy', 'name');
     if (!budget) return res.status(404).json({ success: false, message: 'Budget not found' });
@@ -5404,7 +5501,8 @@ router.get('/budgets/:id',
 router.post('/budgets',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const budget = await Budget.create({ ...req.body, createdBy: req.user.id });
+    const { companyId } = await financeScope(req);
+    const budget = await Budget.create({ ...req.body, createdBy: req.user.id, companyId });
     res.status(201).json({ success: true, data: budget, message: 'Budget created' });
   })
 );
@@ -5412,8 +5510,10 @@ router.post('/budgets',
 router.put('/budgets/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const budget = await Budget.findById(req.params.id);
+    const { companyId, q } = await financeScope(req);
+    const budget = await Budget.findOne(q({ _id: req.params.id }));
     if (!budget) return res.status(404).json({ success: false, message: 'Budget not found' });
+    assertDocCompany(budget, companyId, 'Budget');
     if (budget.status === 'locked') return res.status(400).json({ success: false, message: 'Budget is locked' });
     const allowed = ['name', 'fiscalYear', 'startDate', 'endDate', 'department', 'description', 'status', 'lines'];
     allowed.forEach(f => { if (req.body[f] !== undefined) budget[f] = req.body[f]; });
@@ -5427,8 +5527,10 @@ router.put('/budgets/:id',
 router.delete('/budgets/:id',
   authorize('super_admin', 'admin'),
   asyncHandler(async (req, res) => {
-    const budget = await Budget.findById(req.params.id);
+    const { companyId, q } = await financeScope(req);
+    const budget = await Budget.findOne(q({ _id: req.params.id }));
     if (!budget) return res.status(404).json({ success: false, message: 'Budget not found' });
+    assertDocCompany(budget, companyId, 'Budget');
     if (budget.status === 'locked') return res.status(400).json({ success: false, message: 'Cannot delete locked budget' });
     await budget.deleteOne();
     res.json({ success: true, message: 'Budget deleted' });
@@ -5442,12 +5544,13 @@ router.get('/reports/budget-vs-actual-detailed',
     const { budgetId } = req.query;
     if (!budgetId) return res.status(400).json({ success: false, message: 'budgetId is required' });
 
-    const budget = await Budget.findById(budgetId).populate('lines.account', 'name accountNumber type');
+    const { companyId, q, jeMatch } = await financeScope(req);
+    const budget = await Budget.findOne(q({ _id: budgetId })).populate('lines.account', 'name accountNumber type');
     if (!budget) return res.status(404).json({ success: false, message: 'Budget not found' });
+    assertDocCompany(budget, companyId, 'Budget');
 
-    // Get actual GL for the budget period
     const actualRows = await GeneralLedger.aggregate([
-      { $match: { status: 'posted', date: { $gte: budget.startDate, $lte: budget.endDate }, ...(budget.department ? { department: budget.department } : {}) } },
+      { $match: jeMatch({ status: 'posted', date: { $gte: budget.startDate, $lte: budget.endDate }, ...(budget.department ? { department: budget.department } : {}) }) },
       { $lookup: { from: 'accounts', localField: 'account', foreignField: '_id', as: 'acc' } },
       { $unwind: '$acc' },
       { $match: { 'acc.type': { $in: ['Expense', 'Revenue'] } } },
@@ -5493,7 +5596,8 @@ router.get('/deferred-entries',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { type, status } = req.query;
-    const filter = {};
+    const { q } = await financeScope(req);
+    const filter = q({});
     if (type)   filter.type   = type;
     if (status) filter.status = status;
     const entries = await DeferredEntry.find(filter)
@@ -5508,7 +5612,8 @@ router.get('/deferred-entries',
 router.get('/deferred-entries/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const entry = await DeferredEntry.findById(req.params.id)
+    const { q } = await financeScope(req);
+    const entry = await DeferredEntry.findOne(q({ _id: req.params.id }))
       .populate('deferredAccount', 'name accountNumber')
       .populate('recognitionAccount', 'name accountNumber')
       .populate('schedule.journalEntry', 'entryNumber date');
@@ -5520,7 +5625,8 @@ router.get('/deferred-entries/:id',
 router.post('/deferred-entries',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const entry = new DeferredEntry({ ...req.body, createdBy: req.user.id });
+    const { companyId } = await financeScope(req);
+    const entry = new DeferredEntry({ ...req.body, createdBy: req.user.id, companyId });
     entry.generateSchedule();
     await entry.save();
     res.status(201).json({ success: true, data: entry, message: 'Deferred entry created with recognition schedule' });
@@ -5530,8 +5636,10 @@ router.post('/deferred-entries',
 router.delete('/deferred-entries/:id',
   authorize('super_admin', 'admin'),
   asyncHandler(async (req, res) => {
-    const entry = await DeferredEntry.findById(req.params.id);
+    const { companyId, q } = await financeScope(req);
+    const entry = await DeferredEntry.findOne(q({ _id: req.params.id }));
     if (!entry) return res.status(404).json({ success: false, message: 'Not found' });
+    assertDocCompany(entry, companyId, 'Deferred entry');
     if (entry.recognizedAmount > 0) return res.status(400).json({ success: false, message: 'Cannot delete entry with posted recognitions' });
     await entry.deleteOne();
     res.json({ success: true, message: 'Deferred entry deleted' });
@@ -5542,15 +5650,17 @@ router.delete('/deferred-entries/:id',
 router.post('/deferred-entries/:id/recognize/:lineId',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const entry = await DeferredEntry.findById(req.params.id);
+    const { companyId, q, withCo } = await financeScope(req);
+    const entry = await DeferredEntry.findOne(q({ _id: req.params.id }));
     if (!entry) return res.status(404).json({ success: false, message: 'Not found' });
+    assertDocCompany(entry, companyId, 'Deferred entry');
 
     const line = entry.schedule.id(req.params.lineId);
     if (!line) return res.status(404).json({ success: false, message: 'Schedule line not found' });
     if (line.status === 'posted') return res.status(400).json({ success: false, message: 'Already posted' });
 
     const isRevenue = entry.type === 'deferred_revenue';
-    const je = await FinanceHelper.createAndPostJournalEntry({
+    const je = await FinanceHelper.createAndPostJournalEntry(withCo({
       date:          new Date(),
       reference:     `DEFERRED-${entry._id}-${line.period}`,
       description:   `${isRevenue ? 'Revenue' : 'Expense'} Recognition – ${entry.name} (${line.period})`,
@@ -5569,7 +5679,7 @@ router.post('/deferred-entries/:id/recognize/:lineId',
             { account: entry.recognitionAccount, description: `Expense recognized – ${entry.name}`,  debit:  line.amount, department: entry.department },
             { account: entry.deferredAccount,    description: `Deferred expense – ${entry.name}`,    credit: line.amount, department: entry.department }
           ]
-    });
+    }));
 
     line.journalEntry = je._id;
     line.postedAt     = new Date();
@@ -5749,7 +5859,8 @@ router.put('/company-profile',
     const settings = await SystemSettings.getSingleton();
     const allowed = ['name', 'legalName', 'ntn', 'strn', 'address', 'city', 'country',
                      'phone', 'email', 'website', 'logoUrl', 'currency',
-                     'bankName', 'bankAccount', 'bankIBAN', 'bankBranchCode', 'invoiceFooter'];
+                     'bankName', 'bankAccount', 'bankIBAN', 'bankBranchCode', 'bankBranchName',
+                     'salaryLetterRefPrefix', 'invoiceFooter'];
     if (!settings.companyProfile) settings.companyProfile = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) settings.companyProfile[f] = req.body[f]; });
     settings.updatedBy = req.user.id;
@@ -5766,9 +5877,10 @@ router.get('/reports/comparative-pl',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { p1From, p1To, p2From, p2To } = req.query;
+    const { jeMatch } = await financeScope(req);
 
     const getPeriodData = async (fromDate, toDate) => {
-      const match = { status: 'posted' };
+      const match = jeMatch({ status: 'posted' });
       if (fromDate) match.date = { ...(match.date || {}), $gte: new Date(fromDate) };
       if (toDate)   match.date = { ...(match.date || {}), $lte: new Date(toDate) };
 
@@ -6153,6 +6265,230 @@ router.get('/payroll-queue/:month/:year/bank-letter',
   })
 );
 
+// @route   GET /api/finance/payroll-queue/:month/:year/bank-letters
+router.get('/payroll-queue/:month/:year/bank-letters',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const letters = await PayrollBankLetterService.listBankLettersForPeriod(
+      req.params.month,
+      req.params.year,
+      { companyName: req.query.companyName }
+    );
+    res.json({ success: true, data: letters });
+  })
+);
+
+// @route   POST /api/finance/payroll-queue/:month/:year/bank-letter/generate
+router.post('/payroll-queue/:month/:year/bank-letter/generate',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('companyName').notEmpty().withMessage('Company is required'),
+    body('format').optional().isIn(['print', 'excel']).withMessage('Invalid format')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const result = await PayrollBankLetterService.generateBankLetterForCompanyPayment(
+      req.params.month,
+      req.params.year,
+      req.body.companyName,
+      {
+        format: req.body.format || 'print',
+        generatedBy: req.user._id || req.user.id
+      }
+    );
+    res.json({
+      success: true,
+      message: 'Bank letter generated and recorded',
+      data: {
+        letter: result.letter,
+        company: result.company,
+        record: result.record
+      }
+    });
+  })
+);
+
+// @route   POST /api/finance/payroll-period-payments/:id/bank-letter/generate
+router.post('/payroll-period-payments/:id/bank-letter/generate',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('format').optional().isIn(['print', 'excel']).withMessage('Invalid format')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const result = await PayrollBankLetterService.generateBankLetterForPayment(
+      req.params.id,
+      {
+        format: req.body.format || 'print',
+        generatedBy: req.user._id || req.user.id
+      }
+    );
+    res.json({
+      success: true,
+      message: 'Bank letter generated and recorded',
+      data: {
+        letter: result.letter,
+        company: result.company,
+        record: result.record
+      }
+    });
+  })
+);
+
+// @route   GET /api/finance/payroll-period-payments/:id/bank-letter/preview
+router.get('/payroll-period-payments/:id/bank-letter/preview',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const app = await PayrollPeriodPaymentHelper.populateApplication({ _id: req.params.id });
+    if (!app) {
+      return res.status(404).json({ success: false, message: 'Payroll payment not found' });
+    }
+    const payload = await PayrollBankLetterService.buildLetterPayload(app);
+    res.json({ success: true, data: payload });
+  })
+);
+
+// @route   POST /api/finance/payroll-queue/:month/:year/save-draft
+router.post('/payroll-queue/:month/:year/save-draft',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('companyName').notEmpty().withMessage('Company is required'),
+    body('paymentMethod').optional().isIn(['bank_transfer', 'cash', 'check']).withMessage('Invalid payment method'),
+    body('draftId').optional()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const result = await PayrollPeriodPaymentHelper.savePayrollPeriodPaymentDraft(
+      req.params.month,
+      req.params.year,
+      {
+        companyName: req.body.companyName,
+        paymentMethod: req.body.paymentMethod || 'bank_transfer',
+        reference: req.body.reference || '',
+        narration: req.body.narration || '',
+        paymentDate: req.body.paymentDate,
+        bankAccountId: req.body.bankAccountId || null,
+        draftId: req.body.draftId || null,
+        createdBy: req.user._id
+      }
+    );
+    res.json({
+      success: true,
+      message: `Payroll payment draft saved for ${result.companyName}. Review the BPV, then submit for GM Finance approval when ready.`,
+      data: result
+    });
+  })
+);
+
+// @route   POST /api/finance/payroll-period-payments/:id/submit
+router.post('/payroll-period-payments/:id/submit',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('financeControllerUser').notEmpty().withMessage('GM Finance is required'),
+    body('paymentMethod').optional().isIn(['bank_transfer', 'cash', 'check']).withMessage('Invalid payment method'),
+    body('financeApprovalAuthorities.financeControllerUser').optional()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const financeControllerUser =
+      req.body.financeControllerUser
+      || req.body.financeApprovalAuthorities?.financeControllerUser;
+    const result = await PayrollPeriodPaymentHelper.submitPayrollPeriodPaymentDraft(
+      req.params.id,
+      {
+        paymentMethod: req.body.paymentMethod,
+        reference: req.body.reference,
+        narration: req.body.narration,
+        paymentDate: req.body.paymentDate,
+        bankAccountId: req.body.bankAccountId || null,
+        financeControllerUser,
+        actorId: req.user._id
+      }
+    );
+    res.json({
+      success: true,
+      message: `Payroll payment for ${result.companyName} submitted (gross ${Number(result.grossSalary || 0).toLocaleString('en-PK')}, net bank ${Number(result.pendingAmount || 0).toLocaleString('en-PK')}). BPV is pending GM Finance approval — ${result.companyName} payroll will be marked paid after approval.`,
+      data: result
+    });
+  })
+);
+
+// @route   DELETE /api/finance/payroll-period-payments/:id
+router.delete('/payroll-period-payments/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const result = await PayrollPeriodPaymentHelper.deletePayrollPeriodPaymentDraft(req.params.id);
+    res.json({
+      success: true,
+      message: `Draft payroll payment for ${result.companyName} (${result.periodLabel}) and its BPV draft were deleted.`,
+      data: result
+    });
+  })
+);
+
+// @route   POST /api/finance/payroll-queue/:month/:year/make-payment
+router.post('/payroll-queue/:month/:year/make-payment',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('companyName').notEmpty().withMessage('Company is required'),
+    body('paymentMethod').optional().isIn(['bank_transfer', 'cash', 'check']).withMessage('Invalid payment method'),
+    body('financeControllerUser').notEmpty().withMessage('GM Finance is required'),
+    body('financeApprovalAuthorities.financeControllerUser').optional()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const financeControllerUser =
+      req.body.financeControllerUser
+      || req.body.financeApprovalAuthorities?.financeControllerUser;
+    const draft = await PayrollPeriodPaymentHelper.savePayrollPeriodPaymentDraft(
+      req.params.month,
+      req.params.year,
+      {
+        companyName: req.body.companyName,
+        paymentMethod: req.body.paymentMethod || 'bank_transfer',
+        reference: req.body.reference || '',
+        narration: req.body.narration || '',
+        paymentDate: req.body.paymentDate,
+        bankAccountId: req.body.bankAccountId || null,
+        draftId: req.body.draftId || null,
+        createdBy: req.user._id
+      }
+    );
+    const result = await PayrollPeriodPaymentHelper.submitPayrollPeriodPaymentDraft(
+      draft.application._id,
+      {
+        paymentMethod: req.body.paymentMethod || 'bank_transfer',
+        reference: req.body.reference || '',
+        narration: req.body.narration || '',
+        paymentDate: req.body.paymentDate,
+        bankAccountId: req.body.bankAccountId || null,
+        financeControllerUser,
+        actorId: req.user._id
+      }
+    );
+    res.json({
+      success: true,
+      message: `Payroll payment for ${result.companyName} submitted (gross ${Number(result.grossSalary || 0).toLocaleString('en-PK')}, net bank ${Number(result.pendingAmount || 0).toLocaleString('en-PK')}). BPV is pending GM Finance approval — ${result.companyName} payroll will be marked paid after approval.`,
+      data: result
+    });
+  })
+);
+
 // @route   POST /api/finance/payroll-queue/:month/:year/mark-paid
 router.post('/payroll-queue/:month/:year/mark-paid',
   authorize('super_admin', 'admin', 'finance_manager'),
@@ -6172,6 +6508,55 @@ router.post('/payroll-queue/:month/:year/mark-paid',
       success: true,
       message: `${result.paid} payroll record(s) marked as paid${result.failed ? `; ${result.failed} failed` : ''}.`,
       data: result
+    });
+  })
+);
+
+// @route   GET /api/finance/payroll-period-payments/by-journal-entry/:journalEntryId
+router.get('/payroll-period-payments/by-journal-entry/:journalEntryId',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const doc = await PayrollPeriodPaymentHelper.populateApplication({ journalEntryId: req.params.journalEntryId });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Payroll payment not found for this voucher' });
+    }
+    res.json({ success: true, data: doc.toObject ? doc.toObject() : doc });
+  })
+);
+
+// @route   PUT /api/finance/payroll-period-payments/:id/finance-approve
+router.put('/payroll-period-payments/:id/finance-approve',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const PayrollPeriodPaymentApplication = require('../models/finance/PayrollPeriodPaymentApplication');
+    const app = await PayrollPeriodPaymentApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ success: false, message: 'Payroll payment not found' });
+    const { remaining, finalized } = await PayrollPeriodPaymentHelper.recordAuthorityApproval(
+      app,
+      req.user,
+      req.body?.comments || ''
+    );
+    const fresh = await PayrollPeriodPaymentHelper.populateApplication({ _id: app._id });
+    const message = finalized
+      ? `All finance authorities approved. BPV posted and ${fresh?.companyName || 'company'} payroll marked paid.`
+      : `Finance authority recorded. ${remaining} approval(s) remaining before payroll is marked paid.`;
+    res.json({ success: true, message, data: fresh?.toObject ? fresh.toObject() : fresh });
+  })
+);
+
+// @route   PUT /api/finance/payroll-period-payments/:id/finance-reject
+router.put('/payroll-period-payments/:id/finance-reject',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const PayrollPeriodPaymentApplication = require('../models/finance/PayrollPeriodPaymentApplication');
+    const app = await PayrollPeriodPaymentApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ success: false, message: 'Payroll payment not found' });
+    await PayrollPeriodPaymentHelper.recordAuthorityRejection(app, req.user, req.body?.comments || req.body?.rejectionComments || req.body?.observation || '');
+    const fresh = await PayrollPeriodPaymentHelper.populateApplication({ _id: app._id });
+    res.json({
+      success: true,
+      message: 'Payroll payment rejected with observation. Draft BPV cancelled; company payroll remains unpaid. Sr Manager Accounts can correct and resubmit.',
+      data: fresh?.toObject ? fresh.toObject() : fresh
     });
   })
 );

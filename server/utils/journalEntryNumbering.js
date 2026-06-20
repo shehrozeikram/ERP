@@ -1,9 +1,10 @@
-/** Next number for one voucher series only (BPV-000002 does not affect GRN-000001). */
-async function getNextJournalEntryNumber(seriesCode) {
+/** Next number for one voucher series per company (BPV-SGC-000002 does not affect BPV-HPB-000001). */
+async function getNextJournalEntryNumber(seriesCode, companyCode = '') {
   const JournalEntry = require('../models/finance/JournalEntry');
   const raw = String(seriesCode || 'JV').trim().toUpperCase().replace(/[^A-Z]/g, '');
   const code = raw.length >= 2 && raw.length <= 12 ? raw : 'JV';
-  const prefix = `${code}-`;
+  const cc = String(companyCode || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const prefix = cc.length >= 2 ? `${code}-${cc}-` : `${code}-`;
   const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`^${esc}(\\d+)$`, 'i');
 

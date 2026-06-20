@@ -212,7 +212,7 @@ router.get('/employees',
       // Get all employees without pagination for dropdowns and forms
       // Select only essential fields and populate only what's needed for list view
       employees = await Employee.find(query)
-        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate probationPeriodMonths endOfProbationDate confirmationDate placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus createdAt profileImage user')
+        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate hireDate probationPeriodMonths endOfProbationDate confirmationDate terminationDate terminationReason updatedAt placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus createdAt profileImage user')
         .populate('bankName', 'name type')
         .populate('placementCompany', 'name type')
         .populate('placementProject', 'name company')
@@ -1131,8 +1131,19 @@ router.put('/employees/:id', [
       employeeData.allowances = buildAllowancesPayload(employeeData.allowances);
     }
 
-    const { applyEmploymentStatusSync } = require('../utils/employeeEmploymentStatus');
-    const syncedEmployeeData = applyEmploymentStatusSync(employeeData);
+    const existingEmployee = await Employee.findOne({ _id: req.params.id, isDeleted: false })
+      .select('employmentStatus terminationDate')
+      .lean();
+
+    if (!existingEmployee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    const { applyEmploymentStatusUpdate } = require('../utils/employeeEmploymentStatus');
+    const syncedEmployeeData = applyEmploymentStatusUpdate(existingEmployee, employeeData);
 
     // Explicitly handle array fields to ensure they're properly updated
     const updateData = { ...syncedEmployeeData };

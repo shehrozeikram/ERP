@@ -18,17 +18,55 @@ import { ArrowBack as BackIcon, Print as PrintIcon } from '@mui/icons-material';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import PayrollBpvDeductionSummary from '../../components/Finance/PayrollBpvDeductionSummary';
 import { useAuth } from '../../contexts/AuthContext';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+
+const VOUCHER_SERIES_TITLES = {
+  BPV: 'Bank Payment Voucher',
+  CPV: 'Cash Payment Voucher',
+  JV: 'Journal Voucher',
+  GRN: 'Goods Receipt Voucher',
+  SIN: 'Store Issue Voucher'
+};
+
+const resolveCompanyName = (entry, linkedDocs, companies) => {
+  const populated = entry?.companyId;
+  if (populated && typeof populated === 'object' && populated.name) {
+    return populated.name;
+  }
+
+  const companyId = populated?._id || entry?.companyId;
+  if (companyId && Array.isArray(companies)) {
+    const match = companies.find((row) => String(row._id) === String(companyId));
+    if (match?.name) return match.name;
+  }
+
+  const { payrollPeriodPaymentApp, apPaymentApp } = linkedDocs;
+  if (payrollPeriodPaymentApp?.companyName) return payrollPeriodPaymentApp.companyName;
+  if (apPaymentApp?.companyName) return apPaymentApp.companyName;
+
+  return 'Sardar Group of Companies';
+};
+
+const resolveVoucherTitle = (entry) => {
+  const series = String(entry?.voucherSeries || '').trim().toUpperCase();
+  if (series && VOUCHER_SERIES_TITLES[series]) return VOUCHER_SERIES_TITLES[series];
+  if (series === 'BPV' || entry?.module === 'payroll') return VOUCHER_SERIES_TITLES.BPV;
+  return 'Finance Voucher';
+};
 
 const VoucherView = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { companies } = useFinanceCompany();
   const [loading, setLoading] = useState(true);
   const [entry, setEntry] = useState(null);
   const [cashApproval, setCashApproval] = useState(null);
   const [vendorAdvanceDoc, setVendorAdvanceDoc] = useState(null);
   const [apPaymentApp, setApPaymentApp] = useState(null);
+  const [payrollPeriodPaymentApp, setPayrollPeriodPaymentApp] = useState(null);
   const [approvalMsg, setApprovalMsg] = useState('');
 
   useEffect(() => {
@@ -65,6 +103,7 @@ const VoucherView = () => {
       if (!entry?._id) {
         setVendorAdvanceDoc(null);
         setApPaymentApp(null);
+        setPayrollPeriodPaymentApp(null);
         return;
       }
       try {
@@ -72,6 +111,12 @@ const VoucherView = () => {
         setApPaymentApp(apRes?.data?.data || null);
       } catch (_e) {
         setApPaymentApp(null);
+      }
+      try {
+        const payrollRes = await api.get(`/finance/payroll-period-payments/by-journal-entry/${entry._id}`);
+        setPayrollPeriodPaymentApp(payrollRes?.data?.data || null);
+      } catch (_e) {
+        setPayrollPeriodPaymentApp(null);
       }
       try {
         const res = await api.get(`/finance/vendor-advances/by-journal-entry/${entry._id}`);
@@ -101,6 +146,15 @@ const VoucherView = () => {
     }
   };
 
+  const refreshPayrollPeriodPaymentApp = async () => {
+    try {
+      const res = await api.get(`/finance/payroll-period-payments/by-journal-entry/${id}`);
+      setPayrollPeriodPaymentApp(res?.data?.data || payrollPeriodPaymentApp);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const approveMyAuthorityFromVoucher = async () => {
     try {
       setApprovalMsg('');
@@ -111,6 +165,15 @@ const VoucherView = () => {
         await refreshApPaymentApp();
         await reloadEntry();
         setApprovalMsg('Authority approval recorded. Bill is marked paid when all three authorities have approved.');
+        return;
+      }
+      if (payrollPeriodPaymentApp?._id) {
+        await api.put(`/finance/payroll-period-payments/${payrollPeriodPaymentApp._id}/finance-approve`, {
+          comments: 'Approved from Voucher page'
+        });
+        await refreshPayrollPeriodPaymentApp();
+        await reloadEntry();
+        setApprovalMsg('Authority approval recorded. Payroll records are marked paid when GM Finance approves on the BPV.');
         return;
       }
       if (cashApproval?._id) {
@@ -134,19 +197,30 @@ const VoucherView = () => {
   };
 
   const rejectMyAuthorityFromVoucher = async () => {
+    const observation = window.prompt('Enter rejection observation for the preparer:');
+    if (!observation || !String(observation).trim()) {
+      setApprovalMsg('Rejection cancelled — observation is required.');
+      return;
+    }
+    const comments = String(observation).trim();
     try {
       setApprovalMsg('');
       if (apPaymentApp?._id) {
-        await api.put(`/finance/ap-payment-applications/${apPaymentApp._id}/finance-reject`, {
-          comments: 'Rejected from Voucher page'
-        });
+        await api.put(`/finance/ap-payment-applications/${apPaymentApp._id}/finance-reject`, { comments });
         await refreshApPaymentApp();
         await reloadEntry();
         setApprovalMsg('Settlement rejected. Draft voucher cancelled; bill remains unpaid.');
         return;
       }
+      if (payrollPeriodPaymentApp?._id) {
+        await api.put(`/finance/payroll-period-payments/${payrollPeriodPaymentApp._id}/finance-reject`, { comments });
+        await refreshPayrollPeriodPaymentApp();
+        await reloadEntry();
+        setApprovalMsg('Payroll payment rejected with observation. BPV cancelled; Sr Manager Accounts can correct and resubmit.');
+        return;
+      }
       if (cashApproval?._id) {
-        await api.put(`/cash-approvals/${cashApproval._id}/finance-reject`, { comments: 'Rejected from Voucher page' });
+        await api.put(`/cash-approvals/${cashApproval._id}/finance-reject`, { comments });
         const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
         setCashApproval(refreshed?.data?.data || cashApproval);
         setApprovalMsg('Authority rejection recorded from voucher and synced to Cash Approval.');
@@ -165,10 +239,25 @@ const VoucherView = () => {
     }
   };
 
-  const financeAuthorityDoc = apPaymentApp || vendorAdvanceDoc || cashApproval;
+  const financeAuthorityDoc = apPaymentApp || payrollPeriodPaymentApp || vendorAdvanceDoc || cashApproval;
   const pendingAuthorityVoucher =
     (apPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
+    || (payrollPeriodPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
     || (vendorAdvanceDoc?.voucherWorkflowStatus === 'pending_authority' && entry?.status === 'draft');
+
+  const authoritySlots = useMemo(() => {
+    if (payrollPeriodPaymentApp) {
+      return [
+        { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+        { key: 'financeControllerUser', label: 'GM Finance' }
+      ];
+    }
+    return [
+      { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
+      { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+      { key: 'financeControllerUser', label: 'GM Finance' }
+    ];
+  }, [payrollPeriodPaymentApp]);
 
   const myPendingAuthorityLabels = useMemo(() => {
     if (!financeAuthorityDoc || !user) return [];
@@ -177,21 +266,42 @@ const VoucherView = () => {
     const normId = (v) => String(v?._id || v?.id || v || '').trim();
     const approvals = Array.isArray(financeAuthorityDoc?.financeAuthorityApprovals) ? financeAuthorityDoc.financeAuthorityApprovals : [];
     const decided = new Set(approvals.map((a) => String(a?.authorityKey || '').trim()).filter(Boolean));
-    const slots = [
-      { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
-      { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
-      { key: 'financeControllerUser', label: 'GM Finance' }
-    ];
-    return slots
+    return authoritySlots
       .filter((s) => normId(authorities?.[s.key]) === uid && !decided.has(s.key))
       .map((s) => s.label);
-  }, [financeAuthorityDoc, user]);
+  }, [financeAuthorityDoc, user, authoritySlots]);
 
   const voucherType = useMemo(() => String(entry?.referenceType || 'manual').toUpperCase(), [entry]);
+  const voucherTitle = useMemo(() => resolveVoucherTitle(entry), [entry]);
+  const voucherCompanyName = useMemo(
+    () => resolveCompanyName(entry, { payrollPeriodPaymentApp, apPaymentApp }, companies),
+    [entry, payrollPeriodPaymentApp, apPaymentApp, companies]
+  );
   const monthName = useMemo(() => {
     if (!entry?.date) return '—';
     return new Date(entry.date).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   }, [entry]);
+
+  const isPayrollBpv = useMemo(() => {
+    const series = String(entry?.voucherSeries || '').trim().toUpperCase();
+    return entry?.module === 'payroll' && (series === 'BPV' || series === 'CPV');
+  }, [entry]);
+
+  const payrollSchedule = useMemo(() => {
+    const fromEntry = entry?.payrollVoucherSummary;
+    if (fromEntry?.breakdown) return fromEntry;
+    if (payrollPeriodPaymentApp?.paymentMeta?.breakdown) {
+      return {
+        companyName: payrollPeriodPaymentApp.companyName,
+        periodLabel: payrollPeriodPaymentApp.periodLabel,
+        employeeCount: payrollPeriodPaymentApp.employeeCount,
+        breakdown: payrollPeriodPaymentApp.paymentMeta.breakdown
+      };
+    }
+    return null;
+  }, [entry?.payrollVoucherSummary, payrollPeriodPaymentApp]);
+
+  const payrollPeriodLabel = payrollSchedule?.periodLabel || payrollPeriodPaymentApp?.periodLabel || monthName;
 
   if (loading) return <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>;
   if (!entry) return <Box sx={{ p: 4 }}><Typography>Voucher not found</Typography></Box>;
@@ -210,8 +320,8 @@ const VoucherView = () => {
       <Paper sx={{ p: 3, maxWidth: '1200px', mx: 'auto' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
           <Box>
-            <Typography fontWeight={700}>Sardar Group of Companies</Typography>
-            <Typography fontWeight={700}>Bank Payment Voucher</Typography>
+            <Typography fontWeight={700}>{voucherCompanyName}</Typography>
+            <Typography fontWeight={700}>{voucherTitle}</Typography>
           </Box>
           <Box sx={{ textAlign: 'right' }}>
             <Typography variant="body2">{new Date(entry.date).toLocaleDateString()}</Typography>
@@ -224,7 +334,10 @@ const VoucherView = () => {
           <Box sx={{ minWidth: 260 }}>
             <Typography variant="body2"><strong>Voucher Type</strong> {voucherType}</Typography>
             <Typography variant="body2"><strong>Voucher No</strong> {entry.entryNumber}</Typography>
-            <Typography variant="body2"><strong>Month</strong> {monthName}</Typography>
+            <Typography variant="body2"><strong>Month</strong> {payrollPeriodLabel}</Typography>
+            {isPayrollBpv && payrollSchedule?.employeeCount != null ? (
+              <Typography variant="body2"><strong>Employees</strong> {payrollSchedule.employeeCount}</Typography>
+            ) : null}
             {vendorAdvanceDoc ? (
               <Typography variant="body2" sx={{ mt: 0.5 }}>
                 <strong>Pay from account</strong>{' '}
@@ -240,6 +353,24 @@ const VoucherView = () => {
           </Box>
         </Box>
 
+        {isPayrollBpv && payrollSchedule?.breakdown ? (
+          <PayrollBpvDeductionSummary
+            embedded
+            breakdown={payrollSchedule.breakdown}
+            periodLabel={payrollSchedule.periodLabel || payrollPeriodLabel}
+            companyName={payrollSchedule.companyName || voucherCompanyName}
+            employeeCount={payrollSchedule.employeeCount}
+          />
+        ) : null}
+
+        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+          {isPayrollBpv ? 'Accounting Entries' : 'Voucher Lines'}
+        </Typography>
+        {isPayrollBpv ? (
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            Payment entry only — deductions and gross salary expense were posted at payroll approval (PAYAC accrual).
+          </Typography>
+        ) : null}
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -282,12 +413,20 @@ const VoucherView = () => {
               {approvalMsg}
             </Alert>
           ) : null}
+          {payrollPeriodPaymentApp?.workflowStatus === 'draft' ? (
+            <Alert severity="info" sx={{ mb: 1.5 }}>
+              This payroll BPV is still a <strong>draft</strong>. Submit it from Payroll — Finance when ready, or delete the draft from there.
+              It is not yet in the GM Finance approval queue.
+            </Alert>
+          ) : null}
           {pendingAuthorityVoucher ? (
             <Alert severity="warning" sx={{ mb: 1.5 }}>
               This voucher is <strong>draft</strong> until all finance authorities approve.
               {apPaymentApp
                 ? ' The related vendor bill stays unpaid until final approval.'
-                : ' General ledger and account balances update only after final approval.'}
+                : payrollPeriodPaymentApp
+                  ? ' Company payroll for this BPV stays unpaid until GM Finance approves. Sr Manager Accounts is already approved on submission.'
+                  : ' General ledger and account balances update only after final approval.'}
             </Alert>
           ) : null}
           {apPaymentApp?.accountsPayableId ? (
@@ -295,6 +434,19 @@ const VoucherView = () => {
               Bill: <strong>{apPaymentApp.billNumber || apPaymentApp.accountsPayableId?.billNumber || '—'}</strong>
               {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}
             </Typography>
+          ) : null}
+          {payrollPeriodPaymentApp ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Company: <strong>{payrollPeriodPaymentApp.companyName || '—'}</strong>
+              {' · '}Period: <strong>{payrollPeriodPaymentApp.periodLabel || '—'}</strong>
+              {' · '}{payrollPeriodPaymentApp.employeeCount || 0} employees
+              {' · '}Payment: {formatPKR(payrollPeriodPaymentApp.amount || 0)}
+            </Typography>
+          ) : null}
+          {payrollPeriodPaymentApp?.rejectionObservation ? (
+            <Alert severity="error" sx={{ mb: 1.5 }}>
+              Rejection observation: {payrollPeriodPaymentApp.rejectionObservation}
+            </Alert>
           ) : null}
           {myPendingAuthorityLabels.length > 0 ? (
             <Box className="app-print-hide" sx={{ mb: 1.5 }}>
@@ -324,15 +476,10 @@ const VoucherView = () => {
             </TableHead>
             <TableBody>
               {(() => {
-                const slots = [
-                  { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
-                  { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
-                  { key: 'financeControllerUser', label: 'GM Finance' }
-                ];
                 const approvals = Array.isArray(financeAuthorityDoc?.financeAuthorityApprovals) ? financeAuthorityDoc.financeAuthorityApprovals : [];
                 const byKey = new Map(approvals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
 
-                return slots.map((slot) => {
+                return authoritySlots.map((slot) => {
                   const approval = byKey.get(slot.key);
                   const assigned = financeAuthorityDoc?.financeApprovalAuthorities?.[slot.key] || null;
                   const approver = approval?.approver || assigned || null;

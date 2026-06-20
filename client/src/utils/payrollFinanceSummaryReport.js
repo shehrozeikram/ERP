@@ -7,12 +7,6 @@ const esc = (value) => String(value ?? '—')
 const fmtMoney = (amount) =>
   Math.round(Number(amount) || 0).toLocaleString('en-PK');
 
-const csvEscape = (value) => {
-  const text = String(value ?? '');
-  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-};
-
 export const getNetPayableColumnLabel = (periodLabel = '') => {
   const compact = String(periodLabel || '').replace(/\s+/g, '');
   return compact ? `Net Payable ${compact}` : 'Net Payable';
@@ -30,10 +24,120 @@ export const PROJECT_SUMMARY_AMOUNT_COLUMNS = [
   { key: 'fuelAllowance', label: 'Fuel Allowance' },
   { key: 'grossSalary', label: 'Gross Salary' },
   { key: 'incomeTax', label: 'Income Tax' },
-  { key: 'companyLoan', label: 'Company Loan' },
-  { key: 'eobiDeduction', label: 'EOBI Deduction' },
-  { key: 'empSecurityDed', label: 'Emp- Security Ded' }
+  { key: 'companyLoan', label: 'Employee Loan' },
+  { key: 'advanceDeduction', label: 'Staff Advance' },
+  { key: 'eobiEmployee', label: 'EOBI (Employee)' },
+  { key: 'eobiEmployer', label: 'EOBI (Employer)' },
+  { key: 'empSecurityDed', label: 'Provident Fund' },
+  { key: 'healthInsurance', label: 'Health Insurance' },
+  { key: 'attendanceDeduction', label: 'Attendance Ded.' },
+  { key: 'leaveDeduction', label: 'Leave Ded.' },
+  { key: 'otherDeductions', label: 'Other Deductions' }
 ];
+
+/** Earnings / allowance lines shown above gross on payroll BPV summary. */
+export const PAYROLL_ALLOWANCE_SUMMARY_ROWS = [
+  { key: 'basic', label: 'Basic Salary' },
+  { key: 'arrears', label: 'Arrears' },
+  { key: 'conveyanceAllowance', label: 'Conveyance Allowance' },
+  { key: 'houseAllowance', label: 'House Allowance' },
+  { key: 'foodAllowance', label: 'Food Allowance' },
+  { key: 'vehicleAllowance', label: 'Vehicle Allowance' },
+  { key: 'medicalAllowance', label: 'Medical Allowance' },
+  { key: 'fuelAllowance', label: 'Fuel Allowance' }
+];
+
+/** Itemized deductions for payroll BPV summary (gross → deductions → net). */
+export const PAYROLL_DEDUCTION_SUMMARY_ROWS = [
+  { key: 'incomeTax', label: 'Income Tax (WHT)' },
+  { key: 'companyLoan', label: 'Employee Loan Recovery' },
+  { key: 'advanceDeduction', label: 'Staff Advance Recovery' },
+  { key: 'empSecurityDed', label: 'Provident Fund (Employee)' },
+  { key: 'eobiEmployee', label: 'EOBI (Employee Share)' },
+  { key: 'eobiEmployer', label: 'EOBI (Employer Share)' },
+  { key: 'healthInsurance', label: 'Health Insurance' },
+  { key: 'attendanceDeduction', label: 'Attendance Deduction' },
+  { key: 'leaveDeduction', label: 'Leave Deduction' },
+  { key: 'otherDeductions', label: 'Other Payroll Deductions' }
+];
+
+export const buildPayrollDeductionSummary = (breakdown = {}) => {
+  const allowances = PAYROLL_ALLOWANCE_SUMMARY_ROWS
+    .map((row) => ({
+      ...row,
+      amount: roundAmount(breakdown[row.key] || 0)
+    }))
+    .filter((row) => row.amount > 0);
+  const grossSalary = roundAmount(breakdown.grossSalary || 0);
+  const deductions = PAYROLL_DEDUCTION_SUMMARY_ROWS
+    .map((row) => ({
+      ...row,
+      amount: roundAmount(breakdown[row.key] || 0)
+    }))
+    .filter((row) => row.amount > 0);
+  const totalDeductions = roundAmount(deductions.reduce((sum, row) => sum + row.amount, 0));
+  const netPayable = roundAmount(breakdown.netPayable || 0);
+  const eobiEmployerExpense = roundAmount(breakdown.eobiEmployerExpense || breakdown.eobiEmployer || 0);
+
+  return {
+    allowances,
+    hasAllowances: allowances.length > 0,
+    grossSalary,
+    deductions,
+    totalDeductions,
+    netPayable,
+    eobiEmployerExpense,
+    hasDeductions: deductions.length > 0
+  };
+};
+
+const roundAmount = (value) => Math.round(Number(value) || 0);
+
+export const aggregatePayrollBreakdownFromRows = (payrollRows = []) => {
+  const totals = PROJECT_SUMMARY_AMOUNT_COLUMNS.reduce((acc, col) => {
+    acc[col.key] = 0;
+    return acc;
+  }, { netPayable: 0, eobiEmployerExpense: 0 });
+
+  payrollRows.forEach((row) => {
+    PROJECT_SUMMARY_AMOUNT_COLUMNS.forEach((col) => {
+      const legacyEobi = col.key === 'eobiEmployee'
+        ? (row.eobiEmployee ?? row.eobiDeduction ?? row.eobi ?? 0)
+        : (row[col.key] ?? 0);
+      totals[col.key] += Number(legacyEobi) || 0;
+    });
+    totals.netPayable += Number(row.netPayable ?? row.netSalary) || 0;
+  });
+
+  PROJECT_SUMMARY_AMOUNT_COLUMNS.forEach((col) => {
+    totals[col.key] = roundAmount(totals[col.key]);
+  });
+  totals.netPayable = roundAmount(totals.netPayable);
+  totals.eobiEmployer = roundAmount(totals.eobiEmployer || totals.eobiEmployee || 0);
+  totals.eobiEmployerExpense = totals.eobiEmployer;
+  return totals;
+};
+
+export const buildPayrollBpvPreviewLines = (payrollRows = [], { periodLabel = '', companyName = '' } = {}) => {
+  const totals = aggregatePayrollBreakdownFromRows(payrollRows);
+  const netAmount = roundAmount(totals.netPayable);
+  const lines = netAmount > 0
+    ? [
+      { side: 'Debit', label: 'Salaries Payable (Net)', amount: netAmount },
+      { side: 'Credit', label: 'Bank Payment (Net Salary)', amount: netAmount }
+    ]
+    : [];
+
+  return {
+    lines,
+    totals,
+    totalDebit: netAmount,
+    totalCredit: netAmount,
+    periodLabel,
+    companyName,
+    balanced: netAmount > 0
+  };
+};
 
 const emptyAmountTotals = () =>
   PROJECT_SUMMARY_AMOUNT_COLUMNS.reduce((acc, col) => {
@@ -41,14 +145,14 @@ const emptyAmountTotals = () =>
     return acc;
   }, {});
 
-const createProjectSummaryRow = (project) => ({
-  project,
+const createCompanySummaryRow = (company) => ({
+  company,
   employeeCount: 0,
   ...emptyAmountTotals(),
   netPayable: 0
 });
 
-const addPayrollToProjectSummary = (entry, payroll) => {
+const addPayrollToCompanySummary = (entry, payroll) => {
   entry.employeeCount += 1;
   PROJECT_SUMMARY_AMOUNT_COLUMNS.forEach((col) => {
     entry[col.key] += Number(payroll[col.key]) || 0;
@@ -56,7 +160,7 @@ const addPayrollToProjectSummary = (entry, payroll) => {
   entry.netPayable += Number(payroll.netPayable ?? payroll.netSalary) || 0;
 };
 
-const roundProjectSummaryRow = (row) => {
+const roundCompanySummaryRow = (row) => {
   const rounded = { ...row };
   PROJECT_SUMMARY_AMOUNT_COLUMNS.forEach((col) => {
     rounded[col.key] = Math.round(rounded[col.key] || 0);
@@ -65,34 +169,37 @@ const roundProjectSummaryRow = (row) => {
   return rounded;
 };
 
-export const buildPayrollProjectSummary = (payrollRows = []) => {
-  const byProject = new Map();
+export const buildPayrollCompanySummary = (payrollRows = []) => {
+  const byCompany = new Map();
 
   payrollRows.forEach((row) => {
-    const project = (row.employee?.project || '').trim() || 'Unassigned';
-    if (!byProject.has(project)) {
-      byProject.set(project, createProjectSummaryRow(project));
+    const company = (row.employee?.company || '').trim() || 'Unassigned';
+    if (!byCompany.has(company)) {
+      byCompany.set(company, createCompanySummaryRow(company));
     }
-    addPayrollToProjectSummary(byProject.get(project), row);
+    addPayrollToCompanySummary(byCompany.get(company), row);
   });
 
-  const rows = [...byProject.values()]
-    .map(roundProjectSummaryRow)
-    .sort((a, b) => a.project.localeCompare(b.project));
+  const rows = [...byCompany.values()]
+    .map(roundCompanySummaryRow)
+    .sort((a, b) => a.company.localeCompare(b.company));
 
-  const totals = createProjectSummaryRow('Grand Total (All Projects)');
-  totals.project = 'Grand Total (All Projects)';
-  payrollRows.forEach((row) => addPayrollToProjectSummary(totals, row));
-  const roundedTotals = roundProjectSummaryRow(totals);
+  const totals = createCompanySummaryRow('Grand Total (All Companies)');
+  totals.company = 'Grand Total (All Companies)';
+  payrollRows.forEach((row) => addPayrollToCompanySummary(totals, row));
+  const roundedTotals = roundCompanySummaryRow(totals);
 
   return { rows, totals: roundedTotals };
 };
+
+/** @deprecated Use buildPayrollCompanySummary */
+export const buildPayrollProjectSummary = buildPayrollCompanySummary;
 
 const buildSummaryHtml = ({ periodLabel, company = {}, summary }) => {
   const netPayableLabel = getNetPayableColumnLabel(periodLabel);
   const headerCells = `
     <th>Sr No</th>
-    <th>Project Name</th>
+    <th>Company Name</th>
     <th class="num">No of Employees</th>
     ${PROJECT_SUMMARY_AMOUNT_COLUMNS.map((col) => `<th class="num">${esc(col.label)}</th>`).join('')}
     <th class="num">${esc(netPayableLabel)}</th>
@@ -105,7 +212,7 @@ const buildSummaryHtml = ({ periodLabel, company = {}, summary }) => {
     return `
       <tr>
         <td class="num">${index + 1}</td>
-        <td>${esc(row.project)}</td>
+        <td>${esc(row.company)}</td>
         <td class="num">${row.employeeCount}</td>
         ${amountCells}
         <td class="num">${fmtMoney(row.netPayable)}</td>
@@ -169,7 +276,7 @@ const buildSummaryHtml = ({ periodLabel, company = {}, summary }) => {
     <tbody>${rowsHtml}</tbody>
     <tfoot>
       <tr>
-        <td colspan="2" align="right"><strong>Grand Total (All Projects)</strong></td>
+        <td colspan="2" align="right"><strong>Grand Total (All Companies)</strong></td>
         <td class="num"><strong>${summary.totals.employeeCount}</strong></td>
         ${totalAmountCells}
         <td class="num"><strong>${fmtMoney(summary.totals.netPayable)}</strong></td>
@@ -228,13 +335,16 @@ const printHtmlInHiddenFrame = (html, frameId = 'payroll-summary-print-frame') =
   return { ok: true };
 };
 
-export const openPayrollProjectSummaryPrint = ({ periodLabel, company = {}, summary }) => {
+export const openPayrollCompanySummaryPrint = ({ periodLabel, company = {}, summary }) => {
   if (!summary?.rows?.length) {
     return { ok: false, message: 'No payroll summary data available.' };
   }
   const html = buildSummaryHtml({ periodLabel, company, summary });
   return printHtmlInHiddenFrame(html);
 };
+
+/** @deprecated Use openPayrollCompanySummaryPrint */
+export const openPayrollProjectSummaryPrint = openPayrollCompanySummaryPrint;
 
 const EXCEL_THIN_BORDER = {
   top: { style: 'thin' },
@@ -276,7 +386,7 @@ const styleDataRow = (row, colCount, { bold = false, fill = null } = {}) => {
   }
 };
 
-export const downloadPayrollProjectSummaryExcel = async ({ periodLabel, summary }) => {
+export const downloadPayrollCompanySummaryExcel = async ({ periodLabel, summary }) => {
   if (!summary?.rows?.length) {
     return { ok: false, message: 'No payroll summary data available.' };
   }
@@ -285,7 +395,7 @@ export const downloadPayrollProjectSummaryExcel = async ({ periodLabel, summary 
   const netPayableLabel = getNetPayableColumnLabel(periodLabel);
   const headers = [
     'Sr No',
-    'Project Name',
+    'Company Name',
     'No of Employees',
     ...PROJECT_SUMMARY_AMOUNT_COLUMNS.map((col) => col.label),
     netPayableLabel
@@ -326,7 +436,7 @@ export const downloadPayrollProjectSummaryExcel = async ({ periodLabel, summary 
   summary.rows.forEach((row, index) => {
     const dataRow = worksheet.addRow([
       index + 1,
-      row.project,
+      row.company,
       row.employeeCount,
       ...PROJECT_SUMMARY_AMOUNT_COLUMNS.map((col) => row[col.key] ?? 0),
       row.netPayable ?? 0
@@ -337,7 +447,7 @@ export const downloadPayrollProjectSummaryExcel = async ({ periodLabel, summary 
 
   const footerRow = worksheet.addRow([
     '',
-    'Grand Total (All Projects)',
+    'Grand Total (All Companies)',
     summary.totals.employeeCount,
     ...PROJECT_SUMMARY_AMOUNT_COLUMNS.map((col) => summary.totals[col.key] ?? 0),
     summary.totals.netPayable ?? 0
@@ -357,7 +467,7 @@ export const downloadPayrollProjectSummaryExcel = async ({ periodLabel, summary 
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `payroll-project-summary-${safePeriod}.xlsx`;
+  link.download = `payroll-company-summary-${safePeriod}.xlsx`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -365,3 +475,6 @@ export const downloadPayrollProjectSummaryExcel = async ({ periodLabel, summary 
 
   return { ok: true };
 };
+
+/** @deprecated Use downloadPayrollCompanySummaryExcel */
+export const downloadPayrollProjectSummaryExcel = downloadPayrollCompanySummaryExcel;

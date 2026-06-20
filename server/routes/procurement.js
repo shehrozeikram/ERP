@@ -3488,7 +3488,10 @@ router.post('/inventory/:id/adjust-stock', [
   if (Math.abs(diff) > 0) {
     try {
       const FinanceHelper = require('../utils/financeHelper');
-      const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(item);
+      const { resolveDocumentCompanyId } = require('../utils/financeCompanyContext');
+      const { withCompany } = require('../utils/financePosting');
+      const companyId = await resolveDocumentCompanyId({ userId: req.user.id });
+      const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(item, companyId);
       // For adjustments: gains offset against COGS (reversed), losses hit COGS
       const adjAccount = cogsAccountId || inventoryAccountId;
       const unitCost = item.averageCost || item.unitPrice || 0;
@@ -3496,7 +3499,7 @@ router.post('/inventory/:id/adjust-stock', [
 
       if (inventoryAccountId && adjAccount && adjAmt > 0) {
         const isGain = diff > 0;
-        await FinanceHelper.createAndPostJournalEntry({
+        await FinanceHelper.createAndPostJournalEntry(withCompany({
           date: new Date(),
           reference: req.body.reference || `ADJ-${item.itemCode}`,
           description: `Stock adjustment – ${item.name} (${diff > 0 ? '+' : ''}${diff} units)`,
@@ -3513,7 +3516,7 @@ router.post('/inventory/:id/adjust-stock', [
             { account: adjAccount,         description: `Stock loss – ${item.name}`,    debit: adjAmt,  department: 'procurement' },
             { account: inventoryAccountId, description: `Inventory reduction – ${item.name}`, credit: adjAmt, department: 'procurement' }
           ]
-        });
+        }, companyId));
       }
     } catch (finErr) {
       console.warn('[Stock Adj] Finance journal skipped:', finErr.message);

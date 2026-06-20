@@ -4,14 +4,17 @@ import {
   TableHead, TableRow, Chip, CircularProgress, Alert, Button, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Grid,
   Select, MenuItem, FormControl, InputLabel, Switch, FormControlLabel,
-  Tooltip, Divider, Autocomplete, Stack
+  Tooltip, Divider, Autocomplete
 } from '@mui/material';
 import {
   Repeat as RecurIcon, Add as AddIcon, PlayArrow as RunIcon,
-  Edit as EditIcon, Delete as DeleteIcon, CheckCircle as ActiveIcon,
+  Edit as EditIcon, Delete as DeleteIcon,
   Refresh as RefreshIcon, Schedule as ScheduleIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import { financeListFromResponse } from '../../utils/financeApiData';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 
 const FREQ_COLORS = { daily: 'error', weekly: 'warning', monthly: 'primary', quarterly: 'success', yearly: 'secondary' };
 const FREQ_LABELS = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
@@ -45,7 +48,7 @@ export default function RecurringJournals() {
         api.get('/finance/accounts', { params: { limit: 500 } })
       ]);
       setRows(rj.data.data || []);
-      setAccounts(accts.data.data || accts.data.accounts || []);
+      setAccounts(financeListFromResponse(accts));
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load');
     } finally {
@@ -54,6 +57,7 @@ export default function RecurringJournals() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useFinanceCompanyReload(load, { skipInitial: true });
 
   const openNew  = () => { setForm(EMPTY_FORM); setDialog({ open: true, editing: null }); };
   const openEdit = (rj) => {
@@ -147,16 +151,10 @@ export default function RecurringJournals() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <RecurIcon color="primary" />
-          <Typography variant="h5" fontWeight={700}>Recurring Journal Entries</Typography>
-        </Box>
-        <Box display="flex" gap={1}>
+      <FinanceCompanyPageHeader title="Recurring Journal Entries" icon={RecurIcon}>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">Refresh</Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>New Recurring Journal</Button>
-        </Box>
-      </Box>
+      </FinanceCompanyPageHeader>
 
       <Alert severity="info" sx={{ mb: 2 }}>
         Recurring journals auto-post at 6:00 AM PKT on their scheduled date.

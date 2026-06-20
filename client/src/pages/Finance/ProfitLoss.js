@@ -1,11 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Button, CircularProgress, Alert, Stack,
-  Card, CardContent, Grid, Divider, Chip, TextField
+  TableHead, TableRow, Button, Alert, Stack,
+  Card, CardContent, Grid, Chip, TextField
 } from '@mui/material';
 import { TrendingUp as PLIcon, Print as PrintIcon, Refresh as RefreshIcon, PictureAsPdf as PdfIcon, GridOn as ExcelIcon } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 import { exportProfitLossPDF, exportProfitLossExcel } from '../../utils/reportExport';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -67,13 +69,11 @@ export default function ProfitLoss() {
     }
   }, [filters]);
 
+  useFinanceCompanyReload(load, { skipInitial: true });
+
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3} className="print-hide-toolbar">
-        <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1}>
-          <PLIcon color="success" /> Profit & Loss (Income Statement)
-        </Typography>
-        <Stack direction="row" gap={1} alignItems="center">
+      <FinanceCompanyPageHeader title="Profit & Loss (Income Statement)" icon={PLIcon}>
           <TextField label="From Date" type="date" size="small" value={filters.fromDate}
             onChange={e => setFilters({ ...filters, fromDate: e.target.value })} InputLabelProps={{ shrink: true }} />
           <TextField label="To Date" type="date" size="small" value={filters.toDate}
@@ -86,8 +86,7 @@ export default function ProfitLoss() {
             <Button variant="outlined" startIcon={<ExcelIcon />} color="success" onClick={() => exportProfitLossExcel(data, filters)}>Excel</Button>
             <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()}>Print</Button>
           </>}
-        </Stack>
-      </Stack>
+      </FinanceCompanyPageHeader>
 
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
 

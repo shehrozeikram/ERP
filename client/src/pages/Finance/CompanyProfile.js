@@ -162,7 +162,15 @@ export default function CompanyProfile() {
             <TextField fullWidth size="small" label="Branch Code" value={form.bankBranchCode || ''} onChange={set('bankBranchCode')} />
           </Grid>
           <Grid item xs={12} sm={3}>
+            <TextField fullWidth size="small" label="Branch Name" value={form.bankBranchName || ''} onChange={set('bankBranchName')}
+              placeholder="Centaurus Mall Branch" />
+          </Grid>
+          <Grid item xs={12} sm={3}>
             <TextField fullWidth size="small" label="IBAN" value={form.bankIBAN || ''} onChange={set('bankIBAN')} placeholder="PK00AAAA0000000000000000" />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField fullWidth size="small" label="Salary Letter Ref Prefix" value={form.salaryLetterRefPrefix || ''} onChange={set('salaryLetterRefPrefix')}
+              placeholder="CHCI-S" helperText="Used on bank salary letters, e.g. CHCI-S-11" />
           </Grid>
         </Grid>
       </Section>

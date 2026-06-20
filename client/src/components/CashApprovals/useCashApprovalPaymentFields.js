@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import api from '../../services/api';
 import { fetchPayFromAccounts } from '../../utils/payFromAccounts';
 
+const resolveCaCompanyId = (ca) => {
+  const raw = ca?.companyId;
+  if (!raw) return null;
+  return typeof raw === 'object' ? raw._id : raw;
+};
+
 const defaultPaymentData = () => ({
   amount: 0,
   paymentMethod: 'bank_transfer',
@@ -29,10 +35,13 @@ export const useCashApprovalPaymentFields = (ca, { active = false, includePendin
   const [loadingOutstanding, setLoadingOutstanding] = useState(false);
 
   const loadBankAccounts = useCallback(() => {
-    fetchPayFromAccounts(api)
+    const companyId = resolveCaCompanyId(ca)
+      || localStorage.getItem('financeSelectedCompanyId')
+      || null;
+    fetchPayFromAccounts(api, companyId ? { companyId } : {})
       .then(setPayFromAccountOptions)
       .catch(() => setPayFromAccountOptions([]));
-  }, []);
+  }, [ca]);
 
   const loadPayeeEmployees = useCallback((seedEmployee = null) => {
     const params = includePendingFinance ? { includePending: 'true' } : {};

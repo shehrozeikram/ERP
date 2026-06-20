@@ -6,11 +6,14 @@ import {
   Stack, Card, CardContent, Grid, Tooltip, Collapse, Autocomplete, LinearProgress
 } from '@mui/material';
 import {
-  Add as AddIcon, Delete as DeleteIcon, PlayArrow as RecognizeIcon,
+  Add as AddIcon, PlayArrow as RecognizeIcon,
   WatchLater as DeferredIcon, ExpandMore as ExpandIcon, ExpandLess as CollapseIcon,
   Refresh as RunAllIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import { financeListFromResponse } from '../../utils/financeApiData';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 
 const fmt     = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-PK') : '—';
@@ -120,7 +123,7 @@ export default function DeferredEntries() {
         api.get('/finance/accounts', { params: { limit: 500 } })
       ]);
       setEntries(entRes.data.data || []);
-      setAccounts(accRes.data.data || accRes.data.accounts || []);
+      setAccounts(financeListFromResponse(accRes));
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load');
     } finally {
@@ -129,6 +132,7 @@ export default function DeferredEntries() {
   }, [typeFilter]);
 
   useEffect(() => { load(); }, [load]);
+  useFinanceCompanyReload(load, { skipInitial: true });
 
   const setF = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
 
@@ -160,17 +164,6 @@ export default function DeferredEntries() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this deferred entry?')) return;
-    try {
-      await api.delete(`/finance/deferred-entries/${id}`);
-      setSuccess('Deleted');
-      load();
-    } catch (e) {
-      setError(e.response?.data?.message || 'Delete failed');
-    }
-  };
-
   const runAllRecognition = async () => {
     setRunning(true); setError('');
     try {
@@ -192,19 +185,13 @@ export default function DeferredEntries() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <DeferredIcon color="primary" />
-          <Typography variant="h5" fontWeight={700}>Deferred Revenue & Expenses</Typography>
-        </Box>
-        <Stack direction="row" spacing={1}>
+      <FinanceCompanyPageHeader title="Deferred Revenue & Expenses" icon={DeferredIcon}>
           <Button variant="outlined" color="success" startIcon={running ? <CircularProgress size={16} color="inherit" /> : <RunAllIcon />}
             onClick={runAllRecognition} disabled={running}>
             Run Current Month
           </Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>New Entry</Button>
-        </Stack>
-      </Stack>
+      </FinanceCompanyPageHeader>
 
       {error   && <Alert severity="error"   onClose={() => setError('')}   sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 2 }}>{success}</Alert>}

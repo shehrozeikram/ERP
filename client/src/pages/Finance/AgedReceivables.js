@@ -6,6 +6,8 @@ import {
 } from '@mui/material';
 import { HourglassBottom as AgedIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -43,6 +45,8 @@ export default function AgedReceivables() {
     }
   }, [asOfDate]);
 
+  useFinanceCompanyReload(load, { skipInitial: true });
+
   const totalOutstanding = data
     ? Object.values(data.buckets).reduce((s, v) => s + (v || 0), 0)
     : 0;
@@ -52,9 +56,7 @@ export default function AgedReceivables() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1} mb={3}>
-        <AgedIcon color="primary" /> Aged Receivables
-      </Typography>
+      <FinanceCompanyPageHeader title="Aged Receivables" icon={AgedIcon} />
 
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
 

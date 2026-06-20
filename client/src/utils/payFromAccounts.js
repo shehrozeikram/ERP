@@ -78,14 +78,14 @@ export const buildPayFromAccountOptions = (allAccounts) => {
   let expanded = true;
   while (expanded) {
     expanded = false;
-    accounts.forEach((account) => {
+    for (const account of accounts) {
       const accountId = getAccountId(account);
       const parentId = getParentAccountId(account);
       if (parentId && eligibleIds.has(parentId) && !eligibleIds.has(accountId)) {
         eligibleIds.add(accountId);
         expanded = true;
       }
-    });
+    }
   }
 
   const eligibleAccounts = eligibleIds.size
@@ -100,9 +100,14 @@ export const formatPayFromAccountLabel = (account, depth = 0) => {
   return `${prefix}${account.accountNumber || '—'} — ${account.name || 'Unnamed account'}`;
 };
 
-export const fetchPayFromAccounts = async (apiClient) => {
+export const fetchPayFromAccounts = async (apiClient, { companyId } = {}) => {
   const response = await apiClient.get('/finance/accounts', {
-    params: { type: 'Asset', limit: 1000, page: 1 }
+    params: {
+      type: 'Asset',
+      limit: 1000,
+      page: 1,
+      ...(companyId ? { companyId } : {})
+    }
   });
 
   const payload = response.data?.data;

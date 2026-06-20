@@ -73,6 +73,13 @@ import {
   formatProbationEndLabel,
   formatProbationDaysLeftLabel
 } from '../../utils/probationAlerts';
+import { isEmployedEmployee } from '../../utils/employeeStatus';
+import {
+  computeTurnoverMetrics,
+  getEmployeesLeftInPeriod,
+  getSeparationDate,
+  getTurnoverPeriodLabel
+} from '../../utils/turnoverMetrics';
 
 /** Hire date used for HR reporting (new hires, tenure charts). */
 function getEmployeeHireDate(employee) {
@@ -81,91 +88,9 @@ function getEmployeeHireDate(employee) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Same definition as Employee List — active flag AND employment status. */
-function isActiveEmployee(employee) {
-  return employee?.isActive === true && employee?.employmentStatus === 'Active';
-}
-
-const LEFT_EMPLOYMENT_STATUSES = ['Resigned', 'Terminated', 'Retired'];
-
-function isEmployeeLeft(employee) {
-  return LEFT_EMPLOYMENT_STATUSES.includes(employee?.employmentStatus);
-}
-
-/** Best available leave date: terminationDate, else last record update for left employees. */
-function getEmployeeSeparationDate(employee) {
-  if (employee?.terminationDate) {
-    const date = new Date(employee.terminationDate);
-    if (!Number.isNaN(date.getTime())) return date;
-  }
-  if (employee?.updatedAt) {
-    const date = new Date(employee.updatedAt);
-    if (!Number.isNaN(date.getTime())) return date;
-  }
-  return null;
-}
-
-function getTurnoverPeriodStart(period, now = new Date()) {
-  switch (period) {
-    case 'month':
-      return new Date(now.getFullYear(), now.getMonth(), 1);
-    case '3months':
-      return new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    case '6months':
-      return new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    case 'year':
-      return new Date(now.getFullYear(), 0, 1);
-    case 'all':
-    default:
-      return null;
-  }
-}
-
-function getTurnoverPeriodLabel(period) {
-  const labels = {
-    month: 'This month',
-    '3months': 'Last 3 months',
-    '6months': 'Last 6 months',
-    year: 'This year',
-    all: 'All time'
-  };
-  return labels[period] || labels.month;
-}
-
-function isSeparationInPeriod(separationDate, period, now = new Date()) {
-  if (period === 'all') return true;
-  if (!separationDate) return false;
-  const periodStart = getTurnoverPeriodStart(period, now);
-  return separationDate >= periodStart && separationDate <= now;
-}
-
-function getEmployeesLeftInPeriod(employees, period, now = new Date()) {
-  return employees.filter((employee) => {
-    if (!isEmployeeLeft(employee)) return false;
-    if (period === 'all') return true;
-    const separationDate = getEmployeeSeparationDate(employee);
-    return isSeparationInPeriod(separationDate, period, now);
-  });
-}
-
-function computeTurnoverMetrics(employees, period = 'month') {
-  const now = new Date();
-  const activeEmployees = employees.filter(isActiveEmployee);
-  const leftInPeriod = getEmployeesLeftInPeriod(employees, period, now);
-  const leftCount = leftInPeriod.length;
-  const denominator = period === 'all'
-    ? (employees.length + activeEmployees.length) / 2
-    : activeEmployees.length;
-  const turnoverRate = denominator > 0
-    ? Number(((leftCount / denominator) * 100).toFixed(2))
-    : 0;
-
-  return { turnoverRate, employeesLeftInPeriod: leftCount };
-}
-
 function computeEmployeeStats(employees, departments) {
   const now = new Date();
-  const activeEmployees = employees.filter(isActiveEmployee);
+  const activeEmployees = employees.filter(isEmployedEmployee);
 
   const totalBasicSalary = employees.reduce((sum, emp) => sum + (emp.salary?.basic || 0), 0);
   const totalGrossSalary = employees.reduce((sum, emp) => {
@@ -689,8 +614,8 @@ const HRDashboard = () => {
 
   const employeesLeftList = getEmployeesLeftInPeriod(allEmployees, turnoverPeriod)
     .sort((a, b) => {
-      const aDate = getEmployeeSeparationDate(a) || new Date(0);
-      const bDate = getEmployeeSeparationDate(b) || new Date(0);
+      const aDate = getSeparationDate(a) || new Date(0);
+      const bDate = getSeparationDate(b) || new Date(0);
       return bDate - aDate;
     });
 
@@ -798,7 +723,7 @@ const HRDashboard = () => {
                     {turnoverMetrics.turnoverRate}%
                   </Typography>
                   <Typography variant="caption" color="textSecondary" display="block">
-                    {turnoverMetrics.employeesLeftInPeriod} left · {getTurnoverPeriodLabel(turnoverPeriod)}
+                    {turnoverMetrics.employeesLeftInPeriod} left · avg headcount {turnoverMetrics.averageHeadcount} · {getTurnoverPeriodLabel(turnoverPeriod)}
                   </Typography>
                 </Box>
                 <FormControl
@@ -1002,7 +927,7 @@ const HRDashboard = () => {
                 const hireLabel = hd
                   ? hd.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
                   : '—';
-                const separationDate = getEmployeeSeparationDate(emp);
+                const separationDate = getSeparationDate(emp);
                 const leftLabel = separationDate
                   ? separationDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
                   : '—';

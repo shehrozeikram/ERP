@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, CircularProgress, Alert, TextField, Grid,
-  InputAdornment, Card, CardContent, Button, Tooltip
+  InputAdornment, Card, CardContent, Button
 } from '@mui/material';
 import {
   Search as SearchIcon, Payment as PaymentIcon,
-  AccountBalanceWallet as WalletIcon, Refresh as RefreshIcon,
-  Download as DownloadIcon
+  AccountBalanceWallet as WalletIcon, Refresh as RefreshIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 
 const METHOD_COLORS = {
   bank_transfer: 'primary', check: 'secondary', cheque: 'secondary',
@@ -40,6 +41,7 @@ export default function CustomerPayments() {
   }, [filters]);
 
   useEffect(() => { load(); }, [load]);
+  useFinanceCompanyReload(load, { skipInitial: true });
 
   const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-PK') : '—';
@@ -47,13 +49,9 @@ export default function CustomerPayments() {
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <PaymentIcon color="primary" />
-          <Typography variant="h5" fontWeight={700}>Customer Payments</Typography>
-        </Box>
+      <FinanceCompanyPageHeader title="Customer Payments" icon={PaymentIcon}>
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">Refresh</Button>
-      </Box>
+      </FinanceCompanyPageHeader>
 
       {/* Summary Card */}
       <Grid container spacing={2} mb={3}>

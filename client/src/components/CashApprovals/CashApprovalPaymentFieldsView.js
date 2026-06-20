@@ -18,6 +18,7 @@ import {
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPayFromAccountLabel } from '../../utils/payFromAccounts';
+import CashApprovalCompanyChip from './CashApprovalCompanyChip';
 
 const CashApprovalPaymentFieldsView = ({
   payeeEmployees,
@@ -30,9 +31,15 @@ const CashApprovalPaymentFieldsView = ({
   onOutstandingRowChange,
   loadingOutstanding,
   showAmountSubtitle = false,
-  referenceRequired = false
+  referenceRequired = false,
+  ca = null
 }) => (
   <>
+    {ca && (
+      <Grid item xs={12}>
+        <CashApprovalCompanyChip ca={ca} />
+      </Grid>
+    )}
     {showAmountSubtitle && (
       <Grid item xs={12}>
         <Typography variant="body2" color="text.secondary">

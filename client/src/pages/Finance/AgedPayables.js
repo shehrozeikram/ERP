@@ -6,6 +6,8 @@ import {
 } from '@mui/material';
 import { Warning as AgedIcon } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -36,13 +38,13 @@ export default function AgedPayables() {
     }
   }, [asOfDate]);
 
+  useFinanceCompanyReload(load, { skipInitial: true });
+
   const bucketColor = (b) => BUCKETS.find(x => x.key === b)?.color || 'default';
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1} mb={3}>
-        <AgedIcon color="error" /> Aged Payables
-      </Typography>
+      <FinanceCompanyPageHeader title="Aged Payables" icon={AgedIcon} />
 
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
 

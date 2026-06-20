@@ -242,6 +242,7 @@ const Sidebar = () => {
       '/finance/recurring-journals': 'recurring_journals',
       '/finance/batch-payment':           'batch_payment',
       '/finance/company-profile':         'company_profile',
+      '/finance/companies':               'finance_companies',
       '/finance/comparative-pl':          'comparative_pl',
       '/finance/cost-center-pl':          'cost_center_pl',
       '/finance/budgets':                 'budgets',

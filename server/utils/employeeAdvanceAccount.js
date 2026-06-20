@@ -19,18 +19,26 @@ const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * Resolve the GL account for an employee advance (employee link → child of 1120 → by code/name).
  */
-const resolveEmployeeAdvanceAccount = async (employee, { createdBy } = {}) => {
+const resolveEmployeeAdvanceAccount = async (employee, { createdBy, companyId } = {}) => {
   if (!employee) return null;
+
+  const cid = companyId || employee?.placementCompany?._id || employee?.placementCompany || null;
 
   if (employee.employeeAdvanceAccount) {
     const linked =
       typeof employee.employeeAdvanceAccount === 'object' && employee.employeeAdvanceAccount.accountNumber
         ? employee.employeeAdvanceAccount
         : await Account.findById(employee.employeeAdvanceAccount);
-    if (linked?.isActive) return linked;
+    if (linked?.isActive) {
+      if (cid) {
+        const mapped = await require('./accountResolver').mapAccountToCompany(cid, linked);
+        if (mapped) return mapped;
+      }
+      return linked;
+    }
   }
 
-  const parent = await ensureStaffAdvanceAccount(createdBy);
+  const parent = await ensureStaffAdvanceAccount(createdBy, cid);
   const parentId = parent._id;
   const empCode = String(employee.employeeId || '').trim();
 
@@ -66,8 +74,9 @@ const resolveEmployeeAdvanceAccount = async (employee, { createdBy } = {}) => {
 /**
  * Create (if missing) a per-employee advance account under 1120 and persist on Employee.
  */
-const ensureEmployeeAdvanceAccount = async (employee, createdBy) => {
-  const existing = await resolveEmployeeAdvanceAccount(employee, { createdBy });
+const ensureEmployeeAdvanceAccount = async (employee, createdBy, companyId = null) => {
+  const cid = companyId || employee?.placementCompany?._id || employee?.placementCompany || null;
+  const existing = await resolveEmployeeAdvanceAccount(employee, { createdBy, companyId: cid });
   if (existing) {
     if (!employee.employeeAdvanceAccount) {
       employee.employeeAdvanceAccount = existing._id;
@@ -77,12 +86,12 @@ const ensureEmployeeAdvanceAccount = async (employee, createdBy) => {
     return existing;
   }
 
-  const parent = await ensureStaffAdvanceAccount(createdBy);
+  const parent = await ensureStaffAdvanceAccount(createdBy, cid);
   const empCode = String(employee.employeeId || employee._id).trim().replace(/\s+/g, '');
   const accountNumber = `1120-${empCode}`.slice(0, 24);
   const name = `Advance to ${employeeDisplayName(employee)}`;
 
-  let acc = await Account.findOne({ accountNumber });
+  let acc = await Account.findOne({ parentAccount: parentId, accountNumber, ...(cid ? { companyId: cid } : {}) });
   if (!acc) {
     acc = await Account.create({
       accountNumber,
@@ -95,6 +104,7 @@ const ensureEmployeeAdvanceAccount = async (employee, createdBy) => {
       isActive: true,
       allowTransactions: true,
       module: 'finance',
+      companyId: cid || parent.companyId || undefined,
       metadata: { createdBy }
     });
   }

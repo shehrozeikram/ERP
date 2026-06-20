@@ -3,6 +3,8 @@ const Employee = require('../models/hr/Employee');
 const Project = require('../models/hr/Project');
 const PayrollMonthlyComparisonReport = require('../models/hr/PayrollMonthlyComparisonReport');
 const PayrollMonthlyApproval = require('../models/hr/PayrollMonthlyApproval');
+const PayrollPeriodPaymentApplication = require('../models/finance/PayrollPeriodPaymentApplication');
+const PayrollBankLetter = require('../models/finance/PayrollBankLetter');
 const FinanceHelper = require('./financeHelper');
 const { PAYROLL_FINAL_APPROVED_STATUSES } = require('./payrollAuthorityPayrollStatus');
 const { getPayrollMonthlyComparisonReport } = require('./payrollMonthlyComparisonReport');
@@ -38,6 +40,15 @@ const resolvePlacementProjectName = (placementProject, projectNameById = null) =
   const projectId = String(placementProject._id || placementProject);
   if (projectNameById?.has(projectId)) {
     return projectNameById.get(projectId) || '';
+  }
+  return '';
+};
+
+const resolvePlacementCompanyName = (placementCompany) => {
+  if (!placementCompany) return '';
+  if (typeof placementCompany === 'string') return placementCompany;
+  if (typeof placementCompany === 'object' && placementCompany.name) {
+    return placementCompany.name;
   }
   return '';
 };
@@ -85,6 +96,8 @@ const mapFinancePayrollEmployee = (employee, projectByEmployeeId) => {
     || projectByEmployeeId.get(String(employee._id))
     || '';
 
+  const company = resolvePlacementCompanyName(employee.placementCompany) || '';
+
   return {
     _id: employee._id,
     employeeId: employee.employeeId,
@@ -93,7 +106,8 @@ const mapFinancePayrollEmployee = (employee, projectByEmployeeId) => {
     branchCode: employee.branchCode || '',
     accountNumber: employee.bankAccountNumber || employee.accountNumber || '',
     bankName: employee.bankName?.name || (typeof employee.bankName === 'object' ? employee.bankName?.name : '') || '',
-    project
+    project,
+    company
   };
 };
 
@@ -108,6 +122,31 @@ const mapBankLetterRow = (payroll, employee, bank) => ({
   payrollId: String(payroll?._id || ''),
   status: payroll?.status || ''
 });
+
+const normalizeCompanyName = (value) => String(value || '').trim() || 'Unassigned';
+
+const listCompanyPaymentStatus = async (month, year) => {
+  const { month: m, year: y } = parsePeriod(month, year);
+  const apps = await PayrollPeriodPaymentApplication.find({ month: m, year: y })
+    .sort({ updatedAt: -1 })
+    .populate('journalEntryId', 'reference status entryNumber')
+    .lean();
+
+  const byCompany = new Map();
+  apps.forEach((app) => {
+    const key = normalizeCompanyName(app.companyName);
+    if (!byCompany.has(key)) byCompany.set(key, []);
+    byCompany.get(key).push(app);
+  });
+
+  return [...byCompany.entries()].map(([companyName, companyApps]) => ({
+    companyName,
+    draftPayment: companyApps.find((app) => app.workflowStatus === 'draft') || null,
+    pendingPayment: companyApps.find((app) => app.workflowStatus === 'pending_authority') || null,
+    latestRejection: companyApps.find((app) => app.workflowStatus === 'rejected') || null,
+    latestApproval: companyApps.find((app) => app.workflowStatus === 'fully_approved') || null
+  }));
+};
 
 const listFinancePayrollQueue = async () => {
   const rows = await Payroll.aggregate([
@@ -140,13 +179,19 @@ const listFinancePayrollQueue = async () => {
   const periods = await Promise.all(
     rows.map(async (row) => {
       const { month, year } = row._id;
-      const [comparisonDoc, approvalDoc] = await Promise.all([
+      const [comparisonDoc, approvalDoc, pendingPayments, draftPayments] = await Promise.all([
         PayrollMonthlyComparisonReport.findOne({ month, year })
           .select('status generatedAt approvedAt')
           .lean(),
         PayrollMonthlyApproval.findOne({ month, year })
           .select('authorityStatus financeAuthorityApprovals')
           .populate('financeAuthorityApprovals.approver', 'firstName lastName')
+          .lean(),
+        PayrollPeriodPaymentApplication.find({ month, year, workflowStatus: 'pending_authority' })
+          .select('_id amount companyName journalEntryId workflowStatus')
+          .lean(),
+        PayrollPeriodPaymentApplication.find({ month, year, workflowStatus: 'draft' })
+          .select('_id amount companyName journalEntryId workflowStatus paymentMeta')
           .lean()
       ]);
 
@@ -156,7 +201,13 @@ const listFinancePayrollQueue = async () => {
 
       if (!avpApproved) return null;
 
-      const financeStatus = row.pendingCount > 0 ? 'pending_payment' : 'paid';
+      const financeStatus = pendingPayments.length
+        ? 'payment_pending'
+        : draftPayments.length
+          ? 'draft_payment'
+          : row.pendingCount > 0
+            ? 'pending_payment'
+            : 'paid';
 
       return {
         month,
@@ -171,7 +222,10 @@ const listFinancePayrollQueue = async () => {
         comparisonStatus: comparisonDoc?.status || '—',
         comparisonGeneratedAt: comparisonDoc?.generatedAt || null,
         comparisonApprovedAt: comparisonDoc?.approvedAt || null,
-        approvalStatus: approvalDoc?.authorityStatus || 'pending'
+        approvalStatus: approvalDoc?.authorityStatus || 'pending',
+        pendingPaymentCount: pendingPayments.length,
+        pendingPaymentAmount: pendingPayments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+        draftPaymentCount: draftPayments.length
       };
     })
   );
@@ -185,12 +239,12 @@ const getFinancePayrollPeriodDetail = async (month, year) => {
   const payrolls = await Payroll.find({ month: m, year: y, status: { $in: AVP_READY_STATUSES } })
     .populate({
       path: 'employee',
-      select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName placementProject',
-      populate: { path: 'placementProject', select: 'name' }
-    })
-    .populate({
-      path: 'employee',
-      populate: { path: 'bankName', select: 'name' }
+      select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName placementProject placementCompany',
+      populate: [
+        { path: 'placementProject', select: 'name' },
+        { path: 'placementCompany', select: 'name' },
+        { path: 'bankName', select: 'name' }
+      ]
     })
     .sort({ 'employee.employeeId': 1 })
     .lean();
@@ -215,13 +269,26 @@ const getFinancePayrollPeriodDetail = async (month, year) => {
     { employeeCount: 0, totalGrossSalary: 0, totalNetSalary: 0, pendingCount: 0, paidCount: 0 }
   );
 
-  const [comparisonWrap, approvalDoc] = await Promise.all([
+  const [comparisonWrap, approvalDoc, pendingPayments, draftPayments, companyPayments, bankLetters] = await Promise.all([
     getPayrollMonthlyComparisonReport(m, y).catch(() => null),
     PayrollMonthlyApproval.findOne({ month: m, year: y })
       .populate('financeApprovalAuthorities.accountsOfficerUser', 'firstName lastName')
       .populate('financeApprovalAuthorities.financeControllerUser', 'firstName lastName')
       .populate('financeApprovalAuthorities.accountsManagerUser', 'firstName lastName')
       .populate('financeAuthorityApprovals.approver', 'firstName lastName')
+      .lean(),
+    PayrollPeriodPaymentApplication.find({ month: m, year: y, workflowStatus: 'pending_authority' })
+      .populate('journalEntryId', 'reference status entryNumber')
+      .lean(),
+    PayrollPeriodPaymentApplication.find({ month: m, year: y, workflowStatus: 'draft' })
+      .populate('journalEntryId', 'reference status entryNumber')
+      .lean(),
+    listCompanyPaymentStatus(m, y),
+    PayrollBankLetter.find({ month: m, year: y })
+      .sort({ generatedAt: -1 })
+      .populate('generatedBy', 'firstName lastName email')
+      .populate('journalEntryId', 'entryNumber reference status')
+      .populate('paymentApplicationId', 'workflowStatus amount finalizedAt')
       .lean()
   ]);
 
@@ -233,7 +300,9 @@ const getFinancePayrollPeriodDetail = async (month, year) => {
       ...summary,
       totalGrossSalary: Math.round(summary.totalGrossSalary),
       totalNetSalary: Math.round(summary.totalNetSalary),
-      financeStatus: summary.pendingCount > 0 ? 'pending_payment' : 'paid'
+      financeStatus: summary.pendingCount > 0
+        ? (pendingPayments.length ? 'payment_pending' : 'pending_payment')
+        : 'paid'
     },
     comparisonReport: comparisonWrap?.report || null,
     comparisonMeta: {
@@ -242,6 +311,10 @@ const getFinancePayrollPeriodDetail = async (month, year) => {
       fromCache: comparisonWrap?.fromCache ?? false
     },
     approval: approvalDoc,
+    pendingPayments,
+    draftPayments,
+    companyPayments,
+    bankLetters,
     payrolls: payrolls.map((row) => ({
       _id: row._id,
       status: row.status,
@@ -328,8 +401,10 @@ const markFinancePayrollPeriodPaid = async (month, year, { paymentMethod = 'bank
 
 module.exports = {
   MONTH_NAMES,
+  parsePeriod,
   listFinancePayrollQueue,
   getFinancePayrollPeriodDetail,
   getFinancePayrollBankLetter,
-  markFinancePayrollPeriodPaid
+  markFinancePayrollPeriodPaid,
+  mapBankLetterRow
 };

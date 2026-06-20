@@ -33,7 +33,8 @@ const deferredEntrySchema = new mongoose.Schema({
 
   sourceJournalEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
   createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  updatedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  updatedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  companyId:  { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true }
 }, { timestamps: true });
 
 // Auto-generate recognition schedule
@@ -77,5 +78,6 @@ deferredEntrySchema.pre('save', function (next) {
 
 deferredEntrySchema.index({ status: 1 });
 deferredEntrySchema.index({ type: 1 });
+deferredEntrySchema.index({ companyId: 1, status: 1 });
 
 module.exports = mongoose.model('DeferredEntry', deferredEntrySchema);

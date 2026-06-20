@@ -3,15 +3,15 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const FiscalPeriod = require('../models/finance/FiscalPeriod');
 const JournalEntry = require('../models/finance/JournalEntry');
-const Account = require('../models/finance/Account');
-const FinanceHelper = require('../utils/financeHelper');
+const { resolveCompanyForFinanceRoute, companyQuery } = require('../utils/financeCompanyContext');
 
 const router = express.Router();
 
 // ─── GET all fiscal periods ──────────────────────────────────────────────────
 router.get('/', asyncHandler(async (req, res) => {
   const { year, status } = req.query;
-  const query = {};
+  const company = await resolveCompanyForFinanceRoute(req);
+  const query = companyQuery({}, company);
   if (year) query.year = parseInt(year);
   if (status) query.status = status;
 
@@ -40,7 +40,8 @@ router.post('/generate',
     if (!year || isNaN(year)) {
       return res.status(400).json({ success: false, message: 'Valid year is required' });
     }
-    const created = await FiscalPeriod.generateYear(parseInt(year), req.user._id);
+    const company = await resolveCompanyForFinanceRoute(req);
+    const created = await FiscalPeriod.generateYear(parseInt(year), req.user._id, company._id);
     res.status(201).json({
       success: true,
       message: `Generated ${created.length} new fiscal periods for ${year}`,
@@ -106,10 +107,13 @@ router.get('/:id/summary', asyncHandler(async (req, res) => {
   const period = await FiscalPeriod.findById(req.params.id);
   if (!period) return res.status(404).json({ success: false, message: 'Fiscal period not found' });
 
-  const entries = await JournalEntry.find({
+  const jeQuery = {
     date: { $gte: period.startDate, $lte: period.endDate },
     status: 'posted'
-  }).select('totalDebits totalCredits referenceType');
+  };
+  if (period.companyId) jeQuery.companyId = period.companyId;
+
+  const entries = await JournalEntry.find(jeQuery).select('totalDebits totalCredits referenceType');
 
   const summary = {
     period: period.name,

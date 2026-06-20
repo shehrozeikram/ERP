@@ -18,6 +18,9 @@ const { createAndEmitNotification } = require('../services/realtimeNotificationS
 
 const FinanceHelper = require('../utils/financeHelper');
 const { getCashApprovalNarration, withVoucherNarration } = require('../utils/documentNarration');
+const { co, acct, withCompany } = require('../utils/financePosting');
+const { resolveDocumentCompanyId, optionalCompanyFilterFromRequest } = require('../utils/financeCompanyContext');
+const AccountResolver = require('../utils/accountResolver');
 const {
   GENERAL_MODULE,
   isGeneralCashApproval,
@@ -487,8 +490,10 @@ const ensureVoucherForCashApproval = async (ca, userId, options = {}) => {
   const paymentMethod = String(options?.paymentMethod || 'bank').trim().toLowerCase();
   const remarks = String(options?.remarks || '').trim();
 
-  let debitAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
-  let creditAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+  const companyId = await resolveDocumentCompanyId({ companyId: ca?.companyId });
+  const A = acct(companyId);
+  let debitAccount = await A.resolve(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
+  let creditAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
   if (!debitAccount || !creditAccount) {
     const fallback = await Account.find({ isActive: true }).limit(2);
     if (fallback.length < 2) throw new Error('Unable to resolve accounts for voucher creation');
@@ -499,7 +504,7 @@ const ensureVoucherForCashApproval = async (ca, userId, options = {}) => {
   const isCashVoucher = paymentMethod === 'cash';
   const caNarration = getCashApprovalNarration(ca);
   const voucher = await FinanceHelper.createAndPostJournalEntry(
-    withVoucherNarration({
+    withVoucherNarration(withCompany({
       date: new Date(),
       reference: ca.caNumber,
       description: remarks || `Cash Approval voucher created for ${ca.caNumber}`,
@@ -515,7 +520,7 @@ const ensureVoucherForCashApproval = async (ca, userId, options = {}) => {
         { account: debitAccount._id, description: `Cash approval expense (${ca.caNumber})`, debit: amount, department: 'finance' },
         { account: creditAccount._id, description: `Payable for cash approval (${ca.caNumber})`, credit: amount, department: 'finance' }
       ]
-    }, caNarration || remarks)
+    }, companyId), caNarration || remarks)
   );
   ca.voucherEntryId = voucher._id;
   return voucher._id;
@@ -578,6 +583,7 @@ const indentWithComparativePopulate = {
 };
 
 const fullPopulate = (q) => q
+  .populate('companyId', 'name companyCode')
   .populate('vendor', 'name email phone')
   .populate(indentWithComparativePopulate)
   .populate('quotation', 'quotationNumber')
@@ -664,7 +670,8 @@ router.get('/finance/advance-payment/employee-payees', authMiddleware, asyncHand
     originatingModule: GENERAL_MODULE,
     status: { $in: payeeStatuses },
     advanceToEmployee: { $ne: null },
-    $or: [{ advanceIssuedAt: null }, { advanceIssuedAt: { $exists: false } }]
+    $or: [{ advanceIssuedAt: null }, { advanceIssuedAt: { $exists: false } }],
+    ...optionalCompanyFilterFromRequest(req)
   });
   if (!employeeIds.length) {
     return res.json({ success: true, data: [] });
@@ -700,7 +707,8 @@ router.get('/finance/advance-payment/outstanding', authMiddleware, asyncHandler(
     originatingModule: GENERAL_MODULE,
     status: { $in: outstandingStatuses },
     advanceToEmployee: employeeId,
-    $or: [{ advanceIssuedAt: null }, { advanceIssuedAt: { $exists: false } }]
+    $or: [{ advanceIssuedAt: null }, { advanceIssuedAt: { $exists: false } }],
+    ...optionalCompanyFilterFromRequest(req)
   })
     .select('caNumber approvalDate expectedPurchaseDate totalAmount advanceAmount advanceToEmployee advanceToName')
     .sort({ approvalDate: 1, createdAt: 1 })
@@ -797,8 +805,12 @@ router.get('/statistics', authMiddleware, asyncHandler(async (req, res) => {
 
 // GET /api/cash-approvals/pending-finance  (for Finance view)
 router.get('/pending-finance', authMiddleware, asyncHandler(async (req, res) => {
+  const filter = {
+    status: { $in: ['Pending Finance', 'Finance Authority Approved', 'Advance Issued', 'Payment Settled'] },
+    ...optionalCompanyFilterFromRequest(req)
+  };
   const data = await fullPopulate(
-    CashApproval.find({ status: { $in: ['Pending Finance', 'Finance Authority Approved', 'Advance Issued', 'Payment Settled'] } }).sort({ createdAt: -1 })
+    CashApproval.find(filter).sort({ createdAt: -1 })
   );
   res.json({ success: true, data });
 }));
@@ -2202,15 +2214,19 @@ router.put('/:id/finance-reject', authMiddleware, asyncHandler(async (req, res) 
   res.json({ success: true, message: 'Finance authority rejection recorded. Cash Approval has been rejected.', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
-const resolveBankAccountForCaPayment = async (bankAccountId, paymentMethod, userId) => {
+const resolveBankAccountForCaPayment = async (bankAccountId, paymentMethod, userId, companyId) => {
   let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+  if (bankAccount && companyId) {
+    bankAccount = await AccountResolver.mapAccountToCompany(companyId, bankAccount);
+  }
   if (bankAccountId && !bankAccount) {
     const err = new Error('Selected bank or cash account was not found');
     err.statusCode = 400;
     throw err;
   }
+  const A = acct(companyId);
   if (!bankAccount) {
-    bankAccount = await FinanceHelper.getAccountByNumber(
+    bankAccount = await A.resolve(
       isCashPaymentMethod(paymentMethod) ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
     );
   }
@@ -2230,7 +2246,8 @@ const buildGeneralAdvancePaymentLines = async ({
   whtRate,
   paymentMethod,
   payRef,
-  createdBy
+  createdBy,
+  companyId
 }) => {
   const grossAmount = Math.round(payRows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
   const wht = whtRate > 0 ? Math.round(grossAmount * (whtRate / 100) * 100) / 100 : 0;
@@ -2238,6 +2255,7 @@ const buildGeneralAdvancePaymentLines = async ({
   const isCash = isCashPaymentMethod(paymentMethod);
   const employeeName = employeeDisplayName(employee);
   const jeLines = [];
+  const A = acct(companyId);
 
   for (const ca of cas) {
     const row = payRows.find((r) => r.cashApprovalId === String(ca._id));
@@ -2247,10 +2265,10 @@ const buildGeneralAdvancePaymentLines = async ({
       debitAdvanceAcc = await Account.findById(ca.advanceGlAccount);
     }
     if (!debitAdvanceAcc) {
-      debitAdvanceAcc = await resolveEmployeeAdvanceAccount(employee, { createdBy });
+      debitAdvanceAcc = await resolveEmployeeAdvanceAccount(employee, { createdBy, companyId });
     }
     if (!debitAdvanceAcc) {
-      debitAdvanceAcc = await ensureEmployeeAdvanceAccount(employee, createdBy);
+      debitAdvanceAcc = await ensureEmployeeAdvanceAccount(employee, createdBy, companyId);
     }
     if (!debitAdvanceAcc) {
       const err = new Error(`Could not resolve employee advance account for ${ca.caNumber}`);
@@ -2277,7 +2295,7 @@ const buildGeneralAdvancePaymentLines = async ({
   });
 
   if (wht > 0) {
-    const whtAccount = await FinanceHelper.getAccountByNumber('2004');
+    const whtAccount = await A.resolve('2004');
     if (whtAccount) {
       jeLines.push({
         account: whtAccount._id,
@@ -2313,13 +2331,14 @@ const ensurePostedBpvForGeneralCashApproval = async (ca, userId, opts = {}) => {
   const payRef = String(opts.reference || ca.signedCheckNumber || ca.caNumber || '').trim();
   const postingDate = opts.paymentDate ? new Date(opts.paymentDate) : (ca.signedCheckDate || new Date());
   const whtRate = Math.max(0, Number(opts.whtRate) || 0);
-  const bankAccount = await resolveBankAccountForCaPayment(opts.bankAccountId, paymentMethod, userId);
   const employee = await Employee.findById(ca.advanceToEmployee);
   if (!employee) {
     const err = new Error('Employee payee not found for voucher');
     err.statusCode = 400;
     throw err;
   }
+  const companyId = await resolveDocumentCompanyId({ companyId: ca?.companyId, employee });
+  const bankAccount = await resolveBankAccountForCaPayment(opts.bankAccountId, paymentMethod, userId, companyId);
 
   const payRows = [{ cashApprovalId: String(ca._id), amount }];
   const { jeLines, isCash } = await buildGeneralAdvancePaymentLines({
@@ -2330,7 +2349,8 @@ const ensurePostedBpvForGeneralCashApproval = async (ca, userId, opts = {}) => {
     whtRate,
     paymentMethod,
     payRef,
-    createdBy: userId
+    createdBy: userId,
+    companyId
   });
 
   const employeeName = employeeDisplayName(employee);
@@ -2360,7 +2380,7 @@ const ensurePostedBpvForGeneralCashApproval = async (ca, userId, opts = {}) => {
   }
 
   const voucher = await FinanceHelper.createAndPostJournalEntry(
-    withVoucherNarration({ ...meta, createdBy: userId, lines: jeLines }, caNarration)
+    withVoucherNarration(withCompany({ ...meta, createdBy: userId, lines: jeLines }, companyId), caNarration)
   );
   ca.voucherEntryId = voucher._id;
   ca.advanceVoucherNo = voucher.entryNumber || '';
@@ -2454,7 +2474,8 @@ const postGeneralCashApprovalAdvancePayment = async ({
   const methodLabel = mapCaPaymentMethodLabel(paymentMethod);
   const postingDate = paymentDate ? new Date(paymentDate) : new Date();
   const payRef = String(reference || primaryCa?.caNumber || '').trim();
-  const bankAccount = await resolveBankAccountForCaPayment(bankAccountId, paymentMethod, req.user.id);
+  const companyId = await resolveDocumentCompanyId({ companyId: primaryCa?.companyId, employee });
+  const bankAccount = await resolveBankAccountForCaPayment(bankAccountId, paymentMethod, req.user.id, companyId);
   const employeeName = employeeDisplayName(employee);
   const caNarration = getCashApprovalNarration(primaryCa || cas[0]);
   const { jeLines, isCash } = await buildGeneralAdvancePaymentLines({
@@ -2465,7 +2486,8 @@ const postGeneralCashApprovalAdvancePayment = async ({
     whtRate,
     paymentMethod,
     payRef,
-    createdBy: req.user.id
+    createdBy: req.user.id,
+    companyId
   });
 
   let voucher = null;
@@ -2491,7 +2513,7 @@ const postGeneralCashApprovalAdvancePayment = async ({
 
   if (!voucher) {
     voucher = await FinanceHelper.createAndPostJournalEntry(
-      withVoucherNarration({
+      withVoucherNarration(withCompany({
         date: postingDate,
         reference: payRef || cas.map((c) => c.caNumber).join(', '),
         description: `Cash approval advance payment to ${employeeName}`,
@@ -2503,7 +2525,7 @@ const postGeneralCashApprovalAdvancePayment = async ({
         voucherSeries: isCash ? 'CPV' : 'BPV',
         createdBy: req.user.id,
         lines: jeLines
-      }, caNarration)
+      }, companyId), caNarration)
     );
   }
 
@@ -2677,13 +2699,22 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
 
   try {
     let debitAdvanceAcc = null;
+    let companyId = null;
+    if (isGeneralCashApproval(ca) && ca.advanceToEmployee) {
+      const payee = await Employee.findById(ca.advanceToEmployee).select('placementCompany');
+      companyId = await resolveDocumentCompanyId({ companyId: ca?.companyId, employee: payee });
+    } else {
+      companyId = await resolveDocumentCompanyId({ companyId: ca?.companyId });
+    }
+    const A = acct(companyId);
     if (isGeneralCashApproval(ca) && ca.advanceGlAccount) {
-      debitAdvanceAcc = await Account.findById(ca.advanceGlAccount);
+      debitAdvanceAcc = await AccountResolver.mapAccountToCompany(companyId, ca.advanceGlAccount);
+      if (!debitAdvanceAcc) debitAdvanceAcc = await Account.findById(ca.advanceGlAccount);
     }
     if (!debitAdvanceAcc) {
-      debitAdvanceAcc = await FinanceHelper.ensureStaffAdvanceAccount(req.user.id);
+      debitAdvanceAcc = await FinanceHelper.ensureStaffAdvanceAccount(req.user.id, companyId);
     }
-    const cashBankAcc = await FinanceHelper.getAccountByNumber(
+    const cashBankAcc = await A.resolve(
       isCash ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
     );
     if (debitAdvanceAcc && cashBankAcc) {
@@ -2691,7 +2722,7 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
       const jeModule = isGeneralCashApproval(ca) ? 'general' : 'procurement';
       const caNarration = getCashApprovalNarration(ca);
       const voucher = await FinanceHelper.createAndPostJournalEntry(
-        withVoucherNarration({
+        withVoucherNarration(withCompany({
           date: new Date(),
           reference: advanceVoucherNo || ca.caNumber,
           description: `Cash Advance issued for ${ca.caNumber}${advanceToName ? ` to ${advanceToName}` : ''}`,
@@ -2716,7 +2747,7 @@ router.put('/:id/issue-advance', authMiddleware, asyncHandler(async (req, res) =
               department: 'finance'
             }
           ]
-        }, caNarration)
+        }, companyId), caNarration)
       );
       if (voucher?.entryNumber) {
         ca.advanceVoucherNo = voucher.entryNumber;

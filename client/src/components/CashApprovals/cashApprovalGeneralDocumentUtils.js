@@ -1,4 +1,3 @@
-import { getImageUrl } from '../../utils/imageService';
 import { normalizeUploadPath, resolveUploadFileHref } from '../../utils/uploadPaths';
 
 export { normalizeUploadPath };
@@ -74,6 +73,16 @@ export const advanceEmployeeLabel = (ca) => {
   const name = ca?.advanceToName || userDisplayName(emp) || userDisplayName(ca?.advanceTo);
   const code = emp?.employeeId ? ` (${emp.employeeId})` : '';
   return `${name}${code}`.trim() || '—';
+};
+
+/** Populated companyId → display label for screen/print. */
+export const getCashApprovalCompanyLabel = (ca) => {
+  const company = ca?.companyId;
+  if (!company || typeof company !== 'object') return null;
+  const name = String(company.name || '').trim();
+  if (!name) return null;
+  const code = String(company.companyCode || '').trim();
+  return code ? `${name} (${code})` : name;
 };
 
 export const buildGeneralCashApprovalApprovalRows = (ca) => {
@@ -319,6 +328,7 @@ export const buildGeneralCashApprovalPrintHtml = (ca) => {
         <div><b>Department</b><span>${esc(ca.requestingDepartment)}</span></div>
         <div><b>Priority</b><span>${esc(ca.priority)}</span></div>
         <div><b>Advance to</b><span>${esc(advanceEmployeeLabel(ca))}</span></div>
+        <div><b>Finance company</b><span>${esc(getCashApprovalCompanyLabel(ca) || '—')}</span></div>
         <div><b>GL account</b><span>${esc(ca.advanceGlAccount?.accountNumber || ca.advanceGlAccountNumber || '—')}</span></div>
         <div><b>Time</b><span>${formatInvoiceTime12h(ca.createdAt)}</span></div>
       </div>

@@ -84,7 +84,8 @@ const fixedAssetSchema = new mongoose.Schema(
     // Depreciation schedule
     depreciationSchedule: [depreciationLineSchema],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true }
   },
   { timestamps: true }
 );
@@ -92,6 +93,7 @@ const fixedAssetSchema = new mongoose.Schema(
 fixedAssetSchema.index({ status: 1 });
 fixedAssetSchema.index({ category: 1 });
 fixedAssetSchema.index({ assetNumber: 1 });
+fixedAssetSchema.index({ companyId: 1, status: 1 });
 
 // Auto-generate asset number
 fixedAssetSchema.pre('save', async function (next) {

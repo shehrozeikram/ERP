@@ -11,6 +11,8 @@ const User = require('../models/User');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const JournalEntry = require('../models/finance/JournalEntry');
 const FinanceHelper = require('./financeHelper');
+const { co, acct, withCompany } = require('./financePosting');
+const { resolveDocumentCompanyId } = require('./financeCompanyContext');
 const { getBillNarration, withVoucherNarration } = require('./documentNarration');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
@@ -157,8 +159,10 @@ const postJournalForUtilityAp = async (apEntry, bill, createdByUserId) => {
     ? apEntry.lineItems
     : buildUtilityBillLineItems(bill);
 
-  const debitAccount = await FinanceHelper.getAccountByNumber(UTILITY_EXPENSE_ACCOUNT);
-  const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+  const companyId = co(apEntry);
+  const A = acct(companyId);
+  const debitAccount = await A.resolve(UTILITY_EXPENSE_ACCOUNT);
+  const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
   if (!debitAccount || !apAccount) {
     return {
       journalPosted: false,
@@ -211,7 +215,7 @@ const postJournalForUtilityAp = async (apEntry, bill, createdByUserId) => {
   }
 
   await FinanceHelper.createAndPostJournalEntry(
-    withVoucherNarration({
+    withVoucherNarration(withCompany({
       date: billDateNorm,
       reference: apEntry.billNumber,
       description: `AP Bill: ${apEntry.billNumber} from ${vendorName}`,
@@ -223,7 +227,7 @@ const postJournalForUtilityAp = async (apEntry, bill, createdByUserId) => {
       voucherSeries: 'BILL',
       createdBy: createdByUserId,
       lines: journalLines
-    }, getBillNarration(apEntry) || getBillNarration(bill))
+    }, companyId), getBillNarration(apEntry) || getBillNarration(bill))
   );
 
   return { journalPosted: true, repaired: true };
@@ -337,7 +341,9 @@ const postUtilityBillToFinance = async (bill, createdByUserId) => {
 
   try {
     const expenseJournalLines = buildExpenseJournalLines(lineItems);
+    const companyId = await resolveDocumentCompanyId({ employeeId: bill.payeeEmployee });
     const apEntry = await FinanceHelper.createAPFromBill({
+      companyId,
       vendorName: bill.provider || 'Utility Provider',
       vendorEmail: '',
       vendorId: bill.payeeEmployee ? null : (bill.vendorId || null),

@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Button, Alert, Stack, Card, CardContent,
-  Grid, Chip, TextField, Divider, Avatar
+  Grid, TextField, Divider, Avatar
 } from '@mui/material';
 import {
   CurrencyExchange as CashIcon, Refresh as RefreshIcon, Print as PrintIcon,
@@ -10,6 +10,8 @@ import {
   PictureAsPdf as PdfIcon, GridOn as ExcelIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
+import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 import { exportCashFlowPDF, exportCashFlowExcel } from '../../utils/reportExport';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -78,13 +80,11 @@ export default function CashFlow() {
     }
   }, [filters]);
 
+  useFinanceCompanyReload(load, { skipInitial: true });
+
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3} className="print-hide-toolbar">
-        <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1}>
-          <CashIcon color="primary" /> Cash Flow Statement
-        </Typography>
-        <Stack direction="row" gap={1} alignItems="center">
+      <FinanceCompanyPageHeader title="Cash Flow Statement" icon={CashIcon}>
           <TextField label="From" type="date" size="small" value={filters.fromDate}
             onChange={e => setFilters({ ...filters, fromDate: e.target.value })} InputLabelProps={{ shrink: true }} />
           <TextField label="To" type="date" size="small" value={filters.toDate}
@@ -97,8 +97,7 @@ export default function CashFlow() {
             <Button variant="outlined" startIcon={<ExcelIcon />} color="success" onClick={() => exportCashFlowExcel(data, filters)}>Excel</Button>
             <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()}>Print</Button>
           </>}
-        </Stack>
-      </Stack>
+      </FinanceCompanyPageHeader>
 
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
 

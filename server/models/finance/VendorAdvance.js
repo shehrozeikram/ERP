@@ -65,13 +65,15 @@ const vendorAdvanceSchema = new mongoose.Schema({
     enum: ['open', 'partially_applied', 'applied'],
     default: 'open'
   },
-  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true }
 }, { timestamps: true });
 
 vendorAdvanceSchema.virtual('remainingAmount').get(function() {
   return Math.round(((this.amount || 0) - (this.appliedAmount || 0)) * 100) / 100;
 });
 
+vendorAdvanceSchema.index({ companyId: 1, status: 1 });
 vendorAdvanceSchema.index({ 'vendor.vendorId': 1, status: 1, paymentDate: 1 });
 vendorAdvanceSchema.index({ paymentDate: -1 });
 vendorAdvanceSchema.index({ journalEntryId: 1 });

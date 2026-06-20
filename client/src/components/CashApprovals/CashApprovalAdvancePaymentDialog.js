@@ -89,6 +89,7 @@ const CashApprovalAdvancePaymentDialog = ({
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <CashApprovalPaymentFieldsView
+            ca={ca}
             payeeEmployees={payment.payeeEmployees}
             selectedPayee={payment.selectedPayee}
             onPayeeChange={handlePayeeChange}

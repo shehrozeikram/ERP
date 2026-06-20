@@ -8,11 +8,13 @@ const FINANCE_AUTHORITY_SLOT_CONFIG = [
   { key: 'financeControllerUser', label: 'GM Finance' }
 ];
 
+const normUserId = (value) => String(value?._id || value?.id || value || '').trim();
+
 const getRequiredFinanceAuthoritySlots = (doc) => {
   const authorities = doc?.financeApprovalAuthorities || {};
   return FINANCE_AUTHORITY_SLOT_CONFIG.map((slot) => ({
     ...slot,
-    userId: String(authorities?.[slot.key] || '').trim()
+    userId: normUserId(authorities?.[slot.key])
   })).filter((slot) => Boolean(slot.userId));
 };
 

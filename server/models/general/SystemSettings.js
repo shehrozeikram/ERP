@@ -26,7 +26,9 @@ const companyProfileSchema = new mongoose.Schema({
   bankName:    { type: String, default: '' },
   bankAccount: { type: String, default: '' },
   bankBranchCode: { type: String, default: '' },
+  bankBranchName: { type: String, default: '' },
   bankIBAN:    { type: String, default: '' },
+  salaryLetterRefPrefix: { type: String, default: '' },
   invoiceFooter: { type: String, default: 'Thank you for your business.' },
 }, { _id: false });
 

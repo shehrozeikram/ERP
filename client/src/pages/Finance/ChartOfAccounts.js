@@ -38,30 +38,24 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Edit as EditIcon,
-  Visibility as ViewIcon,
   Close as CloseIcon,
   Check as CheckIcon,
   AccountBalance as AccountBalanceIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
-  Business as BusinessIcon,
-  People as PeopleIcon,
-  ShoppingCart as ShoppingCartIcon,
-  AdminPanelSettings as AdminIcon,
-  Security as SecurityIcon,
   Refresh as RefreshIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowRight as KeyboardArrowRightIcon,
   Delete as DeleteIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 const ChartOfAccounts = () => {
-  const navigate = useNavigate();
   const theme = useTheme();
+  const { selectedCompany, selectedCompanyId, loading: companyLoading } = useFinanceCompany();
   
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -264,15 +258,20 @@ const ChartOfAccounts = () => {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
+    if (!selectedCompanyId) return;
     fetchSummaryAccounts();
-  }, [filters]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when filters/company change
+  }, [filters, selectedCompanyId]);
 
   useEffect(() => {
+    if (!selectedCompanyId) return;
     fetchAccounts();
-  }, [filters, pagination.currentPage, pagination.limit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when filters/pagination/company change
+  }, [filters, pagination.currentPage, pagination.limit, selectedCompanyId]);
 
   const buildAccountQueryParams = (page, limit) => {
     const params = new URLSearchParams();
+    if (selectedCompanyId) params.append('companyId', selectedCompanyId);
     if (filters.type) params.append('type', filters.type);
     if (filters.department) params.append('department', filters.department);
     if (filters.search) params.append('search', filters.search);
@@ -328,7 +327,7 @@ const ChartOfAccounts = () => {
     setParentAccountsLoading(true);
     try {
       const response = await api.get('/finance/accounts', {
-        params: { page: 1, limit: 10000, _t: Date.now() }
+        params: { page: 1, limit: 10000, companyId: selectedCompanyId, _t: Date.now() }
       });
       if (response.data?.success) {
         const allAccounts = response.data?.data?.accounts || [];
@@ -384,6 +383,7 @@ const ChartOfAccounts = () => {
     if (newAccountDialog && newAccountForm.isSubaccount) {
       fetchParentAccounts();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load parents when subaccount dialog opens
   }, [newAccountDialog, newAccountForm.isSubaccount]);
 
   const getParentAccountId = (account) => {
@@ -439,6 +439,7 @@ const ChartOfAccounts = () => {
     setError('');
     try {
       const payload = {
+        companyId: selectedCompanyId,
         accountNumber,
         name: newAccountForm.name.trim(),
         accountType: newAccountForm.accountType,
@@ -679,32 +680,6 @@ const ChartOfAccounts = () => {
     return colorMap[type] || 'default';
   };
 
-  const getDepartmentIcon = (department) => {
-    const iconMap = {
-      'hr': <PeopleIcon />,
-      'admin': <AdminIcon />,
-      'procurement': <ShoppingCartIcon />,
-      'sales': <BusinessIcon />,
-      'finance': <AccountBalanceIcon />,
-      'audit': <SecurityIcon />,
-      'general': <AccountBalanceIcon />
-    };
-    return iconMap[department] || <AccountBalanceIcon />;
-  };
-
-  const getDepartmentColor = (department) => {
-    const colorMap = {
-      'hr': 'primary',
-      'admin': 'secondary',
-      'procurement': 'warning',
-      'sales': 'success',
-      'finance': 'info',
-      'audit': 'error',
-      'general': 'default'
-    };
-    return colorMap[department] || 'default';
-  };
-
   const getBalanceIcon = (balance) => {
     if (balance > 0) return <TrendingUpIcon color="success" />;
     if (balance < 0) return <TrendingDownIcon color="error" />;
@@ -730,7 +705,7 @@ const ChartOfAccounts = () => {
     : (pagination.currentPage - 1) * pagination.limit + 1;
   const pageEnd = Math.min(pagination.currentPage * pagination.limit, pagination.totalCount);
 
-  if (loading) {
+  if (companyLoading || (loading && selectedCompanyId)) {
     return (
       <Box sx={{ p: 3 }}>
         <LinearProgress />
@@ -753,15 +728,18 @@ const ChartOfAccounts = () => {
                 Chart of Accounts
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Manage your accounting accounts and categories
+                Manage accounting accounts per legal company
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <FinanceCompanySelector minWidth={300} sx={{ minWidth: 300 }} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
               onClick={refreshAccounts}
+              disabled={!selectedCompanyId}
             >
               Refresh
             </Button>
@@ -769,10 +747,12 @@ const ChartOfAccounts = () => {
               variant="outlined"
               color="warning"
               size="small"
+              disabled={!selectedCompanyId}
               onClick={async () => {
                 try {
-                  const api = (await import('../../services/api')).default;
-                  const res = await api.post('/finance/accounts/ensure-defaults');
+                  const res = await api.post('/finance/accounts/ensure-defaults', {
+                    companyId: selectedCompanyId
+                  });
                   alert(res.data.message);
                   fetchAccounts();
                   fetchSummaryAccounts();
@@ -787,11 +767,24 @@ const ChartOfAccounts = () => {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={openNewAccountDialog}
+              disabled={!selectedCompanyId}
             >
               Add Account
             </Button>
+            </Box>
           </Box>
         </Box>
+
+        {!selectedCompanyId ? (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Select a finance company to view its Chart of Accounts.
+          </Alert>
+        ) : selectedCompany ? (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Showing Chart of Accounts for <strong>{selectedCompany.name}</strong>
+            {selectedCompany.companyCode ? ` (${selectedCompany.companyCode})` : ''}.
+          </Alert>
+        ) : null}
 
         {/* Filters */}
         <Grid container spacing={2}>

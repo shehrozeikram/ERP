@@ -6,6 +6,8 @@ const PurchaseReturn = require('../models/procurement/PurchaseReturn');
 const Inventory = require('../models/procurement/Inventory');
 const FinanceHelper = require('../utils/financeHelper');
 const { getPurchaseReturnNarration, withVoucherNarration } = require('../utils/documentNarration');
+const { resolveDocumentCompanyId } = require('../utils/financeCompanyContext');
+const { withCompany } = require('../utils/financePosting');
 
 // GET /api/procurement/purchase-returns
 router.get('/', asyncHandler(async (req, res) => {
@@ -83,12 +85,17 @@ router.post('/:id/confirm', authorize('super_admin', 'admin', 'procurement_manag
   // 2. Post reversal journal entries (reverse of GRN entry)
   // GRN was: DR Inventory / CR GRNI
   // Return is: DR GRNI / CR Inventory
+  const companyId = await resolveDocumentCompanyId({
+    grnId: pr.goodsReceive,
+    purchaseOrderId: pr.purchaseOrder,
+    userId: req.user.id
+  });
   const journalLines = [];
   for (const item of pr.items) {
     const invItem = item.inventoryItem;
     if (!invItem) continue;
     try {
-      const { inventoryAccountId, grniAccountId } = await FinanceHelper.resolveInventoryAccounts(invItem);
+      const { inventoryAccountId, grniAccountId } = await FinanceHelper.resolveInventoryAccounts(invItem, companyId);
       if (inventoryAccountId && grniAccountId) {
         const amount = Math.round(item.quantity * item.unitPrice * 100) / 100;
         journalLines.push(
@@ -105,7 +112,7 @@ router.post('/:id/confirm', authorize('super_admin', 'admin', 'procurement_manag
   if (journalLines.length > 0) {
     try {
       journalEntry = await FinanceHelper.createAndPostJournalEntry(
-        withVoucherNarration({
+        withVoucherNarration(withCompany({
           date: pr.returnDate || new Date(),
           reference: pr.returnNumber,
           description: `Purchase Return ${pr.returnNumber}`,
@@ -116,7 +123,7 @@ router.post('/:id/confirm', authorize('super_admin', 'admin', 'procurement_manag
           journalCode: 'INV',
           createdBy: req.user.id,
           lines: journalLines
-        }, getPurchaseReturnNarration(pr))
+        }, companyId), getPurchaseReturnNarration(pr))
       );
     } catch (e) {
       console.warn('[PurchaseReturn] Journal entry failed:', e.message);

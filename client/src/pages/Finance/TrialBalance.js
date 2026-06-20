@@ -6,11 +6,14 @@ import {
 import { BalanceOutlined as TBIcon, Refresh as RefreshIcon, Print as PrintIcon, PictureAsPdf as PdfIcon, GridOn as ExcelIcon } from '@mui/icons-material';
 import api from '../../services/api';
 import { exportTrialBalancePDF, exportTrialBalanceExcel } from '../../utils/reportExport';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFmt = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
 
 export default function TrialBalance() {
+  const { selectedCompanyId } = useFinanceCompany();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -26,9 +29,12 @@ export default function TrialBalance() {
   const [voucherError, setVoucherError] = useState('');
 
   const load = useCallback(async () => {
+    if (!selectedCompanyId) return;
     setLoading(true); setError('');
     try {
-      const res = await api.get('/finance/reports/trial-balance-v2', { params: { fromDate, asOfDate } });
+      const res = await api.get('/finance/reports/trial-balance-v2', {
+        params: { fromDate, asOfDate, companyId: selectedCompanyId }
+      });
       const payload = res.data.data || res.data;
       const rows = payload.rows || [];
       const accounts = rows.map((r) => ({
@@ -59,7 +65,7 @@ export default function TrialBalance() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, asOfDate]);
+  }, [fromDate, asOfDate, selectedCompanyId]);
 
   const loadLedger = useCallback(async (account) => {
     setLedgerLoading(true);
@@ -108,16 +114,17 @@ export default function TrialBalance() {
 
   return (
     <Box sx={{ p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.5} className="print-hide-toolbar">
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.5} className="print-hide-toolbar" flexWrap="wrap" gap={1}>
         <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1}>
           <TBIcon color="primary" /> Trial Balance
         </Typography>
         <Stack direction="row" gap={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+          <FinanceCompanySelector minWidth={240} showHelper={false} />
           <TextField label="From Date" type="date" size="small" value={fromDate}
             onChange={e => setFromDate(e.target.value)} InputLabelProps={{ shrink: true }} />
           <TextField label="To Date" type="date" size="small" value={asOfDate}
             onChange={e => setAsOfDate(e.target.value)} InputLabelProps={{ shrink: true }} />
-          <Button variant="contained" onClick={load} disabled={loading} startIcon={<RefreshIcon />}>
+          <Button variant="contained" onClick={load} disabled={loading || !selectedCompanyId} startIcon={<RefreshIcon />}>
             {loading ? 'Loading…' : 'Generate'}
           </Button>
           {data && <>

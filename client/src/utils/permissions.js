@@ -299,7 +299,8 @@ export const SUBMODULES = {
     'recovery_completed_tasks',
     'recovery_campaigns',
     'recovery_my_tasks',
-    'vouchers'
+    'vouchers',
+    'finance_companies'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
     'procurement_requisitions',
@@ -697,6 +698,7 @@ export const MODULES = {
           { name: 'Finance Journals',     path: '/finance/journals'               },
           { name: 'Fiscal Periods',       path: '/finance/fiscal-periods'         },
           { name: 'Inventory Categories', path: '/finance/inventory-categories'   },
+          { name: 'Companies & Banks',    path: '/finance/companies'              },
           { name: 'Company Profile',      path: '/finance/company-profile'        },
           { name: '⚙ Finance Setup Wizard', path: '/finance/setup'              },
         ]
@@ -1415,6 +1417,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/journals': 'finance_journals',
       '/finance/fiscal-periods': 'fiscal_periods',
       '/finance/inventory-categories': 'inventory_categories',
+      '/finance/companies': 'finance_companies',
+      '/finance/company-profile': 'company_profile',
       '/finance/inventory-valuation': 'inventory_valuation',
       '/finance/general-ledger': 'general_ledger',
       '/finance/accounts-receivable': 'accounts_receivable',

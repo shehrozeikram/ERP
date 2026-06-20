@@ -8,6 +8,13 @@ const companySchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Company name cannot exceed 100 characters']
   },
+  /** Short code for voucher prefixes and finance scoping (e.g. SGC, HPB). */
+  companyCode: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    maxlength: [12, 'Company code cannot exceed 12 characters']
+  },
   type: {
     type: String,
     enum: ['Private Limited', 'Public Limited', 'Partnership', 'Sole Proprietorship', 'Government', 'NGO', 'Other'],
@@ -46,6 +53,7 @@ const companySchema = new mongoose.Schema({
 
 // Indexes
 companySchema.index({ name: 1 });
+companySchema.index({ companyCode: 1 }, { unique: true, sparse: true });
 companySchema.index({ isActive: 1 });
 companySchema.index({ type: 1 });
 

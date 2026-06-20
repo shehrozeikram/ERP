@@ -1,11 +1,23 @@
 const mongoose = require('mongoose');
 
 const accountSchema = new mongoose.Schema({
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    index: true,
+    default: null
+  },
   accountNumber: {
     type: String,
     required: [true, 'Account number is required'],
-    unique: true,
     trim: true
+  },
+  /** Role key for auto-posting within a company (BANK, SALARIES_PAYABLE, etc.). */
+  accountCode: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    maxlength: [40, 'Account code is too long']
   },
   name: {
     type: String,
@@ -100,7 +112,9 @@ const accountSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes
+// Indexes — account numbers are unique per company, not globally
+accountSchema.index({ companyId: 1, accountNumber: 1 }, { unique: true });
+accountSchema.index({ companyId: 1, accountCode: 1 });
 accountSchema.index({ accountNumber: 1 });
 accountSchema.index({ type: 1 });
 accountSchema.index({ category: 1 });
@@ -132,9 +146,11 @@ const ACCOUNT_NUMBER_RANGES = {
   Expense: [5000, 5999]
 };
 
-accountSchema.statics.resolveAccountNumber = async function(preferred, type) {
+accountSchema.statics.resolveAccountNumber = async function(preferred, type, companyId = null) {
   const [min, max] = ACCOUNT_NUMBER_RANGES[type] || ACCOUNT_NUMBER_RANGES.Asset;
-  const existing = await this.find({ type }).select('accountNumber').lean();
+  const query = { type };
+  if (companyId) query.companyId = companyId;
+  const existing = await this.find(query).select('accountNumber').lean();
   const usedNumbers = new Set();
 
   existing.forEach((acc) => {
@@ -182,8 +198,8 @@ accountSchema.pre('save', function(next) {
     return next(new Error('Revenue accounts should have numbers between 4000-4999'));
   }
   
-  if (this.type === 'Expense' && (accountNum < 5000 || accountNum > 5999)) {
-    return next(new Error('Expense accounts should have numbers between 5000-5999'));
+  if (this.type === 'Expense' && (accountNum < 5000 || accountNum > 7999)) {
+    return next(new Error('Expense accounts should have numbers between 5000-7999'));
   }
   
   next();
@@ -205,8 +221,10 @@ accountSchema.statics.findByCategory = function(category) {
 };
 
 // Static method to get account hierarchy
-accountSchema.statics.getHierarchy = async function() {
-  const accounts = await this.find({ isActive: true })
+accountSchema.statics.getHierarchy = async function(companyId = null) {
+  const query = { isActive: true };
+  if (companyId) query.companyId = companyId;
+  const accounts = await this.find(query)
     .populate('parentAccount', 'accountNumber name')
     .lean();
 
@@ -227,8 +245,10 @@ accountSchema.statics.getHierarchy = async function() {
 };
 
 // Static method to get trial balance
-accountSchema.statics.getTrialBalance = async function() {
-  const accounts = await this.find({ isActive: true })
+accountSchema.statics.getTrialBalance = async function(companyId = null) {
+  const query = { isActive: true };
+  if (companyId) query.companyId = companyId;
+  const accounts = await this.find(query)
     .select('accountNumber name type balance')
     .lean();
 

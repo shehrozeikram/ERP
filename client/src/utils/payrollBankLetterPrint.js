@@ -4,8 +4,11 @@ const esc = (value) => String(value ?? '—')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-const fmtMoney = (amount) =>
-  `Rs. ${Math.round(Number(amount) || 0).toLocaleString('en-PK')}`;
+const fmtAmount = (amount) =>
+  Math.round(Number(amount) || 0).toLocaleString('en-PK');
+
+const formatLetterDate = (date = new Date()) =>
+  date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 const EXCEL_THIN_BORDER = {
   top: { style: 'thin' },
@@ -26,22 +29,13 @@ const EXCEL_TOTAL_FILL = {
   fgColor: { argb: 'FFEFEFEF' }
 };
 
-const styleExcelTitleRow = (worksheet, rowIndex, colCount, text) => {
+const styleExcelTitleRow = (worksheet, rowIndex, colCount, text, { bold = true, size = 11, align = 'left' } = {}) => {
   worksheet.mergeCells(rowIndex, 1, rowIndex, colCount);
   const cell = worksheet.getCell(rowIndex, 1);
   cell.value = text;
-  cell.font = { bold: true, size: 13 };
-  cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-  worksheet.getRow(rowIndex).height = 24;
-};
-
-const styleExcelInfoRow = (worksheet, rowIndex, colCount, text) => {
-  worksheet.mergeCells(rowIndex, 1, rowIndex, colCount);
-  const cell = worksheet.getCell(rowIndex, 1);
-  cell.value = text;
-  cell.font = { size: 10 };
-  cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-  worksheet.getRow(rowIndex).height = 20;
+  cell.font = { bold, size };
+  cell.alignment = { horizontal: align, vertical: 'middle', wrapText: true };
+  worksheet.getRow(rowIndex).height = align === 'left' ? Math.max(20, Math.ceil(String(text).length / 90) * 16) : 22;
 };
 
 const styleBankLetterDataRow = (row, colCount, { bold = false, fill = null } = {}) => {
@@ -62,24 +56,92 @@ const styleBankLetterDataRow = (row, colCount, { bold = false, fill = null } = {
   }
 };
 
-const companyDebitLines = (company = {}) => {
-  const lines = [];
-  if (company.bankName) lines.push(`Debit Bank: ${company.bankName}`);
-  if (company.bankAccount) lines.push(`Company Account No: ${company.bankAccount}`);
-  if (company.bankBranchCode) lines.push(`Company Branch Code: ${company.bankBranchCode}`);
-  if (company.bankIBAN) lines.push(`IBAN: ${company.bankIBAN}`);
-  return lines;
-};
+const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
 
-const companyDebitHtml = (company = {}) => {
-  const lines = companyDebitLines(company);
-  if (!lines.length) {
-    return `<div class="debit-box"><strong>Company debit account:</strong> Not configured — add bank details in Finance → Company Profile.</div>`;
+const convertBelow1000 = (n) => {
+  if (n === 0) return '';
+  if (n < 10) return ones[n];
+  if (n < 20) return teens[n - 10];
+  if (n < 100) {
+    const rem = n % 10;
+    return tens[Math.floor(n / 10)] + (rem ? ` ${ones[rem]}` : '');
   }
-  return `<div class="debit-box"><strong>Debit from company account:</strong><br />${lines.map((line) => esc(line)).join('<br />')}</div>`;
+  const rem = n % 100;
+  return `${ones[Math.floor(n / 100)]} Hundred${rem ? ` ${convertBelow1000(rem)}` : ''}`;
 };
 
-export const buildPayrollBankLetterData = ({ payrollRows = [], periodLabel = '', projectName = '' }) => {
+const convertIntl = (n) => {
+  if (n === 0) return '';
+  if (n < 1000) return convertBelow1000(n);
+  if (n < 1000000) {
+    const rem = n % 1000;
+    const chunk = convertBelow1000(Math.floor(n / 1000));
+    return `${chunk} Thousand${rem ? ` ${convertIntl(rem)}` : ''}`;
+  }
+  const rem = n % 1000000;
+  const chunk = convertBelow1000(Math.floor(n / 1000000));
+  return `${chunk} Million${rem ? ` ${convertIntl(rem)}` : ''}`;
+};
+
+const amountInWordsForLetter = (amount) => {
+  const value = Math.round(Number(amount) || 0);
+  if (!value) return 'Rupees Zero Only';
+  const words = convertIntl(value).trim();
+  return `Rupees ${words} Only`;
+};
+
+const buildLetterRef = (company = {}, letter = {}) => {
+  if (letter.letterRef) return letter.letterRef;
+  const prefix = String(company.salaryLetterRefPrefix || '').trim();
+  if (prefix) {
+    const now = new Date();
+    return `${prefix}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  return `SGC-S-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+};
+
+const buildSubjectAccountLabel = (company = {}) => {
+  const account = String(company.bankAccount || company.bankIBAN || '').trim();
+  const companyName = String(company.legalName || company.name || company.companyName || 'Company').trim();
+  if (!account) return companyName;
+  return `${account}-${companyName}`;
+};
+
+const buildLetterMeta = ({ letter = {}, company = {} }) => {
+  const bankName = String(company.bankName || '________________ Bank').trim();
+  const branchName = String(company.bankBranchName || company.bankBranchCode || '________________ Branch').trim();
+  const city = String(company.city || 'Islamabad').trim();
+  const chequeNumber = String(letter.chequeNumber || letter.reference || '________________').trim();
+  const amount = Math.round(Number(letter.totalNetSalary) || 0);
+
+  return {
+    letterRef: buildLetterRef(company, letter),
+    letterDate: formatLetterDate(letter.letterDate ? new Date(letter.letterDate) : new Date()),
+    bankName,
+    branchName,
+    city,
+    subjectAccount: buildSubjectAccountLabel(company),
+    chequeNumber,
+    amountFormatted: fmtAmount(amount),
+    amountInWords: amountInWordsForLetter(amount),
+    employeeCount: letter.employeeCount || 0,
+    periodLabel: letter.periodLabel || '',
+    filterName: letter.filterName || letter.companyName || letter.projectName || ''
+  };
+};
+
+export const buildPayrollBankLetterData = ({
+  payrollRows = [],
+  periodLabel = '',
+  companyName = '',
+  projectName = '',
+  chequeNumber = '',
+  reference = '',
+  letterRef = ''
+}) => {
+  const filterName = companyName || projectName || '';
   const rows = payrollRows
     .filter((row) => row.employee)
     .map((row) => ({
@@ -94,15 +156,206 @@ export const buildPayrollBankLetterData = ({ payrollRows = [], periodLabel = '',
     .sort((a, b) => String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true }));
 
   const totalNetSalary = rows.reduce((sum, row) => sum + (Number(row.netSalary) || 0), 0);
-  const label = projectName ? `${periodLabel} — ${projectName}` : periodLabel;
+  const label = filterName ? `${periodLabel} — ${filterName}` : periodLabel;
 
   return {
     periodLabel: label,
+    companyName: companyName || '',
     projectName: projectName || '',
+    filterName,
+    chequeNumber: chequeNumber || reference || '',
+    reference: reference || chequeNumber || '',
+    letterRef,
     employeeCount: rows.length,
     totalNetSalary,
     rows
   };
+};
+
+const buildLetterBodyText = (meta) =>
+  `You are requested to debit our above mentioned account by Cheque No ${meta.chequeNumber} of Rs  ${meta.amountFormatted} (${meta.amountInWords}) and arrange to transfer of funds to bank accounts of our employees as per attach list and total Employees are ${meta.employeeCount}.`;
+
+const metaPeriodSuffix = (letter) => {
+  const label = String(letter.periodLabel || '').trim();
+  return label ? ` — ${label}` : '';
+};
+
+const buildAttachmentTableHtml = (letter) => {
+  const rowsHtml = letter.rows.map((row, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${esc(row.employeeId)}</td>
+      <td>${esc(row.name)}</td>
+      <td>${esc(row.cnic)}</td>
+      <td>${esc(row.bankName)}</td>
+      <td>${esc(row.branchCode)}</td>
+      <td>${esc(row.accountNumber)}</td>
+      <td class="num">${fmtAmount(row.netSalary)}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="attachment">
+      <div class="attachment-title">Attached List — Salary Transfer${metaPeriodSuffix(letter)}</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Sr</th>
+            <th>Employee ID</th>
+            <th>Name</th>
+            <th>CNIC</th>
+            <th>Bank</th>
+            <th>Branch Code</th>
+            <th>Account No</th>
+            <th class="num">Net Salary</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="7" align="right"><strong>Grand Total (${letter.employeeCount} Employees)</strong></td>
+            <td class="num"><strong>${fmtAmount(letter.totalNetSalary)}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+};
+
+const buildPayrollBankLetterHtml = ({ letter, company = {} }) => {
+  const meta = buildLetterMeta({ letter, company });
+  const bodyText = buildLetterBodyText(meta);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Salary Transfer Letter — ${esc(letter.periodLabel)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 18mm 16mm 16mm 22mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Times New Roman', Times, serif;
+      color: #000;
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      font-size: 12pt;
+      line-height: 1.45;
+    }
+    .letter-page {
+      max-width: 720px;
+    }
+    .ref-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 28px;
+      font-size: 12pt;
+    }
+    .ref-line .date {
+      white-space: nowrap;
+    }
+    .block {
+      margin: 0 0 10px;
+    }
+    .spacer {
+      height: 12px;
+    }
+    .subject,
+    .body-text,
+    .signatory {
+      font-weight: 700;
+    }
+    .subject {
+      margin: 18px 0 16px;
+      text-align: left;
+    }
+    .body-text {
+      margin: 14px 0 28px;
+      text-align: justify;
+    }
+    .signature-line {
+      margin: 28px 0 8px;
+      letter-spacing: 1px;
+    }
+    .signatory {
+      margin-top: 6px;
+    }
+    .attachment {
+      page-break-before: always;
+      padding-top: 8px;
+    }
+    .attachment-title {
+      font-weight: 700;
+      font-size: 13pt;
+      margin: 0 0 12px;
+      text-align: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9pt;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    th, td {
+      border: 1px solid #000;
+      padding: 5px 6px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    th {
+      background: #f3f3f3;
+      font-weight: 700;
+      text-align: center;
+    }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    tfoot td {
+      font-weight: 700;
+      background: #efefef;
+    }
+  </style>
+</head>
+<body>
+  <div class="letter-page">
+    <div class="ref-line">
+      <span>${esc(meta.letterRef)}</span>
+      <span class="date">${esc(meta.letterDate)}</span>
+    </div>
+
+    <div class="spacer"></div>
+    <div class="spacer"></div>
+
+    <p class="block">The Manager</p>
+    <p class="block">${esc(meta.bankName)}${meta.bankName.endsWith(',') ? '' : ','}</p>
+    <p class="block">${esc(meta.branchName)}</p>
+    <p class="block">${esc(meta.city)}.</p>
+
+    <div class="spacer"></div>
+
+    <p class="subject">Subject: Transfer of Salary from A/c # ${esc(meta.subjectAccount)}</p>
+
+    <div class="spacer"></div>
+    <div class="spacer"></div>
+
+    <p class="block">Dear Sir/Madam</p>
+
+    <div class="spacer"></div>
+
+    <p class="body-text">${esc(bodyText)}</p>
+
+    <div class="spacer"></div>
+    <div class="spacer"></div>
+    <div class="spacer"></div>
+    <div class="spacer"></div>
+
+    <p class="signature-line">----------------------------</p>
+    <p class="signatory">Authorized Signatory</p>
+  </div>
+
+  ${buildAttachmentTableHtml(letter)}
+</body>
+</html>`;
 };
 
 export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) => {
@@ -111,6 +364,8 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
   }
 
   const { Workbook } = await import('exceljs');
+  const meta = buildLetterMeta({ letter, company });
+  const bodyText = buildLetterBodyText(meta);
   const headers = [
     'Sr No',
     'Employee ID',
@@ -122,18 +377,35 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
     'Net Salary'
   ];
   const colCount = headers.length;
-  const companyName = company.name || 'SARDAR GROUP OF COMPANIES';
-  const debitLines = companyDebitLines(company);
-  const debitText = debitLines.length
-    ? `Debit from company account: ${debitLines.join(' | ')}`
-    : 'Company debit account: Not configured — add bank details in Finance → Company Profile.';
 
   const workbook = new Workbook();
-  const worksheet = workbook.addWorksheet('Bank Letter', {
-    views: [{ state: 'frozen', ySplit: 5 }]
-  });
 
-  worksheet.columns = [
+  const letterSheet = workbook.addWorksheet('Salary Letter');
+  letterSheet.columns = [{ width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }];
+
+  let rowIndex = 1;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, `${meta.letterRef}${' '.repeat(40)}${meta.letterDate}`, { align: 'left' });
+  rowIndex += 2;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, 'The Manager', { bold: false });
+  rowIndex += 1;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, `${meta.bankName},`, { bold: false });
+  rowIndex += 1;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, meta.branchName, { bold: false });
+  rowIndex += 1;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, `${meta.city}.`, { bold: false });
+  rowIndex += 2;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, `Subject: Transfer of Salary from A/c # ${meta.subjectAccount}`, { bold: true });
+  rowIndex += 2;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, 'Dear Sir/Madam', { bold: false });
+  rowIndex += 2;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, bodyText, { bold: true, size: 11 });
+  rowIndex += 3;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, '----------------------------', { bold: false });
+  rowIndex += 1;
+  styleExcelTitleRow(letterSheet, rowIndex, colCount, 'Authorized Signatory', { bold: true });
+
+  const listSheet = workbook.addWorksheet('Attached List');
+  listSheet.columns = [
     { width: 8 },
     { width: 14 },
     { width: 28 },
@@ -144,22 +416,17 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
     { width: 16 }
   ];
 
-  let rowIndex = 1;
-  styleExcelTitleRow(worksheet, rowIndex, colCount, companyName);
-  rowIndex += 1;
+  rowIndex = 1;
   styleExcelTitleRow(
-    worksheet,
+    listSheet,
     rowIndex,
     colCount,
-    `Salary Transfer Instruction / Bank Letter for the month of ${letter.periodLabel}`
+    `Attached List — Salary Transfer${metaPeriodSuffix(letter)}`,
+    { align: 'center', size: 12 }
   );
-  rowIndex += 1;
-  styleExcelInfoRow(worksheet, rowIndex, colCount, debitText);
-  rowIndex += 1;
-  worksheet.addRow(Array(colCount).fill(''));
-  rowIndex += 1;
+  rowIndex += 2;
 
-  const headerRow = worksheet.addRow(headers);
+  const headerRow = listSheet.addRow(headers);
   headerRow.height = 28;
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, size: 10 };
@@ -167,10 +434,9 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
     cell.fill = EXCEL_HEADER_FILL;
     cell.border = EXCEL_THIN_BORDER;
   });
-  rowIndex += 1;
 
   letter.rows.forEach((row, index) => {
-    const dataRow = worksheet.addRow([
+    const dataRow = listSheet.addRow([
       index + 1,
       row.employeeId,
       row.name,
@@ -184,7 +450,7 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
     styleBankLetterDataRow(dataRow, colCount);
   });
 
-  const footerRow = worksheet.addRow([
+  const footerRow = listSheet.addRow([
     '',
     'Grand Total',
     `${letter.employeeCount} Employees`,
@@ -213,199 +479,6 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
   URL.revokeObjectURL(url);
 
   return { ok: true };
-};
-
-const buildPayrollBankLetterHtml = ({ letter, company = {} }) => {
-  const rowsHtml = letter.rows.map((row, index) => `
-    <tr>
-      <td>${index + 1}</td>
-      <td>${esc(row.employeeId)}</td>
-      <td>${esc(row.name)}</td>
-      <td>${esc(row.cnic)}</td>
-      <td>${esc(row.bankName)}</td>
-      <td>${esc(row.branchCode)}</td>
-      <td>${esc(row.accountNumber)}</td>
-      <td class="num">${fmtMoney(row.netSalary)}</td>
-    </tr>
-  `).join('');
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Salary Transfer Letter — ${esc(letter.periodLabel)}</title>
-  <style>
-    @page { size: A4 landscape; margin: 14mm 16mm; }
-    * { box-sizing: border-box; }
-    body {
-      font-family: Arial, Helvetica, sans-serif;
-      color: #111;
-      margin: 0;
-      padding: 28px 32px 24px;
-      background: #fff;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 32px;
-      padding-bottom: 18px;
-      margin-bottom: 22px;
-      border-bottom: 2px solid #1f2937;
-    }
-    .company-block {
-      flex: 1;
-      min-width: 0;
-      padding-top: 4px;
-    }
-    .company {
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: 0.2px;
-      margin: 0 0 6px;
-      line-height: 1.25;
-    }
-    .company-meta {
-      font-size: 12px;
-      color: #4b5563;
-      line-height: 1.55;
-      margin: 0;
-    }
-    .doc-meta {
-      flex-shrink: 0;
-      min-width: 200px;
-      padding-top: 6px;
-      text-align: right;
-    }
-    .doc-meta-row {
-      display: flex;
-      justify-content: flex-end;
-      align-items: baseline;
-      gap: 10px;
-      font-size: 12px;
-      line-height: 1.7;
-      color: #374151;
-    }
-    .doc-meta-label {
-      color: #6b7280;
-      min-width: 72px;
-      text-align: right;
-    }
-    .doc-meta-value {
-      font-weight: 600;
-      color: #111;
-      min-width: 96px;
-      text-align: left;
-    }
-    .doc-title {
-      font-size: 20px;
-      font-weight: 700;
-      margin: 0 0 20px;
-      padding: 0 2px;
-      line-height: 1.35;
-      letter-spacing: 0.15px;
-      color: #111827;
-    }
-    .letter-box, .debit-box {
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      padding: 14px 16px;
-      margin-bottom: 14px;
-      font-size: 13px;
-      line-height: 1.55;
-    }
-    .debit-box { background: #f8fafc; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    th, td { border: 1px solid #bbb; padding: 6px 8px; text-align: left; }
-    th { background: #f3f4f6; font-weight: 700; }
-    td.num, th.num { text-align: right; }
-    .summary {
-      margin-top: 14px;
-      display: flex;
-      justify-content: flex-end;
-      gap: 24px;
-      font-size: 13px;
-      font-weight: 700;
-      padding-right: 2px;
-    }
-    .signatures {
-      margin-top: 36px;
-      display: flex;
-      justify-content: space-between;
-      gap: 24px;
-      padding: 0 2px;
-    }
-    .sign-box {
-      width: 30%;
-      border-top: 1px solid #333;
-      padding-top: 8px;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="company-block">
-      <div class="company">${esc(company.name || 'SGC International')}</div>
-      ${company.address ? `<div class="company-meta">${esc(company.address)}</div>` : ''}
-      ${company.ntn ? `<div class="company-meta">NTN: ${esc(company.ntn)}</div>` : ''}
-    </div>
-    <div class="doc-meta">
-      <div class="doc-meta-row">
-        <span class="doc-meta-label">Date</span>
-        <span class="doc-meta-value">${new Date().toLocaleDateString('en-GB')}</span>
-      </div>
-      <div class="doc-meta-row">
-        <span class="doc-meta-label">Period</span>
-        <span class="doc-meta-value">${esc(letter.periodLabel)}</span>
-      </div>
-      <div class="doc-meta-row">
-        <span class="doc-meta-label">Employees</span>
-        <span class="doc-meta-value">${letter.employeeCount}</span>
-      </div>
-    </div>
-  </div>
-
-  <h1 class="doc-title">Salary Transfer Instruction / Bank Letter</h1>
-  ${letter.projectName ? `<div class="letter-box" style="margin-bottom:14px;"><strong>Project:</strong> ${esc(letter.projectName)}</div>` : ''}
-  ${companyDebitHtml(company)}
-  <div class="letter-box">
-    To,<br />
-    The Branch Manager<br />
-    <strong>Subject: Salary Transfer for the month of ${esc(letter.periodLabel)}</strong><br /><br />
-    Please transfer the net salaries listed below to the respective employee accounts from our company account shown above.
-    Total net salary amount: <strong>${fmtMoney(letter.totalNetSalary)}</strong>.
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Sr</th>
-        <th>Employee ID</th>
-        <th>Name</th>
-        <th>CNIC</th>
-        <th>Bank</th>
-        <th>Branch Code</th>
-        <th>Account No</th>
-        <th class="num">Net Salary</th>
-      </tr>
-    </thead>
-    <tbody>${rowsHtml}</tbody>
-  </table>
-
-  <div class="summary">
-    <div>Total Employees: ${letter.employeeCount}</div>
-    <div>Total Net Salary: ${fmtMoney(letter.totalNetSalary)}</div>
-  </div>
-
-  <div class="signatures">
-    <div class="sign-box">Prepared By<br />Finance Department</div>
-    <div class="sign-box">Checked By<br />Senior Finance Manager</div>
-    <div class="sign-box">Authorized By<br />Management</div>
-  </div>
-</body>
-</html>`;
 };
 
 const printHtmlInHiddenFrame = (html, frameId = 'payroll-bank-letter-print-frame') => {

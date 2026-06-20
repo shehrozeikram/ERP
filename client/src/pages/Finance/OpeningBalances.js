@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Button, Alert, Stack, TextField, MenuItem,
-  IconButton, Divider, CircularProgress, Chip, Autocomplete
+  TableHead, TableRow, Button, Alert, Stack, TextField,
+  IconButton, CircularProgress, Chip, Autocomplete
 } from '@mui/material';
 import {
   Add as AddIcon, Delete as DeleteIcon, Save as SaveIcon,
   LockOpen as OpenIcon, History as HistoryIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import { financeListFromResponse } from '../../utils/financeApiData';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const emptyLine = { account: null, description: 'Opening balance', debit: '', credit: '' };
@@ -27,7 +28,7 @@ export default function OpeningBalances() {
   const loadAccounts = useCallback(async () => {
     try {
       const res = await api.get('/finance/accounts', { params: { limit: 500 } });
-      setAccounts(res.data.data || res.data.accounts || []);
+      setAccounts(financeListFromResponse(res));
     } catch { setAccounts([]); }
   }, []);
 

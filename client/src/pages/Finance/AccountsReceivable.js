@@ -31,10 +31,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Divider,
-  List,
-  ListItem,
-  ListItemText
+  Divider
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -56,11 +53,15 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { financeListFromResponse } from '../../utils/financeApiData';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
 const AccountsReceivable = () => {
+  const { selectedCompanyId } = useFinanceCompany();
   const navigate = useNavigate();
   const theme = useTheme();
   
@@ -110,19 +111,25 @@ const AccountsReceivable = () => {
   });
 
   useEffect(() => {
-    api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1 } })
+    if (!selectedCompanyId) return;
+    api.get('/finance/accounts', { params: { category: 'Current Asset', limit: 500, page: 1, companyId: selectedCompanyId } })
       .then(res => {
-        const all = res.data.data || res.data.accounts || [];
+        const all = financeListFromResponse(res);
         setBankAccounts(all.filter(a => ['1001','1002'].includes(a.accountNumber) || a.name?.toLowerCase().includes('bank') || a.name?.toLowerCase().includes('cash')));
       })
       .catch(() => setBankAccounts([]));
-  }, []);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
+    if (!selectedCompanyId) {
+      setLoading(false);
+      return;
+    }
     fetchAccountsReceivable();
-  }, [filters, pagination.currentPage]);
+  }, [filters, pagination.currentPage, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchAccountsReceivable = async () => {
+    if (!selectedCompanyId) return;
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -133,6 +140,7 @@ const AccountsReceivable = () => {
       if (filters.search) params.append('search', filters.search);
       params.append('page', pagination.currentPage);
       params.append('limit', pagination.limit);
+      params.append('companyId', selectedCompanyId);
 
       const response = await api.get(`/finance/accounts-receivable?${params}`);
       if (response.data.success) {
@@ -302,6 +310,7 @@ const AccountsReceivable = () => {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <FinanceCompanySelector minWidth={240} showHelper={false} />
             <Button variant="outlined" size="small" color="warning"
               onClick={() => navigate('/finance/credit-notes')} sx={{ fontSize: 12 }}>
               Credit Notes

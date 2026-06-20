@@ -20,7 +20,8 @@ const budgetSchema = new mongoose.Schema({
   approvedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   approvedAt:  { type: Date },
   createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  updatedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  updatedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  companyId:   { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true }
 }, { timestamps: true });
 
 budgetSchema.pre('save', function (next) {
@@ -30,5 +31,6 @@ budgetSchema.pre('save', function (next) {
 
 budgetSchema.index({ fiscalYear: 1, department: 1 });
 budgetSchema.index({ status: 1 });
+budgetSchema.index({ companyId: 1, fiscalYear: 1 });
 
 module.exports = mongoose.model('Budget', budgetSchema);

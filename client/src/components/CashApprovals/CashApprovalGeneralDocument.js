@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import {
   Box,
-  Button,
   Paper,
   Stack,
   Table,
@@ -24,9 +23,9 @@ import {
   formatDecimalPk,
   formatInvoiceDateDmy,
   formatInvoiceTime12h,
+  getCashApprovalCompanyLabel,
   getSignatureSource,
-  lineTableSx,
-  resolveUploadPublicUrl
+  lineTableSx
 } from './cashApprovalGeneralDocumentUtils';
 
 /**
@@ -100,6 +99,8 @@ const CashApprovalGeneralDocument = ({ ca, elevation = 2, sx = {} }) => {
           <Typography sx={{ fontWeight: 700 }}>{ca.requestingDepartment || '—'}</Typography>
           <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Advance to</Typography>
           <Typography sx={{ fontWeight: 700 }}>{advanceEmployeeLabel(ca)}</Typography>
+          <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Finance company</Typography>
+          <Typography sx={{ fontWeight: 700 }}>{getCashApprovalCompanyLabel(ca) || '—'}</Typography>
           <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>GL account</Typography>
           <Typography sx={{ fontWeight: 700 }}>
             {ca.advanceGlAccount?.accountNumber || ca.advanceGlAccountNumber || '—'}

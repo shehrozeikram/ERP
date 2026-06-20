@@ -42,6 +42,12 @@ api.interceptors.request.use(
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];
     }
+
+    const financeCompanyId = localStorage.getItem('financeSelectedCompanyId');
+    const url = String(config.url || '');
+    if (financeCompanyId && (url.includes('/finance') || url.includes('/cash-approvals/finance'))) {
+      config.headers['x-finance-company-id'] = financeCompanyId;
+    }
     
     return config;
   },
@@ -87,7 +93,7 @@ api.interceptors.response.use(
         // Attempt to refresh token once
         try {
           const refreshResponse = await api.post('/auth/refresh-token');
-          const { token: newToken, user: updatedUser } = refreshResponse.data.data;
+          const { token: newToken } = refreshResponse.data.data;
           
           if (newToken) {
             localStorage.setItem('token', newToken);
