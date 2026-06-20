@@ -13,6 +13,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Chip,
   IconButton,
   Tooltip,
@@ -116,6 +117,9 @@ const Vouchers = () => {
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [totalCount, setTotalCount] = useState(0);
   /** Default: PAYMENT vouchers (referenceType payment on journal) */
   const [voucherType, setVoucherType] = useState('payment');
   const [clearanceDialog, setClearanceDialog] = useState({
@@ -182,13 +186,15 @@ const Vouchers = () => {
     }
   };
 
-  const fetchEntries = async () => {
+  const fetchEntries = async (opts = {}) => {
+    const nextPage = opts.page ?? page;
+    const nextRowsPerPage = opts.rowsPerPage ?? rowsPerPage;
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      params.append('page', '1');
-      params.append('limit', '200');
-      if (status && status !== 'signed') params.append('status', status);
+      params.append('page', String(nextPage + 1));
+      params.append('limit', String(nextRowsPerPage));
+      if (status) params.append('status', status);
       if (search.trim()) params.append('search', search.trim());
       if (voucherType) params.append('referenceType', voucherType);
       // Payroll accrual JVs are auto-posted backend entries; finance uses Payroll Queue + BPV on payment.
@@ -196,29 +202,34 @@ const Vouchers = () => {
       if (selectedCompanyId) params.append('companyId', selectedCompanyId);
       const res = await api.get(`/finance/journal-entries?${params.toString()}`);
       setEntries(res?.data?.data?.entries || []);
+      setTotalCount(res?.data?.data?.pagination?.totalCount || 0);
     } catch (_e) {
       setEntries([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
   };
 
+  const applyFilters = () => {
+    setPage(0);
+    fetchEntries({ page: 0 });
+  };
+
+  useEffect(() => {
+    setPage(0);
+  }, [selectedCompanyId]);
+
   useEffect(() => {
     fetchEntries();
-  }, [status, voucherType, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, rowsPerPage, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const voucherRows = useMemo(() => {
-    let rows = entries.map((entry) => ({
+  const voucherRows = useMemo(() => (
+    entries.map((entry) => ({
       ...entry,
       voucherType: String(entry?.referenceType || 'manual').toUpperCase()
-    }));
-    if (status === 'signed') {
-      rows = rows.filter(
-        (row) => row.signedDocumentStatus === 'signed' && Boolean(row.signedDocumentAt)
-      );
-    }
-    return rows;
-  }, [entries, status]);
+    }))
+  ), [entries]);
 
   const closeClearanceDialog = () =>
     setClearanceDialog({ open: false, voucher: null, status: 'pending', clearedAtDate: '' });
@@ -354,7 +365,7 @@ const Vouchers = () => {
             </TextField>
           </Grid>
           <Grid item xs={12} md={2}>
-            <Button fullWidth variant="contained" onClick={fetchEntries}>Apply</Button>
+            <Button fullWidth variant="contained" onClick={applyFilters}>Apply</Button>
           </Grid>
         </Grid>
       </Paper>
@@ -509,6 +520,18 @@ const Vouchers = () => {
             </TableBody>
           </Table>
         </TableContainer>
+        <TablePagination
+          component="div"
+          count={totalCount}
+          page={page}
+          onPageChange={(e, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => {
+            setRowsPerPage(parseInt(e.target.value, 10));
+            setPage(0);
+          }}
+          rowsPerPageOptions={[10, 25, 50, 100]}
+        />
       </Paper>
 
       <input

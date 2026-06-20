@@ -502,18 +502,8 @@ router.get('/journal-entries',
       excludeReferenceTypes
     } = req.query;
 
-    const filters = {};
-
-    let company = null;
-    try {
-      company = await requireCompanyFromRequest(req);
-    } catch (err) {
-      company = await findHistoricalCompany();
-      if (!company) throw err;
-    }
-    if (company?._id) {
-      filters.companyId = company._id;
-    }
+    const company = await resolveCompanyForFinanceRoute(req);
+    const baseFilters = {};
 
     const allowedReferenceTypes = new Set([
       'payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual',
@@ -526,35 +516,41 @@ router.get('/journal-entries',
       .filter((value) => allowedReferenceTypes.has(value));
 
     if (referenceType && allowedReferenceTypes.has(String(referenceType).toLowerCase())) {
-      filters.referenceType = String(referenceType).toLowerCase();
+      baseFilters.referenceType = String(referenceType).toLowerCase();
     } else if (excludedTypes.length) {
-      filters.referenceType = { $nin: excludedTypes };
+      baseFilters.referenceType = { $nin: excludedTypes };
     }
 
-    if (department) filters.department = department;
-    if (module) filters.module = module;
-    if (status) filters.status = status;
+    if (department) baseFilters.department = department;
+    if (module) baseFilters.module = module;
+    if (status === 'signed') {
+      baseFilters.signedDocumentStatus = 'signed';
+      baseFilters.signedDocumentAt = { $exists: true, $ne: null };
+    } else if (status) {
+      baseFilters.status = status;
+    }
     if (search) {
-      filters.$or = [
+      baseFilters.$or = [
         { entryNumber: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
         { reference: { $regex: search, $options: 'i' } }
       ];
     }
     if (startDate || endDate) {
-      filters.date = {};
+      baseFilters.date = {};
       if (startDate) {
         const start = new Date(startDate);
         start.setHours(0, 0, 0, 0);
-        filters.date.$gte = start;
+        baseFilters.date.$gte = start;
       }
       if (endDate) {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        filters.date.$lte = end;
+        baseFilters.date.$lte = end;
       }
     }
 
+    const filters = companyQuery(baseFilters, company);
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const [entries, totalCount] = await Promise.all([
@@ -2187,12 +2183,12 @@ router.get('/accounts-payable',
     } = req.query;
 
     const company = await resolveCompanyForFinanceRoute(req);
-    const filters = companyQuery({}, company);
+    const baseFilters = {};
 
-    if (status) filters.status = status;
-    if (vendorId) filters['vendor.vendorId'] = vendorId;
+    if (status) baseFilters.status = status;
+    if (vendorId) baseFilters['vendor.vendorId'] = vendorId;
     if (search) {
-      filters.$or = [
+      baseFilters.$or = [
         { billNumber: { $regex: search, $options: 'i' } },
         { vendorInvoiceNumber: { $regex: search, $options: 'i' } },
         { 'vendor.name': { $regex: search, $options: 'i' } },
@@ -2201,18 +2197,20 @@ router.get('/accounts-payable',
       ];
     }
     if (startDate || endDate) {
-      filters.billDate = {};
+      baseFilters.billDate = {};
       if (startDate) {
         const start = new Date(startDate);
         start.setHours(0, 0, 0, 0);
-        filters.billDate.$gte = start;
+        baseFilters.billDate.$gte = start;
       }
       if (endDate) {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        filters.billDate.$lte = end;
+        baseFilters.billDate.$lte = end;
       }
     }
+
+    const filters = companyQuery(baseFilters, company);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     

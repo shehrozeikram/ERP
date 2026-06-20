@@ -11,6 +11,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Paper,
   Chip,
   IconButton,
@@ -26,7 +27,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Pagination,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -400,8 +400,16 @@ const AccountsPayable = () => {
     setPagination(prev => ({ ...prev, currentPage: 1 }));
   };
 
-  const handlePageChange = (event, page) => {
-    setPagination(prev => ({ ...prev, currentPage: page }));
+  const handlePageChange = (event, newPage) => {
+    setPagination(prev => ({ ...prev, currentPage: newPage + 1 }));
+  };
+
+  const handleRowsPerPageChange = (event) => {
+    setPagination(prev => ({
+      ...prev,
+      limit: parseInt(event.target.value, 10),
+      currentPage: 1
+    }));
   };
 
   const handleViewBill = async (bill) => {
@@ -1308,17 +1316,15 @@ const AccountsPayable = () => {
             </Box>
           )}
 
-          {/* Pagination */}
-          {pagination.totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-              <Pagination
-                count={pagination.totalPages}
-                page={pagination.currentPage}
-                onChange={handlePageChange}
-                color="primary"
-              />
-            </Box>
-          )}
+          <TablePagination
+            component="div"
+            count={pagination.totalCount}
+            page={Math.max(0, pagination.currentPage - 1)}
+            onPageChange={handlePageChange}
+            rowsPerPage={pagination.limit}
+            onRowsPerPageChange={handleRowsPerPageChange}
+            rowsPerPageOptions={[10, 20, 50, 100]}
+          />
         </CardContent>
       </Card>
 

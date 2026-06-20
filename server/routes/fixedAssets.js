@@ -149,21 +149,45 @@ function normalizeProjectInput(input) {
 
 // GET /api/finance/fixed-assets
 router.get('/', asyncHandler(async (req, res) => {
-  const { status, category } = req.query;
+  const { status, category, page = 1, limit = 100 } = req.query;
   const { q } = await financeScope(req);
-  const filter = q({});
-  if (status) filter.status = status;
-  if (category) filter.category = category;
+  const base = {};
+  if (status) base.status = status;
+  if (category) base.category = category;
+  const filter = q(base);
 
-  const assets = await FixedAsset.find(filter)
-    .populate('assetAccount', 'name accountNumber')
-    .populate('accumulatedDeprecAccount', 'name accountNumber')
-    .populate('depreciationExpenseAccount', 'name accountNumber')
-    .populate('project', 'name code projectId')
-    .populate('costCenter', 'name code')
-    .sort({ assetNumber: 1 });
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+  const skip = (pageNum - 1) * limitNum;
 
-  res.json({ success: true, data: assets, count: assets.length });
+  const [assets, totalCount] = await Promise.all([
+    FixedAsset.find(filter)
+      .populate('assetAccount', 'name accountNumber')
+      .populate('accumulatedDeprecAccount', 'name accountNumber')
+      .populate('depreciationExpenseAccount', 'name accountNumber')
+      .populate('project', 'name code projectId')
+      .populate('costCenter', 'name code')
+      .sort({ assetNumber: 1 })
+      .skip(skip)
+      .limit(limitNum),
+    FixedAsset.countDocuments(filter)
+  ]);
+
+  const totalPages = Math.ceil(totalCount / limitNum) || 1;
+
+  res.json({
+    success: true,
+    data: assets,
+    count: totalCount,
+    pagination: {
+      currentPage: pageNum,
+      totalPages,
+      totalCount,
+      limit: limitNum,
+      hasNextPage: pageNum < totalPages,
+      hasPrevPage: pageNum > 1
+    }
+  });
 }));
 
 // GET /api/finance/fixed-assets/next-serial (before /:id so path is not captured as id)

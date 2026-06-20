@@ -143,6 +143,7 @@ export default function FixedAssets() {
   const [selectedSubStores, setSelectedSubStores] = useState([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [totalCount, setTotalCount] = useState(0);
   const [newFiles, setNewFiles] = useState([]);
   const [removedAttachmentIds, setRemovedAttachmentIds] = useState([]);
 
@@ -164,24 +165,29 @@ export default function FixedAssets() {
   const [disposeForm, setDisposeForm]   = useState({ disposalDate: new Date().toISOString().split('T')[0], disposalValue: 0 });
   const [disposeLoading, setDisposeLoading] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ forcePage } = {}) => {
+    const fetchPage = (forcePage ?? page) + 1;
     try {
       setLoading(true);
       const [assRes, sumRes] = await Promise.all([
-        api.get('/finance/fixed-assets'),
+        api.get('/finance/fixed-assets', { params: { page: fetchPage, limit: rowsPerPage } }),
         api.get('/finance/fixed-assets/reports/summary')
       ]);
       setAssets(assRes.data.data || []);
+      setTotalCount(assRes.data.pagination?.totalCount ?? assRes.data.count ?? 0);
       setSummary(sumRes.data.data);
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load assets');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, rowsPerPage]);
 
   useEffect(() => { load(); }, [load]);
-  useFinanceCompanyReload(load, { skipInitial: true });
+  useFinanceCompanyReload(() => {
+    setPage(0);
+    load({ forcePage: 0 });
+  }, { skipInitial: true });
 
   const loadEmployees = useCallback(async () => {
     try {
@@ -460,13 +466,13 @@ export default function FixedAssets() {
     }
   };
 
-  const paginatedAssets = assets.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const paginatedAssets = assets;
   const grandTotals = useMemo(() => computeFixedAssetTotals(assets), [assets]);
   const displayTotals = summary?.totals || grandTotals;
 
   useEffect(() => {
     setPage(0);
-  }, [assets.length, rowsPerPage]);
+  }, [rowsPerPage]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -576,7 +582,7 @@ export default function FixedAssets() {
           setPage={setPage}
           rowsPerPage={rowsPerPage}
           setRowsPerPage={setRowsPerPage}
-          totalCount={displayTotals.count || assets.length}
+          totalCount={totalCount || displayTotals.count || 0}
         />
       )}
 
