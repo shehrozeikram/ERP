@@ -301,6 +301,9 @@ router.put('/:id', authorize('super_admin', 'admin', 'finance_manager'), handleF
     }
 
     asset.updatedBy = req.user.id;
+    if (!asset.companyId && companyId) {
+      asset.companyId = companyId;
+    }
     await asset.save();
 
     res.json({ success: true, data: asset });

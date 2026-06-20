@@ -5,6 +5,15 @@ const User = require('../models/User');
 
 const HISTORICAL_COMPANY_NAME = 'SARDAR GROUP OF COMPANIES';
 
+const isHistoricalCompany = (company) => {
+  if (!company) return false;
+  const name = String(company.name || '').trim().toUpperCase();
+  if (name === HISTORICAL_COMPANY_NAME.toUpperCase()) return true;
+  if (/SARDAR GROUP/i.test(name)) return true;
+  if (String(company.companyCode || '').trim().toUpperCase() === 'SGC') return true;
+  return false;
+};
+
 const STOP_WORDS = new Set(['PVT', 'LTD', 'PRIVATE', 'LIMITED', 'THE', 'OF', 'AND', 'CO', 'INC']);
 
 const deriveCompanyCode = (name = '') => {
@@ -115,9 +124,21 @@ const resolveCompanyForFinanceRoute = async (req) => {
 
 /** Apply companyId filter to a Mongo query object. */
 const companyQuery = (filters = {}, company) => {
-  const query = { ...filters };
-  if (company?._id) query.companyId = company._id;
-  return query;
+  const base = { ...filters };
+  if (!company?._id) return base;
+
+  const companyFilter = isHistoricalCompany(company)
+    ? {
+      $or: [
+        { companyId: company._id },
+        { companyId: null },
+        { companyId: { $exists: false } }
+      ]
+    }
+    : { companyId: company._id };
+
+  if (Object.keys(base).length === 0) return companyFilter;
+  return { $and: [base, companyFilter] };
 };
 
 /**
@@ -238,6 +259,7 @@ const ensureCompanyCodes = async () => {
 
 module.exports = {
   HISTORICAL_COMPANY_NAME,
+  isHistoricalCompany,
   deriveCompanyCode,
   normalizeCompanyId,
   resolveCompanyId,
