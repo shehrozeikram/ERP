@@ -6,9 +6,10 @@ const {
   PAYROLL_ACCRUAL_DEBIT_SLOTS,
   buildPayrollVoucherLineDescription,
   resolvePayrollCreditSlotAmount,
-  validatePayrollAccrualTotals,
-  validatePayrollBpvPaymentTotals
+  validatePayrollAccrualTotals
 } = require('./payrollBreakdown');
+
+const { ensureEobiPayableAccounts, EOBI_PAYABLE_EMP_NUMBER, EOBI_PAYABLE_ER_NUMBER } = require('./eobiPayableAccount');
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -44,9 +45,20 @@ const ensurePayrollFinanceAccounts = async (companyId) => {
       balance: 0
     });
   }
+  await ensureEobiPayableAccounts(companyId);
 };
 
 const resolveAccount = async (companyId, accountNumber, label) => {
+  if (accountNumber === EOBI_PAYABLE_EMP_NUMBER || accountNumber === EOBI_PAYABLE_ER_NUMBER) {
+    const { employee, employer } = await ensureEobiPayableAccounts(companyId);
+    const acc = accountNumber === EOBI_PAYABLE_EMP_NUMBER ? employee : employer;
+    if (!acc) {
+      const err = new Error(`${label} account (${accountNumber}) not found for this company.`);
+      err.statusCode = 400;
+      throw err;
+    }
+    return acc;
+  }
   const AccountResolver = require('./accountResolver');
   const account = await AccountResolver.resolveSystemAccount(companyId, accountNumber);
   if (!account) {
@@ -120,8 +132,9 @@ const buildPayrollAccrualJournalLines = async ({
 };
 
 /**
- * BPV at bank payment — clears net salaries payable only.
- * Deductions were credited at accrual; salary schedule on BPV remains informational.
+ * Company payroll BPV — full payment voucher:
+ * Dr Salaries Expense (gross) + EOBI employer expense
+ * Cr WHT, loans, staff advance, PF, EOBI sub-accounts, other deductions, Bank (net)
  */
 const buildPayrollBpvPaymentJournalLines = async ({
   companyId,
@@ -131,7 +144,7 @@ const buildPayrollBpvPaymentJournalLines = async ({
   companyName = ''
 }) => {
   await ensurePayrollFinanceAccounts(companyId);
-  validatePayrollBpvPaymentTotals(totals);
+  validatePayrollAccrualTotals(totals);
 
   if (!bankAccount) {
     const err = new Error('Bank or cash account is required for payroll payment.');
@@ -139,27 +152,54 @@ const buildPayrollBpvPaymentJournalLines = async ({
     throw err;
   }
 
-  const netAmount = round2(totals.netPayable);
-  const payableAccount = await resolveAccount(
-    companyId,
-    FinanceHelper.ACCOUNTS.SALARIES_PAYABLE,
-    'Salaries Payable'
-  );
+  const labelContext = `${periodLabel} — ${companyName}`;
+  const lines = [];
 
-  return [
-    {
-      account: payableAccount._id,
-      description: `Salaries Payable — Net Payment — ${periodLabel} — ${companyName}`,
-      debit: netAmount,
+  for (const slot of PAYROLL_ACCRUAL_DEBIT_SLOTS) {
+    const amount = round2(totals[slot.key]);
+    if (amount <= 0) continue;
+    const account = await resolveAccount(companyId, slot.accountNumber, slot.label);
+    lines.push({
+      account: account._id,
+      description: buildPayrollVoucherLineDescription(slot, periodLabel, labelContext),
+      debit: amount,
       department: 'hr'
-    },
-    {
+    });
+  }
+
+  for (const slot of PAYROLL_PAYMENT_CREDIT_SLOTS) {
+    const amount = resolvePayrollCreditSlotAmount(totals, slot);
+    if (amount <= 0) continue;
+    const account = await resolveAccount(companyId, slot.accountNumber, slot.label);
+    lines.push({
+      account: account._id,
+      description: buildPayrollVoucherLineDescription(slot, periodLabel, labelContext),
+      credit: amount,
+      department: 'hr'
+    });
+  }
+
+  const netAmountBank = round2(totals.netPayableBank ?? totals.netPayable);
+  if (netAmountBank > 0) {
+    lines.push({
       account: bankAccount._id,
       description: `Payroll Bank Payment — ${periodLabel} — ${companyName}`,
-      credit: netAmount,
+      credit: netAmountBank,
       department: 'hr'
-    }
-  ];
+    });
+  }
+
+  const netAmountCash = round2(totals.netPayableCash || 0);
+  if (netAmountCash > 0) {
+    lines.push({
+      account: bankAccount._id,
+      description: `Payroll Cash Payment — ${periodLabel} — ${companyName}`,
+      credit: netAmountCash,
+      department: 'hr'
+    });
+  }
+
+  return lines;
 };
 
 const payrollAccrualAlreadyPosted = async (payrollId) => {

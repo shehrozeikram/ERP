@@ -29,45 +29,19 @@ import { getMozas } from '../../services/landAcquisitionMozaService';
 import {
   createPossession,
   deletePossession,
-  getPossessionStatus,
   getPossessions,
   updatePossession
 } from '../../services/landAcquisitionPossessionService';
 import { formatKMS } from '../../utils/landAreaUnits';
-
-const PURCHASE_LABELS = {
-  not_purchased: { label: 'Not purchased', color: 'default' },
-  partial_purchased: { label: 'Partial purchased', color: 'warning' },
-  fully_purchased: { label: 'Fully purchased', color: 'success' },
-  purchased: { label: 'Purchased', color: 'success' }
-};
-
-const POSSESSION_LABELS = {
-  not_possessed: { label: 'Not possessed', color: 'default' },
-  purchased_not_possessed: { label: 'Purchased, not possessed', color: 'warning' },
-  partial_possession: { label: 'Partial possession', color: 'info' },
-  fully_possessed: { label: 'Fully possessed', color: 'success' },
-  possessed_unregistered: { label: 'Possessed (no registry)', color: 'error' }
-};
 
 const formatDate = (value) => {
   if (!value) return '—';
   return new Date(value).toLocaleDateString('en-GB');
 };
 
-const StatusChip = ({ map, value }) => {
-  const cfg = map[value] || { label: value || '—', color: 'default' };
-  return <Chip size="small" label={cfg.label} color={cfg.color} variant="outlined" />;
-};
-
 const PossessionViewer = () => {
   const [mozas, setMozas] = useState([]);
   const [mozaFilter, setMozaFilter] = useState('');
-  const [khewatFilter, setKhewatFilter] = useState('');
-  const [statusRows, setStatusRows] = useState([]);
-  const [statusLoading, setStatusLoading] = useState(false);
-  const [statusSearch, setStatusSearch] = useState('');
-  const [statusSearchDebounced, setStatusSearchDebounced] = useState('');
 
   const [registries, setRegistries] = useState([]);
   const [total, setTotal] = useState(0);
@@ -93,38 +67,9 @@ const PossessionViewer = () => {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => setStatusSearchDebounced(statusSearch), 300);
-    return () => clearTimeout(t);
-  }, [statusSearch]);
-
-  useEffect(() => {
     const t = setTimeout(() => setRecordSearchDebounced(recordSearch), 300);
     return () => clearTimeout(t);
   }, [recordSearch]);
-
-  const loadStatus = useCallback(async () => {
-    if (!mozaFilter) {
-      setStatusRows([]);
-      return;
-    }
-    setStatusLoading(true);
-    try {
-      const res = await getPossessionStatus({
-        moza: mozaFilter,
-        ...(khewatFilter && { khewatNo: khewatFilter }),
-        ...(statusSearchDebounced && { search: statusSearchDebounced })
-      });
-      setStatusRows(res.data?.data?.rows || []);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load possession status');
-    } finally {
-      setStatusLoading(false);
-    }
-  }, [mozaFilter, khewatFilter, statusSearchDebounced]);
-
-  useEffect(() => {
-    loadStatus();
-  }, [loadStatus]);
 
   const loadRecords = useCallback(async () => {
     setRecordsLoading(true);
@@ -150,18 +95,7 @@ const PossessionViewer = () => {
     loadRecords();
   }, [loadRecords]);
 
-  const statusByKhasra = useMemo(() => {
-    const map = {};
-    statusRows.forEach((row) => {
-      map[row.khasraEntryId] = row;
-    });
-    return map;
-  }, [statusRows]);
 
-  const khewatOptions = useMemo(() => {
-    const set = new Set(statusRows.map((r) => r.khewatNo).filter(Boolean));
-    return [...set].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
-  }, [statusRows]);
 
   const openCreate = () => {
     setEditing(null);
@@ -185,7 +119,7 @@ const PossessionViewer = () => {
       }
       setDialogOpen(false);
       setEditing(null);
-      await Promise.all([loadRecords(), loadStatus()]);
+      await loadRecords();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to save possession');
     } finally {
@@ -199,7 +133,7 @@ const PossessionViewer = () => {
     try {
       const res = await deletePossession(row._id);
       toast.success(res.data?.message || 'Possession deleted');
-      await Promise.all([loadRecords(), loadStatus()]);
+      await loadRecords();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete possession');
     } finally {
@@ -217,7 +151,7 @@ const PossessionViewer = () => {
           select
           label="Moza"
           value={mozaFilter}
-          onChange={(e) => { setMozaFilter(e.target.value); setKhewatFilter(''); }}
+          onChange={(e) => setMozaFilter(e.target.value)}
           sx={{ minWidth: 180 }}
         >
           <MenuItem value="">Select mouza</MenuItem>
@@ -225,96 +159,11 @@ const PossessionViewer = () => {
             <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
           ))}
         </TextField>
-        <TextField
-          size="small"
-          select
-          label="Khewat"
-          value={khewatFilter}
-          onChange={(e) => setKhewatFilter(e.target.value)}
-          sx={{ minWidth: 120 }}
-          disabled={!mozaFilter}
-        >
-          <MenuItem value="">All</MenuItem>
-          {khewatOptions.map((k) => (
-            <MenuItem key={k} value={k}>{k}</MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          size="small"
-          placeholder="Search khasra…"
-          value={statusSearch}
-          onChange={(e) => setStatusSearch(e.target.value)}
-          disabled={!mozaFilter}
-          sx={{ maxWidth: 200 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" color="action" />
-              </InputAdornment>
-            )
-          }}
-        />
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="contained" startIcon={<Add />} onClick={openCreate} disabled={!mozas.length}>
           Add Possession
         </Button>
       </Stack>
-
-      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-        Khasra status — purchased vs possessed
-      </Typography>
-
-      {!mozaFilter ? (
-        <Paper variant="outlined" sx={{ p: 3, mb: 3, textAlign: 'center' }}>
-          <Typography color="text.secondary">Select a mouza to see purchase and possession status per khasra.</Typography>
-        </Paper>
-      ) : statusLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4, mb: 3 }}>
-          <CircularProgress size={28} />
-        </Box>
-      ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ mb: 3, maxHeight: 360 }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell><strong>Sr</strong></TableCell>
-                <TableCell><strong>Khewat</strong></TableCell>
-                <TableCell><strong>Khasra</strong></TableCell>
-                <TableCell><strong>Baseline</strong></TableCell>
-                <TableCell><strong>Registered</strong></TableCell>
-                <TableCell><strong>Possessed</strong></TableCell>
-                <TableCell><strong>Purchase</strong></TableCell>
-                <TableCell><strong>Possession</strong></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {statusRows.map((row) => (
-                <TableRow key={row.khasraEntryId} hover>
-                  <TableCell>{row.srNo}</TableCell>
-                  <TableCell>{row.khewatNo}</TableCell>
-                  <TableCell>{row.khasraNo}</TableCell>
-                  <TableCell>{formatKMS(row.baseline)}</TableCell>
-                  <TableCell>{formatKMS(row.registered)}</TableCell>
-                  <TableCell>{formatKMS(row.possessed)}</TableCell>
-                  <TableCell>
-                    <StatusChip map={PURCHASE_LABELS} value={row.purchaseStatus} />
-                  </TableCell>
-                  <TableCell>
-                    <StatusChip map={POSSESSION_LABELS} value={row.possessionStatus} />
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!statusRows.length && (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
-                    No khasra records for this filter.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
 
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
         Possession records
@@ -355,6 +204,7 @@ const PossessionViewer = () => {
                 <TableCell><strong>Khewat</strong></TableCell>
                 <TableCell><strong>Ref</strong></TableCell>
                 <TableCell><strong>Registry</strong></TableCell>
+                <TableCell><strong>Khasra</strong></TableCell>
                 <TableCell><strong>Total Possessed</strong></TableCell>
                 <TableCell><strong>Lines</strong></TableCell>
                 <TableCell align="center" width={128}><strong>Actions</strong></TableCell>
@@ -368,6 +218,7 @@ const PossessionViewer = () => {
                   <TableCell>{row.khewatNo}</TableCell>
                   <TableCell>{row.possessionRef || '—'}</TableCell>
                   <TableCell>{row.registry?.registryNo || '—'}</TableCell>
+                  <TableCell>{[...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '—'}</TableCell>
                   <TableCell>{formatKMS(row.totalArea)}</TableCell>
                   <TableCell>
                     <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />

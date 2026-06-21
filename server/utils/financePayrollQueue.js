@@ -239,7 +239,7 @@ const getFinancePayrollPeriodDetail = async (month, year) => {
   const payrolls = await Payroll.find({ month: m, year: y, status: { $in: AVP_READY_STATUSES } })
     .populate({
       path: 'employee',
-      select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName placementProject placementCompany',
+      select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName placementProject placementCompany cashSalary',
       populate: [
         { path: 'placementProject', select: 'name' },
         { path: 'placementCompany', select: 'name' },
@@ -320,6 +320,7 @@ const getFinancePayrollPeriodDetail = async (month, year) => {
       status: row.status,
       netSalary: row.netSalary,
       grossSalary: row.grossSalary,
+      isCashSalary: Boolean(row.isCashSalary),
       ...extractPayrollBreakdown(row),
       employee: mapFinancePayrollEmployee(row.employee, projectByEmployeeId)
     }))
@@ -336,7 +337,7 @@ const getFinancePayrollBankLetter = async (month, year) => {
   })
     .populate({
       path: 'employee',
-      select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName',
+      select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName cashSalary',
       populate: { path: 'bankName', select: 'name' }
     })
     .lean();
@@ -348,7 +349,7 @@ const getFinancePayrollBankLetter = async (month, year) => {
   }
 
   const rows = payrolls
-    .filter((p) => p.employee)
+    .filter((p) => p.employee && !p.isCashSalary)
     .map((p) => mapBankLetterRow(p, p.employee, p.employee.bankName))
     .sort((a, b) => String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true }));
 

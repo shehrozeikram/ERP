@@ -592,8 +592,9 @@ router.get('/journal-entries',
 router.get('/journal-entries/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { q } = await financeScope(req);
-    const entry = await JournalEntry.findOne(q({ _id: req.params.id }))
+    // Direct voucher links (payroll BPV, AP, etc.) must work even when the global
+    // finance company selector differs from the voucher's owning company.
+    const entry = await JournalEntry.findById(req.params.id)
       .populate('companyId', 'name companyCode')
       .populate('lines.account', 'accountNumber name type category')
       .populate('createdBy', 'firstName lastName')
@@ -1199,18 +1200,30 @@ router.post('/accounts-receivable/:id/payment',
 router.put('/accounts-payable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const bill = await AccountsPayable.findByIdAndUpdate(
-      req.params.id,
-      { $set: req.body },
-      { new: true, runValidators: true }
-    );
-
+    const bill = await AccountsPayable.findById(req.params.id);
     if (!bill) {
       return res.status(404).json({
         success: false,
         message: 'Bill not found'
       });
     }
+
+    const paid = Number(bill.amountPaid ?? bill.paidAmount ?? 0) || 0;
+    const advanceApplied = Number(bill.advanceApplied || 0) || 0;
+    const settlementPending = Number(
+      bill.settlementPending ?? ((bill.advancePending || 0) + (bill.paymentPending || 0))
+    ) || 0;
+    const nonEditableStatus = ['paid', 'partial', 'cancelled'].includes(bill.status);
+    const hasSettlement = paid + advanceApplied > 0 || settlementPending > 0;
+    if (nonEditableStatus || hasSettlement) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot edit vendor bill after payment has been recorded or is pending approval'
+      });
+    }
+
+    Object.assign(bill, req.body);
+    await bill.save();
 
     res.json({
       success: true,
@@ -1937,13 +1950,32 @@ router.get('/accounts-payable/:id',
         poDetail = { po, indent, quotations, grns };
       }
     }
+
+    let cashApproval = null;
+    const caId = bill.employeeAdvanceAllocations?.[0]?.cashApprovalId;
+    if (caId) {
+      const CashApproval = require('../models/procurement/CashApproval');
+      cashApproval = await CashApproval.findById(caId)
+        .populate('workflowHistory.changedBy', 'firstName lastName name email digitalSignature')
+        .lean();
+    } else if (bill.internalNotes && /CA-\d{4}\d{2}-\d{4}/.test(bill.internalNotes)) {
+      const caMatch = bill.internalNotes.match(/CA-\d{4}\d{2}-\d{4}/);
+      if (caMatch) {
+        const CashApproval = require('../models/procurement/CashApproval');
+        cashApproval = await CashApproval.findOne({ caNumber: caMatch[0] })
+          .populate('workflowHistory.changedBy', 'firstName lastName name email digitalSignature')
+          .lean();
+      }
+    }
+
     res.json({
       success: true,
       data: {
         ...bill,
         vendorName: bill.vendor?.name || 'Unknown Vendor',
         vendorEmail: bill.vendor?.email || '',
-        poDetail
+        poDetail,
+        cashApproval
       }
     });
   })

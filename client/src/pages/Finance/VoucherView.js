@@ -18,7 +18,6 @@ import { ArrowBack as BackIcon, Print as PrintIcon } from '@mui/icons-material';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
-import PayrollBpvDeductionSummary from '../../components/Finance/PayrollBpvDeductionSummary';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 
@@ -68,13 +67,21 @@ const VoucherView = () => {
   const [apPaymentApp, setApPaymentApp] = useState(null);
   const [payrollPeriodPaymentApp, setPayrollPeriodPaymentApp] = useState(null);
   const [approvalMsg, setApprovalMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
+        setLoadError('');
         const res = await api.get(`/finance/journal-entries/${id}`);
         setEntry(res?.data?.data || null);
+        if (!res?.data?.data) {
+          setLoadError('Voucher not found.');
+        }
+      } catch (err) {
+        setEntry(null);
+        setLoadError(err.response?.data?.message || 'Could not load voucher.');
       } finally {
         setLoading(false);
       }
@@ -287,24 +294,22 @@ const VoucherView = () => {
     return entry?.module === 'payroll' && (series === 'BPV' || series === 'CPV');
   }, [entry]);
 
-  const payrollSchedule = useMemo(() => {
-    const fromEntry = entry?.payrollVoucherSummary;
-    if (fromEntry?.breakdown) return fromEntry;
-    if (payrollPeriodPaymentApp?.paymentMeta?.breakdown) {
-      return {
-        companyName: payrollPeriodPaymentApp.companyName,
-        periodLabel: payrollPeriodPaymentApp.periodLabel,
-        employeeCount: payrollPeriodPaymentApp.employeeCount,
-        breakdown: payrollPeriodPaymentApp.paymentMeta.breakdown
-      };
-    }
-    return null;
-  }, [entry?.payrollVoucherSummary, payrollPeriodPaymentApp]);
-
-  const payrollPeriodLabel = payrollSchedule?.periodLabel || payrollPeriodPaymentApp?.periodLabel || monthName;
+  const payrollPeriodLabel =
+    entry?.payrollVoucherSummary?.periodLabel
+    || payrollPeriodPaymentApp?.periodLabel
+    || monthName;
+  const payrollEmployeeCount =
+    entry?.payrollVoucherSummary?.employeeCount ?? payrollPeriodPaymentApp?.employeeCount;
 
   if (loading) return <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>;
-  if (!entry) return <Box sx={{ p: 4 }}><Typography>Voucher not found</Typography></Box>;
+  if (!entry) {
+    return (
+      <Box sx={{ p: 4 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>{loadError || 'Voucher not found'}</Alert>
+        <Button startIcon={<BackIcon />} onClick={() => navigate(-1)}>Back</Button>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: 3 }}>
@@ -335,8 +340,8 @@ const VoucherView = () => {
             <Typography variant="body2"><strong>Voucher Type</strong> {voucherType}</Typography>
             <Typography variant="body2"><strong>Voucher No</strong> {entry.entryNumber}</Typography>
             <Typography variant="body2"><strong>Month</strong> {payrollPeriodLabel}</Typography>
-            {isPayrollBpv && payrollSchedule?.employeeCount != null ? (
-              <Typography variant="body2"><strong>Employees</strong> {payrollSchedule.employeeCount}</Typography>
+            {isPayrollBpv && payrollEmployeeCount != null ? (
+              <Typography variant="body2"><strong>Employees</strong> {payrollEmployeeCount}</Typography>
             ) : null}
             {vendorAdvanceDoc ? (
               <Typography variant="body2" sx={{ mt: 0.5 }}>
@@ -353,22 +358,12 @@ const VoucherView = () => {
           </Box>
         </Box>
 
-        {isPayrollBpv && payrollSchedule?.breakdown ? (
-          <PayrollBpvDeductionSummary
-            embedded
-            breakdown={payrollSchedule.breakdown}
-            periodLabel={payrollSchedule.periodLabel || payrollPeriodLabel}
-            companyName={payrollSchedule.companyName || voucherCompanyName}
-            employeeCount={payrollSchedule.employeeCount}
-          />
-        ) : null}
-
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
           {isPayrollBpv ? 'Accounting Entries' : 'Voucher Lines'}
         </Typography>
         {isPayrollBpv ? (
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-            Payment entry only — deductions and gross salary expense were posted at payroll approval (PAYAC accrual).
+            Gross salary expense, EOBI employer expense, and each deduction post to their chart of accounts; bank is credited for net pay.
           </Typography>
         ) : null}
         <Table size="small">

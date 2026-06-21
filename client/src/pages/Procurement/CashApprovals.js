@@ -89,6 +89,34 @@ const WORKFLOW_STEPS = [
   'Finance Authority Approved', 'Advance Issued', 'Payment Settled', 'Sent to Procurement', 'Completed'
 ];
 
+const FINANCE_EDITABLE_STATUSES = [
+  'Pending Finance'
+];
+
+const PROCUREMENT_EDITABLE_STATUSES = [
+  'Draft',
+  'Returned from Audit',
+  'Returned from CEO Office',
+  'Returned from CEO Secretariat'
+];
+
+const EMPTY_FINANCE_EDIT_FORM = {
+  notes: '',
+  internalNotes: '',
+  purpose: '',
+  accountsOfficerUser: null,
+  accountsManagerUser: null,
+  financeControllerUser: null,
+  signedCheckNumber: '',
+  signedCheckDate: '',
+  signedCheckBankName: '',
+  signedCheckRemarks: '',
+  advanceAmount: '',
+  advanceRemarks: '',
+  financeVerificationNotes: '',
+  settlementRemarks: ''
+};
+
 const getStepIndex = (status) => {
   const idx = WORKFLOW_STEPS.indexOf(status);
   return idx >= 0 ? idx : 0;
@@ -107,6 +135,7 @@ const CashApprovalsPage = () => {
   const location = useLocation();
   const { user } = useAuth();
   const theme = useTheme();
+  const isFinanceModule = location.pathname.startsWith('/finance/cash-approvals');
 
   const [approvalAuthority, setApprovalAuthority] = useState({
     preparedBy: '',
@@ -162,6 +191,30 @@ const CashApprovalsPage = () => {
 
   // Dialogs
   const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null });
+  const [financeEditDialog, setFinanceEditDialog] = useState({ open: false, data: null });
+  const [financeEditForm, setFinanceEditForm] = useState(EMPTY_FINANCE_EDIT_FORM);
+  const [financeEditLoading, setFinanceEditLoading] = useState(false);
+
+  const loadFinanceEditFormFromCa = useCallback((ca) => {
+    const fa = ca?.financeApprovalAuthorities || {};
+    setFinanceEditForm({
+      notes: ca?.notes || '',
+      internalNotes: ca?.internalNotes || '',
+      purpose: ca?.purpose || '',
+      accountsOfficerUser: fa.accountsOfficerUser?._id || fa.accountsOfficerUser || null,
+      accountsManagerUser: fa.accountsManagerUser?._id || fa.accountsManagerUser || null,
+      financeControllerUser: fa.financeControllerUser?._id || fa.financeControllerUser || null,
+      signedCheckNumber: ca?.signedCheckNumber || '',
+      signedCheckDate: ca?.signedCheckDate ? new Date(ca.signedCheckDate).toISOString().split('T')[0] : '',
+      signedCheckBankName: ca?.signedCheckBankName || '',
+      signedCheckRemarks: ca?.signedCheckRemarks || '',
+      advanceAmount: ca?.advanceAmount || ca?.totalAmount || '',
+      advanceRemarks: ca?.advanceRemarks || '',
+      financeVerificationNotes: ca?.financeVerificationNotes || '',
+      settlementRemarks: ca?.settlementRemarks || ''
+    });
+  }, []);
+
   const [viewDialog, setViewDialog] = useState({ open: false, data: null, tab: 0, quotations: [], linkedDocs: [] });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   const [actionDialog, setActionDialog] = useState({ open: false, type: '', ca: null });
@@ -190,6 +243,19 @@ const CashApprovalsPage = () => {
   }, [user]);
 
   const canViewFinanceOnlyTabs = ['super_admin', 'admin', 'finance_manager'].includes(user?.role) || userHasModuleAccess('finance');
+
+  const canFinanceEditCashApproval = useCallback((ca) => (
+    FINANCE_EDITABLE_STATUSES.includes(ca?.status) && canViewFinanceOnlyTabs
+  ), [canViewFinanceOnlyTabs]);
+
+  const canProcurementEditCashApproval = useCallback((ca) => (
+    PROCUREMENT_EDITABLE_STATUSES.includes(ca?.status)
+  ), []);
+
+  const canEditCashApproval = useCallback((ca) => {
+    if (isFinanceModule) return canFinanceEditCashApproval(ca);
+    return canProcurementEditCashApproval(ca);
+  }, [isFinanceModule, canFinanceEditCashApproval, canProcurementEditCashApproval]);
 
   const loadStatistics = useCallback(async () => {
     try {
@@ -295,7 +361,7 @@ const CashApprovalsPage = () => {
         financeRep: '',
         managerProcurement: ''
       });
-    } else if (formDialog.open && formDialog.mode === 'edit' && formDialog.data) {
+    } else if (formDialog.open && ['edit', 'finance-edit'].includes(formDialog.mode) && formDialog.data) {
       const ca = formDialog.data;
       setFormData({
         vendor: ca.vendor?._id || ca.vendor || '',
@@ -329,11 +395,248 @@ const CashApprovalsPage = () => {
       } else {
         setObservationAnswers({});
       }
+      if (formDialog.mode === 'finance-edit') {
+        loadFinanceEditFormFromCa(ca);
+      }
     }
-  }, [formDialog.open, formDialog.mode, formDialog.data, prefillQuotationId, user]);
+  }, [formDialog.open, formDialog.mode, formDialog.data, prefillQuotationId, user, loadFinanceEditFormFromCa]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
   const clearMessages = () => { setError(''); setSuccess(''); };
+
+  const openCashApprovalEdit = async (ca) => {
+    clearMessages();
+    try {
+      const res = await procurementService.getCashApprovalById(ca._id);
+      const doc = res?.success ? res.data : ca;
+      if (isFinanceModule && canFinanceEditCashApproval(doc) && isGeneralModuleCashApproval(doc)) {
+        loadFinanceEditFormFromCa(doc);
+        setFinanceEditDialog({ open: true, data: doc });
+        return;
+      }
+      if (isFinanceModule && canFinanceEditCashApproval(doc)) {
+        loadFinanceEditFormFromCa(doc);
+        setFormDialog({ open: true, mode: 'finance-edit', data: doc });
+        return;
+      }
+      setFormDialog({ open: true, mode: 'edit', data: doc });
+    } catch {
+      if (isFinanceModule && canFinanceEditCashApproval(ca) && isGeneralModuleCashApproval(ca)) {
+        loadFinanceEditFormFromCa(ca);
+        setFinanceEditDialog({ open: true, data: ca });
+      } else {
+        setFormDialog({ open: true, mode: isFinanceModule && canFinanceEditCashApproval(ca) ? 'finance-edit' : 'edit', data: ca });
+        if (isFinanceModule && canFinanceEditCashApproval(ca)) loadFinanceEditFormFromCa(ca);
+      }
+    }
+  };
+
+  const appendFinanceEditFields = (fd) => {
+    fd.append('internalNotes', financeEditForm.internalNotes || '');
+    fd.append('financeApprovalAuthorities', JSON.stringify({
+      accountsOfficerUser: financeEditForm.accountsOfficerUser || null,
+      accountsManagerUser: financeEditForm.accountsManagerUser || null,
+      financeControllerUser: financeEditForm.financeControllerUser || null
+    }));
+    fd.append('signedCheckNumber', financeEditForm.signedCheckNumber || '');
+    fd.append('signedCheckDate', financeEditForm.signedCheckDate || '');
+    fd.append('signedCheckBankName', financeEditForm.signedCheckBankName || '');
+    fd.append('signedCheckRemarks', financeEditForm.signedCheckRemarks || '');
+    fd.append('advanceAmount', String(financeEditForm.advanceAmount || ''));
+    fd.append('advanceRemarks', financeEditForm.advanceRemarks || '');
+    fd.append('financeVerificationNotes', financeEditForm.financeVerificationNotes || '');
+    fd.append('settlementRemarks', financeEditForm.settlementRemarks || '');
+  };
+
+  const buildFinanceEditPayload = () => ({
+    notes: financeEditForm.notes || '',
+    purpose: financeEditForm.purpose || '',
+    internalNotes: financeEditForm.internalNotes || '',
+    financeApprovalAuthorities: {
+      accountsOfficerUser: financeEditForm.accountsOfficerUser || null,
+      accountsManagerUser: financeEditForm.accountsManagerUser || null,
+      financeControllerUser: financeEditForm.financeControllerUser || null
+    },
+    signedCheckNumber: financeEditForm.signedCheckNumber || '',
+    signedCheckDate: financeEditForm.signedCheckDate || '',
+    signedCheckBankName: financeEditForm.signedCheckBankName || '',
+    signedCheckRemarks: financeEditForm.signedCheckRemarks || '',
+    advanceAmount: financeEditForm.advanceAmount || '',
+    advanceRemarks: financeEditForm.advanceRemarks || '',
+    financeVerificationNotes: financeEditForm.financeVerificationNotes || '',
+    settlementRemarks: financeEditForm.settlementRemarks || ''
+  });
+
+  const handleFinanceEditSubmit = async () => {
+    const id = financeEditDialog.data?._id;
+    if (!id) return;
+    clearMessages();
+    setFinanceEditLoading(true);
+    try {
+      await procurementService.updateCashApproval(id, buildFinanceEditPayload());
+      setSuccess('Cash Approval updated successfully');
+      setFinanceEditDialog({ open: false, data: null });
+      setFinanceEditForm(EMPTY_FINANCE_EDIT_FORM);
+      refreshList();
+      if (viewDialog.open && viewDialog.data?._id === id) {
+        const res = await procurementService.getCashApprovalById(id);
+        if (res?.success) setViewDialog((prev) => ({ ...prev, data: res.data }));
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update Cash Approval');
+    } finally {
+      setFinanceEditLoading(false);
+    }
+  };
+
+  const renderFinanceEditFields = (caStatus, { includePurpose = false, includeNotes = false } = {}) => (
+    <>
+      {(includePurpose || includeNotes) && (
+        <>
+          {includePurpose && (
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Purpose"
+                value={financeEditForm.purpose}
+                onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, purpose: e.target.value }))}
+                multiline
+                minRows={2}
+              />
+            </Grid>
+          )}
+          {includeNotes && (
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                value={financeEditForm.notes}
+                onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, notes: e.target.value }))}
+                multiline
+                minRows={2}
+              />
+            </Grid>
+          )}
+        </>
+      )}
+      <Grid item xs={12}>
+        <TextField
+          fullWidth
+          label="Internal Notes"
+          value={financeEditForm.internalNotes}
+          onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, internalNotes: e.target.value }))}
+          multiline
+          minRows={2}
+        />
+      </Grid>
+      {['Pending Finance', 'Finance Authority Approved'].includes(caStatus) && (
+        <>
+          <Grid item xs={12}>
+            <Divider sx={{ my: 1 }} />
+            <Typography variant="subtitle1" fontWeight={600}>Finance Approval Authorities</Typography>
+          </Grid>
+          {[
+            { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
+            { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+            { key: 'financeControllerUser', label: 'GM Finance' }
+          ].map((slot) => (
+            <Grid item xs={12} md={4} key={slot.key}>
+              <Autocomplete
+                options={financeAuthorityUsers}
+                value={financeAuthorityUsers.find((u) => String(u?._id || u?.id || '') === String(financeEditForm[slot.key] || '')) || null}
+                getOptionLabel={(u) => `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || u.employeeId || ''}
+                onChange={(_, v) => setFinanceEditForm((prev) => ({ ...prev, [slot.key]: String(v?._id || v?.id || '').trim() || null }))}
+                renderInput={(params) => <TextField {...params} label={slot.label} size="small" />}
+              />
+            </Grid>
+          ))}
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Advance Amount"
+              value={financeEditForm.advanceAmount}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, advanceAmount: e.target.value }))}
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Advance Remarks"
+              value={financeEditForm.advanceRemarks}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, advanceRemarks: e.target.value }))}
+            />
+          </Grid>
+        </>
+      )}
+      {['Advance Issued', 'Evidence Submitted', 'Payment Settled', 'Finance Authority Approved'].includes(caStatus) && (
+        <>
+          <Grid item xs={12}>
+            <Divider sx={{ my: 1 }} />
+            <Typography variant="subtitle1" fontWeight={600}>Signed Check / Payment Details</Typography>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Check / Reference No."
+              value={financeEditForm.signedCheckNumber}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, signedCheckNumber: e.target.value }))}
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              type="date"
+              label="Check / Payment Date"
+              value={financeEditForm.signedCheckDate}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, signedCheckDate: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Bank Name"
+              value={financeEditForm.signedCheckBankName}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, signedCheckBankName: e.target.value }))}
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Payment Remarks"
+              value={financeEditForm.signedCheckRemarks}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, signedCheckRemarks: e.target.value }))}
+            />
+          </Grid>
+        </>
+      )}
+      {['Evidence Submitted', 'Payment Settled'].includes(caStatus) && (
+        <>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Finance Verification Notes"
+              value={financeEditForm.financeVerificationNotes}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, financeVerificationNotes: e.target.value }))}
+              multiline
+              minRows={2}
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Settlement Remarks"
+              value={financeEditForm.settlementRemarks}
+              onChange={(e) => setFinanceEditForm((prev) => ({ ...prev, settlementRemarks: e.target.value }))}
+              multiline
+              minRows={2}
+            />
+          </Grid>
+        </>
+      )}
+    </>
+  );
   const computeItemAmount = (item) => ((item.quantity || 0) * (item.unitPrice || 0)) - (item.discount || 0);
   const computeSubtotal = (items) => items.reduce((s, i) => s + computeItemAmount(i), 0);
   const computeTotal = (items, shippingCost) => {
@@ -438,6 +741,7 @@ const CashApprovalsPage = () => {
         setSuccess('Cash Approval created successfully');
         setPrefillQuotationId(null);
       } else {
+        if (formDialog.mode === 'finance-edit') appendFinanceEditFields(payload);
         await procurementService.updateCashApproval(formDialog.data._id, payload);
         setSuccess('Cash Approval updated successfully');
       }
@@ -860,6 +1164,41 @@ const CashApprovalsPage = () => {
     }
   }, [actionDialog.type, actionDialog.ca, user]);
 
+  useEffect(() => {
+    const financeEditOpen = (formDialog.open && formDialog.mode === 'finance-edit') || financeEditDialog.open;
+    if (!financeEditOpen) return;
+    api.get('/indents/approver-candidates', {
+      params: { limit: 100, departmentLike: 'finance/accounts', _ts: Date.now() },
+      headers: { 'Cache-Control': 'no-cache' }
+    }).then((r) => {
+      const allUsers = Array.isArray(r?.data?.data) ? r.data.data : [];
+      const normalize = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const financeUsers = allUsers.filter((u) => {
+        const dept = normalize(u?.department);
+        return dept.includes('finance') || dept.includes('account');
+      });
+      const currentUserId = String(user?.id || user?._id || '').trim();
+      const me = currentUserId
+        ? allUsers.find((u) => String(u?._id || u?.id || '').trim() === currentUserId) || {
+          _id: currentUserId,
+          id: currentUserId,
+          firstName: user?.firstName || '',
+          lastName: user?.lastName || '',
+          email: user?.email || '',
+          employeeId: user?.employeeId || '',
+          department: user?.department || ''
+        }
+        : null;
+      const nextUsers = [...financeUsers];
+      if (me && !nextUsers.some((u) => String(u?._id || u?.id || '').trim() === currentUserId)) {
+        nextUsers.unshift(me);
+      }
+      setFinanceAuthorityUsers((prev) => (nextUsers.length ? nextUsers : prev));
+    }).catch(() => {
+      setFinanceAuthorityUsers((prev) => prev || []);
+    });
+  }, [formDialog.open, formDialog.mode, financeEditDialog.open, user]);
+
   const saveFinanceAuthorities = async () => {
     if (!actionDialog?.ca?._id) return;
     try {
@@ -1018,7 +1357,7 @@ const CashApprovalsPage = () => {
                 Cash Approvals
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Manage cash advance approvals and finance workflow
+                {isFinanceModule ? 'Review and manage cash approvals in the finance workflow' : 'Manage cash advance approvals and finance workflow'}
               </Typography>
             </Box>
           </Box>
@@ -1026,6 +1365,7 @@ const CashApprovalsPage = () => {
             <Button variant="outlined" startIcon={<RefreshIcon />} onClick={refreshList}>
               Refresh
             </Button>
+            {!isFinanceModule && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => {
               setPrefillQuotationId(null);
               setApprovalAuthority({
@@ -1039,6 +1379,7 @@ const CashApprovalsPage = () => {
             }}>
               New Cash Approval
             </Button>
+            )}
           </Box>
         </Box>
       </Paper>
@@ -1140,8 +1481,8 @@ const CashApprovalsPage = () => {
                   <TableCell align="center">
                     <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap">
                       <Tooltip title="View"><IconButton size="small" onClick={() => handleView(ca)}><ViewIcon fontSize="small" /></IconButton></Tooltip>
-                      {['Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'].includes(ca.status) && (
-                        <Tooltip title="Edit"><IconButton size="small" onClick={() => setFormDialog({ open: true, mode: 'edit', data: ca })}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                      {canEditCashApproval(ca) && (
+                        <Tooltip title="Edit"><IconButton size="small" onClick={() => openCashApprovalEdit(ca)}><EditIcon fontSize="small" /></IconButton></Tooltip>
                       )}
                       {['Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat', 'Rejected'].includes(ca.status) && (
                         <Tooltip title="Send to Audit">
@@ -1187,7 +1528,9 @@ const CashApprovalsPage = () => {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>{formDialog.mode === 'create' ? 'Create Cash Approval' : 'Edit Cash Approval'}</DialogTitle>
+        <DialogTitle>
+          {formDialog.mode === 'create' ? 'Create Cash Approval' : formDialog.mode === 'finance-edit' ? 'Edit Cash Approval (Finance)' : 'Edit Cash Approval'}
+        </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12} md={6}>
@@ -1285,6 +1628,7 @@ const CashApprovalsPage = () => {
               </Paper>
             </Grid>
 
+            {formDialog.mode !== 'finance-edit' && (
             <Grid item xs={12}>
               <Divider sx={{ my: 2 }} />
               <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 0.5 }}>Approval authorities</Typography>
@@ -1344,6 +1688,7 @@ const CashApprovalsPage = () => {
                 ))}
               </Grid>
             </Grid>
+            )}
 
             {formDialog.mode === 'edit' && formDialog.data?.status === 'Returned from Audit' && formDialog.data?.auditObservations?.length > 0 && (
               <Grid item xs={12}>
@@ -1375,6 +1720,8 @@ const CashApprovalsPage = () => {
               <TextField fullWidth multiline rows={2} label="Notes"
                 value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
             </Grid>
+
+            {formDialog.mode === 'finance-edit' && renderFinanceEditFields(formDialog.data?.status)}
           </Grid>
         </DialogContent>
         <DialogActions>
@@ -1413,6 +1760,9 @@ const CashApprovalsPage = () => {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6">Cash Approval Details</Typography>
               <Stack direction="row" spacing={1}>
+                {canEditCashApproval(viewDialog.data) && (
+                  <Button variant="outlined" size="small" startIcon={<EditIcon />} onClick={() => openCashApprovalEdit(viewDialog.data)}>Edit</Button>
+                )}
                 <Button variant="outlined" size="small" startIcon={<HistoryIcon />} onClick={() => setWorkflowHistoryDialog({ open: true, document: viewDialog.data })}>Workflow History</Button>
                 <Button variant="contained" size="small" startIcon={<PrintIcon />} onClick={() => window.print()}>Print</Button>
               </Stack>
@@ -2076,6 +2426,29 @@ const CashApprovalsPage = () => {
         }}
         onError={(msg) => setError(msg || 'Failed to post payment')}
       />
+
+      {/* General module — finance edit dialog */}
+      <Dialog
+        open={financeEditDialog.open}
+        onClose={() => { setFinanceEditDialog({ open: false, data: null }); setFinanceEditForm(EMPTY_FINANCE_EDIT_FORM); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Edit Cash Approval (Finance) — {financeEditDialog.data?.caNumber}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            {renderFinanceEditFields(financeEditDialog.data?.status, { includePurpose: true, includeNotes: true })}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setFinanceEditDialog({ open: false, data: null }); setFinanceEditForm(EMPTY_FINANCE_EDIT_FORM); }}>Cancel</Button>
+          <Button variant="contained" onClick={handleFinanceEditSubmit} disabled={financeEditLoading}>
+            {financeEditLoading ? <CircularProgress size={20} /> : 'Update'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete Confirm */}
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, id: null })} maxWidth="xs">

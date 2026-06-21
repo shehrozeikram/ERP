@@ -188,6 +188,18 @@ const hasFinanceAccess = (user) => {
   return false;
 };
 
+const PROCUREMENT_EDITABLE_STATUSES = [
+  'Pending Approval',
+  'Draft',
+  'Returned from Audit',
+  'Returned from CEO Office',
+  'Returned from CEO Secretariat'
+];
+
+const FINANCE_EDITABLE_STATUSES = [
+  'Pending Finance'
+];
+
 const hasProcurementAccess = (user) => {
   if (!user) return false;
   if (['super_admin', 'admin', 'procurement_manager'].includes(user.role)) return true;
@@ -471,6 +483,72 @@ const FINANCE_AUTHORITY_SLOT_CONFIG = [
   { key: 'accountsManagerUser', label: 'Accounts Manager' },
   { key: 'financeControllerUser', label: 'Finance Controller' }
 ];
+
+const parseFinanceApprovalAuthoritiesBody = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === 'string') return parseJsonBodyField(raw, null);
+  return raw;
+};
+
+const applyFinanceAuthorityUpdates = (ca, faBody, userId) => {
+  const fa = faBody || {};
+  const authorities = {
+    accountsOfficerUser: fa.accountsOfficerUser || null,
+    accountsManagerUser: fa.accountsManagerUser || null,
+    financeControllerUser: fa.financeControllerUser || null
+  };
+  const ids = Object.values(authorities).map((id) => String(id || '')).filter(Boolean);
+  if (ids.length !== new Set(ids).size) {
+    const err = new Error('Each finance authority must be assigned to a different user');
+    err.statusCode = 400;
+    throw err;
+  }
+  ca.financeApprovalAuthorities = authorities;
+  const keepKeys = FINANCE_AUTHORITY_SLOT_CONFIG
+    .filter((s) => String(authorities?.[s.key] || '').trim())
+    .map((s) => s.key);
+  ca.financeAuthorityApprovals = (Array.isArray(ca.financeAuthorityApprovals) ? ca.financeAuthorityApprovals : [])
+    .filter((a) => keepKeys.includes(String(a?.authorityKey || '').trim()));
+  ca.financeAuthoritiesAssignedBy = userId;
+  ca.financeAuthoritiesAssignedAt = new Date();
+};
+
+const applySignedCheckUpdates = (ca, body = {}) => {
+  if (body.signedCheckNumber !== undefined) ca.signedCheckNumber = body.signedCheckNumber || '';
+  if (body.signedCheckDate !== undefined) {
+    ca.signedCheckDate = body.signedCheckDate ? new Date(body.signedCheckDate) : null;
+  }
+  if (body.signedCheckBankName !== undefined) ca.signedCheckBankName = body.signedCheckBankName || '';
+  if (body.signedCheckRemarks !== undefined) ca.signedCheckRemarks = body.signedCheckRemarks || '';
+};
+
+const applyFinanceAdvanceFieldUpdates = async (ca, body = {}) => {
+  if (body.advanceAmount !== undefined && body.advanceAmount !== '') {
+    ca.advanceAmount = Math.round((Number(body.advanceAmount) || 0) * 100) / 100;
+  }
+  if (body.advancePaymentMethod !== undefined) ca.advancePaymentMethod = body.advancePaymentMethod || ca.advancePaymentMethod;
+  if (body.advanceRemarks !== undefined) ca.advanceRemarks = body.advanceRemarks || '';
+  if (body.advanceVoucherNo !== undefined) ca.advanceVoucherNo = body.advanceVoucherNo || '';
+  if (body.financeVerificationNotes !== undefined) ca.financeVerificationNotes = body.financeVerificationNotes || '';
+  if (body.settlementRemarks !== undefined) ca.settlementRemarks = body.settlementRemarks || '';
+  if (body.internalNotes !== undefined) ca.internalNotes = body.internalNotes || '';
+  if (body.advanceTo !== undefined) {
+    ca.advanceTo = body.advanceTo || null;
+    await applyAdvanceToName(ca, body.advanceTo, body.advanceToName);
+  } else if (body.advanceToName !== undefined) {
+    ca.advanceToName = body.advanceToName || '';
+  }
+};
+
+const applyFinanceEditExtras = async (ca, body, userId) => {
+  const financeAuthorities = parseFinanceApprovalAuthoritiesBody(body.financeApprovalAuthorities);
+  if (financeAuthorities) {
+    applyFinanceAuthorityUpdates(ca, financeAuthorities, userId);
+  }
+  applySignedCheckUpdates(ca, body);
+  await applyFinanceAdvanceFieldUpdates(ca, body);
+};
+
 const getRequiredFinanceAuthoritySlots = (ca) => {
   const authorities = ca?.financeApprovalAuthorities || {};
   return FINANCE_AUTHORITY_SLOT_CONFIG
@@ -1086,6 +1164,24 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
 
   if (isGeneralCashApproval(ca)) {
+    const isFinanceEdit = FINANCE_EDITABLE_STATUSES.includes(ca.status)
+      && (hasFinanceAccess(req.user) || ['super_admin', 'admin'].includes(req.user.role));
+
+    if (isFinanceEdit) {
+      const body = { ...req.body };
+      if (body.notes !== undefined) ca.notes = body.notes;
+      if (body.purpose !== undefined) ca.purpose = body.purpose;
+      try {
+        await applyFinanceEditExtras(ca, body, req.user.id);
+      } catch (err) {
+        return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+      }
+      ca.updatedBy = req.user.id;
+      await ca.save();
+      const updated = await fullPopulate(CashApproval.findById(ca._id));
+      return res.json({ success: true, message: 'Cash Approval updated', data: updated });
+    }
+
     if (!canManageGeneralCashApproval(req.user, ca) && !hasGeneralModuleAccess(req.user)) {
       return res.status(403).json({ success: false, message: 'Not allowed to edit this cash approval' });
     }
@@ -1187,11 +1283,34 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
     });
   }
 
-  const editableStatuses = ['Pending Approval', 'Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'];
-  if (!editableStatuses.includes(ca.status)) {
+  const isProcurementEditable = PROCUREMENT_EDITABLE_STATUSES.includes(ca.status);
+  const isFinanceEditable = FINANCE_EDITABLE_STATUSES.includes(ca.status)
+    && (hasFinanceAccess(req.user) || ['super_admin', 'admin'].includes(req.user.role));
+  if (!isProcurementEditable && !isFinanceEditable) {
     return res.status(400).json({ success: false, message: `Cannot edit a Cash Approval in "${ca.status}" status` });
   }
-  const { status: _s, caNumber: _n, createdBy: _c, workflowHistory: _w, originatingModule: _om, ...updates } = req.body;
+  const {
+    status: _s,
+    caNumber: _n,
+    createdBy: _c,
+    workflowHistory: _w,
+    originatingModule: _om,
+    financeApprovalAuthorities: _fa,
+    signedCheckNumber: _scn,
+    signedCheckDate: _scd,
+    signedCheckBankName: _scb,
+    signedCheckRemarks: _scr,
+    advanceAmount: _aa,
+    advancePaymentMethod: _apm,
+    advanceRemarks: _ar,
+    advanceVoucherNo: _avn,
+    financeVerificationNotes: _fvn,
+    settlementRemarks: _sr,
+    internalNotes: _in,
+    advanceTo: _at,
+    advanceToName: _atn,
+    ...updates
+  } = req.body;
 
   if (updates.items) {
     updates.items = mergeCashApprovalLineUploads(
@@ -1202,7 +1321,19 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
     );
   }
 
+  if (updates.approvalAuthorities && typeof updates.approvalAuthorities === 'string') {
+    updates.approvalAuthorities = parseJsonBodyField(updates.approvalAuthorities, ca.approvalAuthorities || {});
+  }
+
   Object.assign(ca, updates);
+
+  if (isFinanceEditable) {
+    try {
+      await applyFinanceEditExtras(ca, req.body, req.user.id);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+    }
+  }
 
   ca.updatedBy = req.user.id;
   await ca.save();

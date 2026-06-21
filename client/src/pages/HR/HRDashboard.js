@@ -88,7 +88,13 @@ function getEmployeeHireDate(employee) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function computeEmployeeStats(employees, departments) {
+function isDisciplinaryTermination(employee) {
+  const reason = (employee?.terminationReason || '').toLowerCase();
+  return ['disciplin', 'misconduct', 'violation', 'warning', 'show cause', 'fraud', 'policy']
+    .some(keyword => reason.includes(keyword));
+}
+
+function computeEmployeeStats(employees, departments, allEmployees = employees) {
   const now = new Date();
   const activeEmployees = employees.filter(isEmployedEmployee);
 
@@ -117,8 +123,8 @@ function computeEmployeeStats(employees, departments) {
       const hireDate = getEmployeeHireDate(emp);
       return hireDate && hireDate.getFullYear() === now.getFullYear();
     }).length,
-    resignations: employees.filter((emp) => emp.employmentStatus === 'Resigned').length,
-    disciplinaryCases: 0,
+    resignations: allEmployees.filter((emp) => emp.employmentStatus === 'Resigned').length,
+    disciplinaryCases: allEmployees.filter((emp) => isDisciplinaryTermination(emp)).length,
     avgBasicSalary: employees.length > 0 ? totalBasicSalary / employees.length : 0,
     avgGrossSalary: employees.length > 0 ? totalGrossSalary / employees.length : 0,
     totalBasicSalary,
@@ -170,12 +176,7 @@ const HRDashboard = () => {
   const [probationDialogOpen, setProbationDialogOpen] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
-
-  const isDisciplinaryTermination = (employee) => {
-    const reason = (employee?.terminationReason || '').toLowerCase();
-    return ['disciplin', 'misconduct', 'violation', 'warning', 'show cause', 'fraud', 'policy']
-      .some(keyword => reason.includes(keyword));
-  };
+  // Disciplinary termination checks are now handled by the module-level helper
 
   const getRandomColor = () => {
     const colors = [
@@ -465,9 +466,10 @@ const HRDashboard = () => {
       setError(null);
 
       // Full employee records (charts need salary, DOB, etc.); limit high enough for full workforce
-      const employeesResponse = await api.get('/hr/employees?limit=5000');
-      const employees = employeesResponse.data.data || [];
-      setAllEmployees(employees);
+      const employeesResponse = await api.get('/hr/employees?limit=5000&includeDeleted=true');
+      const allFetchedEmployees = employeesResponse.data.data || [];
+      setAllEmployees(allFetchedEmployees);
+      const employees = allFetchedEmployees.filter(emp => !emp.isDeleted);
       const canAccessHRModule = hasModuleAccess(user?.role, MODULE_KEYS.HR);
       if (canAccessHRModule) {
         const endingSoon = getEmployeesProbationEndingSoon(employees, PROBATION_ALERT_DAYS_BEFORE);
@@ -482,8 +484,7 @@ const HRDashboard = () => {
       const departmentsResponse = await api.get('/hr/departments');
       const departments = departmentsResponse.data.data || [];
 
-      const employeeStats = computeEmployeeStats(employees, departments);
-      employeeStats.disciplinaryCases = employees.filter((emp) => isDisciplinaryTermination(emp)).length;
+      const employeeStats = computeEmployeeStats(employees, departments, allFetchedEmployees);
 
       setStats(employeeStats);
       setEmployeesWithHireDate(

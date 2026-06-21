@@ -71,28 +71,28 @@ const employeeSchema = new mongoose.Schema({
   address: {
     street: {
       type: String,
-      required: function() {
+      required: function () {
         return this.employmentStatus !== 'Draft';
       }
     },
     city: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'City',
-      required: function() {
+      required: function () {
         return this.employmentStatus !== 'Draft';
       }
     },
     state: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Province',
-      required: function() {
+      required: function () {
         return this.employmentStatus !== 'Draft';
       }
     },
     country: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Country',
-      required: function() {
+      required: function () {
         return this.employmentStatus !== 'Draft';
       }
     }
@@ -100,19 +100,19 @@ const employeeSchema = new mongoose.Schema({
   emergencyContact: {
     name: {
       type: String,
-      required: function() {
+      required: function () {
         return this.employmentStatus !== 'Draft';
       }
     },
     relationship: {
       type: String,
-      required: function() {
+      required: function () {
         return this.employmentStatus !== 'Draft';
       }
     },
     phone: {
       type: String,
-      required: function() {
+      required: function () {
         return this.employmentStatus !== 'Draft';
       }
     },
@@ -121,7 +121,7 @@ const employeeSchema = new mongoose.Schema({
 
   qualification: {
     type: String,
-    required: function() {
+    required: function () {
       return this.employmentStatus !== 'Draft';
     },
     trim: true
@@ -399,22 +399,26 @@ const employeeSchema = new mongoose.Schema({
     required: false,
     trim: true
   },
+  cashSalary: {
+    type: Boolean,
+    default: false
+  },
   spouseName: {
     type: String,
-    required: function() {
+    required: function () {
       return this.maritalStatus === 'Married';
     },
     trim: true
   },
   appointmentDate: {
     type: Date,
-    required: function() {
+    required: function () {
       return this.employmentStatus !== 'Draft';
     }
   },
   probationPeriodMonths: {
     type: Number,
-    required: function() {
+    required: function () {
       return this.employmentStatus !== 'Draft';
     },
     min: [0, 'Probation period cannot be negative'],
@@ -504,7 +508,7 @@ const employeeSchema = new mongoose.Schema({
   },
   hireDate: {
     type: Date,
-    required: function() {
+    required: function () {
       return this.employmentStatus !== 'Draft';
     },
     default: Date.now
@@ -1148,7 +1152,7 @@ const employeeSchema = new mongoose.Schema({
   terminationDate: Date,
   terminationReason: String,
   notes: String,
-  
+
   // Talent Acquisition Integration
   candidateId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -1158,7 +1162,7 @@ const employeeSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'EmployeeOnboarding'
   },
-  
+
   // Increment Management Integration
   incrementHistory: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -1323,62 +1327,62 @@ employeeSchema.index({ candidateId: 1 });
 employeeSchema.index({ onboardingId: 1 });
 
 // Virtual for full name
-employeeSchema.virtual('fullName').get(function() {
+employeeSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
 // Virtual for age
-employeeSchema.virtual('age').get(function() {
+employeeSchema.virtual('age').get(function () {
   const today = new Date();
   const birthDate = new Date(this.dateOfBirth);
   let age = today.getFullYear() - birthDate.getFullYear();
   const monthDiff = today.getMonth() - birthDate.getMonth();
-  
+
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
     age--;
   }
-  
+
   return age;
 });
 
 // Virtual for years of service
-employeeSchema.virtual('yearsOfService').get(function() {
+employeeSchema.virtual('yearsOfService').get(function () {
   const today = new Date();
   const hireDate = new Date(this.hireDate);
   let years = today.getFullYear() - hireDate.getFullYear();
   const monthDiff = today.getMonth() - hireDate.getMonth();
-  
+
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < hireDate.getDate())) {
     years--;
   }
-  
+
   return years;
 });
 
 // Virtual for attendance percentage
-employeeSchema.virtual('attendancePercentage').get(function() {
+employeeSchema.virtual('attendancePercentage').get(function () {
   if (this.attendance.totalDays === 0) return 0;
   return ((this.attendance.presentDays / this.attendance.totalDays) * 100).toFixed(2);
 });
 
 // Auto-calculate salary components based on gross salary
-employeeSchema.virtual('calculatedBasic').get(function() {
+employeeSchema.virtual('calculatedBasic').get(function () {
   if (!this.salary?.gross) return 0;
-      return Math.round(this.salary.gross * 0.6666); // 66.66% of gross
+  return Math.round(this.salary.gross * 0.6666); // 66.66% of gross
 });
 
-employeeSchema.virtual('calculatedHouseRent').get(function() {
+employeeSchema.virtual('calculatedHouseRent').get(function () {
   if (!this.salary?.gross) return 0;
   return Math.round(this.salary.gross * 0.3); // 30% of gross
 });
 
-employeeSchema.virtual('calculatedMedical').get(function() {
+employeeSchema.virtual('calculatedMedical').get(function () {
   if (!this.salary?.gross) return 0;
   return Math.round(this.salary.gross * 0.1); // 10% of gross
 });
 
 // Salary calculation virtuals
-employeeSchema.virtual('totalAllowances').get(function() {
+employeeSchema.virtual('totalAllowances').get(function () {
   if (!this.salary) return 0;
   return (
     (this.salary.houseRent || this.calculatedHouseRent) +
@@ -1386,44 +1390,44 @@ employeeSchema.virtual('totalAllowances').get(function() {
   );
 });
 
-employeeSchema.virtual('grossSalary').get(function() {
+employeeSchema.virtual('grossSalary').get(function () {
   if (!this.salary) return 0;
   return this.salary.gross || 0;
 });
 
-employeeSchema.virtual('basicSalary').get(function() {
+employeeSchema.virtual('basicSalary').get(function () {
   return this.salary?.basic || 0;
 });
 
-employeeSchema.virtual('houseRentAllowance').get(function() {
+employeeSchema.virtual('houseRentAllowance').get(function () {
   return this.salary?.houseRent || 0;
 });
 
-employeeSchema.virtual('medicalAllowance').get(function() {
+employeeSchema.virtual('medicalAllowance').get(function () {
   return this.salary?.medical || 0;
 });
 
-employeeSchema.virtual('conveyanceAllowance').get(function() {
+employeeSchema.virtual('conveyanceAllowance').get(function () {
   return this.salary?.conveyance || 0;
 });
 
-employeeSchema.virtual('specialAllowance').get(function() {
+employeeSchema.virtual('specialAllowance').get(function () {
   return this.salary?.special || 0;
 });
 
-employeeSchema.virtual('otherAllowance').get(function() {
+employeeSchema.virtual('otherAllowance').get(function () {
   return this.salary?.other || 0;
 });
 
 // Pre-save middleware to auto-generate Employee ID, calculate probation dates, salary components, and update user reference
-employeeSchema.pre('save', async function(next) {
+employeeSchema.pre('save', async function (next) {
   // Unset email when empty - partial index allows multiple docs with null/empty
   const emailVal = this.email;
   if (emailVal === '' || emailVal === null || emailVal === undefined ||
-      (typeof emailVal === 'string' && (emailVal.trim() === '' || emailVal === 'null' || emailVal.toLowerCase() === 'undefined'))) {
+    (typeof emailVal === 'string' && (emailVal.trim() === '' || emailVal === 'null' || emailVal.toLowerCase() === 'undefined'))) {
     this.email = undefined;
   }
-  
+
   // Auto-generate Employee ID only for brand-new employees that have no ID yet.
   // Never re-assign an ID on an existing document — even if employeeId was accidentally cleared.
   if (!this.employeeId && this.isNew) {
@@ -1431,9 +1435,9 @@ employeeSchema.pre('save', async function(next) {
       // Find ALL employees (including deleted ones) to get the highest ID ever created
       // This ensures no ID is ever reused, even if employee is deleted
       const allEmployees = await this.constructor.find({}, { employeeId: 1 }).lean();
-      
+
       let highestId = 0;
-      
+
       // Convert all employee IDs to numbers and find the highest
       allEmployees.forEach(emp => {
         if (emp.employeeId) {
@@ -1444,13 +1448,13 @@ employeeSchema.pre('save', async function(next) {
           }
         }
       });
-      
+
       // Next ID is the highest + 1 (regardless of deletion status)
       const nextId = highestId + 1;
-      
+
       // Format as 5-digit string with leading zeros (e.g., 00001, 00002, 06381, 06382)
       this.employeeId = nextId.toString().padStart(5, '0');
-      
+
       console.log(`Generated new Employee ID: ${this.employeeId} (highest existing ID: ${highestId})`);
     } catch (error) {
       console.error('Error generating Employee ID:', error);
@@ -1462,9 +1466,9 @@ employeeSchema.pre('save', async function(next) {
   // Auto-calculate salary components if gross salary is provided
   if (this.salary?.gross && this.isModified('salary.gross')) {
     this.salary.basic = Math.round(this.salary.gross * 0.6666); // 66.66% of gross
-          this.salary.houseRent = Math.round(this.salary.gross * 0.2334); // 23.34% of gross
+    this.salary.houseRent = Math.round(this.salary.gross * 0.2334); // 23.34% of gross
     this.salary.medical = Math.round(this.salary.gross * 0.1); // 10% of gross
-    
+
     // Sync EOBI amount with active flag (respect user-configured amount)
     if (!this.eobi?.isActive) {
       this.eobi.amount = 0;
@@ -1477,47 +1481,47 @@ employeeSchema.pre('save', async function(next) {
     if (this.providentFund?.isActive) {
       // Pakistan Provident Fund: 8.34% of basic salary
       const basicSalary = this.salary.basic;
-              const pfPercentage = this.providentFund.percentage || 8.34;
-      
-              // Calculate PF amount (8.34% of basic salary)
+      const pfPercentage = this.providentFund.percentage || 8.34;
+
+      // Calculate PF amount (8.34% of basic salary)
       const pfAmount = Math.round((basicSalary * pfPercentage) / 100);
-      
+
       this.providentFund.amount = pfAmount;
     } else {
       this.providentFund.amount = 0;
     }
-    
+
     // Update related payrolls if this is an update (not a new employee)
     if (!this.isNew) {
       try {
         const Payroll = this.constructor.model('Payroll');
         const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../../utils/taxCalculator');
         const FBRTaxSlab = require('./FBRTaxSlab');
-        
+
         // Find all payrolls for this employee
-        const relatedPayrolls = await Payroll.find({ 
+        const relatedPayrolls = await Payroll.find({
           employee: this._id,
           status: { $in: ['Draft', 'Approved'] } // Only update draft and approved payrolls
         });
-        
+
         // Update each payroll with new salary structure
         for (const payroll of relatedPayrolls) {
           // Update basic salary and allowances
           payroll.basicSalary = this.salary.basic;
           payroll.houseRentAllowance = this.salary.houseRent;
           payroll.medicalAllowance = this.salary.medical;
-          
+
           // Recalculate gross salary
-          payroll.grossSalary = payroll.basicSalary + 
-            payroll.houseRentAllowance + 
-            payroll.medicalAllowance + 
-            payroll.conveyanceAllowance + 
-            payroll.specialAllowance + 
-            payroll.otherAllowance + 
-            payroll.overtimeAmount + 
-            payroll.performanceBonus + 
+          payroll.grossSalary = payroll.basicSalary +
+            payroll.houseRentAllowance +
+            payroll.medicalAllowance +
+            payroll.conveyanceAllowance +
+            payroll.specialAllowance +
+            payroll.otherAllowance +
+            payroll.overtimeAmount +
+            payroll.performanceBonus +
             payroll.otherBonus;
-          
+
           // Recalculate tax
           try {
             const taxableIncome = calculateTaxableIncome({
@@ -1530,7 +1534,7 @@ employeeSchema.pre('save', async function(next) {
                 medical: payroll.medicalAllowance
               }
             });
-            
+
             const annualTaxableIncome = taxableIncome * 12;
             const taxAmount = await FBRTaxSlab.calculateTax(annualTaxableIncome);
             payroll.incomeTax = Math.round(taxAmount / 12);
@@ -1549,20 +1553,20 @@ employeeSchema.pre('save', async function(next) {
             });
             payroll.incomeTax = calculateMonthlyTax(taxableIncome);
           }
-          
+
           // Recalculate total deductions
-          payroll.totalDeductions = payroll.providentFund + 
-            payroll.incomeTax + 
-            payroll.healthInsurance + 
+          payroll.totalDeductions = payroll.providentFund +
+            payroll.incomeTax +
+            payroll.healthInsurance +
             payroll.otherDeductions;
-          
+
           // Recalculate net salary
           payroll.netSalary = payroll.grossSalary - payroll.totalDeductions;
-          
+
           // Save the updated payroll
           await payroll.save();
         }
-        
+
         console.log(`Updated ${relatedPayrolls.length} payrolls for employee ${this.employeeId}`);
       } catch (error) {
         console.error('Error updating related payrolls:', error);
@@ -1587,7 +1591,7 @@ employeeSchema.pre('save', async function(next) {
     this.endOfProbationDate = endDate;
     this.confirmationDate = new Date(endDate); // Confirmation date is the same as end of probation date
   }
-  
+
   // Update corresponding user document
   if (this.isModified('firstName') || this.isModified('lastName') || this.isModified('email')) {
     this.constructor.model('User').findByIdAndUpdate(
@@ -1604,22 +1608,22 @@ employeeSchema.pre('save', async function(next) {
 });
 
 // Static method to find active employees
-employeeSchema.statics.findActive = function() {
+employeeSchema.statics.findActive = function () {
   return this.find({ isActive: true, employmentStatus: 'Active' });
 };
 
 // Static method to find employees by department
-employeeSchema.statics.findByDepartment = function(departmentId) {
+employeeSchema.statics.findByDepartment = function (departmentId) {
   return this.find({ department: departmentId, isActive: true });
 };
 
 // Static method to find employees by position
-employeeSchema.statics.findByPosition = function(positionId) {
+employeeSchema.statics.findByPosition = function (positionId) {
   return this.find({ position: positionId, isActive: true });
 };
 
 // Static method to get employee statistics
-employeeSchema.statics.getStatistics = async function() {
+employeeSchema.statics.getStatistics = async function () {
   const stats = await this.aggregate([
     { $match: { isDeleted: false } },
     {
@@ -1638,7 +1642,7 @@ employeeSchema.statics.getStatistics = async function() {
       }
     }
   ]);
-  
+
   return stats[0] || {
     totalEmployees: 0,
     activeEmployees: 0,
@@ -1650,7 +1654,7 @@ employeeSchema.statics.getStatistics = async function() {
 };
 
 // Static method to update all payrolls for an employee
-employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
+employeeSchema.statics.updateEmployeePayrolls = async function (employeeId) {
   const employee = await this.findOne({ _id: employeeId, isDeleted: false });
   if (!employee) {
     throw new Error('Employee not found or has been deleted');
@@ -1659,33 +1663,33 @@ employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
   const Payroll = this.model('Payroll');
   const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../../utils/taxCalculator');
   const FBRTaxSlab = require('./FBRTaxSlab');
-  
+
   // Find all payrolls for this employee
-  const relatedPayrolls = await Payroll.find({ 
+  const relatedPayrolls = await Payroll.find({
     employee: employeeId,
     status: { $in: ['Draft', 'Approved'] } // Only update draft and approved payrolls
   });
-  
+
   let updatedCount = 0;
-  
+
   // Update each payroll with new salary structure
   for (const payroll of relatedPayrolls) {
     // Update basic salary and allowances
     payroll.basicSalary = employee.salary.basic;
     payroll.houseRentAllowance = employee.salary.houseRent;
     payroll.medicalAllowance = employee.salary.medical;
-    
+
     // Recalculate gross salary
-    payroll.grossSalary = payroll.basicSalary + 
-      payroll.houseRentAllowance + 
-      payroll.medicalAllowance + 
-      payroll.conveyanceAllowance + 
-      payroll.specialAllowance + 
-      payroll.otherAllowance + 
-      payroll.overtimeAmount + 
-      payroll.performanceBonus + 
+    payroll.grossSalary = payroll.basicSalary +
+      payroll.houseRentAllowance +
+      payroll.medicalAllowance +
+      payroll.conveyanceAllowance +
+      payroll.specialAllowance +
+      payroll.otherAllowance +
+      payroll.overtimeAmount +
+      payroll.performanceBonus +
       payroll.otherBonus;
-    
+
     // Recalculate tax
     try {
       const taxableIncome = calculateTaxableIncome({
@@ -1698,7 +1702,7 @@ employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
           medical: payroll.medicalAllowance
         }
       });
-      
+
       const annualTaxableIncome = taxableIncome * 12;
       const taxAmount = await FBRTaxSlab.calculateTax(annualTaxableIncome);
       payroll.incomeTax = Math.round(taxAmount / 12);
@@ -1717,21 +1721,21 @@ employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
       });
       payroll.incomeTax = calculateMonthlyTax(taxableIncome);
     }
-    
+
     // Recalculate total deductions
-    payroll.totalDeductions = payroll.providentFund + 
-      payroll.incomeTax + 
-      payroll.healthInsurance + 
+    payroll.totalDeductions = payroll.providentFund +
+      payroll.incomeTax +
+      payroll.healthInsurance +
       payroll.otherDeductions;
-    
+
     // Recalculate net salary
     payroll.netSalary = payroll.grossSalary - payroll.totalDeductions;
-    
+
     // Save the updated payroll
     await payroll.save();
     updatedCount++;
   }
-  
+
   return {
     employeeId: employee.employeeId,
     employeeName: `${employee.firstName} ${employee.lastName}`,
@@ -1741,7 +1745,7 @@ employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
 };
 
 // IT Asset Management Methods
-employeeSchema.methods.assignAsset = async function(assetId, assignedBy, assignmentData) {
+employeeSchema.methods.assignAsset = async function (assetId, assignedBy, assignmentData) {
   const assetAssignment = {
     asset: assetId,
     assignedDate: new Date(),
@@ -1749,17 +1753,17 @@ employeeSchema.methods.assignAsset = async function(assetId, assignedBy, assignm
     status: 'Active',
     ...assignmentData
   };
-  
+
   this.assignedAssets.push(assetAssignment);
   await this.save();
   return assetAssignment;
 };
 
-employeeSchema.methods.returnAsset = async function(assetId, returnData) {
+employeeSchema.methods.returnAsset = async function (assetId, returnData) {
   const assetAssignment = this.assignedAssets.find(
     assignment => assignment.asset.toString() === assetId.toString() && assignment.status === 'Active'
   );
-  
+
   if (assetAssignment) {
     assetAssignment.status = 'Returned';
     assetAssignment.returnDate = new Date();
@@ -1767,11 +1771,11 @@ employeeSchema.methods.returnAsset = async function(assetId, returnData) {
     await this.save();
     return assetAssignment;
   }
-  
+
   return null;
 };
 
-employeeSchema.methods.assignLicense = async function(softwareId, assignedBy, assignmentData) {
+employeeSchema.methods.assignLicense = async function (softwareId, assignedBy, assignmentData) {
   const licenseAssignment = {
     software: softwareId,
     assignedDate: new Date(),
@@ -1779,17 +1783,17 @@ employeeSchema.methods.assignLicense = async function(softwareId, assignedBy, as
     status: 'Active',
     ...assignmentData
   };
-  
+
   this.assignedLicenses.push(licenseAssignment);
   await this.save();
   return licenseAssignment;
 };
 
-employeeSchema.methods.revokeLicense = async function(softwareId, revocationData) {
+employeeSchema.methods.revokeLicense = async function (softwareId, revocationData) {
   const licenseAssignment = this.assignedLicenses.find(
     assignment => assignment.software.toString() === softwareId.toString() && assignment.status === 'Active'
   );
-  
+
   if (licenseAssignment) {
     licenseAssignment.status = 'Revoked';
     licenseAssignment.revokedDate = new Date();
@@ -1797,15 +1801,15 @@ employeeSchema.methods.revokeLicense = async function(softwareId, revocationData
     await this.save();
     return licenseAssignment;
   }
-  
+
   return null;
 };
 
-employeeSchema.methods.getActiveAssets = function() {
+employeeSchema.methods.getActiveAssets = function () {
   return this.assignedAssets.filter(assignment => assignment.status === 'Active');
 };
 
-employeeSchema.methods.getActiveLicenses = function() {
+employeeSchema.methods.getActiveLicenses = function () {
   return this.assignedLicenses.filter(assignment => assignment.status === 'Active');
 };
 

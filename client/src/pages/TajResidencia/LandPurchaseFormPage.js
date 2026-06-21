@@ -59,6 +59,7 @@ const emptyForm = () => ({
   purchaseDate: new Date().toISOString().slice(0, 10),
   project: 'Taj Residencia',
   seller: null,
+  dealer: null,
   moza: '',
   selectedKhasras: [],
   totalArea: emptyArea(),
@@ -91,6 +92,7 @@ export default function LandPurchaseFormPage() {
   const [error, setError] = useState('');
 
   const [sellers, setSellers] = useState([]);
+  const [dealers, setDealers] = useState([]);
   const [mozas, setMozas] = useState([]);
   const [mozaKhasras, setMozaKhasras] = useState([]);
   const [priceDriver, setPriceDriver] = useState('rate');
@@ -114,8 +116,11 @@ export default function LandPurchaseFormPage() {
     try {
       const sellerRes = await landAcquisitionPartyService.getParties({ type: 'seller', limit: 100, page: 1 });
       setSellers(sellerRes.data || []);
+      const dealerRes = await landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100, page: 1 });
+      setDealers(dealerRes.data || []);
     } catch {
       setSellers([]);
+      setDealers([]);
     }
   }, []);
 
@@ -178,6 +183,7 @@ export default function LandPurchaseFormPage() {
           purchaseDate: row.purchaseDate ? new Date(row.purchaseDate).toISOString().slice(0, 10) : '',
           project: row.project || 'Taj Residencia',
           seller: row.seller || null,
+          dealer: row.dealer || null,
           moza: mozaId,
           selectedKhasras,
           totalArea: areaToForm(row.totalArea),
@@ -259,6 +265,7 @@ export default function LandPurchaseFormPage() {
       purchaseDate: form.purchaseDate,
       project: form.project,
       seller: form.seller?._id,
+      dealer: form.dealer?._id || undefined,
       moza: form.moza,
       lines,
       totalArea: parseAreaForm(form.totalArea),
@@ -335,6 +342,18 @@ export default function LandPurchaseFormPage() {
               isOptionEqualToValue={(opt, val) => String(opt?._id) === String(val?._id)}
               renderInput={(params) => (
                 <TextField {...params} label="Seller *" placeholder="Select seller" />
+              )}
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Autocomplete
+              options={dealers}
+              value={form.dealer}
+              onChange={(_, value) => setForm((prev) => ({ ...prev, dealer: value }))}
+              getOptionLabel={partyLabel}
+              isOptionEqualToValue={(opt, val) => String(opt?._id) === String(val?._id)}
+              renderInput={(params) => (
+                <TextField {...params} label="Dealer" placeholder="Select dealer" />
               )}
             />
           </Grid>
@@ -484,6 +503,7 @@ export default function LandPurchaseFormPage() {
               <Typography variant="body2"><strong>Purchase No:</strong> {form.purchaseNo || '—'}</Typography>
               <Typography variant="body2"><strong>Deal No:</strong> {form.dealNo || '—'}</Typography>
               <Typography variant="body2"><strong>Seller:</strong> {form.seller?.name || '—'}</Typography>
+              <Typography variant="body2"><strong>Dealer:</strong> {form.dealer?.name || '—'}</Typography>
               <Typography variant="body2"><strong>Moza:</strong> {mozas.find((m) => String(m._id) === String(form.moza))?.name || '—'}</Typography>
               <Typography variant="body2"><strong>Khasras:</strong> {form.selectedKhasras.map((k) => k.khasraNo).join(', ') || '—'}</Typography>
               <Typography variant="body2"><strong>Size:</strong> {formatAreaReadable(parseAreaForm(form.totalArea))}</Typography>

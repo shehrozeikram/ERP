@@ -76,6 +76,9 @@ const seedChartOfAccountsForCompany = async (companyId, { createdBy = null, skip
     results.push({ status: 'created', accountNumber: template.accountNumber, name: template.name, _id: created._id });
   }
 
+  const { ensureEobiPayableAccounts } = require('./eobiPayableAccount');
+  await ensureEobiPayableAccounts(companyId, createdBy);
+
   return {
     created: results.filter((row) => row.status === 'created').length,
     updated: results.filter((row) => row.status === 'updated').length,

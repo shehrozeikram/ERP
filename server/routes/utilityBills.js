@@ -6,6 +6,7 @@ const fs = require('fs');
 const mongoose = require('mongoose');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
+const { checkSubRoleAccess } = require('../config/permissions');
 const UtilityBill = require('../models/hr/UtilityBill');
 const UtilityStoreItem = require('../models/hr/UtilityStoreItem');
 const User = require('../models/User');
@@ -603,8 +604,16 @@ router.get('/form-master-data', permissions.checkSubRolePermission('admin', 'uti
 });
 
 // Get single utility bill
-router.get('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
+    const actorId = req.user?._id || req.user?.id;
+    const hasAdminAccess = await checkSubRoleAccess(actorId, 'admin', 'utility_bills_management', 'read');
+    const hasFinanceAccess = await checkSubRoleAccess(actorId, 'finance', 'accounts_payable', 'read');
+
+    if (!hasAdminAccess && !hasFinanceAccess) {
+      return res.status(403).json({ success: false, message: 'Insufficient sub-role permissions to perform this action' });
+    }
+
     let bill = await populateUtilityBill(UtilityBill.findById(req.params.id));
 
     if (!bill) {

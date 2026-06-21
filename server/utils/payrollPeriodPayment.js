@@ -10,7 +10,7 @@ const { PAYROLL_FINAL_APPROVED_STATUSES } = require('./payrollAuthorityPayrollSt
 const { resolveIftikharAccountsManager } = require('./payrollFinanceAuthorities');
 const {
   aggregatePayrollBreakdown,
-  validatePayrollBpvPaymentTotals
+  validatePayrollAccrualTotals
 } = require('./payrollBreakdown');
 const { buildPayrollBpvPaymentJournalLines } = require('./payrollAccrual');
 const {
@@ -85,6 +85,7 @@ const getPendingPayrollsForPeriod = async (month, year) => {
 const filterPayrollsByCompany = (payrolls, companyName) => {
   const target = normalizeCompanyName(companyName);
   return payrolls.filter((row) => {
+    // Note: Cash-salary employees are included so their Net Salary shows up as 'Cash Payment' in the BPV lines.
     const employeeCompany = resolvePlacementCompanyName(row.employee?.placementCompany) || 'Unassigned';
     return normalizeCompanyName(employeeCompany) === target;
   });
@@ -105,7 +106,7 @@ const buildDetailedPayrollPaymentLines = async ({
   periodLabel,
   companyName
 }) => {
-  validatePayrollBpvPaymentTotals(totals);
+  validatePayrollAccrualTotals(totals);
   return buildPayrollBpvPaymentJournalLines({
     companyId,
     totals,

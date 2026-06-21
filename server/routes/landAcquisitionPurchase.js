@@ -125,6 +125,8 @@ const buildDealPayload = (body) => {
     purchaseDate: body.purchaseDate ? new Date(body.purchaseDate) : null,
     project: String(body.project || 'Taj Residencia').trim() || 'Taj Residencia',
     seller: body.seller || undefined,
+    purchaser: body.purchaser || undefined,
+    dealer: body.dealer || undefined,
     moza: body.moza || undefined,
     lines: parseLines(body.lines),
     totalArea,
@@ -257,6 +259,7 @@ router.get('/purchases', asyncHandler(async (req, res) => {
       || String(row.project || '').toLowerCase().includes(q)
       || String(row.seller?.name || '').toLowerCase().includes(q)
       || String(row.seller?.cnic || '').toLowerCase().includes(q)
+      || String(row.dealer?.name || '').toLowerCase().includes(q)
       || String(row.moza?.name || '').toLowerCase().includes(q)
     );
   }

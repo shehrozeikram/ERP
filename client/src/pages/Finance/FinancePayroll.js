@@ -59,12 +59,20 @@ import {
   downloadPayrollCompanySummaryExcel,
   getNetPayableColumnLabel,
   openPayrollCompanySummaryPrint,
-  PROJECT_SUMMARY_AMOUNT_COLUMNS
+  PROJECT_SUMMARY_AMOUNT_COLUMNS,
+  aggregatePayrollBreakdownFromRows
 } from '../../utils/payrollFinanceSummaryReport';
 
 const SR_MANAGER_ACCOUNTS_NAME = 'Muhammad Iftikhar Rashid';
 
 const fmt = (n) => `Rs. ${Math.round(Number(n) || 0).toLocaleString('en-PK')}`;
+
+const getPayrollColumnAmount = (row, key) => {
+  if (key === 'eobiEmployee') {
+    return Number(row.eobiEmployee ?? row.eobiDeduction ?? row.eobi ?? 0);
+  }
+  return Number(row[key] ?? 0);
+};
 
 const fmtDateTime = (value) => {
   if (!value) return '—';
@@ -94,6 +102,19 @@ const statusChip = (status) => {
   if (status === 'draft_payment') return <Chip size="small" color="default" label="Draft BPV" />;
   if (status === 'pending_payment') return <Chip size="small" color="warning" label="Pending Payment" />;
   return <Chip size="small" label={status || '—'} />;
+};
+
+const payrollEmployeeStatusChip = (status) => {
+  const label = status || '—';
+  const isPaid = String(status || '').trim().toLowerCase() === 'paid';
+  return (
+    <Chip
+      size="small"
+      label={label}
+      color={isPaid ? 'success' : 'default'}
+      variant={isPaid ? 'filled' : 'outlined'}
+    />
+  );
 };
 
 export default function FinancePayroll() {
@@ -417,6 +438,13 @@ export default function FinancePayroll() {
     () => buildPayrollCompanySummary(detail?.payrolls || []),
     [detail]
   );
+
+  const employeeDetailTotals = useMemo(
+    () => aggregatePayrollBreakdownFromRows(filteredPayrolls),
+    [filteredPayrolls]
+  );
+
+  const netPayableColumnLabel = getNetPayableColumnLabel(detail?.periodLabel || selected?.periodLabel);
 
   const handleSelectPeriod = (row) => {
     setSearchParams({ month: String(row.month), year: String(row.year) });
@@ -879,53 +907,87 @@ export default function FinancePayroll() {
                 </Paper>
               ) : null}
 
-              <TableContainer>
-                <Table size="small">
+              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+                Employee Salary Detail
+                {companyFilter ? ` — ${companyFilter}` : ''}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Full salary breakdown per employee (same columns as Company-Wise Summary Report).
+                Scroll horizontally to view all earnings and deductions.
+              </Typography>
+              <TableContainer sx={{ maxHeight: 560, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                <Table size="small" stickyHeader sx={{ minWidth: 2200 }}>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Employee ID</TableCell>
-                      <TableCell>Name</TableCell>
-                      <TableCell>Company</TableCell>
-                      <TableCell>CNIC</TableCell>
-                      <TableCell>Branch</TableCell>
-                      <TableCell>Account No</TableCell>
-                      <TableCell align="right">Net Salary</TableCell>
-                      <TableCell>Status</TableCell>
+                      <TableCell sx={{ minWidth: 44 }}>Sr</TableCell>
+                      <TableCell sx={{ minWidth: 88 }}>Employee ID</TableCell>
+                      <TableCell sx={{ minWidth: 140 }}>Name</TableCell>
+                      <TableCell sx={{ minWidth: 160 }}>Company</TableCell>
+                      <TableCell sx={{ minWidth: 130 }}>CNIC</TableCell>
+                      <TableCell sx={{ minWidth: 72 }}>Branch</TableCell>
+                      <TableCell sx={{ minWidth: 130 }}>Account No</TableCell>
+                      {PROJECT_SUMMARY_AMOUNT_COLUMNS.map((col) => (
+                        <TableCell key={col.key} align="right" sx={{ whiteSpace: 'nowrap', minWidth: 110 }}>
+                          {col.label}
+                        </TableCell>
+                      ))}
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>
+                        {netPayableColumnLabel}
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 120 }}>Status</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {filteredPayrolls.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} align="center">
+                        <TableCell colSpan={PROJECT_SUMMARY_AMOUNT_COLUMNS.length + 9} align="center">
                           No employees match the selected company filter.
                         </TableCell>
                       </TableRow>
-                    ) : filteredPayrolls.map((row) => (
-                      <TableRow key={row._id}>
+                    ) : filteredPayrolls.map((row, index) => (
+                      <TableRow key={row._id} hover>
+                        <TableCell>{index + 1}</TableCell>
                         <TableCell>{row.employee?.employeeId || '—'}</TableCell>
-                        <TableCell>{row.employee?.name || '—'}</TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            {row.employee?.name || '—'}
+                            {row.isCashSalary && (
+                              <Chip label="Cash" size="small" color="warning" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                            )}
+                          </Box>
+                        </TableCell>
                         <TableCell>{row.employee?.company || '—'}</TableCell>
                         <TableCell>{row.employee?.idCard || '—'}</TableCell>
                         <TableCell>{row.employee?.branchCode || '—'}</TableCell>
                         <TableCell>{row.employee?.accountNumber || '—'}</TableCell>
-                        <TableCell align="right">{fmt(row.netSalary)}</TableCell>
-                        <TableCell><Chip size="small" label={row.status} /></TableCell>
+                        {PROJECT_SUMMARY_AMOUNT_COLUMNS.map((col) => (
+                          <TableCell key={col.key} align="right">
+                            {fmt(getPayrollColumnAmount(row, col.key))}
+                          </TableCell>
+                        ))}
+                        <TableCell align="right">{fmt(row.netPayable ?? row.netSalary)}</TableCell>
+                        <TableCell>{payrollEmployeeStatusChip(row.status)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                   <TableFooter>
                     <TableRow>
-                      <TableCell colSpan={6} align="right" sx={{ fontWeight: 700, borderTop: 2, borderColor: 'divider' }}>
-                        {companyFilter ? `Total — ${companyFilter}` : 'Total'}
-                        {' '}({filteredSummary.employeeCount} employees)
+                      <TableCell colSpan={7} align="right" sx={grandTotalRowSx}>
+                        <strong>
+                          {companyFilter ? `Total — ${companyFilter}` : 'Grand Total'}
+                        </strong>
+                        {' '}
+                        ({filteredSummary.employeeCount} employees)
                       </TableCell>
-                      <TableCell
-                        align="right"
-                        sx={{ fontWeight: 700, borderTop: 2, borderColor: 'divider' }}
-                      >
-                        {fmt(filteredSummary.totalNetSalary)}
+                      {PROJECT_SUMMARY_AMOUNT_COLUMNS.map((col) => (
+                        <TableCell key={col.key} align="right" sx={grandTotalRowSx}>
+                          <strong>{fmt(employeeDetailTotals[col.key])}</strong>
+                        </TableCell>
+                      ))}
+                      <TableCell align="right" sx={grandTotalRowSx}>
+                        <strong>{fmt(employeeDetailTotals.netPayable)}</strong>
                       </TableCell>
-                      <TableCell sx={{ borderTop: 2, borderColor: 'divider' }} />
+                      <TableCell sx={grandTotalRowSx} />
                     </TableRow>
                   </TableFooter>
                 </Table>
@@ -962,7 +1024,7 @@ export default function FinancePayroll() {
                     </TableCell>
                   ))}
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                    {getNetPayableColumnLabel(detail?.periodLabel || selected?.periodLabel)}
+                    {netPayableColumnLabel}
                   </TableCell>
                 </TableRow>
               </TableHead>
@@ -1213,8 +1275,7 @@ export default function FinancePayroll() {
                     />
                   </Stack>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                    Deductions and employer EOBI are accrued when payroll is approved (PAYAC journal).
-                    The BPV clears net Salaries Payable and credits the bank.
+                    Each deduction (EOBI employee/employer sub-accounts, loans, staff advance, tax, PF) and bank net payment post on this BPV.
                   </Typography>
                   <TableContainer>
                     <Table size="small">

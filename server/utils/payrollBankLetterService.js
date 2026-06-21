@@ -57,7 +57,7 @@ const buildLetterPayload = async (app) => {
     ? await Payroll.find({ _id: { $in: payrollIds } })
       .populate({
         path: 'employee',
-        select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName',
+        select: 'firstName lastName employeeId idCard branchCode bankAccountNumber accountNumber bankName cashSalary',
         populate: { path: 'bankName', select: 'name' }
       })
       .lean()
@@ -82,7 +82,7 @@ const buildLetterPayload = async (app) => {
   ).trim();
 
   const rows = payrolls
-    .filter((p) => p.employee)
+    .filter((p) => p.employee && !p.isCashSalary)
     .map((p) => mapBankLetterRow(p, p.employee, p.employee.bankName))
     .sort((a, b) => String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true }));
 

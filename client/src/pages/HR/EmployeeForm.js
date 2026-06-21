@@ -833,7 +833,8 @@ const EmployeeForm = () => {
             month: p.month,
             year: p.year
           }))
-        }
+        },
+        cashSalary: employeeData.cashSalary || false
       };
       
       formik.setValues(formData);
@@ -995,6 +996,7 @@ const EmployeeForm = () => {
       oldDesignation: undefined,
       employeeCategory: '',
       isActive: true,
+      cashSalary: false,
       employmentStatus: 'Draft', // Default to Draft for new employees
       address: {
         street: '',
@@ -3646,6 +3648,26 @@ const EmployeeForm = () => {
                 }}
                 required
               />
+            </Grid>
+
+            {/* Cash Salary Toggle */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.cashSalary || false}
+                      onChange={(e) => formik.setFieldValue('cashSalary', e.target.checked)}
+                      name="cashSalary"
+                      color="warning"
+                    />
+                  }
+                  label="Pay Salary via Cash"
+                />
+                <FormHelperText>
+                  When enabled, this employee's salary will be paid through cash and excluded from bank letter and BPV.
+                </FormHelperText>
+              </FormControl>
             </Grid>
 
             <Grid item xs={12}>

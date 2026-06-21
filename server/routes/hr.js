@@ -157,10 +157,14 @@ router.get('/employees',
       search,
       active,
       getAll = false, // New parameter to get all employees without pagination
-      withoutUser = false // Filter employees without user accounts
+      withoutUser = false, // Filter employees without user accounts
+      includeDeleted = false // Option to include soft-deleted employees (e.g. for turnover metrics)
     } = req.query;
 
-    const query = { isDeleted: false }; // Return all non-deleted employees (both active and inactive)
+    const query = {};
+    if (includeDeleted !== 'true' && includeDeleted !== true) {
+      query.isDeleted = false;
+    }
     
     // Filter employees without user accounts: no user link, or user link points to deleted user
     if (withoutUser === 'true' || withoutUser === true) {
@@ -212,7 +216,7 @@ router.get('/employees',
       // Get all employees without pagination for dropdowns and forms
       // Select only essential fields and populate only what's needed for list view
       employees = await Employee.find(query)
-        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate hireDate probationPeriodMonths endOfProbationDate confirmationDate terminationDate terminationReason updatedAt placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus createdAt profileImage user')
+        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate hireDate probationPeriodMonths endOfProbationDate confirmationDate terminationDate terminationReason updatedAt placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus createdAt profileImage user cashSalary')
         .populate('bankName', 'name type')
         .populate('placementCompany', 'name type')
         .populate('placementProject', 'name company')
@@ -442,6 +446,7 @@ router.post('/employees', [
   body('bankName').optional({ nullable: true, checkFalsy: true }),
   body('bankAccountNumber').optional({ nullable: true, checkFalsy: true }),
   body('foreignBankAccount').optional({ nullable: true, checkFalsy: true }),
+  body('cashSalary').optional().isBoolean().withMessage('Cash salary must be a boolean'),
   body('spouseName').optional().trim(),
   body('appointmentDate').notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').isNumeric().withMessage('Probation period must be a number'),
@@ -929,6 +934,7 @@ router.put('/employees/:id', [
   body('bankName').optional({ nullable: true, checkFalsy: true }),
   body('bankAccountNumber').optional({ nullable: true, checkFalsy: true }),
   body('foreignBankAccount').optional({ nullable: true, checkFalsy: true }),
+  body('cashSalary').optional().isBoolean().withMessage('Cash salary must be a boolean'),
   body('spouseName').optional().trim(),
   body('appointmentDate').optional().notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').optional().isNumeric().withMessage('Probation period must be a number'),

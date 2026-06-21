@@ -53,8 +53,8 @@ export const PAYROLL_DEDUCTION_SUMMARY_ROWS = [
   { key: 'companyLoan', label: 'Employee Loan Recovery' },
   { key: 'advanceDeduction', label: 'Staff Advance Recovery' },
   { key: 'empSecurityDed', label: 'Provident Fund (Employee)' },
-  { key: 'eobiEmployee', label: 'EOBI (Employee Share)' },
-  { key: 'eobiEmployer', label: 'EOBI (Employer Share)' },
+  { key: 'eobiEmployee', label: 'EOBI Payable — Employee Contribution' },
+  { key: 'eobiEmployer', label: 'EOBI Payable — Employer Contribution' },
   { key: 'healthInsurance', label: 'Health Insurance' },
   { key: 'attendanceDeduction', label: 'Attendance Deduction' },
   { key: 'leaveDeduction', label: 'Leave Deduction' },
@@ -120,22 +120,41 @@ export const aggregatePayrollBreakdownFromRows = (payrollRows = []) => {
 
 export const buildPayrollBpvPreviewLines = (payrollRows = [], { periodLabel = '', companyName = '' } = {}) => {
   const totals = aggregatePayrollBreakdownFromRows(payrollRows);
+  const lines = [];
+
+  [
+    { key: 'grossSalary', label: 'Salaries Expense' },
+    { key: 'eobiEmployerExpense', label: 'EOBI Employer Contribution (Expense)' }
+  ].forEach((slot) => {
+    const amount = roundAmount(totals[slot.key]);
+    if (amount > 0) lines.push({ side: 'Debit', label: slot.label, amount });
+  });
+
+  PAYROLL_DEDUCTION_SUMMARY_ROWS.forEach((slot) => {
+    const amount = roundAmount(totals[slot.key]);
+    if (amount > 0) lines.push({ side: 'Credit', label: slot.label, amount });
+  });
+
   const netAmount = roundAmount(totals.netPayable);
-  const lines = netAmount > 0
-    ? [
-      { side: 'Debit', label: 'Salaries Payable (Net)', amount: netAmount },
-      { side: 'Credit', label: 'Bank Payment (Net Salary)', amount: netAmount }
-    ]
-    : [];
+  if (netAmount > 0) {
+    lines.push({ side: 'Credit', label: 'Bank Payment (Net Salary)', amount: netAmount });
+  }
+
+  const totalDebit = lines
+    .filter((row) => row.side === 'Debit')
+    .reduce((sum, row) => sum + row.amount, 0);
+  const totalCredit = lines
+    .filter((row) => row.side === 'Credit')
+    .reduce((sum, row) => sum + row.amount, 0);
 
   return {
     lines,
     totals,
-    totalDebit: netAmount,
-    totalCredit: netAmount,
+    totalDebit,
+    totalCredit,
     periodLabel,
     companyName,
-    balanced: netAmount > 0
+    balanced: Math.abs(totalDebit - totalCredit) <= 1
   };
 };
 

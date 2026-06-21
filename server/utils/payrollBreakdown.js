@@ -37,10 +37,16 @@ const PAYROLL_PAYMENT_CREDIT_SLOTS = [
     accountNumber: '2210'
   },
   {
-    key: 'eobiPayable',
-    label: 'EOBI Payable',
-    voucherNarration: 'EOBI Payable (Employee + Employer)',
-    accountNumber: '2211'
+    key: 'eobiEmployee',
+    label: 'EOBI Payable — Employee Contribution',
+    voucherNarration: 'EOBI Payable — Employee Share',
+    accountNumber: '2211-01'
+  },
+  {
+    key: 'eobiEmployer',
+    label: 'EOBI Payable — Employer Contribution',
+    voucherNarration: 'EOBI Payable — Employer Share',
+    accountNumber: '2211-02'
   },
   {
     key: 'healthInsurance',
@@ -121,7 +127,9 @@ const PAYROLL_BREAKDOWN_TOTAL_KEYS = [
   'attendanceDeduction',
   'leaveDeduction',
   'otherDeductions',
-  'netPayable'
+  'netPayable',
+  'netPayableBank',
+  'netPayableCash'
 ];
 
 const emptyPayrollBreakdownTotals = () =>
@@ -201,7 +209,9 @@ const extractPayrollBreakdown = (payroll = {}) => {
     attendanceDeduction,
     leaveDeduction,
     otherDeductions,
-    netPayable
+    netPayable,
+    netPayableBank: Boolean(payroll.isCashSalary) ? 0 : netPayable,
+    netPayableCash: Boolean(payroll.isCashSalary) ? netPayable : 0
   };
 };
 
@@ -267,51 +277,72 @@ const validatePayrollAccrualTotals = (totals) => {
   return { debit, credit };
 };
 
-/** @deprecated use validatePayrollAccrualTotals */
-const validatePayrollPaymentTotals = validatePayrollAccrualTotals;
-
-const validatePayrollBpvPaymentTotals = (totals) => {
-  const net = round2(totals.netPayable);
-  if (net <= 0) {
-    const err = new Error('Payroll net bank payment must be greater than zero');
-    err.statusCode = 400;
-    throw err;
-  }
-  return { debit: net, credit: net };
-};
-
 const buildPayrollVoucherLineDescription = (slot, periodLabel, companyName) => {
   const base = slot?.voucherNarration || slot?.label || 'Payroll';
   return `${base} — ${periodLabel} — ${companyName}`;
 };
 
-/** Credit amount for BPV line — EOBI Payable is one combined 2211 line (employee + employer). */
-const resolvePayrollCreditSlotAmount = (totals, slot) => {
-  if (slot?.key === 'eobiPayable') {
-    return round2((totals.eobiEmployee || 0) + (totals.eobiEmployer || 0));
-  }
-  return round2(totals[slot.key]);
-};
+/** Credit amount for payroll accrual credit line. */
+const resolvePayrollCreditSlotAmount = (totals, slot) => round2(totals[slot.key]);
 
 const buildPayrollBpvPreviewLines = (totals, { periodLabel = '', companyName = '' } = {}) => {
-  validatePayrollBpvPaymentTotals(totals);
-  const netAmount = round2(totals.netPayable);
-  const lines = [
-    {
-      side: 'debit',
-      label: 'Salaries Payable (Net)',
-      narration: `Salaries Payable — Net Payment — ${periodLabel} — ${companyName}`,
-      amount: netAmount
-    },
-    {
-      side: 'credit',
-      label: 'Bank Payment (Net Salary)',
-      narration: `Payroll Bank Payment — ${periodLabel} — ${companyName}`,
-      amount: netAmount
-    }
-  ];
+  validatePayrollAccrualTotals(totals);
+  const lines = [];
 
-  return { lines, totalDebit: netAmount, totalCredit: netAmount };
+  for (const slot of PAYROLL_ACCRUAL_DEBIT_SLOTS) {
+    const amount = round2(totals[slot.key]);
+    if (amount <= 0) continue;
+    lines.push({
+      side: 'Debit',
+      label: slot.label,
+      amount
+    });
+  }
+
+  for (const slot of PAYROLL_PAYMENT_CREDIT_SLOTS) {
+    const amount = resolvePayrollCreditSlotAmount(totals, slot);
+    if (amount <= 0) continue;
+    lines.push({
+      side: 'Credit',
+      label: slot.label,
+      amount
+    });
+  }
+
+  const netAmountBank = round2(totals.netPayableBank ?? totals.netPayable);
+  if (netAmountBank > 0) {
+    lines.push({
+      side: 'Credit',
+      label: 'Bank Payment (Net Salary)',
+      amount: netAmountBank
+    });
+  }
+
+  const netAmountCash = round2(totals.netPayableCash || 0);
+  if (netAmountCash > 0) {
+    lines.push({
+      side: 'Credit',
+      label: 'Cash Payment (Net Salary)',
+      amount: netAmountCash
+    });
+  }
+
+  const totalDebit = lines
+    .filter((row) => row.side === 'Debit')
+    .reduce((sum, row) => sum + row.amount, 0);
+  const totalCredit = lines
+    .filter((row) => row.side === 'Credit')
+    .reduce((sum, row) => sum + row.amount, 0);
+
+  return {
+    lines,
+    totals,
+    totalDebit,
+    totalCredit,
+    periodLabel,
+    companyName,
+    balanced: Math.abs(totalDebit - totalCredit) <= 1
+  };
 };
 
 module.exports = {
@@ -323,8 +354,6 @@ module.exports = {
   extractPayrollBreakdown,
   aggregatePayrollBreakdown,
   validatePayrollAccrualTotals,
-  validatePayrollPaymentTotals,
-  validatePayrollBpvPaymentTotals,
   buildPayrollVoucherLineDescription,
   resolvePayrollCreditSlotAmount,
   buildPayrollBpvPreviewLines

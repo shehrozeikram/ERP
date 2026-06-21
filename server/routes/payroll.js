@@ -61,7 +61,7 @@ const router = express.Router();
 
 /** Fields required for payroll proration (joining + partial monthly pay) and salary math. */
 const PAYROLL_EMPLOYEE_SELECT =
-  'firstName lastName employeeId salary allowances arrears eobi manualTax hireDate appointmentDate partialSalaryPay placementDepartment placementProject placementDesignation department position providentFund';
+  'firstName lastName employeeId salary allowances arrears eobi manualTax hireDate appointmentDate partialSalaryPay placementDepartment placementProject placementDesignation department position providentFund cashSalary';
 
 const isProvidentFundEnabledForEmployee = (employee) =>
   employee?.providentFund?.isActive === true;
@@ -780,10 +780,10 @@ router.get('/monthly',
 
     // Select only essential fields for list view to improve performance
     const query = Payroll.find(matchStage)
-      .select('month year basicSalary grossSalary netSalary status employee createdAt remarks')
+      .select('month year basicSalary grossSalary netSalary status employee createdAt remarks isCashSalary proration')
       .populate({
         path: 'employee',
-        select: 'firstName lastName employeeId placementProject placementDepartment',
+        select: 'firstName lastName employeeId placementProject placementDepartment cashSalary',
         populate: [
           {
             path: 'placementProject',
@@ -1307,7 +1307,8 @@ router.get('/current-overview',
           department: employee.department,
           placementDepartment: employee.placementDepartment,
           placementProject: employee.placementProject,
-          position: employee.position
+          position: employee.position,
+          isCashSalary: Boolean(employee.cashSalary)
         });
       }
 
@@ -1891,6 +1892,7 @@ router.post('/', [
             currency: 'PKR',
             remarks: `Monthly payroll generated for ${month}/${year}${buildPayrollProrationRemarksSuffix(proration)}`,
             proration: proration?.isProrated ? proration : undefined,
+            isCashSalary: Boolean(employee.cashSalary),
             createdBy: req.user.id,
             status: 'Draft'
           };

@@ -54,7 +54,8 @@ import {
   History as HistoryIcon,
   Print as PrintIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
-  KeyboardArrowUp as KeyboardArrowUpIcon
+  KeyboardArrowUp as KeyboardArrowUpIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -64,6 +65,8 @@ import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/pay
 import toast from 'react-hot-toast';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
+import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
+import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import NarrationTableCell from '../../components/common/NarrationTableCell';
 import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
 import { useAuth } from '../../contexts/AuthContext';
@@ -115,6 +118,14 @@ const AccountsPayable = () => {
 
   const getSettlementPending = (bill) =>
     Number(bill?.settlementPending ?? ((bill?.advancePending || 0) + (bill?.paymentPending || 0))) || 0;
+
+  const canEditVendorBill = (bill) => {
+    if (!bill) return false;
+    if (['paid', 'partial', 'cancelled'].includes(bill.status)) return false;
+    if (getSettledAmount(bill) > 0) return false;
+    if (getSettlementPending(bill) > 0) return false;
+    return true;
+  };
 
   const getOutstanding = (bill) => {
     const total = Number(bill?.totalAmount || 0);
@@ -781,12 +792,17 @@ const AccountsPayable = () => {
   };
 
   const handleOpenEdit = (bill) => {
+    if (!canEditVendorBill(bill)) {
+      toast.error('This bill cannot be edited after payment has been recorded or is pending');
+      return;
+    }
     setSelectedBill(bill);
     setEditData({
       billNumber: bill.billNumber,
       totalAmount: bill.totalAmount,
       billDate: new Date(bill.billDate).toISOString().split('T')[0],
-      dueDate: new Date(bill.dueDate).toISOString().split('T')[0]
+      dueDate: new Date(bill.dueDate).toISOString().split('T')[0],
+      lineItems: bill.lineItems ? JSON.parse(JSON.stringify(bill.lineItems)) : []
     });
     setEditDialogOpen(true);
   };
@@ -1242,7 +1258,13 @@ const AccountsPayable = () => {
                           <Box sx={{ display: 'flex', gap: 1 }}>
                             <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon /></IconButton></Tooltip>
                             <Tooltip title="Make Payment"><IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)} disabled={bill.status === 'paid'}><PaymentIcon /></IconButton></Tooltip>
-                            <Tooltip title="Edit Bill"><IconButton size="small" onClick={() => handleOpenEdit(bill)}><EditIcon /></IconButton></Tooltip>
+                            <Tooltip title={canEditVendorBill(bill) ? 'Edit Bill' : 'Cannot edit after payment'}>
+                              <span>
+                                <IconButton size="small" onClick={() => handleOpenEdit(bill)} disabled={!canEditVendorBill(bill)}>
+                                  <EditIcon />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                             <Tooltip title="Print / Download Bill"><IconButton size="small" onClick={() => navigate(`/finance/bill-print/${bill._id}`)}><PrintIcon fontSize="small" /></IconButton></Tooltip>
                           </Box>
                         </TableCell>
@@ -1344,103 +1366,145 @@ const AccountsPayable = () => {
         <DialogContent dividers>
           {selectedBill && (
             <>
-              <Grid container spacing={3} sx={{ mb: 2 }}>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" color="textSecondary">Vendor Information</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{selectedBill.vendorName}</Typography>
-                  <Typography variant="body2">{selectedBill.vendorEmail}</Typography>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" color="textSecondary">Bill Status</Typography>
-                  <Chip 
-                    label={selectedBill.status?.toUpperCase()} 
-                    color={getStatusColor(selectedBill.status)}
-                    size="small"
-                  />
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Typography variant="subtitle2" color="textSecondary">Bill Date</Typography>
-                  <Typography variant="body2">{formatDate(selectedBill.billDate)}</Typography>
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Typography variant="subtitle2" color="textSecondary">Due Date</Typography>
-                  <Typography variant="body2">{formatDate(selectedBill.dueDate)}</Typography>
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Typography variant="subtitle2" color="textSecondary">Amount</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(selectedBill.totalAmount)}</Typography>
-                </Grid>
-              </Grid>
+              <CentralizedStoreBillInvoiceBody 
+                bill={{
+                  ...selectedBill,
+                  billId: selectedBill.billNumber,
+                  billDate: selectedBill.billDate,
+                  createdAt: selectedBill.createdAt || selectedBill.billDate,
+                  provider: selectedBill.vendorName || selectedBill.vendor?.name,
+                  location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
+                  notes: selectedBill.notes || selectedBill.internalNotes,
+                  billLines: (selectedBill.lineItems || []).map((line, idx) => ({
+                    ...line,
+                    itemName: line.description,
+                    itemCode: line.itemCode || 'N/A',
+                    amount: line.amount || (line.quantity * line.unitPrice)
+                  }))
+                }}
+                showChargesSummary={true}
+              />
 
-              {/* GRN / non-PO bills: payment summary (PO bills use Payment History tab) */}
-              {!(selectedBill.referenceType === 'purchase_order' && selectedBill.poDetail) && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <HistoryIcon /> Payment &amp; advance
-                  </Typography>
-                  <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
-                    <Grid container spacing={1}>
-                      <Grid item xs={6} md={3}>
-                        <Typography variant="caption" color="text.secondary">Bill Total</Typography>
-                        <Typography fontWeight={700}>{formatPKR(selectedBill?.totalAmount || 0)}</Typography>
-                      </Grid>
-                      <Grid item xs={6} md={3}>
-                        <Typography variant="caption" color="text.secondary">Advance Applied</Typography>
-                        <Typography fontWeight={700} color="info.main">{formatPKR(selectedBill?.advanceApplied || 0)}</Typography>
-                      </Grid>
-                      <Grid item xs={6} md={3}>
-                        <Typography variant="caption" color="text.secondary">Cash/Bank Paid</Typography>
-                        <Typography fontWeight={700} color="success.main">{formatPKR(getCashPaidAmount(selectedBill))}</Typography>
-                      </Grid>
-                      <Grid item xs={6} md={3}>
-                        <Typography variant="caption" color="text.secondary">Outstanding</Typography>
-                        <Typography fontWeight={800} color="error.main">{formatPKR(getOutstanding(selectedBill))}</Typography>
-                      </Grid>
-                    </Grid>
-                  </Paper>
-                  {selectedBill.payments && selectedBill.payments.length > 0 ? (
-                    <TableContainer>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow sx={{ bgcolor: 'grey.100' }}>
-                            <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold' }}>Method</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold' }}>Reference</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold' }} align="right">Amount</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {selectedBill.payments.map((payment, index) => (
-                            <TableRow key={index}>
-                              <TableCell>{formatDate(payment.paymentDate)}</TableCell>
-                              <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
-                              <TableCell>{payment.reference || '—'}</TableCell>
-                              <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
-                            </TableRow>
-                          ))}
-                          {(selectedBill?.advanceApplied || 0) > 0 && (
-                            <TableRow sx={{ bgcolor: 'info.50' }}>
-                              <TableCell>{formatDate(selectedBill?.updatedAt || selectedBill?.billDate)}</TableCell>
-                              <TableCell>advance adjustment</TableCell>
-                              <TableCell>Auto-applied to bill</TableCell>
-                              <TableCell align="right">{formatPKR(selectedBill.advanceApplied)}</TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  ) : (
-                    <>
-                      <Typography variant="body2" color="textSecondary">No cash/bank payments recorded yet</Typography>
-                      {(selectedBill?.advanceApplied || 0) > 0 && (
-                        <Typography variant="body2" sx={{ mt: 1 }} color="info.main">
-                          Advance adjustment applied: {formatPKR(selectedBill.advanceApplied)}
-                        </Typography>
-                      )}
-                    </>
-                  )}
-                </Box>
-              )}
+              {(() => {
+                const getApprovalRows = () => {
+                  const formatDateTime = (date) => {
+                    if (!date) return '-';
+                    return new Date(date).toLocaleString('en-PK', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit'
+                    });
+                  };
+
+                  const rows = [];
+                  
+                  // If linked to a Cash Approval, show its workflow history
+                  if (selectedBill?.cashApproval?.workflowHistory?.length > 0) {
+                    const history = [...selectedBill.cashApproval.workflowHistory].reverse();
+                    history.forEach(entry => {
+                      let actionDesc = entry.toStatus;
+                      if (entry.comments) {
+                        actionDesc += ` (${entry.comments})`;
+                      }
+                      rows.push({
+                        authority: actionDesc,
+                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
+                        signatureUser: entry.changedBy,
+                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
+                      });
+                    });
+                    return rows;
+                  }
+
+                  // If linked to a Purchase Order, show its workflow history
+                  if (selectedBill?.poDetail?.po?.workflowHistory?.length > 0) {
+                    const history = [...selectedBill.poDetail.po.workflowHistory].reverse();
+                    history.forEach(entry => {
+                      let actionDesc = entry.toStatus;
+                      if (entry.comments) {
+                        actionDesc += ` (${entry.comments})`;
+                      }
+                      rows.push({
+                        authority: actionDesc,
+                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
+                        signatureUser: entry.changedBy,
+                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
+                      });
+                    });
+                    return rows;
+                  }
+
+                  // Fallback for bills without workflow history
+                  rows.push({
+                    authority: 'Preparer',
+                    name: [selectedBill?.createdBy?.firstName, selectedBill?.createdBy?.lastName].filter(Boolean).join(' ') || selectedBill?.createdBy?.name || '-',
+                    signatureUser: selectedBill?.createdBy,
+                    dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
+                  });
+
+                  if (selectedBill?.approval?.approvedBy) {
+                    rows.push({
+                      authority: 'Approver',
+                      name: [selectedBill.approval.approvedBy.firstName, selectedBill.approval.approvedBy.lastName].filter(Boolean).join(' ') || selectedBill.approval.approvedBy.name || '-',
+                      signatureUser: selectedBill.approval.approvedBy,
+                      dateTime: selectedBill.approval.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
+                    });
+                  }
+                  return rows;
+                };
+                const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
+                return (
+                  <Table
+                    size="small"
+                    sx={{
+                      mt: 4,
+                      mb: 2,
+                      border: '1px solid',
+                      borderColor: 'grey.300',
+                      '& th': {
+                        bgcolor: 'grey.100',
+                        fontWeight: 800,
+                        fontSize: 14,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.300'
+                      },
+                      '& td': {
+                        fontSize: 14,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.200',
+                        py: 1.4
+                      },
+                      '& tr:last-child td': {
+                        borderBottom: 0
+                      }
+                    }}
+                  >
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Authority</TableCell>
+                        <TableCell>Name</TableCell>
+                        <TableCell>Digital Signature</TableCell>
+                        <TableCell>Date &amp; Time</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {getApprovalRows().map((row) => (
+                        <TableRow key={row.authority}>
+                          <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                          <TableCell>{row.name}</TableCell>
+                          <TableCell>
+                            {getSignatureSource(row) ? (
+                              <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                            ) : (
+                              row.signature || '-'
+                            )}
+                          </TableCell>
+                          <TableCell>{row.dateTime}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                );
+              })()}
 
               {/* PO-linked documents tabs */}
               {selectedBill.referenceType === 'purchase_order' && selectedBill.poDetail && (
@@ -2365,13 +2429,13 @@ const AccountsPayable = () => {
       <Dialog 
         open={editDialogOpen} 
         onClose={() => setEditDialogOpen(false)}
-        maxWidth="sm"
+        maxWidth={selectedBill?.referenceType === 'purchase_order' ? 'lg' : 'md'}
         fullWidth
       >
         <DialogTitle>Edit Bill: {selectedBill?.billNumber}</DialogTitle>
         <DialogContent dividers>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
+          <Grid container spacing={2} sx={{ mb: 4 }}>
+            <Grid item xs={12} md={3}>
               <TextField
                 fullWidth
                 label="Bill Number"
@@ -2380,7 +2444,7 @@ const AccountsPayable = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid item xs={12} md={3}>
               <TextField
                 fullWidth
                 label="Total Amount"
@@ -2390,7 +2454,7 @@ const AccountsPayable = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={3}>
               <TextField
                 fullWidth
                 label="Bill Date"
@@ -2401,7 +2465,7 @@ const AccountsPayable = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={3}>
               <TextField
                 fullWidth
                 label="Due Date"
@@ -2413,6 +2477,230 @@ const AccountsPayable = () => {
               />
             </Grid>
           </Grid>
+
+          <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>Line Items</Typography>
+          <Table size="small" sx={{ mb: 4, border: '1px solid', borderColor: 'grey.300' }}>
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableCell>Description</TableCell>
+                <TableCell align="right" width={100}>Quantity</TableCell>
+                <TableCell align="right" width={150}>Unit Price</TableCell>
+                <TableCell align="right" width={150}>Amount</TableCell>
+                <TableCell width={48} />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(editData.lineItems || []).map((line, idx) => (
+                <TableRow key={idx}>
+                  <TableCell>
+                    <TextField 
+                      fullWidth size="small" 
+                      value={line.description || ''} 
+                      onChange={e => {
+                        const newLines = [...editData.lineItems];
+                        newLines[idx].description = e.target.value;
+                        setEditData({ ...editData, lineItems: newLines });
+                      }}
+                      placeholder="Item description"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField 
+                      fullWidth size="small" type="number"
+                      value={line.quantity || 0} 
+                      onChange={e => {
+                        const newLines = [...editData.lineItems];
+                        newLines[idx].quantity = parseFloat(e.target.value) || 0;
+                        newLines[idx].amount = newLines[idx].quantity * newLines[idx].unitPrice;
+                        setEditData({ ...editData, lineItems: newLines });
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField 
+                      fullWidth size="small" type="number"
+                      value={line.unitPrice || 0} 
+                      onChange={e => {
+                        const newLines = [...editData.lineItems];
+                        newLines[idx].unitPrice = parseFloat(e.target.value) || 0;
+                        newLines[idx].amount = newLines[idx].quantity * newLines[idx].unitPrice;
+                        setEditData({ ...editData, lineItems: newLines });
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell align="right" sx={{ verticalAlign: 'middle' }}>
+                    {formatPKR(line.amount || 0)}
+                  </TableCell>
+                  <TableCell>
+                    <IconButton size="small" color="error" onClick={() => {
+                      const newLines = editData.lineItems.filter((_, i) => i !== idx);
+                      setEditData({ ...editData, lineItems: newLines });
+                    }}>
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Button startIcon={<AddIcon />} size="small" onClick={() => {
+                    setEditData({
+                      ...editData,
+                      lineItems: [...(editData.lineItems || []), { description: '', quantity: 1, unitPrice: 0, amount: 0 }]
+                    });
+                  }}>
+                    Add Line Item
+                  </Button>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+
+          <Divider sx={{ mb: 3 }} />
+
+          {selectedBill && (
+            <Box sx={{ opacity: 0.9 }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Document Preview</Typography>
+              <CentralizedStoreBillInvoiceBody 
+                bill={{
+                  ...selectedBill,
+                  billId: editData.billNumber || selectedBill.billNumber,
+                  billDate: editData.billDate || selectedBill.billDate,
+                  createdAt: selectedBill.createdAt || selectedBill.billDate,
+                  totalAmount: editData.totalAmount ?? selectedBill.totalAmount,
+                  provider: selectedBill.vendorName || selectedBill.vendor?.name,
+                  location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
+                  notes: selectedBill.notes || selectedBill.internalNotes,
+                  billLines: (editData.lineItems || []).map((line, idx) => ({
+                    ...line,
+                    itemName: line.description,
+                    itemCode: line.itemCode || 'N/A',
+                    amount: line.amount || (line.quantity * line.unitPrice)
+                  }))
+                }}
+                showChargesSummary={true}
+              />
+
+              {(() => {
+                const getApprovalRows = () => {
+                  const formatDateTime = (date) => {
+                    if (!date) return '-';
+                    return new Date(date).toLocaleString('en-PK', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit'
+                    });
+                  };
+
+                  const rows = [];
+                  if (selectedBill?.cashApproval?.workflowHistory?.length > 0) {
+                    const history = [...selectedBill.cashApproval.workflowHistory].reverse();
+                    history.forEach(entry => {
+                      let actionDesc = entry.toStatus;
+                      if (entry.comments) {
+                        actionDesc += ` (${entry.comments})`;
+                      }
+                      rows.push({
+                        authority: actionDesc,
+                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
+                        signatureUser: entry.changedBy,
+                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
+                      });
+                    });
+                    return rows;
+                  }
+                  if (selectedBill?.poDetail?.po?.workflowHistory?.length > 0) {
+                    const history = [...selectedBill.poDetail.po.workflowHistory].reverse();
+                    history.forEach(entry => {
+                      let actionDesc = entry.toStatus;
+                      if (entry.comments) {
+                        actionDesc += ` (${entry.comments})`;
+                      }
+                      rows.push({
+                        authority: actionDesc,
+                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
+                        signatureUser: entry.changedBy,
+                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
+                      });
+                    });
+                    return rows;
+                  }
+                  rows.push({
+                    authority: 'Preparer',
+                    name: [selectedBill?.createdBy?.firstName, selectedBill?.createdBy?.lastName].filter(Boolean).join(' ') || selectedBill?.createdBy?.name || '-',
+                    signatureUser: selectedBill?.createdBy,
+                    dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
+                  });
+                  if (selectedBill?.approval?.approvedBy) {
+                    rows.push({
+                      authority: 'Approver',
+                      name: [selectedBill.approval.approvedBy.firstName, selectedBill.approval.approvedBy.lastName].filter(Boolean).join(' ') || selectedBill.approval.approvedBy.name || '-',
+                      signatureUser: selectedBill.approval.approvedBy,
+                      dateTime: selectedBill.approval.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
+                    });
+                  }
+                  return rows;
+                };
+                const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
+                return (
+                  <Table
+                    size="small"
+                    sx={{
+                      mt: 4,
+                      mb: 2,
+                      border: '1px solid',
+                      borderColor: 'grey.300',
+                      '& th': {
+                        bgcolor: 'grey.100',
+                        fontWeight: 800,
+                        fontSize: 14,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.300'
+                      },
+                      '& td': {
+                        fontSize: 14,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.200',
+                        py: 1.4
+                      },
+                      '& tr:last-child td': {
+                        borderBottom: 0
+                      }
+                    }}
+                  >
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Authority</TableCell>
+                        <TableCell>Name</TableCell>
+                        <TableCell>Digital Signature</TableCell>
+                        <TableCell>Date & Time</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {getApprovalRows().map((row, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell sx={{ fontWeight: 600 }}>{row.authority}</TableCell>
+                          <TableCell>{row.name}</TableCell>
+                          <TableCell>
+                            {getSignatureSource(row) ? (
+                              <DigitalSignatureImage 
+                                signatureUrl={getSignatureSource(row)} 
+                                userName={row.name} 
+                              />
+                            ) : (
+                              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                Not signed
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>{row.dateTime}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                );
+              })()}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>

@@ -1842,6 +1842,9 @@ Do you want to:
                                   {employee.firstName} {employee.lastName}
                                 </Typography>
                                 <PayrollProrationBadge payroll={{ proration: employee.proration }} />
+                                {employee.isCashSalary && (
+                                  <Chip label="Cash" size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                )}
                               </Box>
                               <Typography variant="caption" color="textSecondary">
                                 {employee.employeeId}
@@ -2399,6 +2402,9 @@ Do you want to:
                                                 {payroll.employee?.firstName} {payroll.employee?.lastName}
                                               </Typography>
                                               <PayrollProrationBadge payroll={payroll} />
+                                              {payroll.isCashSalary && (
+                                                <Chip label="Cash" size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                              )}
                                             </Box>
                                             <Typography variant="caption" color="textSecondary">
                                               {formatEmployeeId(payroll.employee?.employeeId)}

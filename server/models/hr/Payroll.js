@@ -431,6 +431,12 @@ const payrollSchema = new mongoose.Schema({
     enum: ['Bank Transfer', 'Cash', 'Check', 'Direct Deposit'],
     default: 'Bank Transfer'
   },
+  // Cash salary flag — snapshot from employee.cashSalary at generation time
+  // When true, this payroll is excluded from BPV and bank letter
+  isCashSalary: {
+    type: Boolean,
+    default: false
+  },
   transactionId: {
     type: String,
     trim: true

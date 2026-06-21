@@ -149,7 +149,7 @@ export default function LandPurchaseViewer() {
             label="Search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Purchase no, deal no, seller, moza..."
+            placeholder="Purchase no, deal no, seller, dealer, moza..."
             sx={{ minWidth: 260 }}
             InputProps={{
               startAdornment: (
@@ -186,6 +186,7 @@ export default function LandPurchaseViewer() {
               <TableCell sx={{ fontWeight: 700 }}>DEAL NO.</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>PROJECT</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>SELLER NAME</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>DEALER NAME</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>CNIC</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>MOZA</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>SIZE</TableCell>
@@ -196,13 +197,13 @@ export default function LandPurchaseViewer() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 5 }}>
+                <TableCell colSpan={11} align="center" sx={{ py: 5 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                <TableCell colSpan={11} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                   No land purchases yet — click Create Land Purchase to add one.
                 </TableCell>
               </TableRow>
@@ -214,6 +215,7 @@ export default function LandPurchaseViewer() {
                   <TableCell>{row.dealNo}</TableCell>
                   <TableCell>{row.project || '—'}</TableCell>
                   <TableCell>{row.seller?.name || '—'}</TableCell>
+                  <TableCell>{row.dealer?.name || '—'}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.seller?.cnic || '—'}</TableCell>
                   <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{formatAreaReadable(row.totalArea)}</TableCell>

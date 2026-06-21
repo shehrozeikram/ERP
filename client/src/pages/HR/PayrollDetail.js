@@ -412,6 +412,9 @@ const PayrollDetail = () => {
             size="small"
           />
           <PayrollProrationBadge payroll={payroll} />
+          {payroll.isCashSalary && (
+            <Chip label="Cash Salary" size="small" color="warning" variant="filled" />
+          )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button

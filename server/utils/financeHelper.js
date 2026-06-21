@@ -42,6 +42,8 @@ const FinanceHelper = {
     SALARIES_PAYABLE: '2200',
     PF_PAYABLE: '2210',
     EOBI_PAYABLE: '2211',
+    EOBI_PAYABLE_EMP: '2211-01',
+    EOBI_PAYABLE_ER: '2211-02',
     EOBI_EXPENSE: '5015',
     OTHER_PAYROLL_DED: '2212',
     REVENUE_CAM: '4010',
@@ -1538,62 +1540,10 @@ const FinanceHelper = {
   },
 
   /**
-   * Record Payroll Accrual — gross expense + deduction liabilities + net salaries payable.
-   * BPV later clears net Salaries Payable only.
+   * Per-employee PAYAC is skipped — the company payroll BPV posts gross expense,
+   * EOBI expense, all deduction liabilities (EOBI sub-accounts, loans, advances), and bank.
    */
-  recordPayrollAccrual: async (payroll, createdBy) => {
-    try {
-      const {
-        buildPayrollAccrualJournalLines,
-        payrollAccrualAlreadyPosted
-      } = require('./payrollAccrual');
-      const { extractPayrollBreakdown } = require('./payrollBreakdown');
-      const { MONTH_NAMES } = require('./financePayrollQueue');
-
-      if (await payrollAccrualAlreadyPosted(payroll._id)) {
-        return null;
-      }
-
-      const companyId = await resolveDocumentCompanyId({ employeeId: payroll.employee });
-      if (!companyId) return null;
-
-      const payrollDoc = payroll.toObject ? payroll.toObject() : payroll;
-      const totals = extractPayrollBreakdown(payrollDoc);
-      if (!totals.grossSalary || totals.grossSalary <= 0) return null;
-
-      const periodLabel = `${MONTH_NAMES[payroll.month] || payroll.month} ${payroll.year}`;
-      const employeeName = payroll.employeeName
-        || payrollDoc.employeeName
-        || 'Employee';
-
-      const lines = await buildPayrollAccrualJournalLines({
-        companyId,
-        totals,
-        periodLabel,
-        companyName: employeeName,
-        employeeName
-      });
-
-      if (!lines.length) return null;
-
-      return FinanceHelper.createAndPostJournalEntry(withCompany({
-        date: new Date(),
-        reference: `PAYROLL-ACCR-${payroll.month}-${payroll.year}-${payroll._id}`,
-        description: `Payroll Accrual — ${employeeName} — ${periodLabel}`,
-        department: 'hr',
-        module: 'payroll',
-        referenceId: payroll._id,
-        referenceType: 'payroll',
-        journalCode: 'PAY',
-        voucherSeries: 'PAYAC',
-        createdBy,
-        lines
-      }, companyId));
-    } catch (error) {
-      console.error('❌ Error recording payroll accrual:', error);
-      return null;
-    }
-  },
+  recordPayrollAccrual: async () => null,
 
   /**
    * Record Payroll Payment
