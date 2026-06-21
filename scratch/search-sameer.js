@@ -5,8 +5,8 @@ const Employee = require('../server/models/hr/Employee');
 const User = require('../server/models/User');
 
 async function searchSameer() {
-  const uri = process.env.MONGODB_URI_LOCAL || 'mongodb://localhost:27017/sgc_erp_local';
-  console.log(`🔌 Connecting to: ${uri}`);
+  const uri = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL || 'mongodb://localhost:27017/sgc_erp_local';
+  console.log(`🔌 Connecting to: ${uri.replace(/:([^:@]+)@/, ':****@')}`);
   try {
     await mongoose.connect(uri);
     console.log('✅ Connected to MongoDB\n');
