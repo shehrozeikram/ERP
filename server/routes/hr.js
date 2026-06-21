@@ -1188,6 +1188,11 @@ router.put('/employees/:id', [
         updateData,
         { new: true, runValidators: true }
       );
+
+      // Auto-sync employeeId to linked User account
+      if (employee && employee.user) {
+        await User.findByIdAndUpdate(employee.user, { employeeId: employee.employeeId });
+      }
     } catch (updateError) {
       if (updateError.code === 11000) {
         const field = Object.keys(updateError.keyPattern || {})[0];

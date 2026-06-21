@@ -365,7 +365,7 @@ const Profile = () => {
 
   const formatEmployeeId = (employeeId) => {
     if (!employeeId) return 'N/A';
-    return employeeId.toString().padStart(4, '0');
+    return employeeId.toString().padStart(5, '0');
   };
 
   const navigate = useNavigate();

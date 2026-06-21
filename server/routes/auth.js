@@ -63,6 +63,9 @@ async function attachEmployeeProfileFields(userProfile, userDoc) {
     userProfile.jobDescription = employeeData.jobDescription;
     userProfile.leaveBalance = employeeData.leaveBalance;
     userProfile.employeeDocId = employeeData._id;
+    if (employeeData.employeeId) {
+      userProfile.employeeId = employeeData.employeeId; // Force Employee ID as master source
+    }
   }
 
   userProfile.reportingLine = await loadReportingLineForProfile(userDoc);
