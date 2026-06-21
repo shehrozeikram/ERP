@@ -29,8 +29,8 @@ const User = require('../server/models/User');
 const dryRun = !process.argv.includes('--apply');
 
 async function syncEmployeeIds() {
-  const uri = process.env.MONGODB_URI_LOCAL || 'mongodb://localhost:27017/sgc_erp_local';
-  console.log(`🔌 Connecting to database: ${uri}`);
+  const uri = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL || 'mongodb://localhost:27017/sgc_erp_local';
+  console.log(`🔌 Connecting to database: ${uri.replace(/:([^:@]+)@/, ':****@')}`); // Hide passwords if any in logs
   console.log(`Mode: ${dryRun ? 'DRY RUN (no writes will be made)' : 'APPLY (changes will be saved)'}\n`);
 
   try {
