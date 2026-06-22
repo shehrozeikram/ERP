@@ -59,21 +59,38 @@ const seedChartOfAccountsForCompany = async (companyId, { createdBy = null, skip
       continue;
     }
 
-    const created = await Account.create({
-      companyId,
-      accountNumber: template.accountNumber,
-      accountCode: template.accountCode,
-      name: template.name,
-      type: template.type,
-      category: template.category,
-      detailType: template.detailType,
-      description: template.name,
-      isActive: true,
-      isSystem: template.isSystem,
-      balance: 0,
-      metadata: createdBy ? { createdBy } : undefined
-    });
-    results.push({ status: 'created', accountNumber: template.accountNumber, name: template.name, _id: created._id });
+    try {
+      const created = await Account.create({
+        companyId,
+        accountNumber: template.accountNumber,
+        accountCode: template.accountCode,
+        name: template.name,
+        type: template.type,
+        category: template.category,
+        detailType: template.detailType,
+        description: template.name,
+        isActive: true,
+        isSystem: template.isSystem,
+        balance: 0,
+        metadata: createdBy ? { createdBy } : undefined
+      });
+      results.push({ status: 'created', accountNumber: template.accountNumber, name: template.name, _id: created._id });
+    } catch (err) {
+      if (err.code === 11000) {
+        const existing = await Account.findOne({
+          companyId,
+          accountNumber: template.accountNumber
+        }).select('_id name').lean();
+        results.push({
+          status: 'exists',
+          accountNumber: template.accountNumber,
+          name: existing?.name || template.name,
+          _id: existing?._id
+        });
+      } else {
+        throw err;
+      }
+    }
   }
 
   const { ensureEobiPayableAccounts } = require('./eobiPayableAccount');

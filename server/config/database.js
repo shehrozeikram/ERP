@@ -78,6 +78,25 @@ const connectDB = async () => {
     } catch (syncErr) {
       console.warn('⚠️ LandMoza index sync skipped:', syncErr.message);
     }
+    try {
+      const Account = require('../models/finance/Account');
+      const indexes = await Account.collection.indexes();
+      for (const index of indexes) {
+        const keys = Object.keys(index.key || {});
+        if (
+          index.unique &&
+          keys.length === 1 &&
+          keys[0] === 'accountNumber'
+        ) {
+          await Account.collection.dropIndex(index.name);
+          console.log(`Dropped legacy global unique index on accounts: ${index.name}`);
+        }
+      }
+      await Account.syncIndexes();
+      console.log('✅ Account indexes synced (companyId + accountNumber unique)');
+    } catch (syncErr) {
+      console.warn('⚠️ Account index sync skipped/failed:', syncErr.message);
+    }
 
     // Handle connection events
     mongoose.connection.on('error', (err) => {
