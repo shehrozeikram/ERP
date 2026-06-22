@@ -252,6 +252,16 @@ const accountsPayableSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Account'
     },
+    company: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    project: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     // Optional traceability for procurement billing
     grnId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -389,6 +399,16 @@ const accountsPayableSchema = new mongoose.Schema({
     approvalNotes: String
   },
   // Additional fields
+  company: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  project: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   notes: String,
   internalNotes: String,
   attachments: [{

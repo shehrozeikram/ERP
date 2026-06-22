@@ -579,6 +579,8 @@ const FinanceHelper = {
 
       apEntry = new AccountsPayable({
         companyId: companyId || undefined,
+        company: options.company || '',
+        project: options.project || '',
         vendor: { name: vendorName, email: vendorEmail, vendorId: vendorId },
         payeeEmployee: options.payeeEmployeeId || options.payeeEmployee || null,
         billNumber,

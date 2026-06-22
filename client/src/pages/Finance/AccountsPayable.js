@@ -1196,6 +1196,8 @@ const AccountsPayable = () => {
                   <TableCell />
                   <TableCell>Bill #</TableCell>
                   <TableCell>Vendor</TableCell>
+                  <TableCell>Company</TableCell>
+                  <TableCell>Project</TableCell>
                   <TableCell sx={{ minWidth: 180, maxWidth: 280 }}>Narration / Description</TableCell>
                   <TableCell>Date</TableCell>
                   <TableCell>Due Date</TableCell>
@@ -1235,6 +1237,8 @@ const AccountsPayable = () => {
                             </Typography>
                           </Box>
                         </TableCell>
+                        <TableCell><Typography variant="body2">{bill.company || '—'}</Typography></TableCell>
+                        <TableCell><Typography variant="body2">{bill.project || '—'}</Typography></TableCell>
                         <NarrationTableCell text={getBillNarrationDisplay(bill)} />
                         <TableCell><Typography variant="body2">{formatDate(bill.billDate)}</Typography></TableCell>
                         <TableCell><Typography variant="body2">{formatDate(bill.dueDate)}</Typography></TableCell>
@@ -1272,7 +1276,7 @@ const AccountsPayable = () => {
                       {expandedRows[bill._id] && (
                         <TableRow>
                           <TableCell />
-                          <TableCell colSpan={11} sx={{ bgcolor: 'grey.50' }}>
+                          <TableCell colSpan={13} sx={{ bgcolor: 'grey.50' }}>
                             <Box sx={{ py: 1 }}>
                               <Typography variant="subtitle2" sx={{ mb: 1 }}>Linked Documents</Typography>
                               {bill?.linkedGRNs?.length ? (

@@ -113,7 +113,7 @@ export const aggregatePayrollBreakdownFromRows = (payrollRows = []) => {
     totals[col.key] = roundAmount(totals[col.key]);
   });
   totals.netPayable = roundAmount(totals.netPayable);
-  totals.eobiEmployer = roundAmount(totals.eobiEmployer || totals.eobiEmployee || 0);
+  totals.eobiEmployer = roundAmount(totals.eobiEmployer || (totals.eobiEmployee / 0.2) || 0);
   totals.eobiEmployerExpense = totals.eobiEmployer;
   return totals;
 };
@@ -124,7 +124,7 @@ export const buildPayrollBpvPreviewLines = (payrollRows = [], { periodLabel = ''
 
   [
     { key: 'grossSalary', label: 'Salaries Expense' },
-    { key: 'eobiEmployerExpense', label: 'EOBI Employer Contribution (Expense)' }
+    { key: 'eobiEmployerExpense', label: 'EOBI Expense' }
   ].forEach((slot) => {
     const amount = roundAmount(totals[slot.key]);
     if (amount > 0) lines.push({ side: 'Debit', label: slot.label, amount });

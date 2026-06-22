@@ -26,6 +26,26 @@ const run = () => {
   assert.strictEqual(singleLines[0].unitPrice, 12500.5);
   assert.strictEqual(getUtilityBillPostAmount(single), 12500.5);
 
+  const storeBill = {
+    utilityType: 'Electricity',
+    provider: 'K-Electric',
+    amount: 12500.5,
+    billLines: [
+      {
+        itemName: 'Item A',
+        amount: 12500.5,
+        site: 'Company A',
+        location: 'Project A',
+        itemCode: 'CodeA',
+        meterNumber: 'MeterA'
+      }
+    ]
+  };
+  const storeLines = buildUtilityBillLineItems(storeBill);
+  assert.strictEqual(storeLines.length, 1);
+  assert.strictEqual(storeLines[0].company, 'Company A');
+  assert.strictEqual(storeLines[0].project, 'Project A');
+
   const consolidated = {
     isConsolidated: true,
     utilityType: 'Electricity',

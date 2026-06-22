@@ -328,6 +328,8 @@ const UtilityBillForm = () => {
   const [selectedBillCategory, setSelectedBillCategory] = useState(null);
   const [pendingStoreItem, setPendingStoreItem] = useState(null);
   const [billLines, setBillLines] = useState([]);
+  const [companiesList, setCompaniesList] = useState([]);
+  const [projectsList, setProjectsList] = useState([]);
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
   const [vendorSaving, setVendorSaving] = useState(false);
   const [quickVendorForm, setQuickVendorForm] = useState(emptyQuickVendorForm);
@@ -387,10 +389,12 @@ const UtilityBillForm = () => {
   const fetchMasterData = async () => {
     try {
       setMasterDataLoading(true);
-      const [res, catalogRes, vendorsRes] = await Promise.all([
+      const [res, catalogRes, vendorsRes, companiesRes, projectsRes] = await Promise.all([
         utilityBillService.getFormMasterData(),
         centralizedStoreService.getCatalog().catch(() => ({ data: {} })),
-        api.get('/procurement/vendors', { params: { limit: 500, status: 'Active' } }).catch(() => ({ data: { data: { vendors: [] } } }))
+        api.get('/procurement/vendors', { params: { limit: 500, status: 'Active' } }).catch(() => ({ data: { data: { vendors: [] } } })),
+        api.get('/hr/companies', { params: { status: 'active' } }).catch(() => ({ data: { data: [] } })),
+        api.get('/hr/projects', { params: { status: 'Active' } }).catch(() => ({ data: { data: [] } }))
       ]);
       const payload = res?.data || {};
       setDepartments(payload.departments || []);
@@ -398,6 +402,8 @@ const UtilityBillForm = () => {
       setStoreCategories(catalogRes?.data?.categories || []);
       setStoreItems(catalogRes?.data?.items || []);
       setVendors(vendorsRes?.data?.data?.vendors || vendorsRes?.data?.vendors || []);
+      setCompaniesList(companiesRes?.data?.data || []);
+      setProjectsList(projectsRes?.data?.data || []);
       if (isCentralizedStoreBill) {
         setFinanceEmployees(payload.financePayeeEmployees || []);
       }
@@ -1323,8 +1329,8 @@ const UtilityBillForm = () => {
                           <TableCell>Category</TableCell>
                           <TableCell>Item</TableCell>
                           <TableCell>Description</TableCell>
-                          {isCentralizedStoreBill && <TableCell>Account</TableCell>}
-                          {isCentralizedStoreBill && <TableCell>Location</TableCell>}
+                          {isCentralizedStoreBill && <TableCell>Company</TableCell>}
+                          {isCentralizedStoreBill && <TableCell>Project</TableCell>}
                           {!isCentralizedStoreBill && <TableCell>Location</TableCell>}
                           <TableCell>Due date</TableCell>
                           <TableCell>Attachment</TableCell>
@@ -1341,13 +1347,53 @@ const UtilityBillForm = () => {
                               <TextField size="small" fullWidth value={line.description} onChange={(e) => updateBillLine(idx, 'description', e.target.value)} />
                             </TableCell>
                             {isCentralizedStoreBill && (
-                              <TableCell>
-                                <TextField size="small" fullWidth value={line.site || ''} onChange={(e) => updateBillLine(idx, 'site', e.target.value)} />
+                              <TableCell sx={{ minWidth: 160 }}>
+                                <FormControl size="small" fullWidth>
+                                  <Select
+                                    value={line.site || ''}
+                                    onChange={(e) => updateBillLine(idx, 'site', e.target.value)}
+                                    displayEmpty
+                                  >
+                                    <MenuItem value="" disabled>
+                                      <em>Select Company</em>
+                                    </MenuItem>
+                                    {companiesList.map((c) => (
+                                      <MenuItem key={c._id} value={c.name}>
+                                        {c.name}
+                                      </MenuItem>
+                                    ))}
+                                    {line.site && !companiesList.some((c) => c.name === line.site) && (
+                                      <MenuItem value={line.site}>
+                                        {line.site}
+                                      </MenuItem>
+                                    )}
+                                  </Select>
+                                </FormControl>
                               </TableCell>
                             )}
                             {isCentralizedStoreBill ? (
-                              <TableCell>
-                                <TextField size="small" fullWidth value={line.location || ''} onChange={(e) => updateBillLine(idx, 'location', e.target.value)} />
+                              <TableCell sx={{ minWidth: 160 }}>
+                                <FormControl size="small" fullWidth>
+                                  <Select
+                                    value={line.location || ''}
+                                    onChange={(e) => updateBillLine(idx, 'location', e.target.value)}
+                                    displayEmpty
+                                  >
+                                    <MenuItem value="" disabled>
+                                      <em>Select Project</em>
+                                    </MenuItem>
+                                    {projectsList.map((p) => (
+                                      <MenuItem key={p._id} value={p.name}>
+                                        {p.name}
+                                      </MenuItem>
+                                    ))}
+                                    {line.location && !projectsList.some((p) => p.name === line.location) && (
+                                      <MenuItem value={line.location}>
+                                        {line.location}
+                                      </MenuItem>
+                                    )}
+                                  </Select>
+                                </FormControl>
                               </TableCell>
                             ) : (
                               <TableCell>{line.location || line.site || '—'}</TableCell>

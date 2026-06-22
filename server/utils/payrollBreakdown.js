@@ -8,7 +8,7 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 /** EOBI employer share — equal to employee deduction (50/50 total contribution). */
 const resolveEobiEmployerContribution = (employeeDeduction) =>
-  Math.round(Number(employeeDeduction) || 0);
+  Math.round((Number(employeeDeduction) || 0) / 0.2);
 
 /** Credit-side slots for payroll BPV — loans, statutory deductions, and bank. */
 const PAYROLL_PAYMENT_CREDIT_SLOTS = [
@@ -83,8 +83,8 @@ const PAYROLL_BPV_DEBIT_SLOTS = [
   },
   {
     key: 'eobiEmployerExpense',
-    label: 'EOBI Employer Contribution (Expense)',
-    voucherNarration: 'EOBI — Employer Contribution (Expense)',
+    label: 'EOBI Expense',
+    voucherNarration: 'EOBI Expense',
     accountNumber: '5015'
   }
 ];
@@ -99,8 +99,8 @@ const PAYROLL_ACCRUAL_DEBIT_SLOTS = [
   },
   {
     key: 'eobiEmployerExpense',
-    label: 'EOBI Employer Contribution (Expense)',
-    voucherNarration: 'EOBI — Employer Contribution (Expense)',
+    label: 'EOBI Expense',
+    voucherNarration: 'EOBI Expense',
     accountNumber: '5015'
   }
 ];

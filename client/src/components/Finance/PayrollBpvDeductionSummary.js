@@ -80,7 +80,7 @@ const PayrollBpvDeductionSummary = ({
         {summary.eobiEmployerExpense > 0 ? (
           <TableRow>
             <TableCell sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
-              Employer EOBI Expense (separate BPV debit)
+              EOBI Expense (separate BPV debit)
             </TableCell>
             <TableCell align="right" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
               {formatPKR(summary.eobiEmployerExpense)}

@@ -49,7 +49,9 @@ const buildUtilityBillLineItems = (bill) => {
         quantity: 1,
         unitPrice: amt,
         expenseAccount: line.expenseAccount,
-        expenseAccountNumber: line.expenseAccountNumber
+        expenseAccountNumber: line.expenseAccountNumber,
+        company: line.site || '',
+        project: line.location || ''
       };
     }).filter((li) => li.unitPrice > 0);
   }
@@ -342,6 +344,8 @@ const postUtilityBillToFinance = async (bill, createdByUserId) => {
   try {
     const expenseJournalLines = buildExpenseJournalLines(lineItems);
     const companyId = await resolveDocumentCompanyId({ employeeId: bill.payeeEmployee });
+    const companies = [...new Set((bill.billLines || []).map(l => l.site).filter(Boolean))].join(', ') || bill.site || '';
+    const projects = [...new Set((bill.billLines || []).map(l => l.location).filter(Boolean))].join(', ') || bill.location || '';
     const apEntry = await FinanceHelper.createAPFromBill({
       companyId,
       vendorName: bill.provider || 'Utility Provider',
@@ -363,7 +367,9 @@ const postUtilityBillToFinance = async (bill, createdByUserId) => {
       createdBy: actorId,
       debitAccountNumber: UTILITY_EXPENSE_ACCOUNT,
       multiLineExpenseJournal: !expenseJournalLines && lineItems.length > 1,
-      expenseJournalLines: expenseJournalLines || undefined
+      expenseJournalLines: expenseJournalLines || undefined,
+      company: companies,
+      project: projects
     });
 
     await linkUtilityBillToAp(

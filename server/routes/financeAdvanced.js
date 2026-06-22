@@ -261,21 +261,23 @@ router.get('/accounts',
       search 
     } = req.query;
 
-    const query = { isActive: true, companyId: company._id };
+    const baseQuery = { isActive: true };
 
     // Add filters
-    if (type) query.type = type;
-    if (category) query.category = category;
-    if (department) query.department = department;
-    if (module) query.module = module;
+    if (type) baseQuery.type = type;
+    if (category) baseQuery.category = category;
+    if (department) baseQuery.department = department;
+    if (module) baseQuery.module = module;
     if (search) {
-      query.$or = [
+      baseQuery.$or = [
         { name: { $regex: search, $options: 'i' } },
         { accountNumber: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
         { accountCode: { $regex: search, $options: 'i' } }
       ];
     }
+
+    const query = companyQuery(baseQuery, company);
 
     const accounts = await Account.find(query)
       .populate('parentAccount', 'accountNumber name')

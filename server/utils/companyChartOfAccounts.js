@@ -25,7 +25,7 @@ const STANDARD_SYSTEM_ACCOUNTS = [
   { accountNumber: '5000', accountCode: 'COGS', name: 'Cost of Goods Sold', type: 'Expense', category: 'Cost of Sales', detailType: 'Cost of Goods Sold', isSystem: true },
   { accountNumber: '5001', accountCode: 'EXPENSE_GENERAL', name: 'General Expenses', type: 'Expense', category: 'Operating Expense', detailType: 'Other Operating Expenses', isSystem: true },
   { accountNumber: '5002', accountCode: 'EXPENSE_SALARIES', name: 'Salaries Expense', type: 'Expense', category: 'Operating Expense', detailType: 'Payroll Expenses', isSystem: true },
-  { accountNumber: '5015', accountCode: 'EOBI_EXPENSE', name: 'EOBI Employer Contribution Expense', type: 'Expense', category: 'Operating Expense', detailType: 'Payroll Expenses', isSystem: true },
+  { accountNumber: '5015', accountCode: 'EOBI_EXPENSE', name: 'EOBI Expense', type: 'Expense', category: 'Operating Expense', detailType: 'Payroll Expenses', isSystem: true },
   { accountNumber: '5003', accountCode: 'DEPRECIATION', name: 'Depreciation Expense', type: 'Expense', category: 'Operating Expense', detailType: 'Depreciation', isSystem: false },
   { accountNumber: '6200', accountCode: 'UTILITIES', name: 'Utilities (Electricity/Gas)', type: 'Expense', category: 'Operating Expense', detailType: 'Other Operating Expenses', isSystem: true }
 ];
