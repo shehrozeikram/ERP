@@ -279,6 +279,16 @@ router.get('/accounts',
 
     const query = companyQuery(baseQuery, company);
 
+    // Auto-seed system accounts if the company has zero accounts seeded
+    const companyQueryObj = companyQuery({ isActive: true }, company);
+    const hasAccounts = await Account.exists(companyQueryObj);
+    if (!hasAccounts && company && company._id) {
+      await seedChartOfAccountsForCompany(company._id, {
+        createdBy: req.user?._id || req.user?.id,
+        skipExisting: true
+      });
+    }
+
     const accounts = await Account.find(query)
       .populate('parentAccount', 'accountNumber name')
       .populate('companyId', 'name companyCode')
@@ -313,6 +323,17 @@ router.get('/accounts/hierarchy',
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const company = await requireCompanyFromRequest(req);
+
+    // Auto-seed system accounts if the company has zero accounts seeded
+    const companyQueryObj = companyQuery({ isActive: true }, company);
+    const hasAccounts = await Account.exists(companyQueryObj);
+    if (!hasAccounts && company && company._id) {
+      await seedChartOfAccountsForCompany(company._id, {
+        createdBy: req.user?._id || req.user?.id,
+        skipExisting: true
+      });
+    }
+
     const hierarchy = await Account.getHierarchy(company._id);
     res.json({
       success: true,
@@ -328,6 +349,17 @@ router.get('/accounts/trial-balance',
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const company = await requireCompanyFromRequest(req);
+
+    // Auto-seed system accounts if the company has zero accounts seeded
+    const companyQueryObj = companyQuery({ isActive: true }, company);
+    const hasAccounts = await Account.exists(companyQueryObj);
+    if (!hasAccounts && company && company._id) {
+      await seedChartOfAccountsForCompany(company._id, {
+        createdBy: req.user?._id || req.user?.id,
+        skipExisting: true
+      });
+    }
+
     const trialBalance = await Account.getTrialBalance(company._id);
     res.json({
       success: true,
