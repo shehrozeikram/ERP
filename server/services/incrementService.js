@@ -1,7 +1,7 @@
 const EmployeeIncrement = require('../models/hr/EmployeeIncrement');
 const Employee = require('../models/hr/Employee');
 const Payroll = require('../models/hr/Payroll');
-const { vehicleFuelTotal } = require('../utils/allowanceHelpers');
+const { vehicleAllowanceAmount, fuelAllowanceAmount } = require('../utils/allowanceHelpers');
 const { calculatePayrollTaxWithSettings, loadPayrollTaxSettings } = require('../utils/allowanceTaxCalculator');
 
 class IncrementService {
@@ -200,7 +200,8 @@ class IncrementService {
         const additionalAllowances =
           (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
           (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0) +
-          vehicleFuelTotal(payroll.allowances) +
+          vehicleAllowanceAmount(payroll.allowances) +
+          fuelAllowanceAmount(payroll.allowances) +
           (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0) +
           (payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
 

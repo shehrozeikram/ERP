@@ -381,6 +381,7 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
 
   // 2. Fetch all active transfers for transfer charges aggregation
   const transfers = await LandTransfer.find({ isActive: true })
+    .populate('moza', 'name')
     .lean();
 
   // Build a map: purchaseId -> totalTransferPayments (transfer charges)
@@ -459,12 +460,47 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   const ownerTotalArea = fromSarsais(ownerTotalSarsais);
   const ownerTotals = { kanal: ownerTotalArea.kanal, marla: ownerTotalArea.marla, sarsai: ownerTotalArea.sarsai };
 
-  // 7. Overall Dashboard Totals
-  const possessions = await LandPossession.find({ isActive: true }).lean();
+  // 6a. Registry summary by moza
+  const registryMozaMap = {};
+  for (const t of transfers) {
+    const mozaId = String(t.moza?._id || t.moza);
+    const mozaName = t.moza?.name || 'Unknown';
+    if (!registryMozaMap[mozaId]) registryMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+    registryMozaMap[mozaId].totalSarsais += toSarsaisLocal(t.transferArea);
+  }
+
+  const registryMozaRows = Object.values(registryMozaMap).map((m) => {
+    const area = fromSarsais(m.totalSarsais);
+    return { mozaName: m.mozaName, kanal: area.kanal, marla: area.marla, sarsai: area.sarsai };
+  }).sort((a, b) => b.kanal - a.kanal || b.marla - a.marla);
+
+  const registryTotalSarsais = registryMozaRows.reduce((s, r) => s + toSarsaisLocal({ kanal: r.kanal, marla: r.marla, sarsai: r.sarsai }), 0);
+  const registryTotalArea = fromSarsais(registryTotalSarsais);
+  const registryMozaTotals = { kanal: registryTotalArea.kanal, marla: registryTotalArea.marla, sarsai: registryTotalArea.sarsai };
+
+  // 7. Overall Dashboard Totals & Possession by moza
+  const possessions = await LandPossession.find({ isActive: true })
+    .populate('moza', 'name')
+    .lean();
+
+  const possessionMozaMap = {};
   let totalPossessedSarsais = 0;
   for (const pos of possessions) {
-    totalPossessedSarsais += toSarsaisLocal(pos.totalArea);
+    const mozaId = String(pos.moza?._id || pos.moza);
+    const mozaName = pos.moza?.name || 'Unknown';
+    if (!possessionMozaMap[mozaId]) possessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+    const sarsais = toSarsaisLocal(pos.totalArea);
+    possessionMozaMap[mozaId].totalSarsais += sarsais;
+    totalPossessedSarsais += sarsais;
   }
+
+  const possessionMozaRows = Object.values(possessionMozaMap).map((m) => {
+    const area = fromSarsais(m.totalSarsais);
+    return { mozaName: m.mozaName, kanal: area.kanal, marla: area.marla, sarsai: area.sarsai };
+  }).sort((a, b) => b.kanal - a.kanal || b.marla - a.marla);
+
+  const possessionTotalArea = fromSarsais(totalPossessedSarsais);
+  const possessionMozaTotals = { kanal: possessionTotalArea.kanal, marla: possessionTotalArea.marla, sarsai: possessionTotalArea.sarsai };
 
   const totalPurchaseSarsais = grandTotalSarsais;
   const remainingSarsais = Math.max(0, totalPurchaseSarsais - totalPossessedSarsais);
@@ -480,7 +516,9 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
     data: {
       landSummary: { rows, totals },
       ownerSummary: { rows: ownerRows, totals: ownerTotals },
-      dashboardTotals
+      dashboardTotals,
+      registryMozaSummary: { rows: registryMozaRows, totals: registryMozaTotals },
+      possessionMozaSummary: { rows: possessionMozaRows, totals: possessionMozaTotals }
     }
   });
 }));

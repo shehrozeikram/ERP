@@ -1,5 +1,5 @@
 import { computeAutoSalaryBreakdown } from './salaryBreakdown';
-import { vehicleFuelTotal } from './allowanceHelpers';
+import { vehicleAllowanceAmount, fuelAllowanceAmount } from './allowanceHelpers';
 
 const MONTH_NAMES = [
   '', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -574,11 +574,13 @@ const buildSalaryHtml = (values, lookups) => {
     ])
   ];
 
-  const vehicleFuel = vehicleFuelTotal(allowances);
-  if (vehicleFuel > 0) {
-    blocks.push(sectionCard('Vehicle & Fuel', [
-      fieldRow('Combined Total', formatPKR(vehicleFuel), { money: true })
-    ]));
+  const vehicleAmt = vehicleAllowanceAmount(allowances);
+  const fuelAmt = fuelAllowanceAmount(allowances);
+  if (vehicleAmt > 0 || fuelAmt > 0) {
+    const vRows = [];
+    if (vehicleAmt > 0) vRows.push(fieldRow('Vehicle Allowance', formatPKR(vehicleAmt), { money: true }));
+    if (fuelAmt > 0) vRows.push(fieldRow('Fuel Allowance', formatPKR(fuelAmt), { money: true }));
+    blocks.push(sectionCard('Vehicle & Fuel', vRows));
   }
 
   return wrapSectionDocument({

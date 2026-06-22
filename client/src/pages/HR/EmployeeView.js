@@ -52,7 +52,7 @@ import { fetchEmployeeKpiWorksheet } from '../../services/kpiWorksheetService';
 import { openEmployeeDetailPrint } from '../../utils/employeeDetailPrint';
 import { buildJoiningReportPrintHtml, openPrintHtml } from '../../utils/employeeFormPrint';
 import AutoCalculatedSalaryBreakdown from '../../components/AutoCalculatedSalaryBreakdown';
-import { vehicleFuelTotal } from '../../utils/allowanceHelpers';
+import { vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 
 const EmployeeView = () => {
   const { id } = useParams();
@@ -1244,9 +1244,14 @@ const EmployeeView = () => {
                 Auto-Calculated Salary Breakdown
               </Typography>
               <AutoCalculatedSalaryBreakdown gross={employee.salary?.gross || 0} dense />
-              {vehicleFuelTotal(employee.allowances) > 0 && (
+              {vehicleAllowanceAmount(employee.allowances) > 0 && (
                 <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
-                  Vehicle + Fuel Allowance: {formatPKR(vehicleFuelTotal(employee.allowances))}
+                  Vehicle Allowance: {formatPKR(vehicleAllowanceAmount(employee.allowances))}
+                </Typography>
+              )}
+              {fuelAllowanceAmount(employee.allowances) > 0 && (
+                <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+                  Fuel Allowance: {formatPKR(fuelAllowanceAmount(employee.allowances))}
                 </Typography>
               )}
               {employee.allowances?.food?.isActive && (

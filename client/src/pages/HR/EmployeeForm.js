@@ -48,7 +48,7 @@ import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
-import { allowancesForForm, vehicleFuelTotal, buildAllowancesPayload } from '../../utils/allowanceHelpers';
+import { allowancesForForm, vehicleFuelTotal, buildAllowancesPayload, vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 import { computeAutoSalaryBreakdown } from '../../utils/salaryBreakdown';
 import AutoCalculatedSalaryBreakdown from '../../components/AutoCalculatedSalaryBreakdown';
 import { useData } from '../../contexts/DataContext';
@@ -4235,9 +4235,14 @@ const EmployeeForm = () => {
                   </Typography>
                   <AutoCalculatedSalaryBreakdown gross={formik.values.salary?.gross || 0} dense />
 
-                  {vehicleFuelTotal(formik.values.allowances) > 0 && (
+                  {vehicleAllowanceAmount(formik.values.allowances) > 0 && (
                     <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
-                      Vehicle + Fuel Allowance: {formatPKR(vehicleFuelTotal(formik.values.allowances))}
+                      Vehicle Allowance: {formatPKR(vehicleAllowanceAmount(formik.values.allowances))}
+                    </Typography>
+                  )}
+                  {fuelAllowanceAmount(formik.values.allowances) > 0 && (
+                    <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+                      Fuel Allowance: {formatPKR(fuelAllowanceAmount(formik.values.allowances))}
                     </Typography>
                   )}
                   {formik.values.allowances?.food?.isActive && (

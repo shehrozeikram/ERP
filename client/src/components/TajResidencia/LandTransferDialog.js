@@ -595,7 +595,7 @@ export default function LandTransferDialog({
                     onChange={(transferArea) => setForm((prev) => ({ ...prev, transferArea }))}
                   />
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
                     size="small"
@@ -605,30 +605,10 @@ export default function LandTransferDialog({
                     sx={{ '& .MuiInputBase-input': { bgcolor: 'primary.50', fontWeight: 700 } }}
                   />
                 </Grid>
-                <Grid item xs={12} md={4}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Rate Per Kanal"
-                    value={formatMoney(ratePerKanal)}
-                    InputProps={{ readOnly: true }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Transferred Cost"
-                    value={formatMoney(transferredCost)}
-                    InputProps={{ readOnly: true }}
-                    sx={{ '& .MuiInputBase-input': { bgcolor: 'success.50', fontWeight: 700, color: 'success.dark' } }}
-                  />
-                </Grid>
               </Grid>
 
               <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
                 <Chip label={`Transfer ${formatAreaReadable(parseAreaForm(form.transferArea))}`} size="small" />
-                <Chip label={`Cost PKR ${formatMoney(transferredCost)}`} color="success" size="small" variant="outlined" />
                 <Chip label={`Charges PKR ${formatMoney(totalTransferPayments)}`} color="warning" size="small" variant="outlined" />
               </Stack>
             </Paper>

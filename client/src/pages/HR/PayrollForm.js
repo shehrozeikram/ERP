@@ -42,7 +42,7 @@ import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { format } from 'date-fns';
 import { formatPKR } from '../../utils/currency';
-import { allowancesForForm, vehicleFuelTotal } from '../../utils/allowanceHelpers';
+import { allowancesForForm, vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 import api from '../../services/authService';
 import { loanService } from '../../services/loanService';
 
@@ -690,7 +690,8 @@ const PayrollForm = () => {
     const totalAllowances = 
       (values.allowances?.conveyance?.isActive ? (values.allowances.conveyance.amount || 0) : 0) + 
       (values.allowances?.food?.isActive ? (values.allowances.food.amount || 0) : 0) + 
-      vehicleFuelTotal(values.allowances) + 
+      vehicleAllowanceAmount(values.allowances) + 
+      fuelAllowanceAmount(values.allowances) +
       (values.allowances?.medical?.isActive ? (values.allowances.medical.amount || 0) : 0) + 
       (values.allowances?.special?.isActive ? (values.allowances.special.amount || 0) : 0) + 
       (values.allowances?.other?.isActive ? (values.allowances.other.amount || 0) : 0);
@@ -779,7 +780,8 @@ const PayrollForm = () => {
     const additionalAllowances = 
       (allowances?.conveyance?.isActive ? allowances.conveyance.amount : 0) +
       (allowances?.food?.isActive ? allowances.food.amount : 0) +
-      vehicleFuelTotal(allowances) +
+      vehicleAllowanceAmount(allowances) +
+      fuelAllowanceAmount(allowances) +
       (allowances?.special?.isActive ? allowances.special.amount : 0) +
       (allowances?.other?.isActive ? allowances.other.amount : 0);
     

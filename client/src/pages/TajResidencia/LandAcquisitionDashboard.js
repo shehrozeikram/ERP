@@ -192,31 +192,34 @@ export default function LandAcquisitionDashboard() {
     load();
   }, [load]);
 
-  const handleExportLandCSV = () => {
+
+
+  const handleExportRegistryCSV = () => {
     if (!data) return;
-    const headers = ['#', 'Moza', 'Kanal', 'Marla', 'Sarsai', 'Land Value', 'Transfer Charges', 'Commission', 'Total Land Value & Allied Expense'];
-    const rows = (data.landSummary?.rows || []).map((r, i) => [
-      i + 1, r.mozaName, r.kanal, r.marla, r.sarsai, r.landValue, r.transferCharges, r.commission, r.totalAllied
-    ]);
-    const t = data.landSummary?.totals;
-    if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai, t.landValue, t.transferCharges, t.commission, t.totalAllied]);
-    exportCSV('land_summary_report.csv', headers, rows);
+    const headers = ['#', 'Moza', 'Kanal', 'Marla', 'Sarsai'];
+    const rows = (data.registryMozaSummary?.rows || []).map((r, i) => [i + 1, r.mozaName, r.kanal, r.marla, r.sarsai]);
+    const t = data.registryMozaSummary?.totals;
+    if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai]);
+    exportCSV('registry_summary_by_moza.csv', headers, rows);
   };
 
-  const handleExportOwnerCSV = () => {
+  const handleExportPossessionCSV = () => {
     if (!data) return;
-    const headers = ['#', 'Owner Name', 'Kanal', 'Marla', 'Sarsai'];
-    const rows = (data.ownerSummary?.rows || []).map((r, i) => [i + 1, r.ownerName, r.kanal, r.marla, r.sarsai]);
-    const t = data.ownerSummary?.totals;
+    const headers = ['#', 'Moza', 'Kanal', 'Marla', 'Sarsai'];
+    const rows = (data.possessionMozaSummary?.rows || []).map((r, i) => [i + 1, r.mozaName, r.kanal, r.marla, r.sarsai]);
+    const t = data.possessionMozaSummary?.totals;
     if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai]);
-    exportCSV('land_transfer_owner_summary.csv', headers, rows);
+    exportCSV('possession_summary_by_moza.csv', headers, rows);
   };
 
   const landRows = data?.landSummary?.rows || [];
   const landTotals = data?.landSummary?.totals;
   const ownerRows = data?.ownerSummary?.rows || [];
   const ownerTotals = data?.ownerSummary?.totals;
-  const dashboardTotals = data?.dashboardTotals || {};
+  const registryRows = data?.landSummary?.rows || [];
+  const registryTotals = data?.landSummary?.totals;
+  const possessionRows = data?.possessionMozaSummary?.rows || [];
+  const possessionTotals = data?.possessionMozaSummary?.totals;
 
   return (
     <Box>
@@ -236,150 +239,131 @@ export default function LandAcquisitionDashboard() {
 
       {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {/* KPI Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Total Land Purchased"
-            area={dashboardTotals.purchased || { kanal: 0, marla: 0, sarsai: 0 }}
-            icon={PurchaseIcon}
-            color="primary.main"
-            bg="primary.50"
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Total Land Possessed"
-            area={dashboardTotals.possessed || { kanal: 0, marla: 0, sarsai: 0 }}
-            icon={PossessionIcon}
-            color="success.main"
-            bg="success.50"
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <StatCard
-            title="Land Purchased But Not In Possession"
-            area={dashboardTotals.remaining || { kanal: 0, marla: 0, sarsai: 0 }}
-            icon={PendingIcon}
-            color="warning.main"
-            bg="warning.50"
-          />
-        </Grid>
-      </Grid>
-
-      {/* Land Summary Report Table */}
+      {/* Acquired Land Summary by Moza */}
       <SectionCard
-        title="Land Summary Report by Moza"
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PurchaseIcon sx={{ color: 'primary.main' }} />
+            <Typography variant="h6" fontWeight={700} color="primary.dark">Acquired Land Data by Moza</Typography>
+          </Box>
+        }
         loading={loading}
-        onExportExcel={handleExportLandCSV}
+        onExportExcel={handleExportRegistryCSV}
       >
         <TableContainer>
-          <Table size="small">
+          <Table size="medium">
             <TableHead>
               <TableRow>
-                <ColHeader align="center" sx={{ width: 48 }}>#</ColHeader>
-                <ColHeader align="left">Moza</ColHeader>
-                <ColHeader>Kanal</ColHeader>
-                <ColHeader>Marla</ColHeader>
-                <ColHeader>Sarsai</ColHeader>
-                <ColHeader>Land Value</ColHeader>
-                <ColHeader>Transfer Charges</ColHeader>
-                <ColHeader>Commission</ColHeader>
-                <ColHeader>Total Land Value &amp; Allied Expense</ColHeader>
+                <ColHeader align="center" sx={{ width: 64 }}>#</ColHeader>
+                <ColHeader align="left" sx={{ fontSize: '0.75rem' }}>Moza Name</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Kanal</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Marla</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Sarsai</ColHeader>
               </TableRow>
             </TableHead>
             <TableBody>
-              {landRows.length === 0 && !loading ? (
-                <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 6, color: 'text.secondary' }}>
-                    No land records available
-                  </TableCell>
-                </TableRow>
-              ) : (
-                landRows.map((row, idx) => (
-                  <TableRow key={row.mozaName} hover sx={{ '&:last-child td': { border: 0 } }}>
-                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
-                      {idx + 1}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>{row.mozaName}</TableCell>
-                    <TableCell align="right">{fmtArea(row.kanal)}</TableCell>
-                    <TableCell align="right">{fmtArea(row.marla)}</TableCell>
-                    <TableCell align="right">{fmtArea(row.sarsai)}</TableCell>
-                    <TableCell align="right">{fmt(row.landValue)}</TableCell>
-                    <TableCell align="right">{fmt(row.transferCharges)}</TableCell>
-                    <TableCell align="right">{fmt(row.commission)}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, color: 'primary.dark' }}>{fmt(row.totalAllied)}</TableCell>
-                  </TableRow>
-                ))
-              )}
-              {landTotals && (
-                <TotalsRow cells={[
-                  { value: '', align: 'center' },
-                  { value: 'Grand Total', align: 'left' },
-                  { value: fmtArea(landTotals.kanal), color: 'primary.dark' },
-                  { value: fmtArea(landTotals.marla), color: 'primary.dark' },
-                  { value: fmtArea(landTotals.sarsai), color: 'primary.dark' },
-                  { value: fmt(landTotals.landValue) },
-                  { value: fmt(landTotals.transferCharges) },
-                  { value: fmt(landTotals.commission) },
-                  { value: fmt(landTotals.totalAllied), color: 'success.dark' }
-                ]} />
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </SectionCard>
-
-      {/* Land Transfer Owner Summary */}
-      <SectionCard
-        title="Land Transfer Owner Summary"
-        loading={loading}
-        onExportExcel={handleExportOwnerCSV}
-      >
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <ColHeader align="center" sx={{ width: 48 }}>#</ColHeader>
-                <ColHeader align="left">Owner Name</ColHeader>
-                <ColHeader>Kanal</ColHeader>
-                <ColHeader>Marla</ColHeader>
-                <ColHeader>Sarsai</ColHeader>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {ownerRows.length === 0 && !loading ? (
+              {registryRows.length === 0 && !loading ? (
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 6, color: 'text.secondary' }}>
-                    No transfer records yet
+                    No acquired land records found
                   </TableCell>
                 </TableRow>
               ) : (
-                ownerRows.map((row, idx) => (
-                  <TableRow key={row.ownerName} hover sx={{ '&:last-child td': { border: 0 } }}>
-                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
+                registryRows.map((row, idx) => (
+                  <TableRow key={row.mozaName} hover sx={{ '&:last-child td': { border: 0 }, transition: 'background-color 0.2s', '&:hover': { bgcolor: 'primary.50' } }}>
+                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
                       {idx + 1}
                     </TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>{row.ownerName}</TableCell>
-                    <TableCell align="right">{fmtArea(row.kanal)}</TableCell>
-                    <TableCell align="right">{fmtArea(row.marla)}</TableCell>
-                    <TableCell align="right">{fmtArea(row.sarsai)}</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.9rem', color: 'text.primary' }}>{row.mozaName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.kanal)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>K</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.marla)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>M</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.sarsai)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>S</span>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
-              {ownerTotals && (
-                <TotalsRow cells={[
-                  { value: '', align: 'center' },
-                  { value: 'Total', align: 'left' },
-                  { value: fmtArea(ownerTotals.kanal), color: 'primary.dark' },
-                  { value: fmtArea(ownerTotals.marla), color: 'primary.dark' },
-                  { value: fmtArea(ownerTotals.sarsai), color: 'primary.dark' }
-                ]} />
+              {registryTotals && (
+                <TableRow sx={{ bgcolor: 'primary.main', '& td': { color: 'white', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell align="center"></TableCell>
+                  <TableCell align="left" sx={{ fontSize: '1rem', textTransform: 'uppercase', letterSpacing: 1 }}>Total Acquired</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(registryTotals.kanal)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>K</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(registryTotals.marla)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>M</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(registryTotals.sarsai)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>S</span></TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
         </TableContainer>
       </SectionCard>
+
+      {/* Possession Summary by Moza */}
+      <SectionCard
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PossessionIcon sx={{ color: 'success.main' }} />
+            <Typography variant="h6" fontWeight={700} color="success.dark">Land Possession Data by Moza</Typography>
+          </Box>
+        }
+        loading={loading}
+        onExportExcel={handleExportPossessionCSV}
+      >
+        <TableContainer>
+          <Table size="medium">
+            <TableHead>
+              <TableRow>
+                <ColHeader align="center" sx={{ width: 64 }}>#</ColHeader>
+                <ColHeader align="left" sx={{ fontSize: '0.75rem' }}>Moza Name</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Kanal</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Marla</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Sarsai</ColHeader>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {possessionRows.length === 0 && !loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                    No possession records yet
+                  </TableCell>
+                </TableRow>
+              ) : (
+                possessionRows.map((row, idx) => (
+                  <TableRow key={row.mozaName} hover sx={{ '&:last-child td': { border: 0 }, transition: 'background-color 0.2s', '&:hover': { bgcolor: 'success.50' } }}>
+                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
+                      {idx + 1}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.9rem', color: 'text.primary' }}>{row.mozaName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.kanal)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>K</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.marla)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>M</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.sarsai)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>S</span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+              {possessionTotals && (
+                <TableRow sx={{ bgcolor: 'success.main', '& td': { color: 'white', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell align="center"></TableCell>
+                  <TableCell align="left" sx={{ fontSize: '1rem', textTransform: 'uppercase', letterSpacing: 1 }}>Total Possessed</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(possessionTotals.kanal)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>K</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(possessionTotals.marla)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>M</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(possessionTotals.sarsai)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>S</span></TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </SectionCard>
+
+
     </Box>
   );
 }
