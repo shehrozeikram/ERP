@@ -92,6 +92,9 @@ const {
 } = require('../utils/fullAdvancePoGate');
 
 const router = express.Router();
+
+// Lock for auto-seeding to prevent duplicate key errors during concurrent requests
+const activeAccountSeedings = new Map();
 const { ACCOUNT_TYPES_GROUPED, ACCOUNT_TYPE_TO_SECTION, DETAIL_TYPES_BY_ACCOUNT_TYPE } = require('../config/accountDetailTypes');
 
 async function tryAutoApprovePoAfterVendorAdvance(advance, userId) {
@@ -283,10 +286,19 @@ router.get('/accounts',
     const companyQueryObj = companyQuery({ isActive: true }, company);
     const hasAccounts = await Account.exists(companyQueryObj);
     if (!hasAccounts && company && company._id) {
-      await seedChartOfAccountsForCompany(company._id, {
-        createdBy: req.user?._id || req.user?.id,
-        skipExisting: true
-      });
+      const lockKey = String(company._id);
+      if (!activeAccountSeedings.has(lockKey)) {
+        const seedPromise = seedChartOfAccountsForCompany(company._id, {
+          createdBy: req.user?._id || req.user?.id,
+          skipExisting: true
+        }).catch(err => {
+          if (err.code !== 11000) console.error('Auto-seed error:', err);
+        }).finally(() => {
+          activeAccountSeedings.delete(lockKey);
+        });
+        activeAccountSeedings.set(lockKey, seedPromise);
+      }
+      await activeAccountSeedings.get(lockKey);
     }
 
     const accounts = await Account.find(query)
@@ -328,10 +340,19 @@ router.get('/accounts/hierarchy',
     const companyQueryObj = companyQuery({ isActive: true }, company);
     const hasAccounts = await Account.exists(companyQueryObj);
     if (!hasAccounts && company && company._id) {
-      await seedChartOfAccountsForCompany(company._id, {
-        createdBy: req.user?._id || req.user?.id,
-        skipExisting: true
-      });
+      const lockKey = String(company._id);
+      if (!activeAccountSeedings.has(lockKey)) {
+        const seedPromise = seedChartOfAccountsForCompany(company._id, {
+          createdBy: req.user?._id || req.user?.id,
+          skipExisting: true
+        }).catch(err => {
+          if (err.code !== 11000) console.error('Auto-seed error:', err);
+        }).finally(() => {
+          activeAccountSeedings.delete(lockKey);
+        });
+        activeAccountSeedings.set(lockKey, seedPromise);
+      }
+      await activeAccountSeedings.get(lockKey);
     }
 
     const hierarchy = await Account.getHierarchy(company._id);
@@ -354,10 +375,19 @@ router.get('/accounts/trial-balance',
     const companyQueryObj = companyQuery({ isActive: true }, company);
     const hasAccounts = await Account.exists(companyQueryObj);
     if (!hasAccounts && company && company._id) {
-      await seedChartOfAccountsForCompany(company._id, {
-        createdBy: req.user?._id || req.user?.id,
-        skipExisting: true
-      });
+      const lockKey = String(company._id);
+      if (!activeAccountSeedings.has(lockKey)) {
+        const seedPromise = seedChartOfAccountsForCompany(company._id, {
+          createdBy: req.user?._id || req.user?.id,
+          skipExisting: true
+        }).catch(err => {
+          if (err.code !== 11000) console.error('Auto-seed error:', err);
+        }).finally(() => {
+          activeAccountSeedings.delete(lockKey);
+        });
+        activeAccountSeedings.set(lockKey, seedPromise);
+      }
+      await activeAccountSeedings.get(lockKey);
     }
 
     const trialBalance = await Account.getTrialBalance(company._id);
