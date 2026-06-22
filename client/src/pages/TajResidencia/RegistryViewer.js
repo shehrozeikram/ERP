@@ -43,6 +43,7 @@ const RegistryViewer = () => {
   const [registries, setRegistries] = useState([]);
   const [mozas, setMozas] = useState([]);
   const [total, setTotal] = useState(0);
+  const [grandTotal, setGrandTotal] = useState(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [search, setSearch] = useState('');
@@ -82,6 +83,7 @@ const RegistryViewer = () => {
       const payload = res.data?.data;
       setRegistries(payload?.registries || []);
       setTotal(payload?.pagination?.total || 0);
+      setGrandTotal(payload?.grandTotal || null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load registries');
     } finally {
@@ -139,6 +141,7 @@ const RegistryViewer = () => {
 
   return (
     <Box>
+
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems={{ sm: 'center' }}>
@@ -169,6 +172,29 @@ const RegistryViewer = () => {
             <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
           ))}
         </TextField>
+
+        {grandTotal && (
+          <Box
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.75,
+              px: 2,
+              py: 0.75,
+              borderRadius: 2,
+              bgcolor: 'primary.main',
+              color: 'primary.contrastText',
+              boxShadow: 1
+            }}
+          >
+            <Typography variant="body2" sx={{ opacity: 0.85, fontWeight: 500 }}>Grand Total Acquired:</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: 0.5 }}>
+              {formatKMS(grandTotal)}
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.75 }}>(K-M-S)</Typography>
+          </Box>
+        )}
+
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="contained" startIcon={<Add />} onClick={openCreate}>
           Add Registry

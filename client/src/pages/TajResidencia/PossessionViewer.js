@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -45,6 +45,7 @@ const PossessionViewer = () => {
 
   const [registries, setRegistries] = useState([]);
   const [total, setTotal] = useState(0);
+  const [grandTotal, setGrandTotal] = useState(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [recordSearch, setRecordSearch] = useState('');
@@ -84,6 +85,7 @@ const PossessionViewer = () => {
       const payload = res.data?.data;
       setRegistries(payload?.possessions || []);
       setTotal(payload?.pagination?.total || 0);
+      setGrandTotal(payload?.grandTotal || null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load possession records');
     } finally {
@@ -143,6 +145,7 @@ const PossessionViewer = () => {
 
   return (
     <Box>
+
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems={{ sm: 'center' }}>
@@ -159,15 +162,34 @@ const PossessionViewer = () => {
             <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
           ))}
         </TextField>
+
+        {grandTotal && (
+          <Box
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.75,
+              px: 2,
+              py: 0.75,
+              borderRadius: 2,
+              bgcolor: 'success.main',
+              color: 'success.contrastText',
+              boxShadow: 1
+            }}
+          >
+            <Typography variant="body2" sx={{ opacity: 0.85, fontWeight: 500 }}>Grand Total Possessed:</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: 0.5 }}>
+              {formatKMS(grandTotal)}
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.75 }}>(K-M-S)</Typography>
+          </Box>
+        )}
+
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="contained" startIcon={<Add />} onClick={openCreate} disabled={!mozas.length}>
           Add Possession
         </Button>
       </Stack>
-
-      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-        Possession records
-      </Typography>
 
       <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
         <TextField

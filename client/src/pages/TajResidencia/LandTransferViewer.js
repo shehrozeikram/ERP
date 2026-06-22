@@ -61,7 +61,7 @@ export default function LandTransferViewer() {
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [closingId, setClosingId] = useState(null);
-  const [editDialog, setEditDialog] = useState({ open: false, transferId: null });
+  const [editDialog, setEditDialog] = useState({ open: false, transferId: null, purchaseId: null });
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 300);
@@ -143,9 +143,9 @@ export default function LandTransferViewer() {
         <Button
           variant="contained"
           startIcon={<TransferIcon />}
-          onClick={() => navigate('/taj-residencia/land-purchase')}
+          onClick={() => setEditDialog({ open: true, transferId: null, purchaseId: null })}
         >
-          Create from Land Purchase
+          Create Land Transfer
         </Button>
       </Stack>
 
@@ -226,7 +226,7 @@ export default function LandTransferViewer() {
                       size="small"
                       variant="text"
                       sx={{ fontFamily: 'monospace', fontWeight: 700, p: 0, minWidth: 0 }}
-                      onClick={() => setEditDialog({ open: true, transferId: row._id })}
+                      onClick={() => setEditDialog({ open: true, transferId: row._id, purchaseId: null })}
                     >
                       {row.referenceNo}
                     </Button>
@@ -270,7 +270,7 @@ export default function LandTransferViewer() {
                     <Tooltip title="Edit">
                       <IconButton
                         size="small"
-                        onClick={() => setEditDialog({ open: true, transferId: row._id })}
+                        onClick={() => setEditDialog({ open: true, transferId: row._id, purchaseId: null })}
                       >
                         <EditIcon fontSize="small" />
                       </IconButton>
@@ -308,7 +308,8 @@ export default function LandTransferViewer() {
       <LandTransferDialog
         open={editDialog.open}
         transferId={editDialog.transferId}
-        onClose={() => setEditDialog({ open: false, transferId: null })}
+        purchaseId={editDialog.purchaseId}
+        onClose={() => setEditDialog({ open: false, transferId: null, purchaseId: null })}
         onSaved={load}
       />
     </Box>

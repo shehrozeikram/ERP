@@ -997,25 +997,20 @@ export const MODULES = {
           { name: 'Maps', path: '/taj-residencia/land-acquisition/maps' },
           { name: 'Moza', path: '/taj-residencia/land-acquisition/moza' },
           { name: 'Registry', path: '/taj-residencia/land-acquisition/registry' },
-          { name: 'Possession', path: '/taj-residencia/land-acquisition/possession' }
+          { name: 'Possession', path: '/taj-residencia/land-acquisition/possession' },
+          {
+            name: 'Parties',
+            path: '/taj-residencia/land-acquisition/parties',
+            subItems: [
+              { name: 'Sellers', path: '/taj-residencia/land-acquisition/parties/sellers' },
+              { name: 'Buyers', path: '/taj-residencia/land-acquisition/parties/buyers' },
+              { name: 'Dealers', path: '/taj-residencia/land-acquisition/parties/dealers' }
+            ]
+          },
+          { name: 'Land Purchase', path: '/taj-residencia/land-purchase' },
+          { name: 'Land Transfers', path: '/taj-residencia/land-transfers' },
+          { name: 'Dashboard', path: '/taj-residencia/land-acquisition/dashboard' }
         ]
-      },
-      {
-        name: 'Parties',
-        path: '/taj-residencia/land-acquisition/parties',
-        subItems: [
-          { name: 'Sellers', path: '/taj-residencia/land-acquisition/parties/sellers' },
-          { name: 'Buyers', path: '/taj-residencia/land-acquisition/parties/buyers' },
-          { name: 'Dealers', path: '/taj-residencia/land-acquisition/parties/dealers' }
-        ]
-      },
-      {
-        name: 'Land Purchase',
-        path: '/taj-residencia/land-purchase'
-      },
-      {
-        name: 'Land Transfers',
-        path: '/taj-residencia/land-transfers'
       }
     ]
   },

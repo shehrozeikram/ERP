@@ -8,6 +8,11 @@ const landAcquisitionPurchaseService = {
     return response.data;
   },
 
+  getDeals: async () => {
+    const response = await api.get(`${BASE}/purchases/deals`);
+    return response.data;
+  },
+
   getPurchases: async (params = {}) => {
     const response = await api.get(`${BASE}/purchases`, { params });
     return response.data;

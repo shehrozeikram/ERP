@@ -5,6 +5,7 @@ const LandPurchase = require('../models/tajResidencia/LandPurchase');
 const LandParty = require('../models/tajResidencia/LandParty');
 const LandMoza = require('../models/tajResidencia/LandMoza');
 const LandMozaKhasraEntry = require('../models/tajResidencia/LandMozaKhasraEntry');
+const LandPossession = require('../models/tajResidencia/LandPossession');
 const {
   parseAreaInput,
   normalizeArea,
@@ -348,6 +349,140 @@ router.delete('/transfers/:id', asyncHandler(async (req, res) => {
   await existing.save();
 
   res.json({ success: true, message: 'Land transfer deleted' });
+}));
+
+// GET /reports/land-summary — Land Summary Report by Moza
+router.get('/reports/land-summary', asyncHandler(async (req, res) => {
+  const SARSAIS_PER_MARLA = 9;
+  const MARLA_PER_KANAL_CONST = 20;
+  const TOTAL_SARSAIS_PER_KANAL = SARSAIS_PER_MARLA * MARLA_PER_KANAL_CONST;
+
+  // Helper to convert {kanal, marla, sarsai} to total sarsais
+  const toSarsaisLocal = (area) => {
+    const a = area || {};
+    return ((Number(a.kanal) || 0) * TOTAL_SARSAIS_PER_KANAL)
+      + ((Number(a.marla) || 0) * SARSAIS_PER_MARLA)
+      + (Number(a.sarsai) || 0);
+  };
+
+  // Helper to convert sarsais back to {kanal, marla, sarsai}
+  const fromSarsais = (total) => {
+    const kanal = Math.floor(total / TOTAL_SARSAIS_PER_KANAL);
+    const rem1 = total % TOTAL_SARSAIS_PER_KANAL;
+    const marla = Math.floor(rem1 / SARSAIS_PER_MARLA);
+    const sarsai = Math.round((rem1 % SARSAIS_PER_MARLA) * 1000) / 1000;
+    return { kanal, marla, sarsai };
+  };
+
+  // 1. Fetch all active purchases with moza info
+  const purchases = await LandPurchase.find({ isActive: true })
+    .populate('moza', 'name')
+    .lean();
+
+  // 2. Fetch all active transfers for transfer charges aggregation
+  const transfers = await LandTransfer.find({ isActive: true })
+    .lean();
+
+  // Build a map: purchaseId -> totalTransferPayments (transfer charges)
+  const transferChargesByPurchase = {};
+  for (const t of transfers) {
+    const pid = String(t.landPurchase);
+    transferChargesByPurchase[pid] = (transferChargesByPurchase[pid] || 0)
+      + (Number(t.totalTransferPayments) || 0);
+  }
+
+  // 3. Group purchases by moza
+  const mozaMap = {};
+  for (const p of purchases) {
+    const mozaId = String(p.moza?._id || p.moza);
+    const mozaName = p.moza?.name || 'Unknown';
+    if (!mozaMap[mozaId]) {
+      mozaMap[mozaId] = {
+        mozaId,
+        mozaName,
+        totalSarsais: 0,
+        landValue: 0,
+        transferCharges: 0,
+        commission: 0
+      };
+    }
+    mozaMap[mozaId].totalSarsais += toSarsaisLocal(p.totalArea);
+    mozaMap[mozaId].landValue += Number(p.agreedAmount) || 0;
+    mozaMap[mozaId].transferCharges += transferChargesByPurchase[String(p._id)] || 0;
+    // Commission: govtLandValue is used as a proxy for commission/allied expense
+    mozaMap[mozaId].commission += Number(p.govtLandValue) || 0;
+  }
+
+  // 4. Build result rows
+  const rows = Object.values(mozaMap).map((m) => {
+    const area = fromSarsais(m.totalSarsais);
+    const totalAllied = m.landValue + m.transferCharges + m.commission;
+    return {
+      mozaName: m.mozaName,
+      kanal: area.kanal,
+      marla: area.marla,
+      sarsai: area.sarsai,
+      landValue: Math.round(m.landValue * 100) / 100,
+      transferCharges: Math.round(m.transferCharges * 100) / 100,
+      commission: Math.round(m.commission * 100) / 100,
+      totalAllied: Math.round(totalAllied * 100) / 100
+    };
+  }).sort((a, b) => b.kanal - a.kanal || b.marla - a.marla);
+
+  // 5. Grand totals
+  const grandTotalSarsais = rows.reduce((s, r) => s + toSarsaisLocal({ kanal: r.kanal, marla: r.marla, sarsai: r.sarsai }), 0);
+  const grandArea = fromSarsais(grandTotalSarsais);
+  const totals = {
+    kanal: grandArea.kanal,
+    marla: grandArea.marla,
+    sarsai: grandArea.sarsai,
+    landValue: Math.round(rows.reduce((s, r) => s + r.landValue, 0) * 100) / 100,
+    transferCharges: Math.round(rows.reduce((s, r) => s + r.transferCharges, 0) * 100) / 100,
+    commission: Math.round(rows.reduce((s, r) => s + r.commission, 0) * 100) / 100,
+    totalAllied: Math.round(rows.reduce((s, r) => s + r.totalAllied, 0) * 100) / 100
+  };
+
+  // 6. Owner (purchaser) summary by land transfer
+  const purchaserMap = {};
+  for (const t of transfers) {
+    const name = t.purchaserName || 'In Progress';
+    if (!purchaserMap[name]) purchaserMap[name] = { ownerName: name, totalSarsais: 0 };
+    purchaserMap[name].totalSarsais += toSarsaisLocal(t.transferArea);
+  }
+
+  const ownerRows = Object.values(purchaserMap).map((o) => {
+    const area = fromSarsais(o.totalSarsais);
+    return { ownerName: o.ownerName, kanal: area.kanal, marla: area.marla, sarsai: area.sarsai };
+  }).sort((a, b) => b.kanal - a.kanal || b.marla - a.marla);
+
+  const ownerTotalSarsais = ownerRows.reduce((s, r) => s + toSarsaisLocal({ kanal: r.kanal, marla: r.marla, sarsai: r.sarsai }), 0);
+  const ownerTotalArea = fromSarsais(ownerTotalSarsais);
+  const ownerTotals = { kanal: ownerTotalArea.kanal, marla: ownerTotalArea.marla, sarsai: ownerTotalArea.sarsai };
+
+  // 7. Overall Dashboard Totals
+  const possessions = await LandPossession.find({ isActive: true }).lean();
+  let totalPossessedSarsais = 0;
+  for (const pos of possessions) {
+    totalPossessedSarsais += toSarsaisLocal(pos.totalArea);
+  }
+
+  const totalPurchaseSarsais = grandTotalSarsais;
+  const remainingSarsais = Math.max(0, totalPurchaseSarsais - totalPossessedSarsais);
+
+  const dashboardTotals = {
+    purchased: fromSarsais(totalPurchaseSarsais),
+    possessed: fromSarsais(totalPossessedSarsais),
+    remaining: fromSarsais(remainingSarsais)
+  };
+
+  res.json({
+    success: true,
+    data: {
+      landSummary: { rows, totals },
+      ownerSummary: { rows: ownerRows, totals: ownerTotals },
+      dashboardTotals
+    }
+  });
 }));
 
 module.exports = router;

@@ -180,21 +180,48 @@ router.get('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
   const skip = (pageNum - 1) * limitNum;
 
-  const [rows, total] = await Promise.all([
+  const SARSAIS_PER_KANAL = 180;
+  const SARSAI_PER_MARLA = 9;
+
+  const [rows, total, grandTotalAgg] = await Promise.all([
     LandPossession.find(filter)
       .populate('moza', 'name slug')
       .populate('registry', 'registryNo inteqalNo registryDate')
       .sort({ possessionDate: -1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum),
-    LandPossession.countDocuments(filter)
+    LandPossession.countDocuments(filter),
+    LandPossession.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          totalSarsais: {
+            $sum: {
+              $add: [
+                { $multiply: [{ $ifNull: ['$totalArea.kanal', 0] }, SARSAIS_PER_KANAL] },
+                { $multiply: [{ $ifNull: ['$totalArea.marla', 0] }, SARSAI_PER_MARLA] },
+                { $ifNull: ['$totalArea.sarsai', 0] }
+              ]
+            }
+          }
+        }
+      }
+    ])
   ]);
+
+  const totalSarsais = grandTotalAgg[0]?.totalSarsais || 0;
+  const grandKanal = Math.floor(totalSarsais / SARSAIS_PER_KANAL);
+  const rem1 = totalSarsais % SARSAIS_PER_KANAL;
+  const grandMarla = Math.floor(rem1 / SARSAI_PER_MARLA);
+  const grandSarsai = rem1 % SARSAI_PER_MARLA;
 
   res.json({
     success: true,
     data: {
       possessions: rows.map(mapPossession),
-      pagination: { page: pageNum, limit: limitNum, total }
+      pagination: { page: pageNum, limit: limitNum, total },
+      grandTotal: { kanal: grandKanal, marla: grandMarla, sarsai: grandSarsai }
     }
   });
 }));

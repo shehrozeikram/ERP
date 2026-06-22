@@ -12,6 +12,7 @@ import {
   DialogTitle,
   Divider,
   Grid,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -96,6 +97,8 @@ export default function LandTransferDialog({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [deals, setDeals] = useState([]);
+  const [selectedDealId, setSelectedDealId] = useState('');
   const [purchase, setPurchase] = useState(null);
   const [mozaKhasras, setMozaKhasras] = useState([]);
   const [sellers, setSellers] = useState([]);
@@ -143,12 +146,22 @@ export default function LandTransferDialog({
     }
   }, []);
 
+  // Load all deals for the dropdown (create mode only)
+  const loadDeals = useCallback(async () => {
+    try {
+      const res = await landAcquisitionPurchaseService.getDeals();
+      setDeals(res.data || []);
+    } catch {
+      setDeals([]);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     if (!open) return;
     setLoading(true);
     setError('');
     try {
-      await loadParties();
+      await Promise.all([loadParties(), loadDeals()]);
 
       if (isEdit) {
         const transferRes = await landAcquisitionTransferService.getTransfer(transferId);
@@ -190,8 +203,14 @@ export default function LandTransferDialog({
         return;
       }
 
+      // Create mode: no purchaseId pre-selected — user picks from deal dropdown
       if (!purchaseId) {
-        setError('Land purchase is required to create a transfer');
+        setSelectedDealId('');
+        setPurchase(null);
+        setMozaKhasras([]);
+        setForm(emptyForm());
+        setTransferPayments(defaultTransferPaymentRows());
+        setCustomPaymentTypes([]);
         return;
       }
 
@@ -209,10 +228,8 @@ export default function LandTransferDialog({
 
       const purchaseIds = new Set((purchaseRow.lines || []).map((line) => String(line.khasraEntry)));
       const defaultKhasras = khasraOptions.filter((entry) => purchaseIds.has(String(entry._id)));
-      const purchaseArea = defaultKhasras.reduce(
-        (sum, entry) => addAreas(sum, entry.landInKhasra || {}),
-        { kanal: 0, marla: 0, sarsai: 0 }
-      );
+      // Use the deal's recorded totalArea directly
+      const purchaseArea = purchaseRow.totalArea || { kanal: 0, marla: 0, sarsai: 0 };
 
       setForm({
         referenceNo: numbersRes.data?.referenceNo || '',
@@ -233,22 +250,71 @@ export default function LandTransferDialog({
     } finally {
       setLoading(false);
     }
-  }, [open, purchaseId, transferId, isEdit, loadParties]);
+  }, [open, purchaseId, transferId, isEdit, loadParties, loadDeals]);
+
+  // When user picks a deal from the dropdown, load that purchase
+  const handleDealChange = useCallback(async (dealId) => {
+    setSelectedDealId(dealId);
+    if (!dealId) {
+      setPurchase(null);
+      setMozaKhasras([]);
+      setForm(emptyForm());
+      return;
+    }
+    setLoading(true);
+    try {
+      const deal = deals.find((d) => String(d._id) === String(dealId));
+      const [purchaseRes, numbersRes] = await Promise.all([
+        landAcquisitionPurchaseService.getPurchase(deal._id),
+        landAcquisitionTransferService.getNextNumbers()
+      ]);
+      const purchaseRow = purchaseRes.data;
+      setPurchase(purchaseRow);
+
+      const mozaId = purchaseRow.moza?._id || purchaseRow.moza;
+      const khasraRes = await getMozaKhasras(mozaId);
+      const khasraOptions = sortKhasraEntries(khasraRes.data?.data || []);
+      setMozaKhasras(khasraOptions);
+
+      const purchaseIds = new Set((purchaseRow.lines || []).map((line) => String(line.khasraEntry)));
+      const defaultKhasras = khasraOptions.filter((entry) => purchaseIds.has(String(entry._id)));
+      
+      const purchaseArea = purchaseRow.totalArea || { kanal: 0, marla: 0, sarsai: 0 };
+
+      setForm({
+        referenceNo: numbersRes.data?.referenceNo || '',
+        transferNo: numbersRes.data?.transferNo || '',
+        transferDate: new Date().toISOString().slice(0, 10),
+        intiqalNo: '',
+        registryNo: '',
+        seller: purchaseRow.seller || null,
+        purchaser: purchaseRow.purchaser || null,
+        selectedKhasras: defaultKhasras,
+        purchaseArea: areaToForm(purchaseArea),
+        transferArea: areaToForm(purchaseArea)
+      });
+      setTransferPayments(defaultTransferPaymentRows());
+      setCustomPaymentTypes([]);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load purchase for selected deal');
+    } finally {
+      setLoading(false);
+    }
+  }, [deals]);
 
   useEffect(() => {
     if (open) loadData();
   }, [open, loadData]);
 
   const handleKhasraChange = (_, value) => {
-    const purchaseArea = value.reduce(
+    const calculatedArea = value.reduce(
       (sum, entry) => addAreas(sum, entry.landInKhasra || {}),
       { kanal: 0, marla: 0, sarsai: 0 }
     );
     setForm((prev) => ({
       ...prev,
       selectedKhasras: value,
-      purchaseArea: areaToForm(purchaseArea),
-      transferArea: areaToForm(purchaseArea)
+      transferArea: areaToForm(calculatedArea)
     }));
   };
 
@@ -348,14 +414,34 @@ export default function LandTransferDialog({
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, bgcolor: 'background.paper' }}>
               <Typography variant="subtitle1" fontWeight={700} gutterBottom>Land Selection</Typography>
               <Grid container spacing={2}>
+                {/* Deal No — dropdown in create mode, read-only in edit mode */}
                 <Grid item xs={12} md={4}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Deal No"
-                    value={purchase?.dealNo ?? ''}
-                    InputProps={{ readOnly: true }}
-                  />
+                  {isEdit ? (
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Deal No"
+                      value={purchase?.dealNo ?? ''}
+                      InputProps={{ readOnly: true }}
+                    />
+                  ) : (
+                    <TextField
+                      fullWidth
+                      select
+                      size="small"
+                      label="Deal No *"
+                      value={selectedDealId}
+                      onChange={(e) => handleDealChange(e.target.value)}
+                      helperText={deals.length ? `${deals.length} deals available` : 'Loading deals...'}
+                    >
+                      <MenuItem value="">— Select Deal —</MenuItem>
+                      {deals.map((d) => (
+                        <MenuItem key={d._id} value={d._id}>
+                          Deal {d.dealNo} — {d.purchaseNo}{d.mozaName ? ` (${d.mozaName})` : ''}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
                 </Grid>
                 <Grid item xs={12} md={4}>
                   <TextField

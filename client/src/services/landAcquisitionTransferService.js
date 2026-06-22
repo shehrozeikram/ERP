@@ -36,6 +36,11 @@ const landAcquisitionTransferService = {
   deleteTransfer: async (id) => {
     const response = await api.delete(`${BASE}/transfers/${id}`);
     return response.data;
+  },
+
+  getLandSummaryReport: async () => {
+    const response = await api.get(`${BASE}/reports/land-summary`);
+    return response.data;
   }
 };
 

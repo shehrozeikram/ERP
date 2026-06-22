@@ -226,6 +226,25 @@ const validatePurchasePayload = async (payload, { isCreate = false } = {}) => {
   }
 };
 
+// GET /purchases/deals — lightweight list of all deals for dropdowns
+router.get('/purchases/deals', asyncHandler(async (req, res) => {
+  const deals = await LandPurchase.find({ isActive: true })
+    .select('dealNo purchaseNo moza')
+    .populate('moza', 'name')
+    .sort({ dealNo: 1 })
+    .lean();
+
+  res.json({
+    success: true,
+    data: deals.map((d) => ({
+      _id: d._id,
+      dealNo: d.dealNo,
+      purchaseNo: d.purchaseNo,
+      mozaName: d.moza?.name || ''
+    }))
+  });
+}));
+
 // GET /purchases/next-numbers
 router.get('/purchases/next-numbers', asyncHandler(async (req, res) => {
   const data = await nextPurchaseNumbers();
