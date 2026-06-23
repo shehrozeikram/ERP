@@ -5,6 +5,56 @@
 const { vehicleFuelTotal } = require('./allowanceHelpers');
 
 /**
+ * Get the number of months remaining in the FBR Financial Year from the employee's hire date.
+ * FBR Financial Year: July 1 → June 30.
+ * This is used to compute the projected annual income for slab determination.
+ *
+ * Examples:
+ *   Hired July 1, 2025  → 12 months in FY 2025-26
+ *   Hired June 1, 2026  →  1 month  in FY 2025-26
+ *   Hired January 1, 2026 → 6 months in FY 2025-26
+ *
+ * @param {Date|string} hireDate - Employee hire date
+ * @param {number} payrollMonth  - Current payroll month (1-12)
+ * @param {number} payrollYear   - Current payroll year
+ * @returns {number} Remaining months in FY (1-12)
+ */
+function getRemainingFYMonths(hireDate, payrollMonth, payrollYear) {
+  if (!hireDate) return 12; // fallback: no hire date → assume full year
+
+  const hire = new Date(hireDate);
+  if (isNaN(hire.getTime())) return 12;
+
+  // Determine the FY that contains the payroll month/year
+  // FY start: July 1 of fyStartYear
+  const fyStartYear = payrollMonth >= 7 ? payrollYear : payrollYear - 1;
+  const fyStartMonth = 7; // July is month 7
+
+  // The month in which the employee STARTS earning in this FY
+  // = max(hireDate month, FY start month in FY start year)
+  const hireYear  = hire.getFullYear();
+  const hireMonth = hire.getMonth() + 1; // 1-indexed
+
+  // If hired before this FY, count full 12 months
+  if (hireYear < fyStartYear || (hireYear === fyStartYear && hireMonth <= fyStartMonth)) {
+    return 12;
+  }
+
+  // If hired after this FY ends (shouldn't happen for current payroll, but guard)
+  if (hireYear > payrollYear || (hireYear === payrollYear && hireMonth > 6 && payrollMonth <= 6)) {
+    return 1;
+  }
+
+  // Months from hire month to end of FY (June = month 6 of fyStartYear+1)
+  const fyEndYear  = fyStartYear + 1;
+  const fyEndMonth = 6; // June
+
+  // Total months from hireMonth/hireYear to fyEndMonth/fyEndYear (inclusive)
+  const months = (fyEndYear - hireYear) * 12 + (fyEndMonth - hireMonth) + 1;
+  return Math.min(12, Math.max(1, months));
+}
+
+/**
  * Calculate monthly tax deduction using FBR 2025-2026 tax slabs
  * @param {number} monthlySalary - Monthly taxable salary (after medical allowance deduction)
  * @returns {number} Monthly tax amount
@@ -276,8 +326,52 @@ async function getTaxSlabInfo(annualIncome) {
   }
 }
 
+/**
+ * FY-aware version of calculateMonthlyTax.
+ * Uses the employee's hire date to determine how many months they have in the
+ * current FBR Financial Year, then projects their annual income accordingly.
+ * This ensures newly joined employees are placed in the correct (lower) tax slab.
+ *
+ * @param {number}       monthlySalary  - Monthly taxable income (after medical exempt deduction)
+ * @param {Date|string}  hireDate       - Employee's hire/joining date
+ * @param {number}       payrollMonth   - The payroll month being processed (1-12)
+ * @param {number}       payrollYear    - The payroll year being processed
+ * @returns {number} Monthly tax amount
+ */
+function calculateMonthlyTaxFYAware(monthlySalary, hireDate, payrollMonth, payrollYear) {
+  if (!monthlySalary || monthlySalary <= 0) return 0;
+
+  const fyMonths = getRemainingFYMonths(hireDate, payrollMonth, payrollYear);
+  const annualTaxableIncome = monthlySalary * fyMonths;
+
+  let annualTax = 0;
+
+  if (annualTaxableIncome <= 600000) {
+    annualTax = 0;
+  } else if (annualTaxableIncome <= 1200000) {
+    annualTax = (annualTaxableIncome - 600000) * 0.01;
+  } else if (annualTaxableIncome <= 2200000) {
+    annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
+  } else if (annualTaxableIncome <= 3200000) {
+    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+  } else if (annualTaxableIncome <= 4100000) {
+    annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+  } else {
+    annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+  }
+
+  if (annualTaxableIncome > 10000000) {
+    annualTax += annualTax * 0.09;
+  }
+
+  // Monthly tax = annual tax ÷ 12 (always divide by 12 — it's a monthly deduction)
+  return Math.round(annualTax / 12);
+}
+
 module.exports = {
   calculateMonthlyTax,
+  calculateMonthlyTaxFYAware,
+  getRemainingFYMonths,
   calculateMonthlyTaxImage,
   calculateTaxableIncome,
   calculateTax,

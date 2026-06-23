@@ -139,7 +139,10 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
     allowances: effectiveAllowances,
     arrears: employeeArrears,
     employeeId: employee._id,
-    settings: taxSettings
+    settings: taxSettings,
+    hireDate: employee.hireDate,
+    payrollMonth: payrollMonth,
+    payrollYear: payrollYear
   });
   // Tax is calculated on already-prorated gross/allowances — no second multiply needed.
   // calculateMonthlyTax annualises its input, so passing prorated income gives correct tax
@@ -1776,7 +1779,10 @@ router.post('/', [
             allowances: effectiveAllowances,
             arrears: employeeArrears,
             employeeId: employee._id,
-            settings: taxSettings
+            settings: taxSettings,
+            hireDate: employee.hireDate,
+            payrollMonth: month,
+            payrollYear: year
           });
           // Tax is calculated on already-prorated gross/allowances — do NOT multiply by factor again.
           // calculateMonthlyTax annualises its input, so prorated income already gives correct slab tax.

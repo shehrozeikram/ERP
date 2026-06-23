@@ -1,4 +1,4 @@
-const { calculateMonthlyTax } = require('./taxCalculator');
+const { calculateMonthlyTax, calculateMonthlyTaxFYAware } = require('./taxCalculator');
 const { activeAmount, additionalAllowancesTotal } = require('./allowanceHelpers');
 const PayrollTaxSettings = require('../models/hr/PayrollTaxSettings');
 const {
@@ -69,11 +69,13 @@ const taxableAndExemptPartsForAllowance = (amount, policy) => {
  * Legacy: 10% medical exemption on (mainSalary + arrears) combined.
  * Allowances are bundled into mainSalary in this path.
  */
-const calculateTaxLegacy = (mainSalary, arrears = 0) => {
+const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMonth = null, payrollYear = null) => {
   const totalIncome = mainSalary + arrears;
   const salaryMedicalExempt = Math.round(totalIncome * 0.1);
   const totalTaxableIncome = totalIncome - salaryMedicalExempt;
-  const totalTax = calculateMonthlyTax(totalTaxableIncome);
+  const totalTax = (hireDate && payrollMonth && payrollYear)
+    ? calculateMonthlyTaxFYAware(totalTaxableIncome, hireDate, payrollMonth, payrollYear)
+    : calculateMonthlyTax(totalTaxableIncome);
 
   return {
     mainSalary,
@@ -110,7 +112,10 @@ const calculatePayrollTaxWithSettings = ({
   allowances = {},
   arrears = 0,
   employeeId = null,
-  settings = null
+  settings = null,
+  hireDate = null,
+  payrollMonth = null,
+  payrollYear = null
 }) => {
   const config = normalizeSettings(settings);
   const gross = Math.max(0, Number(grossSalary) || 0);
@@ -118,7 +123,7 @@ const calculatePayrollTaxWithSettings = ({
   const totalAllowances = additionalAllowancesTotal(allowances);
 
   if (!employeeUsesAllowanceTaxPolicy(employeeId, config)) {
-    return calculateTaxLegacy(gross + totalAllowances, arrearsAmt);
+    return calculateTaxLegacy(gross + totalAllowances, arrearsAmt, hireDate, payrollMonth, payrollYear);
   }
 
   // Step 1: Apply salaryMedicalExemptPercent to (gross + arrears) combined
@@ -146,7 +151,9 @@ const calculatePayrollTaxWithSettings = ({
 
   // Step 3: Total taxable = taxable(salary+arrears) + taxable allowances
   const totalTaxableIncome = taxableGrossPlusArrears + allowanceTaxable;
-  const totalTax = calculateMonthlyTax(totalTaxableIncome);
+  const totalTax = (hireDate && payrollMonth && payrollYear)
+    ? calculateMonthlyTaxFYAware(totalTaxableIncome, hireDate, payrollMonth, payrollYear)
+    : calculateMonthlyTax(totalTaxableIncome);
 
   const mainSalary = gross + totalAllowances;
   const totalIncome = mainSalary + arrearsAmt;
