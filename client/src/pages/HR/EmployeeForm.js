@@ -4047,7 +4047,11 @@ const EmployeeForm = () => {
                   control={
                     <Switch
                       checked={formik.values.eobi?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('eobi.isActive', e.target.checked)}
+                      onChange={(e) => {
+                        formik.setFieldValue('eobi.isActive', e.target.checked);
+                        if (e.target.checked) formik.setFieldValue('eobi.amount', 370);
+                        else formik.setFieldValue('eobi.amount', 0);
+                      }}
                       name="eobi.isActive"
                     />
                   }
