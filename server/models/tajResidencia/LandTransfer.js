@@ -18,6 +18,7 @@ const transferLineSchema = new mongoose.Schema({
 
 const transferPaymentSchema = new mongoose.Schema({
   paymentType: { type: String, trim: true, required: true },
+  status: { type: String, enum: ['Pending', 'Paid'], default: 'Pending' },
   description: { type: String, trim: true, default: '' },
   amount: { type: Number, default: 0, min: 0 },
   amountInWords: { type: String, trim: true, default: '' },
@@ -86,6 +87,12 @@ const landTransferSchema = new mongoose.Schema({
   transferPayments: { type: [transferPaymentSchema], default: [] },
   totalTransferPayments: { type: Number, default: 0, min: 0 },
   totalTransferPaymentsInWords: { type: String, trim: true, default: '' },
+  paymentStatus: {
+    type: String,
+    enum: ['Pending', 'Partial Paid', 'Paid'],
+    default: 'Pending',
+    index: true
+  },
   status: {
     type: String,
     enum: ['Open', 'Closed'],

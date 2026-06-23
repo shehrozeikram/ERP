@@ -41,6 +41,7 @@ export const defaultTransferPaymentRows = () =>
   DEFAULT_TRANSFER_PAYMENT_TYPES.map((paymentType) => ({
     _localId: makeRowId(),
     paymentType,
+    status: 'Pending',
     amount: '',
     amountInWords: ''
   }));
@@ -51,7 +52,7 @@ export const mapTransferPaymentsFromApi = (rows = []) => {
     ...row,
     _localId: row._id || makeRowId(),
     paymentType: row.paymentType || '',
-    status: row.status || 'Paid',
+    status: row.status || 'Pending',
     amount: row.amount ?? '',
     amountInWords: row.amountInWords || ''
   }));

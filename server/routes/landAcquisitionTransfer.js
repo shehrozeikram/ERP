@@ -2,8 +2,6 @@ const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
-const JournalEntry = require('../models/finance/JournalEntry');
-const Account = require('../models/finance/Account');
 const LandParty = require('../models/tajResidencia/LandParty');
 const LandMoza = require('../models/tajResidencia/LandMoza');
 const LandMozaKhasraEntry = require('../models/tajResidencia/LandMozaKhasraEntry');
@@ -16,6 +14,8 @@ const {
   MARLA_PER_KANAL,
   SARSAIS_PER_KANAL
 } = require('../utils/landAreaUnits');
+const FinanceHelper = require('../utils/financeHelper');
+const { co, acct, withCompany } = require('../utils/financePosting');
 
 const router = express.Router();
 
@@ -41,6 +41,7 @@ const parseTransferPayments = (payments = []) => {
   return payments
     .map((row) => ({
       paymentType: String(row.paymentType || '').trim(),
+      status: row.status === 'Paid' ? 'Paid' : 'Pending',
       description: String(row.description || '').trim(),
       amount: roundMoney(row.amount),
       amountInWords: String(row.amountInWords || '').trim(),
@@ -205,43 +206,102 @@ router.get('/transfers/next-numbers', asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
-async function createPaymentVoucher(transfer, amount, bankAccountId, narration, whtRate, req) {
-  if (!amount || !bankAccountId) return null;
-  
+/**
+ * Creates ONE single BPV for a land transfer payment.
+ * debitLines = [{ paymentType, amount }] — one debit line per selected payment type.
+ * One credit line for the bank account for the total.
+ *
+ * NOTE: LandTransfer has no companyId, so we resolve companyId from the bank account itself.
+ */
+async function createSingleBPV({ transfer, bankAccountId, debitLines, totalAmount, narration, paymentDate, createdBy }) {
+  if (!totalAmount || !bankAccountId || !debitLines.length) return null;
+
   try {
-    const bankAcc = await Account.findById(bankAccountId);
-    if (!bankAcc) return null;
-    
-    let debitAcc = await Account.findOne({ name: /Land Acquisition/i, isActive: true });
-    if (!debitAcc) debitAcc = await Account.findOne({ type: 'Asset', isActive: true });
-    if (!debitAcc) return null;
-    
-    const lines = [
-      { account: debitAcc._id, debit: amount, credit: 0, description: 'Transfer Payment' },
-      { account: bankAccountId, debit: 0, credit: amount, description: 'Bank Payment' }
+    const Account = require('../models/finance/Account');
+
+    // 1. Find bank account directly by ID (LandTransfer has no companyId)
+    const bankAcc = await Account.findById(bankAccountId).lean();
+    if (!bankAcc) {
+      console.warn('[BPV] Bank account not found:', bankAccountId);
+      return null;
+    }
+
+    // 2. Use the bank account's companyId for scoped lookups
+    const companyId = bankAcc.companyId || null;
+    const A = acct(companyId);
+
+    // 3. Resolve Land Acquisition expense account
+    //    Priority: name match → account number 5001 → any Expense account in same company
+    let expenseAcc = null;
+
+    if (companyId) {
+      expenseAcc = await Account.findOne({
+        companyId,
+        name: /Land Acquisition/i,
+        isActive: true
+      }).lean();
+    }
+    if (!expenseAcc) {
+      expenseAcc = await Account.findOne({ name: /Land Acquisition/i, isActive: true }).lean();
+    }
+    if (!expenseAcc) {
+      expenseAcc = await A.resolve('5001'); // General Expense
+    }
+    if (!expenseAcc && companyId) {
+      expenseAcc = await Account.findOne({ companyId, type: 'Expense', isActive: true }).lean();
+    }
+    if (!expenseAcc) {
+      expenseAcc = await Account.findOne({ type: 'Expense', isActive: true }).lean();
+    }
+    if (!expenseAcc) {
+      console.warn('[BPV] No expense account found for Land Transfer BPV');
+      return null;
+    }
+
+    // 4. Build journal lines: one debit per payment type + one credit for bank
+    const journalLines = [
+      ...debitLines.map(({ paymentType, amount }) => ({
+        account: expenseAcc._id,
+        description: `Land Transfer – ${paymentType} (${transfer.transferNo})`,
+        debit: roundMoney(amount),
+        credit: 0,
+        department: 'general'
+      })),
+      {
+        account: bankAcc._id,
+        description: `Bank Payment – Transfer ${transfer.transferNo}`,
+        debit: 0,
+        credit: roundMoney(totalAmount),
+        department: 'general'
+      }
     ];
 
-    const entry = new JournalEntry({
-      companyId: bankAcc.companyId,
-      date: new Date(),
-      referenceType: 'payment',
+    // 5. Create and post the single BPV
+    const payload = {
+      date: paymentDate || new Date(),
       reference: `LT-${transfer.transferNo}`,
+      referenceType: 'payment',
       referenceId: transfer._id,
+      description: narration || `BPV: Land Transfer Payment – ${transfer.transferNo}`,
       department: 'general',
       module: 'general',
-      description: narration || `Payment for Transfer ${transfer.transferNo}`,
-      lines,
-      status: 'draft',
-      createdBy: req.user?._id || req.user?.id
-    });
-    
-    await entry.save();
+      journalCode: 'BANK',
+      voucherSeries: 'BPV',
+      createdBy,
+      lines: journalLines
+    };
+
+    if (companyId) payload.companyId = companyId;
+
+    const entry = await FinanceHelper.createAndPostJournalEntry(payload);
+    console.log(`[BPV] Created BPV ${entry.entryNumber || entry._id} for Transfer ${transfer.transferNo}`);
     return entry._id;
   } catch (error) {
-    console.error('Error creating voucher for Land Transfer payment:', error);
+    console.error('[BPV] Error creating BPV for Land Transfer payment:', error.message);
     return null;
   }
 }
+
 
 // GET /transfers/deals
 router.get('/transfers', asyncHandler(async (req, res) => {
@@ -619,51 +679,121 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Land transfer not found' });
   }
 
-  const paymentType = String(req.body.paymentType || '').trim();
-  const amount = roundMoney(req.body.amount);
-  
-  if (!paymentType) {
-    return res.status(400).json({ success: false, message: 'Payment type is required' });
-  }
-  if (!amount) {
-    return res.status(400).json({ success: false, message: 'Amount is required' });
+  // Build a map of { paymentType -> amount } from the request
+  // Preferred: paymentTypesWithAmounts = [{ paymentType, amount }, ...]
+  // Fallback: paymentTypes array + split total equally
+  let typeAmountMap = {};
+
+  if (Array.isArray(req.body.paymentTypesWithAmounts) && req.body.paymentTypesWithAmounts.length) {
+    for (const entry of req.body.paymentTypesWithAmounts) {
+      const pt = String(entry.paymentType || '').trim();
+      if (pt) typeAmountMap[pt] = roundMoney(entry.amount);
+    }
+  } else if (Array.isArray(req.body.paymentTypes) && req.body.paymentTypes.length) {
+    const pts = req.body.paymentTypes.map((t) => String(t).trim()).filter(Boolean);
+    const total = roundMoney(req.body.amount);
+    const perType = roundMoney(total / pts.length);
+    pts.forEach((pt, i) => {
+      typeAmountMap[pt] = i === pts.length - 1
+        ? roundMoney(total - perType * (pts.length - 1))
+        : perType;
+    });
+  } else if (req.body.paymentType) {
+    const pt = String(req.body.paymentType).trim();
+    typeAmountMap[pt] = roundMoney(req.body.amount);
   }
 
-  const newPayment = {
-    paymentType,
-    description: String(req.body.description || '').trim(),
-    amount,
-    amountInWords: String(req.body.amountInWords || '').trim(),
-    paymentDate: req.body.paymentDate ? new Date(req.body.paymentDate) : undefined,
-    paymentMode: String(req.body.paymentMode || '').trim(),
-    bankAccountId: req.body.bankAccountId || undefined,
-    whtRate: Number(req.body.whtRate) || 0,
-    drawnOn: String(req.body.drawnOn || '').trim(),
-    refNo: String(req.body.refNo || '').trim(),
-    payeeName: String(req.body.payeeName || '').trim(),
-    instrument: String(req.body.instrument || '').trim(),
-    instrumentDate: req.body.instrumentDate ? new Date(req.body.instrumentDate) : undefined,
-    narration: String(req.body.narration || '').trim(),
-    status: String(req.body.status || 'Paid').trim()
-  };
+  const paymentTypes = Object.keys(typeAmountMap);
+  if (!paymentTypes.length) {
+    return res.status(400).json({ success: false, message: 'At least one payment type is required' });
+  }
 
-  if (newPayment.bankAccountId && newPayment.amount > 0) {
-    const voucherId = await createPaymentVoucher(
-      existing,
-      newPayment.amount,
-      newPayment.bankAccountId,
-      newPayment.narration || `Transfer ${existing.transferNo} - ${newPayment.paymentType}`,
-      newPayment.whtRate,
-      req
+  const bankAccountId = req.body.bankAccountId || undefined;
+  const paymentDate = req.body.paymentDate ? new Date(req.body.paymentDate) : new Date();
+  const paymentMode = String(req.body.paymentMode || '').trim();
+  const refNo = String(req.body.refNo || '').trim();
+  const narration = String(req.body.narration || '').trim();
+  const whtRate = Number(req.body.whtRate) || 0;
+  const createdBy = req.user?._id || req.user?.id;
+
+  // Update/insert each selected payment type row — NO per-type voucher
+  const debitLines = []; // collected for the single BPV
+  for (const pt of paymentTypes) {
+    const ptAmount = typeAmountMap[pt];
+
+    const existingRow = existing.transferPayments.find(
+      (row) => row.paymentType === pt && row.status !== 'Paid'
     );
-    if (voucherId) newPayment.voucherEntryId = voucherId;
+
+    if (existingRow) {
+      existingRow.status = 'Paid';
+      if (ptAmount > 0) existingRow.amount = ptAmount;
+      existingRow.paymentDate = paymentDate;
+      existingRow.paymentMode = paymentMode;
+      existingRow.bankAccountId = bankAccountId;
+      existingRow.whtRate = whtRate;
+      existingRow.refNo = refNo;
+      existingRow.narration = narration;
+    } else {
+      existing.transferPayments.push({
+        paymentType: pt,
+        status: 'Paid',
+        amount: ptAmount,
+        amountInWords: String(req.body.amountInWords || '').trim(),
+        paymentDate,
+        paymentMode,
+        bankAccountId,
+        whtRate,
+        refNo,
+        narration
+      });
+    }
+
+    if (ptAmount > 0) {
+      debitLines.push({ paymentType: pt, amount: ptAmount });
+    }
   }
 
-  existing.transferPayments.push(newPayment);
+  // Recompute totals
   existing.totalTransferPayments = roundMoney(sumTransferPayments(existing.transferPayments));
   existing.totalTransferPaymentsInWords = String(req.body.totalTransferPaymentsInWords || existing.totalTransferPaymentsInWords || '').trim();
-  existing.updatedBy = req.user?._id || req.user?.id;
+
+  // Compute overall paymentStatus
+  const allPaid = existing.transferPayments.every((r) => r.status === 'Paid');
+  const somePaid = existing.transferPayments.some((r) => r.status === 'Paid');
+  existing.paymentStatus = allPaid ? 'Paid' : somePaid ? 'Partial Paid' : 'Pending';
+
+  existing.updatedBy = createdBy;
   await existing.save();
+
+  // ── Create ONE single BPV for this payment action ────────────────────────────
+  if (bankAccountId && debitLines.length > 0) {
+    const totalAmount = debitLines.reduce((s, l) => s + l.amount, 0);
+    const bpvNarration = narration
+      || `BPV: Land Transfer ${existing.transferNo} – ${debitLines.map(l => l.paymentType).join(', ')}`;
+
+    const voucherId = await createSingleBPV({
+      transfer: existing,
+      bankAccountId,
+      debitLines,
+      totalAmount,
+      narration: bpvNarration,
+      paymentDate,
+      createdBy
+    });
+
+    // Attach voucher ID to all rows updated in this session
+    if (voucherId) {
+      for (const pt of paymentTypes) {
+        const row = existing.transferPayments.find(
+          (r) => r.paymentType === pt && r.status === 'Paid'
+        );
+        if (row && !row.voucherEntryId) row.voucherEntryId = voucherId;
+      }
+      await existing.save();
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
 
   const populated = await LandTransfer.findById(existing._id)
     .populate('landPurchase', 'purchaseNo dealNo ratePerKanal agreedAmount')
@@ -673,5 +803,7 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
 
   res.status(201).json({ success: true, message: 'Transfer payment recorded', data: mapTransfer(populated) });
 }));
+
+
 
 module.exports = router;

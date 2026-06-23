@@ -205,6 +205,7 @@ export default function LandTransferViewer() {
               <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Transfer Charges</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Payment Status</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Created At</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
             </TableRow>
@@ -212,13 +213,13 @@ export default function LandTransferViewer() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={13} align="center" sx={{ py: 5 }}>
+                <TableCell colSpan={14} align="center" sx={{ py: 5 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                <TableCell colSpan={14} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                   No land transfers yet — create one from a land purchase record.
                 </TableCell>
               </TableRow>
@@ -252,6 +253,19 @@ export default function LandTransferViewer() {
                       size="small"
                       color={row.status === 'Closed' ? 'default' : 'warning'}
                       variant={row.status === 'Closed' ? 'filled' : 'outlined'}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={row.paymentStatus || 'Pending'}
+                      size="small"
+                      color={
+                        row.paymentStatus === 'Paid' ? 'success'
+                          : row.paymentStatus === 'Partial Paid' ? 'warning'
+                          : 'error'
+                      }
+                      variant="outlined"
                       sx={{ fontWeight: 700 }}
                     />
                   </TableCell>
