@@ -137,7 +137,8 @@ const mapPossession = (doc) => {
       khasraArea: normalizeArea(line.khasraArea),
       possessedArea: normalizeArea(line.possessedArea),
       totalLandPossessed: normalizeArea(line.totalLandPossessed),
-      transferPercent: line.transferPercent != null ? line.transferPercent : 0
+      transferPercent: line.transferPercent != null ? line.transferPercent : 0,
+      khasraEntry: line.khasraEntry ? { ...line.khasraEntry, landInKhasra: normalizeArea(line.khasraEntry.landInKhasra) } : undefined
     }))
   };
 };
@@ -257,7 +258,8 @@ router.get('/possessions/next-ref', authMiddleware, asyncHandler(async (req, res
 router.get('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => {
   const doc = await LandPossession.findOne({ _id: req.params.id, isActive: true })
     .populate('moza', 'name slug')
-    .populate('registry', 'registryNo inteqalNo registryDate');
+    .populate('registry', 'registryNo inteqalNo registryDate')
+    .populate('lines.khasraEntry', 'landInKhasra');
 
   if (!doc) {
     return res.status(404).json({ success: false, message: 'Possession record not found' });
@@ -330,7 +332,8 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
 
   await doc.populate([
     { path: 'moza', select: 'name slug' },
-    { path: 'registry', select: 'registryNo inteqalNo registryDate' }
+    { path: 'registry', select: 'registryNo inteqalNo registryDate' },
+    { path: 'lines.khasraEntry', select: 'landInKhasra' }
   ]);
 
   res.status(201).json({
@@ -402,7 +405,8 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
 
   await doc.populate([
     { path: 'moza', select: 'name slug' },
-    { path: 'registry', select: 'registryNo inteqalNo registryDate' }
+    { path: 'registry', select: 'registryNo inteqalNo registryDate' },
+    { path: 'lines.khasraEntry', select: 'landInKhasra' }
   ]);
 
   res.json({
