@@ -27,6 +27,7 @@ const {
   buildScopeQueryFromRecoveryTask
 } = require('../utils/recoveryAssignmentUnassign');
 const { executeRecoveryWhatsAppSend } = require('../utils/recoveryWhatsAppSend');
+const { decorateWithERPData } = require('../utils/erpIntegration');
 
 const router = express.Router();
 
@@ -329,10 +330,10 @@ router.get(
         ]);
       }
 
-      const data = records.map((r) => ({
+      const data = await decorateWithERPData(records.map((r) => ({
         ...r,
         assignedToMember: resolveAssignedMember(r, sectorRulesAll, slabRulesAll)
-      }));
+      })));
 
       return res.json({
         success: true,
@@ -462,10 +463,10 @@ router.get(
 
     const sectorRules = sectorRulesAll;
     const slabRules = slabRulesAll;
-    const data = records.map((r) => ({
+    const data = await decorateWithERPData(records.map((r) => ({
       ...r,
       assignedToMember: resolveAssignedMember(r, sectorRules, slabRules)
-    }));
+    })));
 
     res.json({
       success: true,
@@ -587,11 +588,10 @@ router.get(
       .lean();
     const sectorRules = rules.filter((r) => r.type === 'sector');
     const slabRules = rules.filter((r) => r.type === 'slab');
-
-    const data = records.map((r) => ({
+    const data = await decorateWithERPData(records.map((r) => ({
       ...r,
       assignedToMember: resolveAssignedMember(r, sectorRules, slabRules)
-    }));
+    })));
 
     res.json({
       success: true,
