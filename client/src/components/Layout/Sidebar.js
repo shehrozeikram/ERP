@@ -346,7 +346,8 @@ const Sidebar = () => {
       '/taj-residencia/land-purchase/new': 'land_purchase',
       '/taj-residencia/land-purchase': 'land_purchase',
       '/taj-residencia/land-transfers': 'land_transfer',
-      '/taj-residencia/land-acquisition/dashboard': 'land_acquisition_reports'
+      '/taj-residencia/land-acquisition/dashboard': 'land_acquisition_reports',
+      '/taj-residencia/land-acquisition/reports': 'land_acquisition_reports'
     };
     return pathToSubmoduleMap[path];
   };

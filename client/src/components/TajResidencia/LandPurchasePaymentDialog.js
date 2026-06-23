@@ -20,8 +20,12 @@ import {
 import { Payments as PaymentIcon } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import landAcquisitionPurchaseService from '../../services/landAcquisitionPurchaseService';
+import api from '../../services/api';
+import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 import LandPurchaseInstallmentsPanel from './LandPurchaseInstallmentsPanel';
 import { numberToWords } from '../../utils/numberToWords';
+
+const PAYMENT_MODES = ['Cash', 'Cheque', 'Bank Transfer', 'Pay Order'];
 
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35,8 +39,15 @@ export default function LandPurchasePaymentDialog({ open, purchaseId, purchaseNo
   const [form, setForm] = useState({
     tokenAmount: '',
     paymentMode: '',
-    paymentRemarks: ''
+    paymentRemarks: '',
+    bankAccountId: '',
+    whtRate: '',
+    drawnOn: '',
+    refNo: '',
+    narration: '',
+    tokenPaymentDate: new Date().toISOString().split('T')[0]
   });
+  const [bankAccounts, setBankAccounts] = useState([]);
 
   const loadPurchase = useCallback(async () => {
     if (!purchaseId) return;
@@ -50,7 +61,13 @@ export default function LandPurchasePaymentDialog({ open, purchaseId, purchaseNo
       setForm({
         tokenAmount: row.tokenAmount ?? '',
         paymentMode: row.paymentMode || '',
-        paymentRemarks: row.paymentRemarks || ''
+        paymentRemarks: row.paymentRemarks || '',
+        bankAccountId: row.bankAccountId || '',
+        whtRate: row.whtRate || '',
+        drawnOn: row.drawnOn || '',
+        refNo: row.refNo || '',
+        narration: row.narration || '',
+        tokenPaymentDate: row.tokenPaymentDate ? new Date(row.tokenPaymentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
       });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load payment details');
@@ -62,6 +79,9 @@ export default function LandPurchasePaymentDialog({ open, purchaseId, purchaseNo
   useEffect(() => {
     if (!open || !purchaseId) return;
     loadPurchase();
+    fetchPayFromAccounts(api)
+      .then(setBankAccounts)
+      .catch(() => setBankAccounts([]));
   }, [open, purchaseId, loadPurchase]);
 
   const installmentPaid = useMemo(
@@ -85,7 +105,13 @@ export default function LandPurchasePaymentDialog({ open, purchaseId, purchaseNo
         tokenAmount: Number(form.tokenAmount) || 0,
         tokenAmountInWords: numberToWords(Number(form.tokenAmount) || 0),
         paymentMode: form.paymentMode,
-        paymentRemarks: form.paymentRemarks
+        paymentRemarks: form.paymentRemarks,
+        bankAccountId: form.bankAccountId || undefined,
+        whtRate: Number(form.whtRate) || 0,
+        drawnOn: form.drawnOn,
+        refNo: form.refNo,
+        narration: form.narration,
+        tokenPaymentDate: form.tokenPaymentDate
       });
       toast.success('Payment information saved');
       onSaved?.();
@@ -141,17 +167,6 @@ export default function LandPurchasePaymentDialog({ open, purchaseId, purchaseNo
                 <Grid item xs={12} sm={6} md={3}>
                   <TextField
                     fullWidth
-                    type="number"
-                    label="Token Amount"
-                    value={form.tokenAmount}
-                    onChange={(e) => setForm((prev) => ({ ...prev, tokenAmount: e.target.value }))}
-                    inputProps={{ min: 0 }}
-                    size="small"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <TextField
-                    fullWidth
                     label="Installments Paid"
                     value={formatMoney(installmentPaid)}
                     InputProps={{ readOnly: true }}
@@ -169,7 +184,7 @@ export default function LandPurchasePaymentDialog({ open, purchaseId, purchaseNo
                     sx={{ '& .MuiInputBase-input': { bgcolor: 'error.50', fontWeight: 700, color: 'error.dark' } }}
                   />
                 </Grid>
-                <Grid item xs={12} md={6}>
+                <Grid item xs={12} sm={6} md={3}>
                   <TextField
                     fullWidth
                     label="Token Amount In Words"
@@ -179,21 +194,98 @@ export default function LandPurchasePaymentDialog({ open, purchaseId, purchaseNo
                     sx={{ '& .MuiInputBase-input': { bgcolor: 'grey.50' } }}
                   />
                 </Grid>
+
+                {/* Detailed Payment Fields */}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="Token Payment Amount"
+                    value={form.tokenAmount}
+                    onChange={(e) => setForm((prev) => ({ ...prev, tokenAmount: e.target.value }))}
+                    inputProps={{ min: 0 }}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="WHT Rate %"
+                    value={form.whtRate}
+                    onChange={(e) => setForm((prev) => ({ ...prev, whtRate: e.target.value }))}
+                    size="small"
+                  />
+                </Grid>
+
                 <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
                     select
-                    label="Payment Mode"
+                    label="Payment Method"
                     value={form.paymentMode}
                     onChange={(e) => setForm((prev) => ({ ...prev, paymentMode: e.target.value }))}
                     size="small"
                   >
                     <MenuItem value="">Select mode</MenuItem>
-                    <MenuItem value="Cash">Cash</MenuItem>
-                    <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
-                    <MenuItem value="Cheque">Cheque</MenuItem>
-                    <MenuItem value="Pay Order">Pay Order</MenuItem>
+                    {PAYMENT_MODES.map((m) => (
+                      <MenuItem key={m} value={m}>{m}</MenuItem>
+                    ))}
                   </TextField>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    select
+                    label="Pay From Account"
+                    value={form.bankAccountId}
+                    onChange={(e) => setForm((prev) => ({ ...prev, bankAccountId: e.target.value }))}
+                    size="small"
+                  >
+                    <MenuItem value="">Select Account</MenuItem>
+                    {bankAccounts.map(({ account, depth }) => (
+                      <MenuItem
+                        key={account._id || account.id}
+                        value={account._id || account.id}
+                        sx={{ pl: depth * 2 + 2 }}
+                      >
+                        {formatPayFromAccountLabel(account, depth)}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="date"
+                    label="Payment Date"
+                    value={form.tokenPaymentDate}
+                    onChange={(e) => setForm((prev) => ({ ...prev, tokenPaymentDate: e.target.value }))}
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Reference / Cheque # / TT #"
+                    value={form.refNo}
+                    onChange={(e) => setForm((prev) => ({ ...prev, refNo: e.target.value }))}
+                    size="small"
+                  />
+                </Grid>
+
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={2}
+                    label="Narration"
+                    value={form.narration}
+                    onChange={(e) => setForm((prev) => ({ ...prev, narration: e.target.value }))}
+                    size="small"
+                  />
                 </Grid>
                 <Grid item xs={12}>
                   <TextField

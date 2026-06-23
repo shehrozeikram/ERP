@@ -122,11 +122,6 @@ export default function LandTransferDialog({
     [purchase?.ratePerKanal]
   );
 
-  const transferredCost = useMemo(
-    () => roundMoney(transferSizeInKanal * ratePerKanal),
-    [transferSizeInKanal, ratePerKanal]
-  );
-
   const totalTransferPayments = useMemo(
     () => roundMoney(transferPayments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
     [transferPayments]

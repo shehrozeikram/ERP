@@ -3,7 +3,6 @@ import {
   Alert,
   Box,
   CircularProgress,
-  Grid,
   IconButton,
   Paper,
   Table,
@@ -212,14 +211,32 @@ export default function LandAcquisitionDashboard() {
     exportCSV('possession_summary_by_moza.csv', headers, rows);
   };
 
-  const landRows = data?.landSummary?.rows || [];
-  const landTotals = data?.landSummary?.totals;
-  const ownerRows = data?.ownerSummary?.rows || [];
-  const ownerTotals = data?.ownerSummary?.totals;
-  const registryRows = data?.landSummary?.rows || [];
-  const registryTotals = data?.landSummary?.totals;
+  const handleExportPendingPossessionCSV = () => {
+    if (!data) return;
+    const headers = ['#', 'Moza', 'Kanal', 'Marla', 'Sarsai'];
+    const rows = (data.pendingPossessionMozaSummary?.rows || []).map((r, i) => [i + 1, r.mozaName, r.kanal, r.marla, r.sarsai]);
+    const t = data.pendingPossessionMozaSummary?.totals;
+    if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai]);
+    exportCSV('pending_possession_summary_by_moza.csv', headers, rows);
+  };
+
+  const handleExportUnregisteredPossessionCSV = () => {
+    if (!data) return;
+    const headers = ['#', 'Moza', 'Kanal', 'Marla', 'Sarsai'];
+    const rows = (data.unregisteredPossessionMozaSummary?.rows || []).map((r, i) => [i + 1, r.mozaName, r.kanal, r.marla, r.sarsai]);
+    const t = data.unregisteredPossessionMozaSummary?.totals;
+    if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai]);
+    exportCSV('unregistered_possession_summary_by_moza.csv', headers, rows);
+  };
+
+  const registryRows = data?.registryMozaSummary?.rows || [];
+  const registryTotals = data?.registryMozaSummary?.totals;
   const possessionRows = data?.possessionMozaSummary?.rows || [];
   const possessionTotals = data?.possessionMozaSummary?.totals;
+  const pendingPossessionRows = data?.pendingPossessionMozaSummary?.rows || [];
+  const pendingPossessionTotals = data?.pendingPossessionMozaSummary?.totals;
+  const unregisteredPossessionRows = data?.unregisteredPossessionMozaSummary?.rows || [];
+  const unregisteredPossessionTotals = data?.unregisteredPossessionMozaSummary?.totals;
 
   return (
     <Box>
@@ -363,6 +380,129 @@ export default function LandAcquisitionDashboard() {
         </TableContainer>
       </SectionCard>
 
+      {/* Pending Possession Summary by Moza */}
+      <SectionCard
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PendingIcon sx={{ color: 'warning.main' }} />
+            <Typography variant="h6" fontWeight={700} color="warning.dark">Pending Possession Data by Moza</Typography>
+          </Box>
+        }
+        loading={loading}
+        onExportExcel={handleExportPendingPossessionCSV}
+      >
+        <TableContainer>
+          <Table size="medium">
+            <TableHead>
+              <TableRow>
+                <ColHeader align="center" sx={{ width: 64 }}>#</ColHeader>
+                <ColHeader align="left" sx={{ fontSize: '0.75rem' }}>Moza Name</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Kanal</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Marla</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Sarsai</ColHeader>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {pendingPossessionRows.length === 0 && !loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                    No pending possession records
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pendingPossessionRows.map((row, idx) => (
+                  <TableRow key={row.mozaName} hover sx={{ '&:last-child td': { border: 0 }, transition: 'background-color 0.2s', '&:hover': { bgcolor: 'warning.50' } }}>
+                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
+                      {idx + 1}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.9rem', color: 'text.primary' }}>{row.mozaName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.kanal)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>K</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.marla)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>M</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.sarsai)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>S</span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+              {pendingPossessionTotals && (
+                <TableRow sx={{ bgcolor: 'warning.main', '& td': { color: 'white', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell align="center"></TableCell>
+                  <TableCell align="left" sx={{ fontSize: '1rem', textTransform: 'uppercase', letterSpacing: 1 }}>Total Pending</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(pendingPossessionTotals.kanal)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>K</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(pendingPossessionTotals.marla)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>M</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(pendingPossessionTotals.sarsai)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>S</span></TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </SectionCard>
+
+      {/* Unregistered Possession Summary by Moza */}
+      <SectionCard
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PendingIcon sx={{ color: 'error.main' }} />
+            <Typography variant="h6" fontWeight={700} color="error.dark">Unregistered Possession Data by Moza</Typography>
+          </Box>
+        }
+        loading={loading}
+        onExportExcel={handleExportUnregisteredPossessionCSV}
+      >
+        <TableContainer>
+          <Table size="medium">
+            <TableHead>
+              <TableRow>
+                <ColHeader align="center" sx={{ width: 64 }}>#</ColHeader>
+                <ColHeader align="left" sx={{ fontSize: '0.75rem' }}>Moza Name</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Kanal</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Marla</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Sarsai</ColHeader>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {unregisteredPossessionRows.length === 0 && !loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                    No unregistered possession records
+                  </TableCell>
+                </TableRow>
+              ) : (
+                unregisteredPossessionRows.map((row, idx) => (
+                  <TableRow key={row.mozaName} hover sx={{ '&:last-child td': { border: 0 }, transition: 'background-color 0.2s', '&:hover': { bgcolor: 'error.50' } }}>
+                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
+                      {idx + 1}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.9rem', color: 'text.primary' }}>{row.mozaName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.kanal)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>K</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.marla)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>M</span>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.sarsai)} <span style={{ color: 'gray', fontSize: '0.7rem' }}>S</span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+              {unregisteredPossessionTotals && (
+                <TableRow sx={{ bgcolor: 'error.main', '& td': { color: 'white', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell align="center"></TableCell>
+                  <TableCell align="left" sx={{ fontSize: '1rem', textTransform: 'uppercase', letterSpacing: 1 }}>Total Unregistered</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(unregisteredPossessionTotals.kanal)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>K</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(unregisteredPossessionTotals.marla)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>M</span></TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1.05rem' }}>{fmtArea(unregisteredPossessionTotals.sarsai)} <span style={{ opacity: 0.8, fontSize: '0.75rem' }}>S</span></TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </SectionCard>
 
     </Box>
   );

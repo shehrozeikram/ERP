@@ -994,6 +994,7 @@ export const MODULES = {
         name: 'Land Acquisition',
         path: '/taj-residencia/land-acquisition',
         subItems: [
+          { name: 'Dashboard', path: '/taj-residencia/land-acquisition/dashboard' },
           { name: 'Maps', path: '/taj-residencia/land-acquisition/maps' },
           { name: 'Moza', path: '/taj-residencia/land-acquisition/moza' },
           { name: 'Registry', path: '/taj-residencia/land-acquisition/registry' },
@@ -1009,7 +1010,7 @@ export const MODULES = {
           },
           { name: 'Land Purchase', path: '/taj-residencia/land-purchase' },
           { name: 'Land Transfers', path: '/taj-residencia/land-transfers' },
-          { name: 'Dashboard', path: '/taj-residencia/land-acquisition/dashboard' }
+          { name: 'Reports', path: '/taj-residencia/land-acquisition/reports' }
         ]
       }
     ]

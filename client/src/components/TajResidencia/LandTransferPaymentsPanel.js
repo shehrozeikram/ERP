@@ -48,8 +48,10 @@ export const defaultTransferPaymentRows = () =>
 export const mapTransferPaymentsFromApi = (rows = []) => {
   if (!rows.length) return defaultTransferPaymentRows();
   return rows.map((row) => ({
+    ...row,
     _localId: row._id || makeRowId(),
     paymentType: row.paymentType || '',
+    status: row.status || 'Paid',
     amount: row.amount ?? '',
     amountInWords: row.amountInWords || ''
   }));
@@ -58,13 +60,18 @@ export const mapTransferPaymentsFromApi = (rows = []) => {
 export const serializeTransferPayments = (rows = []) =>
   rows
     .filter((row) => row.paymentType)
-    .map((row) => ({
-      paymentType: row.paymentType,
-      amount: Number(row.amount) || 0,
-      amountInWords: numberToWords(Number(row.amount) || 0)
-    }));
+    .map((row) => {
+      const { _localId, ...rest } = row;
+      return {
+        ...rest,
+        paymentType: row.paymentType,
+        status: row.status || 'Paid',
+        amount: Number(row.amount) || 0,
+        amountInWords: numberToWords(Number(row.amount) || 0)
+      };
+    });
 
-export default function LandTransferPaymentsPanel({ payments, onChange, customTypes = [], onAddCustomType }) {
+export default function LandTransferPaymentsPanel({ payments, onChange, customTypes = [], onAddCustomType, readOnly = false }) {
   const [newTypeOpen, setNewTypeOpen] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
 
@@ -95,7 +102,7 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
   const addRow = (paymentType = '') => {
     onChange([
       ...payments,
-      { _localId: makeRowId(), paymentType, amount: '', amountInWords: '' }
+      { _localId: makeRowId(), paymentType, status: 'Pending', amount: '', amountInWords: '' }
     ]);
   };
 
@@ -127,30 +134,33 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
         }}
       >
         <Typography variant="subtitle1" fontWeight={700}>Transfer Payments</Typography>
-        <Stack direction="row" spacing={1}>
-          <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addRow()}>
-            Add Transfer Payment
-          </Button>
-          <Button size="small" variant="contained" onClick={() => setNewTypeOpen(true)}>
-            Add New Payment Type
-          </Button>
-        </Stack>
+        {!readOnly && (
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addRow()}>
+              Add Transfer Payment
+            </Button>
+            <Button size="small" variant="contained" onClick={() => setNewTypeOpen(true)}>
+              Add New Payment Type
+            </Button>
+          </Stack>
+        )}
       </Stack>
 
       <TableContainer>
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
-              <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText', minWidth: 220 }}>Payment Type</TableCell>
-              <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText', width: 160 }} align="right">Amount</TableCell>
+              <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText', minWidth: 180 }}>Payment Type</TableCell>
+              <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText', width: 140 }} align="right">Amount</TableCell>
               <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText' }}>Amount in Words</TableCell>
-              <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText', width: 90 }} align="center">Action</TableCell>
+              <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText', minWidth: 120 }}>Status</TableCell>
+              {!readOnly && <TableCell sx={{ fontWeight: 700, color: 'primary.contrastText', width: 80 }} align="center">Action</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
             {payments.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                <TableCell colSpan={readOnly ? 4 : 5} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                   No transfer payments added yet.
                 </TableCell>
               </TableRow>
@@ -164,6 +174,8 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
                       size="small"
                       value={row.paymentType}
                       onChange={(e) => updateRow(row._localId, { paymentType: e.target.value })}
+                      InputProps={{ readOnly }}
+                      sx={readOnly ? { '& .MuiInputBase-root': { bgcolor: 'grey.50' }, pointerEvents: 'none' } : {}}
                     >
                       <MenuItem value="">Select type</MenuItem>
                       {paymentTypeOptions.map((type) => (
@@ -177,8 +189,8 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
                       type="number"
                       value={row.amount}
                       onChange={(e) => handleAmountChange(row._localId, e.target.value)}
-                      inputProps={{ min: 0, step: 0.01 }}
-                      sx={{ maxWidth: 140, ml: 'auto' }}
+                      inputProps={{ min: 0, step: 0.01, readOnly }}
+                      sx={{ maxWidth: 140, ml: 'auto', ...(readOnly && { '& .MuiInputBase-root': { bgcolor: 'grey.50' } }) }}
                     />
                   </TableCell>
                   <TableCell>
@@ -190,11 +202,44 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
                       sx={{ '& .MuiInputBase-input': { bgcolor: 'grey.50' } }}
                     />
                   </TableCell>
-                  <TableCell align="center">
-                    <IconButton size="small" color="error" onClick={() => removeRow(row._localId)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
+                  <TableCell>
+                    {readOnly ? (
+                      <Typography
+                        variant="body2"
+                        fontWeight={700}
+                        sx={{
+                          color: row.status === 'Paid' ? 'success.main' : row.status === 'Partial' ? 'warning.main' : 'error.main'
+                        }}
+                      >
+                        {row.status || 'Paid'}
+                      </Typography>
+                    ) : (
+                      <TextField
+                        select
+                        fullWidth
+                        size="small"
+                        value={row.status || 'Paid'}
+                        onChange={(e) => updateRow(row._localId, { status: e.target.value })}
+                        sx={{
+                          '& .MuiInputBase-root': {
+                            color: row.status === 'Paid' ? 'success.main' : row.status === 'Partial' ? 'warning.main' : 'error.main',
+                            fontWeight: 700
+                          }
+                        }}
+                      >
+                        <MenuItem value="Pending">Pending</MenuItem>
+                        <MenuItem value="Partial">Partial</MenuItem>
+                        <MenuItem value="Paid">Paid</MenuItem>
+                      </TextField>
+                    )}
                   </TableCell>
+                  {!readOnly && (
+                    <TableCell align="center">
+                      <IconButton size="small" color="error" onClick={() => removeRow(row._localId)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))
             )}
@@ -207,6 +252,7 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
                 {totalInWords}
               </TableCell>
               <TableCell />
+              {!readOnly && <TableCell />}
             </TableRow>
           </TableBody>
         </Table>

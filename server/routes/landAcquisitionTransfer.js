@@ -2,10 +2,13 @@ const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
+const JournalEntry = require('../models/finance/JournalEntry');
+const Account = require('../models/finance/Account');
 const LandParty = require('../models/tajResidencia/LandParty');
 const LandMoza = require('../models/tajResidencia/LandMoza');
 const LandMozaKhasraEntry = require('../models/tajResidencia/LandMozaKhasraEntry');
 const LandPossession = require('../models/tajResidencia/LandPossession');
+const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const {
   parseAreaInput,
   normalizeArea,
@@ -38,8 +41,16 @@ const parseTransferPayments = (payments = []) => {
   return payments
     .map((row) => ({
       paymentType: String(row.paymentType || '').trim(),
+      description: String(row.description || '').trim(),
       amount: roundMoney(row.amount),
-      amountInWords: String(row.amountInWords || '').trim()
+      amountInWords: String(row.amountInWords || '').trim(),
+      paymentDate: row.paymentDate ? new Date(row.paymentDate) : undefined,
+      paymentMode: String(row.paymentMode || '').trim(),
+      drawnOn: String(row.drawnOn || '').trim(),
+      refNo: String(row.refNo || '').trim(),
+      payeeName: String(row.payeeName || '').trim(),
+      instrument: String(row.instrument || '').trim(),
+      instrumentDate: row.instrumentDate ? new Date(row.instrumentDate) : undefined
     }))
     .filter((row) => row.paymentType);
 };
@@ -50,7 +61,7 @@ const sumTransferPayments = (payments = []) =>
 const mapTransfer = (doc) => (doc?.toObject ? doc.toObject() : doc);
 
 async function nextTransferNumbers() {
-  const transfers = await LandTransfer.find({ isActive: true })
+  const transfers = await LandTransfer.find({})
     .select('referenceNo transferNo')
     .lean();
 
@@ -82,7 +93,6 @@ const buildTransferPayload = (body, purchase) => {
   const purchaseSizeInKanal = roundMoney(areaToDecimalKanal(purchaseArea));
   const transferSizeInKanal = roundMoney(areaToDecimalKanal(transferArea));
   const ratePerKanal = roundMoney(purchase?.ratePerKanal || body.ratePerKanal || 0);
-  const transferredCost = roundMoney(transferSizeInKanal * ratePerKanal);
   const transferPayments = parseTransferPayments(body.transferPayments);
   const totalTransferPayments = roundMoney(sumTransferPayments(transferPayments));
 
@@ -103,7 +113,6 @@ const buildTransferPayload = (body, purchase) => {
     purchaseSizeInKanal,
     transferSizeInKanal,
     ratePerKanal,
-    transferredCost,
     transferPayments,
     totalTransferPayments,
     totalTransferPaymentsInWords: String(body.totalTransferPaymentsInWords || '').trim(),
@@ -196,7 +205,45 @@ router.get('/transfers/next-numbers', asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
-// GET /transfers
+async function createPaymentVoucher(transfer, amount, bankAccountId, narration, whtRate, req) {
+  if (!amount || !bankAccountId) return null;
+  
+  try {
+    const bankAcc = await Account.findById(bankAccountId);
+    if (!bankAcc) return null;
+    
+    let debitAcc = await Account.findOne({ name: /Land Acquisition/i, isActive: true });
+    if (!debitAcc) debitAcc = await Account.findOne({ type: 'Asset', isActive: true });
+    if (!debitAcc) return null;
+    
+    const lines = [
+      { account: debitAcc._id, debit: amount, credit: 0, description: 'Transfer Payment' },
+      { account: bankAccountId, debit: 0, credit: amount, description: 'Bank Payment' }
+    ];
+
+    const entry = new JournalEntry({
+      companyId: bankAcc.companyId,
+      date: new Date(),
+      referenceType: 'payment',
+      reference: `LT-${transfer.transferNo}`,
+      referenceId: transfer._id,
+      department: 'general',
+      module: 'general',
+      description: narration || `Payment for Transfer ${transfer.transferNo}`,
+      lines,
+      status: 'draft',
+      createdBy: req.user?._id || req.user?.id
+    });
+    
+    await entry.save();
+    return entry._id;
+  } catch (error) {
+    console.error('Error creating voucher for Land Transfer payment:', error);
+    return null;
+  }
+}
+
+// GET /transfers/deals
 router.get('/transfers', asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const purchase = String(req.query.purchase || '').trim();
@@ -461,12 +508,13 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   const ownerTotals = { kanal: ownerTotalArea.kanal, marla: ownerTotalArea.marla, sarsai: ownerTotalArea.sarsai };
 
   // 6a. Registry summary by moza
+  const registries = await LandRegistry.find({ isActive: true }).populate('moza', 'name').lean();
   const registryMozaMap = {};
-  for (const t of transfers) {
-    const mozaId = String(t.moza?._id || t.moza);
-    const mozaName = t.moza?.name || 'Unknown';
+  for (const r of registries) {
+    const mozaId = String(r.moza?._id || r.moza);
+    const mozaName = r.moza?.name || 'Unknown';
     if (!registryMozaMap[mozaId]) registryMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
-    registryMozaMap[mozaId].totalSarsais += toSarsaisLocal(t.transferArea);
+    registryMozaMap[mozaId].totalSarsais += toSarsaisLocal(r.totalArea);
   }
 
   const registryMozaRows = Object.values(registryMozaMap).map((m) => {
@@ -484,14 +532,25 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
     .lean();
 
   const possessionMozaMap = {};
+  const unregisteredPossessionMozaMap = {};
   let totalPossessedSarsais = 0;
+  let totalUnregisteredPossessedSarsais = 0;
   for (const pos of possessions) {
     const mozaId = String(pos.moza?._id || pos.moza);
     const mozaName = pos.moza?.name || 'Unknown';
-    if (!possessionMozaMap[mozaId]) possessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
     const sarsais = toSarsaisLocal(pos.totalArea);
-    possessionMozaMap[mozaId].totalSarsais += sarsais;
-    totalPossessedSarsais += sarsais;
+
+    if (!pos.registry && !(pos.lines && pos.lines.some(l => l.registry))) {
+      // Unregistered possession
+      if (!unregisteredPossessionMozaMap[mozaId]) unregisteredPossessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+      unregisteredPossessionMozaMap[mozaId].totalSarsais += sarsais;
+      totalUnregisteredPossessedSarsais += sarsais;
+    } else {
+      // Registered possession
+      if (!possessionMozaMap[mozaId]) possessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+      possessionMozaMap[mozaId].totalSarsais += sarsais;
+      totalPossessedSarsais += sarsais;
+    }
   }
 
   const possessionMozaRows = Object.values(possessionMozaMap).map((m) => {
@@ -501,6 +560,35 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
 
   const possessionTotalArea = fromSarsais(totalPossessedSarsais);
   const possessionMozaTotals = { kanal: possessionTotalArea.kanal, marla: possessionTotalArea.marla, sarsai: possessionTotalArea.sarsai };
+
+  const unregisteredPossessionMozaRows = Object.values(unregisteredPossessionMozaMap).map((m) => {
+    const area = fromSarsais(m.totalSarsais);
+    return { mozaName: m.mozaName, kanal: area.kanal, marla: area.marla, sarsai: area.sarsai };
+  }).sort((a, b) => b.kanal - a.kanal || b.marla - a.marla);
+
+  const unregisteredPossessionTotalArea = fromSarsais(totalUnregisteredPossessedSarsais);
+  const unregisteredPossessionMozaTotals = { kanal: unregisteredPossessionTotalArea.kanal, marla: unregisteredPossessionTotalArea.marla, sarsai: unregisteredPossessionTotalArea.sarsai };
+
+  // 7a. Pending Possession summary by moza
+  const pendingPossessionMozaMap = {};
+  let totalPendingSarsais = 0;
+  for (const mozaId in registryMozaMap) {
+    const regSarsais = registryMozaMap[mozaId].totalSarsais;
+    const posSarsais = possessionMozaMap[mozaId] ? possessionMozaMap[mozaId].totalSarsais : 0;
+    const pendingSarsais = Math.max(0, regSarsais - posSarsais);
+    if (pendingSarsais > 0) {
+      pendingPossessionMozaMap[mozaId] = { mozaName: registryMozaMap[mozaId].mozaName, totalSarsais: pendingSarsais };
+      totalPendingSarsais += pendingSarsais;
+    }
+  }
+
+  const pendingPossessionMozaRows = Object.values(pendingPossessionMozaMap).map((m) => {
+    const area = fromSarsais(m.totalSarsais);
+    return { mozaName: m.mozaName, kanal: area.kanal, marla: area.marla, sarsai: area.sarsai };
+  }).sort((a, b) => b.kanal - a.kanal || b.marla - a.marla);
+
+  const pendingTotalArea = fromSarsais(totalPendingSarsais);
+  const pendingPossessionMozaTotals = { kanal: pendingTotalArea.kanal, marla: pendingTotalArea.marla, sarsai: pendingTotalArea.sarsai };
 
   const totalPurchaseSarsais = grandTotalSarsais;
   const remainingSarsais = Math.max(0, totalPurchaseSarsais - totalPossessedSarsais);
@@ -518,9 +606,72 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
       ownerSummary: { rows: ownerRows, totals: ownerTotals },
       dashboardTotals,
       registryMozaSummary: { rows: registryMozaRows, totals: registryMozaTotals },
-      possessionMozaSummary: { rows: possessionMozaRows, totals: possessionMozaTotals }
+      possessionMozaSummary: { rows: possessionMozaRows, totals: possessionMozaTotals },
+      pendingPossessionMozaSummary: { rows: pendingPossessionMozaRows, totals: pendingPossessionMozaTotals },
+      unregisteredPossessionMozaSummary: { rows: unregisteredPossessionMozaRows, totals: unregisteredPossessionMozaTotals }
     }
   });
+}));
+// POST /transfers/:id/payments
+router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
+  const existing = await LandTransfer.findOne({ _id: req.params.id, isActive: true });
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Land transfer not found' });
+  }
+
+  const paymentType = String(req.body.paymentType || '').trim();
+  const amount = roundMoney(req.body.amount);
+  
+  if (!paymentType) {
+    return res.status(400).json({ success: false, message: 'Payment type is required' });
+  }
+  if (!amount) {
+    return res.status(400).json({ success: false, message: 'Amount is required' });
+  }
+
+  const newPayment = {
+    paymentType,
+    description: String(req.body.description || '').trim(),
+    amount,
+    amountInWords: String(req.body.amountInWords || '').trim(),
+    paymentDate: req.body.paymentDate ? new Date(req.body.paymentDate) : undefined,
+    paymentMode: String(req.body.paymentMode || '').trim(),
+    bankAccountId: req.body.bankAccountId || undefined,
+    whtRate: Number(req.body.whtRate) || 0,
+    drawnOn: String(req.body.drawnOn || '').trim(),
+    refNo: String(req.body.refNo || '').trim(),
+    payeeName: String(req.body.payeeName || '').trim(),
+    instrument: String(req.body.instrument || '').trim(),
+    instrumentDate: req.body.instrumentDate ? new Date(req.body.instrumentDate) : undefined,
+    narration: String(req.body.narration || '').trim(),
+    status: String(req.body.status || 'Paid').trim()
+  };
+
+  if (newPayment.bankAccountId && newPayment.amount > 0) {
+    const voucherId = await createPaymentVoucher(
+      existing,
+      newPayment.amount,
+      newPayment.bankAccountId,
+      newPayment.narration || `Transfer ${existing.transferNo} - ${newPayment.paymentType}`,
+      newPayment.whtRate,
+      req
+    );
+    if (voucherId) newPayment.voucherEntryId = voucherId;
+  }
+
+  existing.transferPayments.push(newPayment);
+  existing.totalTransferPayments = roundMoney(sumTransferPayments(existing.transferPayments));
+  existing.totalTransferPaymentsInWords = String(req.body.totalTransferPaymentsInWords || existing.totalTransferPaymentsInWords || '').trim();
+  existing.updatedBy = req.user?._id || req.user?.id;
+  await existing.save();
+
+  const populated = await LandTransfer.findById(existing._id)
+    .populate('landPurchase', 'purchaseNo dealNo ratePerKanal agreedAmount')
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('moza', 'name slug');
+
+  res.status(201).json({ success: true, message: 'Transfer payment recorded', data: mapTransfer(populated) });
 }));
 
 module.exports = router;

@@ -26,7 +26,9 @@ import {
   Delete as DeleteIcon,
   Edit as EditIcon,
   Search as SearchIcon,
-  SwapHoriz as TransferIcon
+  SwapHoriz as TransferIcon,
+  Payment as PaymentIcon,
+  Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -34,6 +36,8 @@ import landAcquisitionTransferService from '../../services/landAcquisitionTransf
 import { getMozas } from '../../services/landAcquisitionMozaService';
 import { formatAreaReadable } from '../../utils/landAreaUnits';
 import LandTransferDialog from '../../components/TajResidencia/LandTransferDialog';
+import TransferPaymentDialog from '../../components/TajResidencia/TransferPaymentDialog';
+import TransferDetailDialog from '../../components/TajResidencia/TransferDetailDialog';
 
 const formatDate = (value) => {
   if (!value) return '—';
@@ -62,6 +66,8 @@ export default function LandTransferViewer() {
   const [deletingId, setDeletingId] = useState(null);
   const [closingId, setClosingId] = useState(null);
   const [editDialog, setEditDialog] = useState({ open: false, transferId: null, purchaseId: null });
+  const [paymentDialog, setPaymentDialog] = useState({ open: false, transferId: null });
+  const [detailDialog, setDetailDialog] = useState({ open: false, transferId: null });
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 300);
@@ -197,7 +203,6 @@ export default function LandTransferViewer() {
               <TableCell sx={{ fontWeight: 700 }}>Registry #</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Transfer Moza</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">Transferred Cost</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Transfer Charges</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Created At</TableCell>
@@ -207,13 +212,13 @@ export default function LandTransferViewer() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={14} align="center" sx={{ py: 5 }}>
+                <TableCell colSpan={13} align="center" sx={{ py: 5 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={14} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                <TableCell colSpan={13} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                   No land transfers yet — create one from a land purchase record.
                 </TableCell>
               </TableRow>
@@ -238,9 +243,6 @@ export default function LandTransferViewer() {
                   <TableCell>{row.registryNo || '—'}</TableCell>
                   <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{formatAreaReadable(row.transferArea)}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    {formatMoney(row.transferredCost)}
-                  </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600, color: 'warning.dark' }}>
                     {formatMoney(row.totalTransferPayments)}
                   </TableCell>
@@ -267,6 +269,26 @@ export default function LandTransferViewer() {
                         </IconButton>
                       </Tooltip>
                     )}
+                    {row.status !== 'Closed' && (
+                      <Tooltip title="Pay Transfer">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() => setPaymentDialog({ open: true, transferId: row._id })}
+                        >
+                          <PaymentIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Tooltip title="View Details">
+                      <IconButton
+                        size="small"
+                        color="info"
+                        onClick={() => setDetailDialog({ open: true, transferId: row._id })}
+                      >
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Edit">
                       <IconButton
                         size="small"
@@ -311,6 +333,18 @@ export default function LandTransferViewer() {
         purchaseId={editDialog.purchaseId}
         onClose={() => setEditDialog({ open: false, transferId: null, purchaseId: null })}
         onSaved={load}
+      />
+
+      <TransferPaymentDialog
+        open={paymentDialog.open}
+        transferId={paymentDialog.transferId}
+        onClose={() => setPaymentDialog({ open: false, transferId: null })}
+        onSaved={load}
+      />
+      <TransferDetailDialog
+        open={detailDialog.open}
+        transferId={detailDialog.transferId}
+        onClose={() => setDetailDialog({ open: false, transferId: null })}
       />
     </Box>
   );

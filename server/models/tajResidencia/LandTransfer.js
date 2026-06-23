@@ -18,8 +18,20 @@ const transferLineSchema = new mongoose.Schema({
 
 const transferPaymentSchema = new mongoose.Schema({
   paymentType: { type: String, trim: true, required: true },
+  description: { type: String, trim: true, default: '' },
   amount: { type: Number, default: 0, min: 0 },
-  amountInWords: { type: String, trim: true, default: '' }
+  amountInWords: { type: String, trim: true, default: '' },
+  paymentDate: { type: Date },
+  paymentMode: { type: String, trim: true, default: '' },
+  bankAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'ChartOfAccount' },
+  whtRate: { type: Number, default: 0 },
+  drawnOn: { type: String, trim: true, default: '' },
+  refNo: { type: String, trim: true, default: '' },
+  payeeName: { type: String, trim: true, default: '' },
+  instrument: { type: String, trim: true, default: '' },
+  instrumentDate: { type: Date },
+  narration: { type: String, trim: true, default: '' },
+  voucherEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' }
 }, { _id: true });
 
 const landTransferSchema = new mongoose.Schema({
@@ -71,7 +83,6 @@ const landTransferSchema = new mongoose.Schema({
   purchaseSizeInKanal: { type: Number, default: 0, min: 0 },
   transferSizeInKanal: { type: Number, default: 0, min: 0 },
   ratePerKanal: { type: Number, default: 0, min: 0 },
-  transferredCost: { type: Number, default: 0, min: 0 },
   transferPayments: { type: [transferPaymentSchema], default: [] },
   totalTransferPayments: { type: Number, default: 0, min: 0 },
   totalTransferPaymentsInWords: { type: String, trim: true, default: '' },

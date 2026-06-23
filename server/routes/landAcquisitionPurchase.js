@@ -2,7 +2,10 @@ const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
 const LandMoza = require('../models/tajResidencia/LandMoza');
+const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandParty = require('../models/tajResidencia/LandParty');
+const JournalEntry = require('../models/finance/JournalEntry');
+const Account = require('../models/finance/Account');
 const {
   parseAreaInput,
   normalizeArea,
@@ -92,7 +95,7 @@ const getRemainingInstallmentCapacity = (purchase, excludeInstallmentId = null) 
 };
 
 async function nextPurchaseNumbers() {
-  const purchases = await LandPurchase.find({ isActive: true })
+  const purchases = await LandPurchase.find({})
     .select('purchaseNo dealNo')
     .lean();
 
@@ -147,12 +150,24 @@ const buildPaymentPayload = (body, purchase) => {
     tokenAmount,
     tokenAmountInWords: String(body.tokenAmountInWords || '').trim(),
     paymentMode: String(body.paymentMode || '').trim(),
-    paymentRemarks: String(body.paymentRemarks || '').trim()
+    paymentRemarks: String(body.paymentRemarks || '').trim(),
+    bankAccountId: body.bankAccountId || undefined,
+    whtRate: Number(body.whtRate) || 0,
+    drawnOn: String(body.drawnOn || '').trim(),
+    refNo: String(body.refNo || '').trim(),
+    narration: String(body.narration || '').trim(),
+    tokenPaymentDate: body.tokenPaymentDate ? new Date(body.tokenPaymentDate) : undefined
   };
   if (purchase) {
     purchase.tokenAmount = payload.tokenAmount;
     purchase.paymentMode = payload.paymentMode;
     purchase.paymentRemarks = payload.paymentRemarks;
+    purchase.bankAccountId = payload.bankAccountId;
+    purchase.whtRate = payload.whtRate;
+    purchase.drawnOn = payload.drawnOn;
+    purchase.refNo = payload.refNo;
+    purchase.narration = payload.narration;
+    purchase.tokenPaymentDate = payload.tokenPaymentDate;
     syncPurchasePaymentBalances(purchase);
     payload.balanceAmount = purchase.balanceAmount;
   } else {
@@ -225,6 +240,44 @@ const validatePurchasePayload = async (payload, { isCreate = false } = {}) => {
     }
   }
 };
+
+async function createPaymentVoucher(purchase, amount, bankAccountId, narration, whtRate, req) {
+  if (!amount || !bankAccountId) return null;
+  
+  try {
+    const bankAcc = await Account.findById(bankAccountId);
+    if (!bankAcc) return null;
+    
+    let debitAcc = await Account.findOne({ name: /Land Acquisition/i, isActive: true });
+    if (!debitAcc) debitAcc = await Account.findOne({ type: 'Asset', isActive: true });
+    if (!debitAcc) return null;
+    
+    const lines = [
+      { account: debitAcc._id, debit: amount, credit: 0, description: 'Land Purchase Payment' },
+      { account: bankAccountId, debit: 0, credit: amount, description: 'Bank Payment' }
+    ];
+
+    const entry = new JournalEntry({
+      companyId: bankAcc.companyId,
+      date: new Date(),
+      referenceType: 'payment',
+      reference: `LP-${purchase.purchaseNo}`,
+      referenceId: purchase._id,
+      department: 'general',
+      module: 'general',
+      description: narration || `Payment for ${purchase.purchaseNo}`,
+      lines,
+      status: 'draft',
+      createdBy: req.user?._id || req.user?.id
+    });
+    
+    await entry.save();
+    return entry._id;
+  } catch (error) {
+    console.error('Error creating voucher for Land Purchase payment:', error);
+    return null;
+  }
+}
 
 // GET /purchases/deals — lightweight list of all deals for dropdowns
 router.get('/purchases/deals', asyncHandler(async (req, res) => {
@@ -366,6 +419,19 @@ router.patch('/purchases/:id/payment', asyncHandler(async (req, res) => {
   const payment = buildPaymentPayload(req.body, existing);
   Object.assign(existing, payment);
   existing.updatedBy = req.user?._id || req.user?.id;
+
+  if (existing.bankAccountId && existing.tokenAmount > 0 && !existing.tokenVoucherEntryId) {
+    const voucherId = await createPaymentVoucher(
+      existing, 
+      existing.tokenAmount, 
+      existing.bankAccountId, 
+      existing.narration, 
+      existing.whtRate, 
+      req
+    );
+    if (voucherId) existing.tokenVoucherEntryId = voucherId;
+  }
+
   await existing.save();
 
   const populated = await LandPurchase.findById(existing._id)
@@ -513,7 +579,26 @@ router.patch('/purchases/:id/installments/:installmentId/pay', asyncHandler(asyn
   installment.paidAmount = roundMoney(installment.paidAmount + payAmount);
   installment.paymentMode = String(req.body.paymentMode || installment.paymentMode || '').trim();
   installment.paymentRemarks = String(req.body.paymentRemarks || installment.paymentRemarks || '').trim();
+  installment.bankAccountId = req.body.bankAccountId || undefined;
+  installment.whtRate = Number(req.body.whtRate) || 0;
+  installment.drawnOn = req.body.drawnOn || '';
+  installment.refNo = req.body.refNo || '';
+  installment.narration = req.body.narration || '';
+  if (req.body.paymentDate) installment.paymentDate = new Date(req.body.paymentDate);
   installment.paidBy = req.user?._id || req.user?.id;
+
+  if (installment.bankAccountId && payAmount > 0 && !installment.voucherEntryId) {
+    const voucherId = await createPaymentVoucher(
+      existing,
+      payAmount,
+      installment.bankAccountId,
+      installment.narration || `Installment: ${installment.description}`,
+      installment.whtRate,
+      req
+    );
+    if (voucherId) installment.voucherEntryId = voucherId;
+  }
+
   syncInstallment(installment);
   syncPurchasePaymentBalances(existing);
   existing.updatedBy = req.user?._id || req.user?.id;
@@ -568,7 +653,13 @@ router.delete('/purchases/:id', asyncHandler(async (req, res) => {
   existing.updatedBy = req.user?._id || req.user?.id;
   await existing.save();
 
-  res.json({ success: true, message: 'Land purchase deleted' });
+  // Cascade delete linked transfers
+  await LandTransfer.updateMany(
+    { landPurchase: existing._id, isActive: true },
+    { $set: { isActive: false, updatedBy: req.user?._id || req.user?.id } }
+  );
+
+  res.json({ success: true, message: 'Land purchase and linked transfers deleted' });
 }));
 
 module.exports = router;

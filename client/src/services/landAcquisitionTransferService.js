@@ -33,6 +33,11 @@ const landAcquisitionTransferService = {
     return response.data;
   },
 
+  addTransferPayment: async (id, payload) => {
+    const response = await api.post(`${BASE}/transfers/${id}/payments`, payload);
+    return response.data;
+  },
+
   deleteTransfer: async (id) => {
     const response = await api.delete(`${BASE}/transfers/${id}`);
     return response.data;

@@ -34,6 +34,8 @@ import {
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import landAcquisitionPurchaseService from '../../services/landAcquisitionPurchaseService';
+import api from '../../services/api';
+import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -77,10 +79,27 @@ export default function LandPurchaseInstallmentsPanel({
   const [editingId, setEditingId] = useState(null);
   const [payingInstallment, setPayingInstallment] = useState(null);
   const [form, setForm] = useState(emptyInstallmentForm);
-  const [payForm, setPayForm] = useState({ amount: '', paymentMode: '', paymentRemarks: '' });
+  const [payForm, setPayForm] = useState({ 
+    amount: '', 
+    paymentMode: '', 
+    paymentRemarks: '',
+    bankAccountId: '',
+    whtRate: '',
+    drawnOn: '',
+    refNo: '',
+    narration: '',
+    paymentDate: new Date().toISOString().split('T')[0]
+  });
   const [saving, setSaving] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuRow, setMenuRow] = useState(null);
+  const [bankAccounts, setBankAccounts] = useState([]);
+
+  React.useEffect(() => {
+    fetchPayFromAccounts(api)
+      .then(setBankAccounts)
+      .catch(() => setBankAccounts([]));
+  }, []);
 
   const totals = useMemo(() => {
     const amount = installments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
@@ -125,7 +144,13 @@ export default function LandPurchaseInstallmentsPanel({
     setPayForm({
       amount: String(balance),
       paymentMode: row.paymentMode || '',
-      paymentRemarks: row.paymentRemarks || ''
+      paymentRemarks: row.paymentRemarks || '',
+      bankAccountId: row.bankAccountId || '',
+      whtRate: row.whtRate || '',
+      drawnOn: row.drawnOn || '',
+      refNo: row.refNo || '',
+      narration: row.narration || '',
+      paymentDate: row.paymentDate ? new Date(row.paymentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
     });
     setPayOpen(true);
     setMenuAnchor(null);
@@ -177,7 +202,13 @@ export default function LandPurchaseInstallmentsPanel({
       await landAcquisitionPurchaseService.payInstallment(purchaseId, payingInstallment._id, {
         ...(payFull ? { payFull: true } : { amount: Number(payForm.amount) || 0 }),
         paymentMode: payForm.paymentMode,
-        paymentRemarks: payForm.paymentRemarks
+        paymentRemarks: payForm.paymentRemarks,
+        bankAccountId: payForm.bankAccountId || undefined,
+        whtRate: Number(payForm.whtRate) || 0,
+        drawnOn: payForm.drawnOn,
+        refNo: payForm.refNo,
+        narration: payForm.narration,
+        paymentDate: payForm.paymentDate
       });
       toast.success('Installment payment recorded');
       setPayOpen(false);
@@ -414,6 +445,13 @@ export default function LandPurchaseInstallmentsPanel({
             />
             <TextField
               fullWidth
+              type="number"
+              label="WHT Rate %"
+              value={payForm.whtRate}
+              onChange={(e) => setPayForm((prev) => ({ ...prev, whtRate: e.target.value }))}
+            />
+            <TextField
+              fullWidth
               select
               label="Payment Mode"
               value={payForm.paymentMode}
@@ -424,6 +462,46 @@ export default function LandPurchaseInstallmentsPanel({
                 <MenuItem key={mode} value={mode}>{mode}</MenuItem>
               ))}
             </TextField>
+            <TextField
+              fullWidth
+              select
+              label="Pay From Account"
+              value={payForm.bankAccountId}
+              onChange={(e) => setPayForm((prev) => ({ ...prev, bankAccountId: e.target.value }))}
+            >
+              <MenuItem value="">Select Account</MenuItem>
+              {bankAccounts.map(({ account, depth }) => (
+                <MenuItem
+                  key={account._id || account.id}
+                  value={account._id || account.id}
+                  sx={{ pl: depth * 2 + 2 }}
+                >
+                  {formatPayFromAccountLabel(account, depth)}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              fullWidth
+              type="date"
+              label="Payment Date"
+              value={payForm.paymentDate}
+              onChange={(e) => setPayForm((prev) => ({ ...prev, paymentDate: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              fullWidth
+              label="Reference / Cheque # / TT #"
+              value={payForm.refNo}
+              onChange={(e) => setPayForm((prev) => ({ ...prev, refNo: e.target.value }))}
+            />
+            <TextField
+              fullWidth
+              multiline
+              rows={2}
+              label="Narration"
+              value={payForm.narration}
+              onChange={(e) => setPayForm((prev) => ({ ...prev, narration: e.target.value }))}
+            />
             <TextField
               fullWidth
               multiline

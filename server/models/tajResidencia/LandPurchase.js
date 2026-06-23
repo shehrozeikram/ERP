@@ -29,6 +29,12 @@ const installmentSchema = new mongoose.Schema({
   paymentDate: { type: Date },
   paymentMode: { type: String, trim: true, default: '' },
   paymentRemarks: { type: String, trim: true, default: '' },
+  bankAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'ChartOfAccount' },
+  whtRate: { type: Number, default: 0, min: 0 },
+  drawnOn: { type: String, trim: true, default: '' },
+  refNo: { type: String, trim: true, default: '' },
+  narration: { type: String, trim: true, default: '' },
+  voucherEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
   paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
@@ -79,6 +85,13 @@ const landPurchaseSchema = new mongoose.Schema({
   balanceAmount: { type: Number, default: 0, min: 0 },
   paymentMode: { type: String, trim: true, default: '' },
   paymentRemarks: { type: String, trim: true, default: '' },
+  bankAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'ChartOfAccount' },
+  whtRate: { type: Number, default: 0, min: 0 },
+  drawnOn: { type: String, trim: true, default: '' },
+  refNo: { type: String, trim: true, default: '' },
+  narration: { type: String, trim: true, default: '' },
+  tokenPaymentDate: { type: Date },
+  tokenVoucherEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
   installments: { type: [installmentSchema], default: [] },
   isActive: { type: Boolean, default: true, index: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

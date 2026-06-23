@@ -5,7 +5,8 @@ import {
   TableChart as TableChartIcon,
   Description as DescriptionIcon,
   Key as KeyIcon,
-  Dashboard as DashboardIcon
+  Dashboard as DashboardIcon,
+  Assessment as AssessmentIcon
 } from '@mui/icons-material';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import LathaMapViewer from './LathaMapViewer';
@@ -13,6 +14,7 @@ import MozaViewer from './MozaViewer';
 import RegistryViewer from './RegistryViewer';
 import PossessionViewer from './PossessionViewer';
 import LandAcquisitionDashboard from './LandAcquisitionDashboard';
+import LandAcquisitionReports from './LandAcquisitionReports';
 
 const BASE_PATH = '/taj-residencia/land-acquisition';
 const DASHBOARD_PATH = `${BASE_PATH}/dashboard`;
@@ -20,6 +22,7 @@ const MAPS_PATH = `${BASE_PATH}/maps`;
 const MOZA_PATH = `${BASE_PATH}/moza`;
 const REGISTRY_PATH = `${BASE_PATH}/registry`;
 const POSSESSION_PATH = `${BASE_PATH}/possession`;
+const REPORTS_PATH = `${BASE_PATH}/reports`;
 
 const LandAcquisition = () => {
   const location = useLocation();
@@ -29,12 +32,13 @@ const LandAcquisition = () => {
   const isMozaTab = location.pathname.startsWith(MOZA_PATH);
   const isRegistryTab = location.pathname.startsWith(REGISTRY_PATH);
   const isPossessionTab = location.pathname.startsWith(POSSESSION_PATH);
+  const isReportsTab = location.pathname.startsWith(REPORTS_PATH);
 
   if (location.pathname === BASE_PATH) {
     return <Navigate to={DASHBOARD_PATH} replace />;
   }
 
-  const tabValue = isPossessionTab ? 4 : isRegistryTab ? 3 : isMozaTab ? 2 : isMapsTab ? 1 : isDashboardTab ? 0 : false;
+  const tabValue = isReportsTab ? 5 : isPossessionTab ? 4 : isRegistryTab ? 3 : isMozaTab ? 2 : isMapsTab ? 1 : isDashboardTab ? 0 : false;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -64,6 +68,7 @@ const LandAcquisition = () => {
             if (value === 2) navigate(MOZA_PATH);
             if (value === 3) navigate(REGISTRY_PATH);
             if (value === 4) navigate(POSSESSION_PATH);
+            if (value === 5) navigate(REPORTS_PATH);
           }}
           sx={{
             px: 1,
@@ -79,6 +84,7 @@ const LandAcquisition = () => {
           <Tab icon={<TableChartIcon fontSize="small" />} iconPosition="start" label="Moza" />
           <Tab icon={<DescriptionIcon fontSize="small" />} iconPosition="start" label="Registry" />
           <Tab icon={<KeyIcon fontSize="small" />} iconPosition="start" label="Possession" />
+          <Tab icon={<AssessmentIcon fontSize="small" />} iconPosition="start" label="Reports" />
         </Tabs>
       </Paper>
 
@@ -87,6 +93,7 @@ const LandAcquisition = () => {
       {isMozaTab && <MozaViewer />}
       {isRegistryTab && <RegistryViewer />}
       {isPossessionTab && <PossessionViewer />}
+      {isReportsTab && <LandAcquisitionReports />}
     </Box>
   );
 };
