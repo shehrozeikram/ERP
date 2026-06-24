@@ -21,7 +21,8 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { Add, Delete, Edit, Search as SearchIcon, Visibility } from '@mui/icons-material';
+import { Add, Delete, Edit, Search as SearchIcon, Visibility, Download as DownloadIcon } from '@mui/icons-material';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import PossessionFormDialog from './PossessionFormDialog';
 import PossessionDetailDialog from './PossessionDetailDialog';
@@ -58,6 +59,7 @@ const PossessionViewer = () => {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [detailId, setDetailId] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     getMozas().then((res) => {
@@ -143,6 +145,45 @@ const PossessionViewer = () => {
     }
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await getPossessions({
+        page: 1,
+        limit: 100000,
+        ...(mozaFilter && { moza: mozaFilter }),
+        ...(recordSearchDebounced && { search: recordSearchDebounced })
+      });
+      const data = res.data?.data?.possessions || [];
+      if (!data.length) {
+        toast.error('No data to export');
+        setExporting(false);
+        return;
+      }
+
+      const rows = data.map(row => ({
+        'Date': formatDate(row.possessionDate),
+        'Moza': row.moza?.name || '',
+        'Khewat No': row.khewatNo || '',
+        'Possession Ref': row.possessionRef || '',
+        'Registry No': row.registry?.registryNo || '',
+        'Khasras': [...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '',
+        'Total Possessed': formatKMS(row.totalArea),
+        'Total Lines': row.lines?.length || 0,
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Possessions");
+      XLSX.writeFile(wb, `Possessions_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Exported successfully');
+    } catch (err) {
+      toast.error('Failed to export data');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <Box>
 
@@ -186,6 +227,9 @@ const PossessionViewer = () => {
         )}
 
         <Box sx={{ flexGrow: 1 }} />
+        <Button variant="outlined" startIcon={exporting ? <CircularProgress size={20} /> : <DownloadIcon />} onClick={handleExport} disabled={exporting || recordsLoading}>
+          Export
+        </Button>
         <Button variant="contained" startIcon={<Add />} onClick={openCreate} disabled={!mozas.length}>
           Add Possession
         </Button>

@@ -21,7 +21,8 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { Add, Delete, Edit, Search as SearchIcon, Visibility } from '@mui/icons-material';
+import { Add, Delete, Edit, Search as SearchIcon, Visibility, Download as DownloadIcon } from '@mui/icons-material';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import RegistryFormDialog from './RegistryFormDialog';
 import RegistryDetailDialog from './RegistryDetailDialog';
@@ -56,6 +57,7 @@ const RegistryViewer = () => {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [detailId, setDetailId] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 300);
@@ -139,6 +141,44 @@ const RegistryViewer = () => {
     }
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await getRegistries({
+        page: 1,
+        limit: 100000,
+        ...(searchDebounced && { search: searchDebounced }),
+        ...(mozaFilter && { moza: mozaFilter })
+      });
+      const data = res.data?.data?.registries || [];
+      if (!data.length) {
+        toast.error('No data to export');
+        setExporting(false);
+        return;
+      }
+      
+      const rows = data.map(row => ({
+        'Date': formatDate(row.registryDate),
+        'Moza': row.moza?.name || '',
+        'Khewat No': row.khewatNo || '',
+        'Registry No': row.registryNo || '',
+        'Inteqal No': row.inteqalNo || '',
+        'Total Acquired': formatKMS(row.totalArea),
+        'Total Khasras': row.lines?.length || 0
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Registries");
+      XLSX.writeFile(wb, `Registries_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Exported successfully');
+    } catch (err) {
+      toast.error('Failed to export data');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <Box>
 
@@ -196,6 +236,9 @@ const RegistryViewer = () => {
         )}
 
         <Box sx={{ flexGrow: 1 }} />
+        <Button variant="outlined" startIcon={exporting ? <CircularProgress size={20} /> : <DownloadIcon />} onClick={handleExport} disabled={exporting || loading}>
+          Export
+        </Button>
         <Button variant="contained" startIcon={<Add />} onClick={openCreate}>
           Add Registry
         </Button>
