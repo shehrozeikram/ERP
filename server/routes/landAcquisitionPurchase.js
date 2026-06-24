@@ -279,6 +279,72 @@ async function createPaymentVoucher(purchase, amount, bankAccountId, narration, 
   }
 }
 
+async function createBulkPaymentVoucher(purchase, payments, globalNarration, req, debitAccountId) {
+  if (!payments || !payments.length) return null;
+  
+  try {
+    let debitAcc = null;
+    if (debitAccountId) {
+      debitAcc = await Account.findById(debitAccountId);
+    }
+    
+    if (!debitAcc) {
+      debitAcc = await Account.findOne({ name: /Land Acquisition/i, isActive: true });
+      if (!debitAcc) debitAcc = await Account.findOne({ type: 'Asset', isActive: true });
+    }
+    
+    if (!debitAcc) return null;
+
+    let companyId = null;
+    let totalAmount = 0;
+    const lines = [];
+
+    for (const p of payments) {
+      if (!p.amount || !p.bankAccountId) continue;
+      const bankAcc = await Account.findById(p.bankAccountId);
+      if (!bankAcc) continue;
+      if (!companyId) companyId = bankAcc.companyId;
+
+      totalAmount += p.amount;
+      lines.push({
+        account: p.bankAccountId,
+        debit: 0,
+        credit: p.amount,
+        description: p.narration || `Bank Payment for Installment`
+      });
+    }
+
+    if (totalAmount === 0 || lines.length === 0) return null;
+
+    lines.unshift({
+      account: debitAcc._id,
+      debit: totalAmount,
+      credit: 0,
+      description: 'Bulk Land Purchase Payment'
+    });
+
+    const entry = new JournalEntry({
+      companyId: companyId,
+      date: new Date(),
+      referenceType: 'payment',
+      reference: `LP-${purchase.purchaseNo}`,
+      referenceId: purchase._id,
+      department: 'general',
+      module: 'general',
+      description: globalNarration || `Bulk Payment for ${purchase.purchaseNo}`,
+      lines,
+      status: 'draft',
+      createdBy: req.user?._id || req.user?.id
+    });
+    
+    await entry.save();
+    return entry._id;
+  } catch (error) {
+    console.error('Error creating bulk voucher for Land Purchase payment:', error);
+    return null;
+  }
+}
+
 // GET /purchases/deals — lightweight list of all deals for dropdowns
 router.get('/purchases/deals', asyncHandler(async (req, res) => {
   const deals = await LandPurchase.find({ isActive: true })
@@ -611,6 +677,110 @@ router.patch('/purchases/:id/installments/:installmentId/pay', asyncHandler(asyn
     .populate('moza', 'name slug');
 
   res.json({ success: true, message: 'Installment payment recorded', data: mapPurchase(populated) });
+}));
+
+// POST /purchases/:id/installments/pay-bulk
+router.post('/purchases/:id/installments/pay-bulk', asyncHandler(async (req, res) => {
+  const existing = await LandPurchase.findOne({ _id: req.params.id, isActive: true });
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Land purchase not found' });
+  }
+
+  const payments = req.body.payments || [];
+  if (!payments.length) {
+    return res.status(400).json({ success: false, message: 'No payments provided' });
+  }
+
+  const debitAccountId = req.body.debitAccountId || null;
+
+  const validPayments = [];
+  
+  // 1. Validate all payments
+  for (const p of payments) {
+    const installment = existing.installments.id(p.installmentId);
+    if (!installment) {
+      return res.status(404).json({ success: false, message: `Installment ${p.installmentId} not found` });
+    }
+    if (installment.status === 'Paid') {
+      return res.status(400).json({ success: false, message: `Installment ${installment.description} is already fully paid` });
+    }
+
+    const remaining = Math.max(0, roundMoney(installment.amount - installment.paidAmount));
+    const payAmount = p.payFull ? remaining : roundMoney(p.amount);
+
+    if (!payAmount) {
+      return res.status(400).json({ success: false, message: `Payment amount is required for ${installment.description}` });
+    }
+    if (payAmount > remaining) {
+      return res.status(400).json({
+        success: false,
+        message: `Payment cannot exceed installment balance (${remaining.toFixed(2)}) for ${installment.description}`
+      });
+    }
+
+    validPayments.push({
+      installment,
+      payAmount,
+      bankAccountId: p.bankAccountId,
+      paymentMode: String(p.paymentMode || installment.paymentMode || '').trim(),
+      paymentRemarks: String(p.paymentRemarks || installment.paymentRemarks || '').trim(),
+      whtRate: Number(p.whtRate) || 0,
+      drawnOn: p.drawnOn || '',
+      refNo: p.refNo || '',
+      narration: p.narration || '',
+      paymentDate: p.paymentDate ? new Date(p.paymentDate) : new Date()
+    });
+  }
+
+  // 2. Create Consolidated BPV if applicable
+  const bulkVoucherPayload = validPayments.map(vp => ({
+    amount: vp.payAmount,
+    bankAccountId: vp.bankAccountId,
+    narration: vp.narration || `Installment: ${vp.installment.description}`
+  })).filter(vp => vp.bankAccountId && vp.amount > 0);
+
+  let sharedVoucherId = null;
+  if (bulkVoucherPayload.length > 0) {
+    sharedVoucherId = await createBulkPaymentVoucher(
+      existing,
+      bulkVoucherPayload,
+      `Bulk Payment for ${existing.purchaseNo}`,
+      req,
+      debitAccountId
+    );
+  }
+
+  // 3. Apply payments
+  for (const vp of validPayments) {
+    vp.installment.paidAmount = roundMoney(vp.installment.paidAmount + vp.payAmount);
+    vp.installment.paymentMode = vp.paymentMode;
+    vp.installment.paymentRemarks = vp.paymentRemarks;
+    vp.installment.bankAccountId = vp.bankAccountId;
+    vp.installment.whtRate = vp.whtRate;
+    vp.installment.drawnOn = vp.drawnOn;
+    vp.installment.refNo = vp.refNo;
+    vp.installment.narration = vp.narration;
+    vp.installment.paymentDate = vp.paymentDate;
+    vp.installment.paidBy = req.user?._id || req.user?.id;
+    
+    if (sharedVoucherId && vp.bankAccountId && vp.payAmount > 0) {
+      vp.installment.voucherEntryId = sharedVoucherId;
+    }
+
+    syncInstallment(vp.installment);
+  }
+
+  syncPurchasePaymentBalances(existing);
+  existing.updatedBy = req.user?._id || req.user?.id;
+  await existing.save();
+
+  const populated = await LandPurchase.findById(existing._id)
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('dealer', 'name cnic phoneNumber')
+    .populate('moza', 'name slug');
+
+  res.json({ success: true, message: 'Bulk installment payments recorded', data: mapPurchase(populated) });
 }));
 
 // DELETE /purchases/:id/installments/:installmentId

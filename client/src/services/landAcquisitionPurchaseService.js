@@ -53,6 +53,11 @@ const landAcquisitionPurchaseService = {
     return response.data;
   },
 
+  payMultipleInstallments: async (purchaseId, payload) => {
+    const response = await api.post(`${BASE}/purchases/${purchaseId}/installments/pay-bulk`, payload);
+    return response.data;
+  },
+
   deleteInstallment: async (purchaseId, installmentId) => {
     const response = await api.delete(`${BASE}/purchases/${purchaseId}/installments/${installmentId}`);
     return response.data;

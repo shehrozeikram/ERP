@@ -40,7 +40,7 @@ export const isPayFromRootAccount = isCashAndCashEquivalentsAccount;
 const sortByAccountNumber = (a, b) =>
   String(a.accountNumber || '').localeCompare(String(b.accountNumber || ''), undefined, { numeric: true });
 
-const flattenPayFromHierarchy = (accounts) => {
+export const flattenAccountsHierarchy = (accounts) => {
   const accountIds = new Set(accounts.map(getAccountId));
   const childrenByParent = {};
 
@@ -92,7 +92,7 @@ export const buildPayFromAccountOptions = (allAccounts) => {
     ? accounts.filter((account) => eligibleIds.has(getAccountId(account)))
     : accounts.filter(isCashAndCashEquivalentsAccount);
 
-  return flattenPayFromHierarchy(eligibleAccounts);
+  return flattenAccountsHierarchy(eligibleAccounts);
 };
 
 export const formatPayFromAccountLabel = (account, depth = 0) => {
@@ -120,4 +120,29 @@ export const fetchPayFromAccounts = async (apiClient, { companyId } = {}) => {
         : [];
 
   return buildPayFromAccountOptions(accounts);
+};
+
+export const fetchAllPaymentAccounts = async (apiClient, { companyId } = {}) => {
+  const response = await apiClient.get('/finance/accounts', {
+    params: {
+      limit: 2000,
+      page: 1,
+      ...(companyId ? { companyId } : {})
+    }
+  });
+
+  const payload = response.data?.data;
+  const accounts = Array.isArray(payload?.accounts)
+    ? payload.accounts
+    : Array.isArray(payload)
+      ? payload
+      : Array.isArray(response.data?.accounts)
+        ? response.data.accounts
+        : [];
+
+  const eligibleAccounts = accounts.filter(
+    (account) => account && getAccountId(account) && (account.name || account.accountNumber) && (account.type === 'Asset' || account.type === 'Liability')
+  );
+
+  return flattenAccountsHierarchy(eligibleAccounts);
 };

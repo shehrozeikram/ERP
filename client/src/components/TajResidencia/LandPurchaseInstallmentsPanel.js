@@ -21,7 +21,8 @@ import {
   TableRow,
   TextField,
   Tooltip,
-  Typography
+  Typography,
+  Checkbox
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -35,7 +36,7 @@ import {
 import toast from 'react-hot-toast';
 import landAcquisitionPurchaseService from '../../services/landAcquisitionPurchaseService';
 import api from '../../services/api';
-import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
+import { fetchAllPaymentAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -93,10 +94,14 @@ export default function LandPurchaseInstallmentsPanel({
   const [saving, setSaving] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuRow, setMenuRow] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkPayOpen, setBulkPayOpen] = useState(false);
+  const [bulkPayForms, setBulkPayForms] = useState({});
+  const [globalDebitAccountId, setGlobalDebitAccountId] = useState('');
   const [bankAccounts, setBankAccounts] = useState([]);
 
   React.useEffect(() => {
-    fetchPayFromAccounts(api)
+    fetchAllPaymentAccounts(api)
       .then(setBankAccounts)
       .catch(() => setBankAccounts([]));
   }, []);
@@ -155,6 +160,59 @@ export default function LandPurchaseInstallmentsPanel({
     setPayOpen(true);
     setMenuAnchor(null);
     setMenuRow(null);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
+  };
+
+  const openBulkPayForm = () => {
+    const selectedInstallments = installments.filter(i => selectedIds.includes(i._id) && i.status !== 'Paid');
+    if (selectedInstallments.length === 0) return;
+    
+    const initialForms = {};
+    selectedInstallments.forEach(row => {
+      const balance = Math.max(0, (Number(row.amount) || 0) - (Number(row.paidAmount) || 0));
+      initialForms[row._id] = {
+        installmentId: row._id,
+        description: row.description,
+        payFull: false,
+        amount: String(balance),
+        paymentMode: row.paymentMode || '',
+        paymentRemarks: row.paymentRemarks || '',
+        bankAccountId: row.bankAccountId || '',
+        whtRate: row.whtRate || '',
+        drawnOn: row.drawnOn || '',
+        refNo: row.refNo || '',
+        narration: row.narration || '',
+        paymentDate: row.paymentDate ? new Date(row.paymentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+      };
+    });
+    setBulkPayForms(initialForms);
+    setBulkPayOpen(true);
+  };
+
+  const handleBulkPaySubmit = async () => {
+    setSaving(true);
+    try {
+      const payments = Object.values(bulkPayForms).map(form => ({
+        ...form,
+        amount: Number(form.amount) || 0,
+        whtRate: Number(form.whtRate) || 0,
+      }));
+      await landAcquisitionPurchaseService.payMultipleInstallments(purchaseId, { 
+        payments, 
+        debitAccountId: globalDebitAccountId || undefined 
+      });
+      toast.success('Bulk installments payment recorded');
+      setBulkPayOpen(false);
+      setSelectedIds([]);
+      onUpdated?.();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record bulk payment');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveInstallment = async () => {
@@ -250,6 +308,11 @@ export default function LandPurchaseInstallmentsPanel({
       >
         <Typography variant="subtitle1" fontWeight={700}>Manage Installments</Typography>
         <Stack direction="row" spacing={1} alignItems="center">
+          {selectedIds.length > 0 && (
+            <Button size="small" variant="contained" color="secondary" onClick={openBulkPayForm}>
+              Pay Selected ({selectedIds.length})
+            </Button>
+          )}
           <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openAddForm}>
             Add Installment
           </Button>
@@ -277,6 +340,7 @@ export default function LandPurchaseInstallmentsPanel({
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: 'grey.50' }}>
+                <TableCell padding="checkbox" />
                 <TableCell sx={{ fontWeight: 700, width: 48 }}>#</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
                 <TableCell sx={{ fontWeight: 700 }} align="right">Amount</TableCell>
@@ -299,6 +363,15 @@ export default function LandPurchaseInstallmentsPanel({
                   const balance = Math.max(0, (Number(row.amount) || 0) - (Number(row.paidAmount) || 0));
                   return (
                     <TableRow key={row._id} hover>
+                      <TableCell padding="checkbox">
+                        {row.status !== 'Paid' && (
+                          <Checkbox
+                            size="small"
+                            checked={selectedIds.includes(row._id)}
+                            onChange={() => toggleSelect(row._id)}
+                          />
+                        )}
+                      </TableCell>
                       <TableCell>{idx + 1}</TableCell>
                       <TableCell sx={{ fontWeight: 500 }}>{row.description}</TableCell>
                       <TableCell align="right">{formatMoney(row.amount)}</TableCell>
@@ -519,6 +592,117 @@ export default function LandPurchaseInstallmentsPanel({
           </Button>
           <Button variant="contained" onClick={() => handlePayInstallment(false)} disabled={saving}>
             Record Payment
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={bulkPayOpen} onClose={() => !saving && setBulkPayOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Pay Selected Installments ({Object.keys(bulkPayForms).length})</DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          <Box sx={{ p: 2, bgcolor: 'primary.50', borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="subtitle2" sx={{ mb: 1, color: 'primary.main' }}>
+              Global Debit Account / Vendor
+            </Typography>
+            <TextField
+              size="small"
+              fullWidth
+              select
+              label="Debit Account (Leave blank for default Land Acquisition Asset)"
+              value={globalDebitAccountId}
+              onChange={(e) => setGlobalDebitAccountId(e.target.value)}
+            >
+              <MenuItem value="">Default (Land Acquisition Asset)</MenuItem>
+              {bankAccounts.map(({ account, depth }) => (
+                <MenuItem
+                  key={account._id || account.id}
+                  value={account._id || account.id}
+                  sx={{ pl: depth * 2 + 2 }}
+                >
+                  {formatPayFromAccountLabel(account, depth)}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+          {Object.values(bulkPayForms).map((form, index) => (
+            <Box key={form.installmentId} sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'primary.main' }}>
+                {index + 1}. {form.description} — Due: PKR {formatMoney(form.amount)}
+              </Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  type="number"
+                  label="Payment Amount *"
+                  value={form.amount}
+                  onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], amount: e.target.value } }))}
+                  inputProps={{ min: 0, step: 0.01 }}
+                />
+                <TextField
+                  size="small"
+                  fullWidth
+                  select
+                  label="Pay From Account *"
+                  value={form.bankAccountId}
+                  onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], bankAccountId: e.target.value } }))}
+                >
+                  <MenuItem value="">Select Account</MenuItem>
+                  {bankAccounts.map(({ account, depth }) => (
+                    <MenuItem
+                      key={account._id || account.id}
+                      value={account._id || account.id}
+                      sx={{ pl: depth * 2 + 2 }}
+                    >
+                      {formatPayFromAccountLabel(account, depth)}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  fullWidth
+                  type="date"
+                  label="Payment Date"
+                  value={form.paymentDate}
+                  onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], paymentDate: e.target.value } }))}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  select
+                  label="Payment Mode"
+                  value={form.paymentMode}
+                  onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], paymentMode: e.target.value } }))}
+                >
+                  <MenuItem value="">Select mode</MenuItem>
+                  {PAYMENT_MODES.map((mode) => (
+                    <MenuItem key={mode} value={mode}>{mode}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  fullWidth
+                  label="Ref / Cheque #"
+                  value={form.refNo}
+                  onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], refNo: e.target.value } }))}
+                />
+                <TextField
+                  size="small"
+                  fullWidth
+                  label="Narration"
+                  value={form.narration}
+                  onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], narration: e.target.value } }))}
+                />
+              </Stack>
+            </Box>
+          ))}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkPayOpen(false)} disabled={saving}>Cancel</Button>
+          <Button variant="contained" onClick={handleBulkPaySubmit} disabled={saving}>
+            Record Bulk Payment
           </Button>
         </DialogActions>
       </Dialog>
