@@ -20,18 +20,18 @@ const boqItemSchema = new mongoose.Schema({
   unit: { type: String, required: true, trim: true },
 
   // Estimation
-  estimatedQuantity: { type: Number, required: true, min: 0 },
+  estimatedQuantity: { type: Number, required: true },
   estimatedUnitPrice: { type: Number, required: true, min: 0 },
-  discountAmount: { type: Number, default: 0, min: 0 },
-  estimatedTotalCost: { type: Number, default: 0, min: 0 },
-  netEstimatedCost: { type: Number, default: 0, min: 0 },
+  discountAmount: { type: Number, default: 0 },
+  estimatedTotalCost: { type: Number, default: 0 },
+  netEstimatedCost: { type: Number, default: 0 },
 
   // Actuals (updated as procurement happens)
-  orderedQuantity: { type: Number, default: 0, min: 0 },
-  receivedQuantity: { type: Number, default: 0, min: 0 },
-  usedQuantity: { type: Number, default: 0, min: 0 },
+  orderedQuantity: { type: Number, default: 0 },
+  receivedQuantity: { type: Number, default: 0 },
+  usedQuantity: { type: Number, default: 0 },
   actualUnitPrice: { type: Number, default: 0, min: 0 },
-  actualTotalCost: { type: Number, default: 0, min: 0 },
+  actualTotalCost: { type: Number, default: 0 },
 
   // Variance fields (computed on save)
   quantityVariance: { type: Number, default: 0 },
@@ -62,7 +62,15 @@ const applyBoqComputedFields = (doc) => {
   const actualUnitPrice = Number(doc.actualUnitPrice) || 0;
 
   const grossEstimated = estimatedQuantity * estimatedUnitPrice;
-  const discountAmount = Math.min(Number(doc.discountAmount) || 0, grossEstimated);
+  let inputDiscount = Number(doc.discountAmount) || 0;
+  let discountAmount = 0;
+  
+  if (grossEstimated >= 0) {
+    discountAmount = Math.min(Math.max(0, inputDiscount), grossEstimated);
+  } else {
+    discountAmount = 0;
+  }
+
   doc.discountAmount = discountAmount;
   doc.estimatedTotalCost = grossEstimated;
   doc.netEstimatedCost = grossEstimated - discountAmount;

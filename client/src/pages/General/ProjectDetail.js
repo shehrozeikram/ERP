@@ -74,7 +74,10 @@ const fmt = (v) =>
 
 const boqTitle = (i) => String(i?.title || '').trim() || String(i?.description || '').split(/\r?\n/)[0]?.trim() || '—';
 const boqEstTotal = (i) => (Number(i?.estimatedQuantity) || 0) * (Number(i?.estimatedUnitPrice) || 0) || Number(i?.estimatedTotalCost) || 0;
-const boqDiscTotal = (i) => Math.min(Number(i?.discountAmount) || 0, boqEstTotal(i));
+const boqDiscTotal = (i) => {
+  const est = boqEstTotal(i);
+  return est >= 0 ? Math.min(Math.max(0, Number(i?.discountAmount) || 0), est) : 0;
+};
 const boqNetTotal = (i) => Number(i?.netEstimatedCost) || (boqEstTotal(i) - boqDiscTotal(i));
 const boqActTotal = (i) => (Number(i?.usedQuantity) || 0) * (Number(i?.actualUnitPrice) || 0) || Number(i?.actualTotalCost) || 0;
 
@@ -255,7 +258,7 @@ const BOQTab = ({ projectId }) => {
       title: item.title || '',
       description: item.description, unit: item.unit,
       estimatedQuantity: item.estimatedQuantity, estimatedUnitPrice: item.estimatedUnitPrice,
-      discountAmount: item.discountAmount || '',
+      discountAmount: (item.discountAmount && item.discountAmount > 0) ? item.discountAmount : '',
       phase: item.phase || 'General', category: item.category || '',
       specification: item.specification || '', notes: item.notes || '',
       usedQuantity: item.usedQuantity || '', actualUnitPrice: item.actualUnitPrice || ''
@@ -622,7 +625,11 @@ const BOQTab = ({ projectId }) => {
             {(form.estimatedQuantity && form.estimatedUnitPrice) && (
               <Grid item xs={12}>
                 <Typography variant="caption" color="text.secondary">
-                  Net cost: {fmt(Math.max(0, (Number(form.estimatedQuantity) || 0) * (Number(form.estimatedUnitPrice) || 0) - (Number(form.discountAmount) || 0)))}
+                  Net cost: {fmt((() => {
+                    const est = (Number(form.estimatedQuantity) || 0) * (Number(form.estimatedUnitPrice) || 0);
+                    const disc = est >= 0 ? Math.min(Math.max(0, Number(form.discountAmount) || 0), est) : 0;
+                    return est - disc;
+                  })())}
                 </Typography>
               </Grid>
             )}
