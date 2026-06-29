@@ -2724,4 +2724,181 @@ router.get('/increments/:id', [
   res.json(result);
 }));
 
+// @route   GET /api/hr/migrate-left-employees
+// @desc    Temporary route to migrate left employees
+// @access  Public
+router.get('/migrate-left-employees', async (req, res) => {
+  try {
+    const xlsx = require('xlsx');
+    const path = require('path');
+    const Employee = require('../models/hr/Employee');
+
+    const filePath = path.join(__dirname, '../../docs/Left Employees Jan 2026 to June 2026.xlsx');
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    let currentMonthStr = null;
+    let validRows = [];
+
+    // Parse Excel
+    for (let row of data) {
+      if (row.length === 1 && typeof row[0] === 'string' && row[0].startsWith('Left Employees ')) {
+        currentMonthStr = row[0].replace('Left Employees ', '').trim();
+      }
+      
+      if (typeof row[0] === 'number' && row[1]) {
+        validRows.push({
+          monthGroup: currentMonthStr,
+          srNo: row[0],
+          employeeId: row[1],
+          name: row[2],
+          remarks: row[7] || ''
+        });
+      }
+    }
+
+    let updatedCount = 0;
+    let notFoundCount = 0;
+
+    for (const record of validRows) {
+      const emp = await Employee.findOne({ employeeId: String(record.employeeId).trim() });
+      if (!emp) {
+        notFoundCount++;
+        continue;
+      }
+
+      let terminationDate = null;
+      if (record.monthGroup) {
+        const dateStr = `1 ${record.monthGroup}`;
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          terminationDate = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+        }
+      }
+
+      const remarksLower = record.remarks.toLowerCase();
+      let newStatus = 'Terminated';
+      if (remarksLower.includes('resign')) {
+        newStatus = 'Resigned';
+      }
+
+      emp.employmentStatus = newStatus;
+      emp.isActive = false;
+      if (terminationDate) {
+        emp.terminationDate = terminationDate;
+      }
+      emp.terminationReason = record.remarks;
+      
+      await emp.save();
+      updatedCount++;
+    }
+
+    res.json({
+      success: true,
+      updatedCount,
+      notFoundCount,
+      totalValid: validRows.length
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Configure multer for excel file imports (memory storage)
+const memoryUpload = multer({ storage: multer.memoryStorage() });
+
+// @route   POST /api/hr/employees/import-leavers
+// @desc    Import left employees from Excel and update their status/termination dates
+// @access  Private (Needs specific roles)
+router.post('/employees/import-leavers', authorize('hr_manager', 'hr_admin', 'super_admin'), memoryUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    const xlsx = require('xlsx');
+    
+    // Parse the buffer from multer
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    let currentMonthStr = null;
+    let validRows = [];
+
+    // Parse Excel
+    for (let row of data) {
+      // Find grouping header
+      if (row.length === 1 && typeof row[0] === 'string' && row[0].startsWith('Left Employees ')) {
+        currentMonthStr = row[0].replace('Left Employees ', '').trim();
+      }
+      
+      // Valid row has Sr No and Employee ID
+      if (typeof row[0] === 'number' && row[1]) {
+        validRows.push({
+          monthGroup: currentMonthStr,
+          srNo: row[0],
+          employeeId: row[1],
+          name: row[2],
+          remarks: row[7] || ''
+        });
+      }
+    }
+
+    let updatedCount = 0;
+    let notFoundCount = 0;
+
+    for (const record of validRows) {
+      const emp = await Employee.findOne({ employeeId: String(record.employeeId).trim() });
+      if (!emp) {
+        notFoundCount++;
+        continue;
+      }
+
+      let terminationDate = null;
+      if (record.monthGroup) {
+        const dateStr = `1 ${record.monthGroup}`;
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          // Last day of that month
+          terminationDate = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+        }
+      }
+
+      const remarksLower = record.remarks.toLowerCase();
+      let newStatus = 'Terminated';
+      if (remarksLower.includes('resign')) {
+        newStatus = 'Resigned';
+      }
+
+      const updateData = {
+        employmentStatus: newStatus,
+        isActive: false,
+        terminationReason: record.remarks
+      };
+      if (terminationDate) {
+        updateData.terminationDate = terminationDate;
+      }
+      
+      await Employee.updateOne({ _id: emp._id }, { $set: updateData });
+      updatedCount++;
+    }
+
+    res.json({
+      success: true,
+      message: `Import complete! Updated ${updatedCount} employees. Skipped ${notFoundCount} (not found).`,
+      updatedCount,
+      notFoundCount,
+      totalValid: validRows.length
+    });
+  } catch (error) {
+    console.error('Import Leavers Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to import leavers: ' + error.message });
+  }
+});
+
 module.exports = router; 

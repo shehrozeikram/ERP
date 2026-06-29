@@ -81,7 +81,8 @@ const EmployeeList = () => {
   const [exporting, setExporting] = useState(false);
   const [probationCompletedEmployees, setProbationCompletedEmployees] = useState([]);
   const [probationDialogOpen, setProbationDialogOpen] = useState(false);
-  
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
   // Pagination state
   const location = useLocation();
   const [page, setPage] = useState(() => {
@@ -401,6 +402,37 @@ const EmployeeList = () => {
 
   const totalPages = Math.ceil(totalItems / rowsPerPage) || 1;
 
+  const handleImportLeavers = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setImporting(true);
+      const response = await api.post('/hr/employees/import-leavers', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (response.data.success) {
+        setSnackbar({ open: true, message: response.data.message || 'Import successful', severity: 'success' });
+        handleRefresh();
+      } else {
+        setSnackbar({ open: true, message: response.data.message || 'Import failed', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      setSnackbar({ open: true, message: error.response?.data?.message || 'Failed to import leavers', severity: 'error' });
+    } finally {
+      setImporting(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleExportToExcel = useCallback(async () => {
     if (!sortedEmployees || sortedEmployees.length === 0) {
       setSnackbar({ open: true, message: 'No employees to export', severity: 'warning' });
@@ -500,6 +532,21 @@ const EmployeeList = () => {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Employee Management</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            style={{ display: 'none' }}
+            ref={fileInputRef}
+            onChange={handleImportLeavers}
+          />
+          <Button
+            variant="outlined"
+            startIcon={importing ? <CircularProgress size={18} /> : <GetAppIcon sx={{ transform: 'rotate(180deg)' }} />}
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            disabled={importing || dataLoading.employees}
+          >
+            Import Leavers
+          </Button>
           <Button
             variant="outlined"
             startIcon={<GetAppIcon />}
