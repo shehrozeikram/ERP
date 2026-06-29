@@ -3128,6 +3128,36 @@ router.get('/:id/download',
   })
 );
 
+// @route   DELETE /api/payroll/month/:year/:month
+// @desc    Delete all payrolls and approval for a specific month
+// @access  Private (HR and Admin)
+router.delete('/month/:year/:month',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { year, month } = req.params;
+    
+    // Check if any payroll in this month is already paid
+    const paidCount = await Payroll.countDocuments({ month, year, status: 'Paid' });
+    if (paidCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete month because it contains paid payrolls'
+      });
+    }
+
+    // Delete all payrolls for this month
+    await Payroll.deleteMany({ month, year });
+    
+    // Delete the approval document
+    await PayrollMonthlyApproval.deleteMany({ month, year });
+
+    res.json({
+      success: true,
+      message: 'Monthly payroll deleted successfully'
+    });
+  })
+);
+
 // @route   DELETE /api/payroll/delete-all
 // @desc    Delete all payroll records
 // @access  Private (Admin only)

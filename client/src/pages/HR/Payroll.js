@@ -931,9 +931,22 @@ const Payroll = () => {
         await api.delete(`/payroll/${payrollId}`);
         fetchPayrolls();
         fetchStats();
-      } catch (error) {
-        console.error('Error deleting payroll:', error);
+      } catch (err) {
+        console.error(err);
         setError('Failed to delete payroll');
+      }
+    }
+  };
+
+  const handleDeleteMonthlySummary = async (month, year, monthName) => {
+    if (window.confirm(`Are you sure you want to delete all payrolls for ${monthName} ${year}?`)) {
+      try {
+        await api.delete(`/payroll/month/${year}/${month}`);
+        alert(`Successfully deleted all payrolls for ${monthName} ${year}`);
+        fetchPayrolls();
+      } catch (err) {
+        console.error(err);
+        setError(err.response?.data?.message || 'Failed to delete monthly payrolls');
       }
     }
   };
@@ -2265,6 +2278,15 @@ Do you want to:
                                 onClick={() => toggleMonthExpansion(monthKey)}
                               >
                                 {isExpanded ? <ExpandMoreIcon /> : <ViewIcon />}
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete Monthly Summary">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDeleteMonthlySummary(monthly.month, monthly.year, monthly.monthName)}
+                              >
+                                <DeleteIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           </Box>
