@@ -216,6 +216,16 @@ const EmployeeForm = () => {
     jobDescription: Yup.string().optional(),
     // Employment status
     employmentStatus: Yup.string().oneOf(['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired', 'Reinstated'], 'Invalid employment status'),
+    terminationDate: Yup.date().when('employmentStatus', {
+      is: (val) => ['Terminated', 'Resigned', 'Inactive', 'Retired'].includes(val),
+      then: (schema) => schema.required('Termination/Separation date is required for this status'),
+      otherwise: (schema) => schema.nullable()
+    }),
+    terminationReason: Yup.string().when('employmentStatus', {
+      is: (val) => ['Terminated', 'Resigned', 'Inactive', 'Retired'].includes(val),
+      then: (schema) => schema.required('Reason is required for this status'),
+      otherwise: (schema) => schema.nullable()
+    }),
     // Placement fields
     placementCompany: Yup.string().optional(),
     placementSector: Yup.string().optional(),
@@ -684,7 +694,7 @@ const EmployeeForm = () => {
     // Auto-sync isActive when employment status changes
     if (newStatus === 'Active' || newStatus === 'Reinstated') {
       formik.setFieldValue('isActive', true);
-    } else if (newStatus === 'Draft') {
+    } else if (newStatus === 'Draft' || ['Terminated', 'Resigned', 'Inactive', 'Retired'].includes(newStatus)) {
       formik.setFieldValue('isActive', false);
     }
     formik.setFieldValue('employmentStatus', newStatus);
@@ -809,6 +819,8 @@ const EmployeeForm = () => {
         confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate).toISOString().split('T')[0] : '',
         isActive: employeeData.isActive !== undefined ? employeeData.isActive : true,
         employmentStatus: employeeData.employmentStatus || 'Draft',
+        terminationDate: employeeData.terminationDate ? new Date(employeeData.terminationDate).toISOString().split('T')[0] : '',
+        terminationReason: employeeData.terminationReason || '',
         profileImage: employeeData.profileImage || '',
         jobDescription: employeeData.jobDescription || '',
         academicBackground: (employeeData.academicBackground || []).map(bg => ({
@@ -998,6 +1010,8 @@ const EmployeeForm = () => {
       isActive: true,
       cashSalary: false,
       employmentStatus: 'Draft', // Default to Draft for new employees
+      terminationDate: '',
+      terminationReason: '',
       address: {
         street: '',
         city: '',
@@ -3500,6 +3514,34 @@ const EmployeeForm = () => {
                 )}
               </FormControl>
             </Grid>
+            {['Terminated', 'Resigned', 'Inactive', 'Retired'].includes(formik.values.employmentStatus) && (
+              <>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="date"
+                    name="terminationDate"
+                    label="Termination/Separation Date"
+                    InputLabelProps={{ shrink: true }}
+                    value={formik.values.terminationDate}
+                    onChange={formik.handleChange}
+                    error={formik.touched.terminationDate && Boolean(formik.errors.terminationDate)}
+                    helperText={formik.touched.terminationDate && formik.errors.terminationDate}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    name="terminationReason"
+                    label="Reason for Leaving"
+                    value={formik.values.terminationReason}
+                    onChange={formik.handleChange}
+                    error={formik.touched.terminationReason && Boolean(formik.errors.terminationReason)}
+                    helperText={formik.touched.terminationReason && formik.errors.terminationReason}
+                  />
+                </Grid>
+              </>
+            )}
           </Grid>
         );
 
