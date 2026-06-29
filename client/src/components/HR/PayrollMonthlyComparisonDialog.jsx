@@ -22,7 +22,8 @@ import {
 import {
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
-  Remove as RemoveIcon
+  Remove as RemoveIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import MonthlyPayrollApprovalSection from './MonthlyPayrollApprovalSection';
 import PayrollApprovalAuthorityTable from './PayrollApprovalAuthorityTable';
@@ -86,14 +87,14 @@ const SummaryCard = ({ title, value, subtitle }) => (
   </Paper>
 );
 
-const EmployeeTable = ({ title, rows, emptyMessage, showTermination = false, showNote = false }) => (
+const EmployeeTable = ({ title, rows, emptyMessage, showTermination = false, showNote = false, summaryOnly = false }) => (
   <Box sx={{ mt: 3 }}>
     <Typography variant="subtitle1" fontWeight={600} gutterBottom>
       {title} ({rows?.length || 0})
     </Typography>
     {!rows?.length ? (
       <Alert severity="info" sx={{ mt: 1 }}>{emptyMessage}</Alert>
-    ) : (
+    ) : summaryOnly ? null : (
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
@@ -208,9 +209,13 @@ const PayrollMonthlyComparisonDialog = ({
     await onRefreshApproval?.();
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth scroll="paper">
-      <DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth scroll="paper" sx={{ '@media print': { '& .MuiDialog-container': { height: 'auto' }, '& .MuiPaper-root': { boxShadow: 'none', margin: 0, maxWidth: '100%', width: '100%', maxHeight: 'none' } } }}>
+      <DialogTitle sx={{ '@media print': { display: 'none' } }}>
         <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
           <Box>
             Monthly Payroll Comparison — {displayPeriodLabel}
@@ -229,11 +234,22 @@ const PayrollMonthlyComparisonDialog = ({
           )}
         </Box>
       </DialogTitle>
-      <DialogContent dividers>
+      <DialogContent dividers sx={{ '@media print': { overflow: 'visible', border: 'none', p: 0 } }}>
         {loading ? (
           <Typography color="text.secondary">Building comparison report…</Typography>
         ) : (
-          <>
+          <Box id="payroll-comparison-print-area">
+            {/* Print Header */}
+            <Box sx={{ display: 'none', '@media print': { display: 'block', mb: 3, textAlign: 'center' } }}>
+              <Typography variant="h5" fontWeight={700}>Monthly Payroll Comparison Report</Typography>
+              <Typography variant="subtitle1">{displayPeriodLabel}</Typography>
+              {generatedAt && (
+                <Typography variant="caption" color="text.secondary">
+                  Generated {formatDate(generatedAt)}
+                </Typography>
+              )}
+            </Box>
+
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Comparing payroll headcount and totals with {previousPeriod?.label || 'the previous month'}.
             </Typography>
@@ -358,12 +374,14 @@ const PayrollMonthlyComparisonDialog = ({
                   title="Added to Payroll (not on last month)"
                   rows={report?.newOnPayroll}
                   emptyMessage="No employees added to payroll compared with last month."
+                  summaryOnly
                 />
                 <EmployeeTable
                   title="Removed from Payroll (were on last month)"
                   rows={report?.removedFromPayroll}
                   emptyMessage="No employees removed from payroll compared with last month."
                   showTermination
+                  summaryOnly
                 />
               </>
             ) : null}
@@ -386,10 +404,13 @@ const PayrollMonthlyComparisonDialog = ({
               monthlyApproval={approvalDoc}
               title="Approval Authority Signatures (Payroll & Comparison Report)"
             />
-          </>
+          </Box>
         )}
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ '@media print': { display: 'none' } }}>
+        <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint} sx={{ mr: 'auto' }}>
+          Print / Save as PDF
+        </Button>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>
