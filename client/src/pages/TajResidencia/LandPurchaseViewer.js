@@ -27,7 +27,8 @@ import {
   Payments as PaymentIcon,
   Search as SearchIcon,
   ShoppingCart as PurchaseIcon,
-  SwapHoriz as TransferIcon
+  SwapHoriz as TransferIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -234,6 +235,15 @@ export default function LandPurchaseViewer() {
                         })}
                       >
                         <TransferIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="View Details">
+                      <IconButton
+                        size="small"
+                        color="info"
+                        onClick={() => navigate(`/taj-residencia/land-purchase/${row._id}`)}
+                      >
+                        <ViewIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                     <Tooltip title="Payment Information">

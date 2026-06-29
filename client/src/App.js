@@ -227,6 +227,7 @@ import LandAcquisition from './pages/TajResidencia/LandAcquisition';
 import LandParties from './pages/TajResidencia/LandParties';
 import LandPurchaseViewer from './pages/TajResidencia/LandPurchaseViewer';
 import LandPurchaseFormPage from './pages/TajResidencia/LandPurchaseFormPage';
+import LandPurchaseDetailPage from './pages/TajResidencia/LandPurchaseDetailPage';
 import LandTransferViewer from './pages/TajResidencia/LandTransferViewer';
 
 // Audit Module Components
@@ -2135,6 +2136,10 @@ function App() {
             <Route
               path="/taj-residencia/land-purchase/new"
               element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandPurchaseFormPage /></ProtectedRoute>}
+            />
+            <Route
+              path="/taj-residencia/land-purchase/:id"
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandPurchaseDetailPage /></ProtectedRoute>}
             />
             <Route
               path="/taj-residencia/land-purchase/:id/edit"
