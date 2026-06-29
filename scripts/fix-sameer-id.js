@@ -54,7 +54,7 @@ async function fixSameerId() {
 
     // 2. Remove specified employees
     console.log('\n--- Task 2: Removing Invalid Left Employees ---');
-    const namesToRemove = ["Waqar", "Sumiya Khurshid Awan", "sheri khan", "hamza khan", "Muhammad Saad Ahsen", "Manahil Ameen"];
+    const namesToRemove = ["Naila Bhatti"];
     
     for (const name of namesToRemove) {
       const users = await Employee.find({ $or: [
