@@ -818,6 +818,7 @@ const EmployeeForm = () => {
         endOfProbationDate: employeeData.endOfProbationDate ? new Date(employeeData.endOfProbationDate).toISOString().split('T')[0] : '',
         confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate).toISOString().split('T')[0] : '',
         isActive: employeeData.isActive !== undefined ? employeeData.isActive : true,
+        isLateEntryForPayroll: employeeData.isLateEntryForPayroll !== undefined ? employeeData.isLateEntryForPayroll : false,
         employmentStatus: employeeData.employmentStatus || 'Draft',
         terminationDate: employeeData.terminationDate ? new Date(employeeData.terminationDate).toISOString().split('T')[0] : '',
         terminationReason: employeeData.terminationReason || '',
@@ -990,6 +991,7 @@ const EmployeeForm = () => {
       appointmentDate: '',
       probationPeriodMonths: 3,
       hireDate: '',
+      isLateEntryForPayroll: false,
       salary: {
         gross: ''
       },
@@ -2471,6 +2473,18 @@ const EmployeeForm = () => {
                 onChange={formik.handleChange}
                 error={formik.touched.hireDate && Boolean(formik.errors.hireDate)}
                 helperText={formik.touched.hireDate && formik.errors.hireDate}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={formik.values.isLateEntryForPayroll}
+                    onChange={(e) => formik.setFieldValue('isLateEntryForPayroll', e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label="Late Entry (Include in current month's New Hirings payroll report)"
               />
             </Grid>
 

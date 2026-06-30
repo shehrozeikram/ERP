@@ -102,7 +102,8 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       $or: [
         { joiningDate: { $gte: start, $lte: end } },
         { hireDate: { $gte: start, $lte: end } },
-        { appointmentDate: { $gte: start, $lte: end } }
+        { appointmentDate: { $gte: start, $lte: end } },
+        { isLateEntryForPayroll: true }
       ]
     })
       .select(EMPLOYEE_REPORT_SELECT)
