@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const Employee = require('../server/models/hr/Employee');
+const City = require('../server/models/hr/City');
+const Province = require('../server/models/hr/Province');
+const Country = require('../server/models/hr/Country');
 
 const employeesToAdd = [
   { employeeId: '5390', name: 'Waqar Ali' },
@@ -12,14 +15,22 @@ const employeesToAdd = [
 ];
 
 async function addEmployees() {
-  // Try to use the production URI from the commented out string in .env
-  // From the user's .env: MONGODB_URI=mongodb://shehroze:Cricket%23007@ac-pqbby5q-shard-00-00.fss65hf.mongodb.net:27017,ac-pqbby5q-shard-00-01.fss65hf.mongodb.net:27017,ac-pqbby5q-shard-00-02.fss65hf.mongodb.net:27017/sgc_erp?retryWrites=true&w=majority&ssl=true&authSource=admin
   const uri = process.env.MONGODB_URI || 'mongodb://shehroze:Cricket%23007@ac-pqbby5q-shard-00-00.fss65hf.mongodb.net:27017,ac-pqbby5q-shard-00-01.fss65hf.mongodb.net:27017,ac-pqbby5q-shard-00-02.fss65hf.mongodb.net:27017/sgc_erp?retryWrites=true&w=majority&ssl=true&authSource=admin';
   
   console.log(`🔌 Connecting to: ${uri}`);
   try {
     await mongoose.connect(uri);
     console.log('✅ Connected to MongoDB\n');
+
+    // Get any valid location ObjectIds to bypass validation
+    let country = await Country.findOne();
+    if (!country) country = await Country.create({ name: 'Pakistan' });
+
+    let province = await Province.findOne();
+    if (!province) province = await Province.create({ name: 'Punjab', country: country._id });
+
+    let city = await City.findOne();
+    if (!city) city = await City.create({ name: 'Lahore', province: province._id });
 
     for (const emp of employeesToAdd) {
       const nameParts = emp.name.split(' ');
@@ -45,11 +56,10 @@ async function addEmployees() {
         },
         address: {
           street: 'N/A',
-          city: 'N/A',
-          state: 'N/A',
-          country: 'Pakistan'
+          city: city._id,
+          state: province._id,
+          country: country._id
         },
-        // Optional but might be good to have to avoid issues in UI
         employmentStatus: 'Active',
         isActive: true
       });
