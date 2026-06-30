@@ -35,6 +35,20 @@ async function addEmployees() {
         gender: 'male',
         idCard: `00000-0000000-${emp.employeeId}`, // Must be unique
         nationality: 'Pakistani',
+        probationPeriodMonths: 3,
+        appointmentDate: new Date(),
+        qualification: 'N/A',
+        emergencyContact: {
+          name: 'N/A',
+          relationship: 'N/A',
+          phone: '0000000000'
+        },
+        address: {
+          street: 'N/A',
+          city: 'N/A',
+          state: 'N/A',
+          country: 'Pakistan'
+        },
         // Optional but might be good to have to avoid issues in UI
         employmentStatus: 'Active',
         isActive: true
