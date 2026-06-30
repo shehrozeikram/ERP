@@ -136,32 +136,32 @@ leaveBalanceSchema.index({ employee: 1 });
 leaveBalanceSchema.index({ expirationDate: 1 });
 
 // Pre-save middleware to calculate remaining and advance leaves
-leaveBalanceSchema.pre('save', function(next) {
+leaveBalanceSchema.pre('save', function (next) {
   // Calculate remaining and advance for annual leaves
   // Use allocated days first, then carry forward
   let annualUsed = this.annual.used;
   let annualCarriedForward = this.annual.carriedForward;
   let annualAllocated = this.annual.allocated;
-  
+
   // Use allocated days first
   let annualAllocatedUsed = 0;
   if (annualUsed > 0) {
     annualAllocatedUsed = Math.min(annualUsed, annualAllocated);
     annualUsed -= annualAllocatedUsed;
   }
-  
+
   // Use carry forward only if allocated days are exhausted
   let annualCarriedForwardUsed = 0;
   if (annualUsed > 0 && annualCarriedForward > 0) {
     annualCarriedForwardUsed = Math.min(annualUsed, annualCarriedForward);
     annualUsed -= annualCarriedForwardUsed;
   }
-  
+
   // Calculate total available (allocated + carry forward)
   // Note: The 40-day cap is now enforced during carry forward calculation,
   // not here. This middleware only calculates remaining based on what's provided.
   let totalAnnualAvailable = annualAllocated + annualCarriedForward;
-  
+
   // Calculate remaining: total available minus used
   const totalUsed = annualAllocatedUsed + annualCarriedForwardUsed;
   this.annual.remaining = Math.max(0, totalAnnualAvailable - totalUsed);
@@ -171,21 +171,21 @@ leaveBalanceSchema.pre('save', function(next) {
   let sickUsed = this.sick.used;
   let sickCarriedForward = this.sick.carriedForward; // Keep original value
   let sickAllocated = this.sick.allocated;
-  
+
   // Use allocated days first
   let sickAllocatedUsed = 0;
   if (sickUsed > 0) {
     sickAllocatedUsed = Math.min(sickUsed, sickAllocated);
     sickUsed -= sickAllocatedUsed;
   }
-  
+
   // Use carry forward only if allocated days are exhausted
   let sickCarriedForwardUsed = 0;
   if (sickUsed > 0 && sickCarriedForward > 0) {
     sickCarriedForwardUsed = Math.min(sickUsed, sickCarriedForward);
     sickUsed -= sickCarriedForwardUsed;
   }
-  
+
   // Calculate remaining and advance WITHOUT modifying carriedForward
   this.sick.remaining = Math.max(0, sickCarriedForward + sickAllocated - sickAllocatedUsed - sickCarriedForwardUsed);
   this.sick.advance = sickUsed; // Anything left is advance
@@ -194,21 +194,21 @@ leaveBalanceSchema.pre('save', function(next) {
   let casualUsed = this.casual.used;
   let casualCarriedForward = this.casual.carriedForward; // Keep original value
   let casualAllocated = this.casual.allocated;
-  
+
   // Use allocated days first
   let casualAllocatedUsed = 0;
   if (casualUsed > 0) {
     casualAllocatedUsed = Math.min(casualUsed, casualAllocated);
     casualUsed -= casualAllocatedUsed;
   }
-  
+
   // Use carry forward only if allocated days are exhausted
   let casualCarriedForwardUsed = 0;
   if (casualUsed > 0 && casualCarriedForward > 0) {
     casualCarriedForwardUsed = Math.min(casualUsed, casualCarriedForward);
     casualUsed -= casualCarriedForwardUsed;
   }
-  
+
   // Calculate remaining and advance WITHOUT modifying carriedForward
   this.casual.remaining = Math.max(0, casualCarriedForward + casualAllocated - casualAllocatedUsed - casualCarriedForwardUsed);
   this.casual.advance = casualUsed; // Anything left is advance
@@ -220,24 +220,24 @@ leaveBalanceSchema.pre('save', function(next) {
 });
 
 // Static method to get or create leave balance for employee
-leaveBalanceSchema.statics.getOrCreateBalance = async function(employeeId, year) {
+leaveBalanceSchema.statics.getOrCreateBalance = async function (employeeId, year) {
   let balance = await this.findOne({ employee: employeeId, year });
-  
+
   if (!balance) {
     // Get employee to fetch their leave configuration
     const Employee = mongoose.model('Employee');
     const employee = await Employee.findById(employeeId);
-    
+
     if (!employee) {
       throw new Error('Employee not found');
     }
 
     // Calculate work year based on hire date
     const workYear = this.calculateWorkYear(employee.hireDate, new Date(year, 0, 1));
-    
+
     // Calculate anniversary-based allocation
     const allocation = this.calculateAnniversaryAllocation(workYear, employee.leaveConfig);
-    
+
     // Set expiration date for annual leaves (2 years from allocation)
     const expirationDate = new Date(year + 2, 11, 31); // End of year + 2 years
 
@@ -290,7 +290,7 @@ leaveBalanceSchema.statics.getOrCreateBalance = async function(employeeId, year)
     if (!balance.workYear) {
       const Employee = mongoose.model('Employee');
       const employee = await Employee.findById(employeeId);
-      
+
       if (employee) {
         balance.workYear = this.calculateWorkYear(employee.hireDate, new Date(year, 0, 1));
         await balance.save();
@@ -302,9 +302,9 @@ leaveBalanceSchema.statics.getOrCreateBalance = async function(employeeId, year)
 };
 
 // Static method to update leave balance when leave is approved
-leaveBalanceSchema.statics.updateBalanceForLeave = async function(employeeId, leaveType, days, year) {
+leaveBalanceSchema.statics.updateBalanceForLeave = async function (employeeId, leaveType, days, year) {
   const balance = await this.getOrCreateBalance(employeeId, year);
-  
+
   // Map leave type to balance field (handle various code formats)
   const typeMap = {
     'ANNUAL': 'annual',
@@ -322,17 +322,17 @@ leaveBalanceSchema.statics.updateBalanceForLeave = async function(employeeId, le
   };
 
   const balanceType = typeMap[leaveType] || typeMap[leaveType.toUpperCase()] || 'casual';
-  
+
   // Update used days
   balance[balanceType].used += days;
-  
+
   await balance.save();
-  
+
   return balance;
 };
 
 // Instance method to calculate advance leave deduction
-leaveBalanceSchema.methods.calculateAdvanceDeduction = function(dailyRate) {
+leaveBalanceSchema.methods.calculateAdvanceDeduction = function (dailyRate) {
   if (!this.totalAdvanceLeaves || this.totalAdvanceLeaves === 0) {
     return 0;
   }
@@ -341,7 +341,7 @@ leaveBalanceSchema.methods.calculateAdvanceDeduction = function(dailyRate) {
 };
 
 // Instance method to get summary
-leaveBalanceSchema.methods.getSummary = function() {
+leaveBalanceSchema.methods.getSummary = function () {
   return {
     annual: {
       allocated: this.annual.allocated,
@@ -369,10 +369,10 @@ leaveBalanceSchema.methods.getSummary = function() {
 };
 
 // Static method to calculate work year based on hire date
-leaveBalanceSchema.statics.calculateWorkYear = function(hireDate, currentDate = new Date()) {
+leaveBalanceSchema.statics.calculateWorkYear = function (hireDate, currentDate = new Date()) {
   const years = currentDate.getFullYear() - hireDate.getFullYear();
   const months = currentDate.getMonth() - hireDate.getMonth();
-  
+
   if (months < 0 || (months === 0 && currentDate.getDate() < hireDate.getDate())) {
     return years; // Haven't reached anniversary yet
   }
@@ -380,16 +380,16 @@ leaveBalanceSchema.statics.calculateWorkYear = function(hireDate, currentDate = 
 };
 
 // Static method to calculate anniversary-based leave allocation
-leaveBalanceSchema.statics.calculateAnniversaryAllocation = function(workYear, leaveConfig) {
+leaveBalanceSchema.statics.calculateAnniversaryAllocation = function (workYear, leaveConfig) {
   const config = leaveConfig || {};
-  
+
   // Annual leaves: Only after completing 1 year (workYear >= 1)
   const annualAllocation = workYear >= 1 ? (config.annualLimit || 20) : 0;
-  
+
   // Sick and Casual leaves: Available from first year (workYear >= 0)
   const sickAllocation = workYear >= 0 ? (config.sickLimit || 10) : 0;
   const casualAllocation = workYear >= 0 ? (config.casualLimit || 10) : 0;
-  
+
   return {
     annual: annualAllocation,
     sick: sickAllocation,
@@ -398,17 +398,17 @@ leaveBalanceSchema.statics.calculateAnniversaryAllocation = function(workYear, l
 };
 
 // Static method to process anniversary renewals
-leaveBalanceSchema.statics.processAnniversaryRenewal = async function(employeeId, newWorkYear) {
+leaveBalanceSchema.statics.processAnniversaryRenewal = async function (employeeId, newWorkYear) {
   const Employee = mongoose.model('Employee');
   const employee = await Employee.findById(employeeId);
-  
+
   if (!employee) {
     throw new Error('Employee not found');
   }
-  
+
   const currentYear = new Date().getFullYear();
   const allocation = this.calculateAnniversaryAllocation(newWorkYear, employee.leaveConfig);
-  
+
   // Create new balance for the new work year
   const newBalance = new this({
     employee: employeeId,
@@ -438,47 +438,47 @@ leaveBalanceSchema.statics.processAnniversaryRenewal = async function(employeeId
       advance: 0
     }
   });
-  
+
   await newBalance.save();
   return newBalance;
 };
 
 // Static method to expire old annual leaves
-leaveBalanceSchema.statics.expireOldAnnualLeaves = async function() {
+leaveBalanceSchema.statics.expireOldAnnualLeaves = async function () {
   const today = new Date();
-  
+
   // Find balances with expired annual leaves
   const expiredBalances = await this.find({
     expirationDate: { $lt: today },
     'annual.remaining': { $gt: 0 }
   });
-  
+
   for (const balance of expiredBalances) {
     // Mark remaining annual leaves as expired
     balance.annual.carriedForward = 0;
     balance.annual.remaining = 0;
     balance.annual.allocated = balance.annual.used; // Adjust allocated to match used
-    
+
     await balance.save();
   }
-  
+
   return expiredBalances.length;
 };
 
 // Static method to get or create leave balance for employee with automatic carry forward
-leaveBalanceSchema.statics.getOrCreateBalanceWithCarryForward = async function(employeeId, workYear) {
+leaveBalanceSchema.statics.getOrCreateBalanceWithCarryForward = async function (employeeId, workYear) {
   const CarryForwardService = require('../../services/carryForwardService');
   return await CarryForwardService.getOrCreateBalanceWithCarryForward(employeeId, workYear);
 };
 
 // Static method to recalculate carry forward for employee
-leaveBalanceSchema.statics.recalculateCarryForward = async function(employeeId) {
+leaveBalanceSchema.statics.recalculateCarryForward = async function (employeeId) {
   const CarryForwardService = require('../../services/carryForwardService');
   return await CarryForwardService.recalculateCarryForward(employeeId);
 };
 
 // Static method to get carry forward summary for employee
-leaveBalanceSchema.statics.getCarryForwardSummary = async function(employeeId) {
+leaveBalanceSchema.statics.getCarryForwardSummary = async function (employeeId) {
   const CarryForwardService = require('../../services/carryForwardService');
   return await CarryForwardService.getCarryForwardSummary(employeeId);
 };

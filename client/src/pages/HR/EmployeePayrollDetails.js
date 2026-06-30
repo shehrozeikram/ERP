@@ -134,10 +134,10 @@ const EmployeePayrollDetails = () => {
   // Helper function to calculate advance leave deduction
   const calculateAdvanceLeaveDeduction = () => {
     if (!leaveBalance || !leaveBalance.balance) return 0;
-    
+
     const totalAdvanceLeaves = leaveBalance.balance.totalAdvanceLeaves || 0;
     if (totalAdvanceLeaves === 0) return 0;
-    
+
     const dailyRate = currentPayroll.dailyRate || (employee?.salary?.basic ? employee.salary.basic / 26 : 0);
     return totalAdvanceLeaves * dailyRate;
   };
@@ -146,15 +146,15 @@ const EmployeePayrollDetails = () => {
   const calculateTotalDeductions = () => {
     const loanDeductions = calculateLoanDeductions();
     const advanceLeaveDeduction = calculateAdvanceLeaveDeduction();
-    
-    return (currentPayroll.incomeTax || 0) + 
-           (currentPayroll.eobi || 0) + 
-           (currentPayroll.healthInsurance || 0) + 
-           loanDeductions + 
-           (currentPayroll.attendanceDeduction || 0) + 
-           (currentPayroll.leaveDeduction || 0) + 
-           advanceLeaveDeduction + 
-           (currentPayroll.otherDeductions || 0);
+
+    return (currentPayroll.incomeTax || 0) +
+      (currentPayroll.eobi || 0) +
+      (currentPayroll.healthInsurance || 0) +
+      loanDeductions +
+      (currentPayroll.attendanceDeduction || 0) +
+      (currentPayroll.leaveDeduction || 0) +
+      advanceLeaveDeduction +
+      (currentPayroll.otherDeductions || 0);
   };
 
   // Helper function to calculate net salary
@@ -427,7 +427,7 @@ const EmployeePayrollDetails = () => {
                       <TableCell>House Rent Allowance (from allowances)</TableCell>
                       <TableCell align="right">{formatPKR(currentPayroll.allowances?.houseRent?.amount || 0)}</TableCell>
                     </TableRow>
-                    
+
                     <TableRow>
                       <TableCell>Gross Salary</TableCell>
                       <TableCell align="right">{formatPKR(currentPayroll.grossSalary || 0)}</TableCell>
@@ -499,7 +499,7 @@ const EmployeePayrollDetails = () => {
                       <TableCell>Leave Deduction Amount</TableCell>
                       <TableCell align="right">{formatPKR((currentPayroll.dailyRate || 0) * (currentPayroll.leaveDays || 0))}</TableCell>
                     </TableRow>
-                    
+
                     {/* Advance Leave Deduction */}
                     {leaveBalance && leaveBalance.balance && leaveBalance.balance.totalAdvanceLeaves > 0 && (
                       <>
@@ -510,7 +510,7 @@ const EmployeePayrollDetails = () => {
                             </Typography>
                           </TableCell>
                         </TableRow>
-                        
+
                         {leaveBalance.balance.annual.advance > 0 && (
                           <TableRow>
                             <TableCell sx={{ pl: 4 }}>
@@ -523,7 +523,7 @@ const EmployeePayrollDetails = () => {
                             </TableCell>
                           </TableRow>
                         )}
-                        
+
                         {leaveBalance.balance.sick.advance > 0 && (
                           <TableRow>
                             <TableCell sx={{ pl: 4 }}>
@@ -536,7 +536,7 @@ const EmployeePayrollDetails = () => {
                             </TableCell>
                           </TableRow>
                         )}
-                        
+
                         {leaveBalance.balance.casual.advance > 0 && (
                           <TableRow>
                             <TableCell sx={{ pl: 4 }}>
@@ -549,7 +549,7 @@ const EmployeePayrollDetails = () => {
                             </TableCell>
                           </TableRow>
                         )}
-                        
+
                         <TableRow>
                           <TableCell sx={{ pl: 4 }}>
                             <Typography variant="body2" fontWeight="bold">
@@ -564,7 +564,7 @@ const EmployeePayrollDetails = () => {
                         </TableRow>
                       </>
                     )}
-                    
+
                     <TableRow>
                       <TableCell>Provident Fund</TableCell>
                       <TableCell align="right">{formatPKR(currentPayroll.providentFund || 0)}</TableCell>
@@ -643,7 +643,7 @@ const EmployeePayrollDetails = () => {
               <Typography variant="h6" gutterBottom>
                 Leave Deductions (Database Values)
               </Typography>
-              
+
               {leaveLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
                   <CircularProgress size={30} />
@@ -660,52 +660,52 @@ const EmployeePayrollDetails = () => {
                           </Typography>
                         </TableCell>
                       </TableRow>
-                      
+
                       <TableRow>
                         <TableCell>Annual Leave</TableCell>
                         <TableCell align="right">
                           {leaveBalance.balance.annual.remaining} / {leaveBalance.balance.annual.allocated + leaveBalance.balance.annual.carriedForward}
                           {leaveBalance.balance.annual.advance > 0 && (
-                            <Chip 
-                              label={`Adv: ${leaveBalance.balance.annual.advance}`} 
-                              size="small" 
-                              color="error" 
+                            <Chip
+                              label={`Adv: ${leaveBalance.balance.annual.advance}`}
+                              size="small"
+                              color="error"
                               sx={{ ml: 1, height: 18 }}
                             />
                           )}
                         </TableCell>
                       </TableRow>
-                      
+
                       <TableRow>
                         <TableCell>Sick Leave</TableCell>
                         <TableCell align="right">
                           {leaveBalance.balance.sick.remaining} / {leaveBalance.balance.sick.allocated + leaveBalance.balance.sick.carriedForward}
                           {leaveBalance.balance.sick.advance > 0 && (
-                            <Chip 
-                              label={`Adv: ${leaveBalance.balance.sick.advance}`} 
-                              size="small" 
-                              color="error" 
+                            <Chip
+                              label={`Adv: ${leaveBalance.balance.sick.advance}`}
+                              size="small"
+                              color="error"
                               sx={{ ml: 1, height: 18 }}
                             />
                           )}
                         </TableCell>
                       </TableRow>
-                      
+
                       <TableRow>
                         <TableCell>Casual Leave</TableCell>
                         <TableCell align="right">
                           {leaveBalance.balance.casual.remaining} / {leaveBalance.balance.casual.allocated + leaveBalance.balance.casual.carriedForward}
                           {leaveBalance.balance.casual.advance > 0 && (
-                            <Chip 
-                              label={`Adv: ${leaveBalance.balance.casual.advance}`} 
-                              size="small" 
-                              color="error" 
+                            <Chip
+                              label={`Adv: ${leaveBalance.balance.casual.advance}`}
+                              size="small"
+                              color="error"
                               sx={{ ml: 1, height: 18 }}
                             />
                           )}
                         </TableCell>
                       </TableRow>
-                      
+
                       {/* Advance Leave Deduction Details */}
                       {leaveBalance.balance.totalAdvanceLeaves > 0 && (
                         <>
@@ -716,7 +716,7 @@ const EmployeePayrollDetails = () => {
                               </Typography>
                             </TableCell>
                           </TableRow>
-                          
+
                           <TableRow>
                             <TableCell sx={{ pl: 4 }}>Total Advance Leaves</TableCell>
                             <TableCell align="right">
@@ -725,28 +725,28 @@ const EmployeePayrollDetails = () => {
                               </Typography>
                             </TableCell>
                           </TableRow>
-                          
+
                           {leaveBalance.balance.annual.advance > 0 && (
                             <TableRow>
                               <TableCell sx={{ pl: 4 }}>Annual Advance</TableCell>
                               <TableCell align="right">{leaveBalance.balance.annual.advance} days</TableCell>
                             </TableRow>
                           )}
-                          
+
                           {leaveBalance.balance.sick.advance > 0 && (
                             <TableRow>
                               <TableCell sx={{ pl: 4 }}>Sick Advance</TableCell>
                               <TableCell align="right">{leaveBalance.balance.sick.advance} days</TableCell>
                             </TableRow>
                           )}
-                          
+
                           {leaveBalance.balance.casual.advance > 0 && (
                             <TableRow>
                               <TableCell sx={{ pl: 4 }}>Casual Advance</TableCell>
                               <TableCell align="right">{leaveBalance.balance.casual.advance} days</TableCell>
                             </TableRow>
                           )}
-                          
+
                           <TableRow>
                             <TableCell colSpan={2} sx={{ py: 0.5 }}>
                               <Alert severity="warning" sx={{ py: 0.5 }}>
@@ -758,7 +758,7 @@ const EmployeePayrollDetails = () => {
                           </TableRow>
                         </>
                       )}
-                      
+
                       {/* Leave Statistics */}
                       <TableRow>
                         <TableCell colSpan={2} sx={{ bgcolor: 'info.light', py: 1 }}>
@@ -767,22 +767,22 @@ const EmployeePayrollDetails = () => {
                           </Typography>
                         </TableCell>
                       </TableRow>
-                      
+
                       <TableRow>
                         <TableCell>Total Requests</TableCell>
                         <TableCell align="right">{leaveBalance.statistics.totalRequests}</TableCell>
                       </TableRow>
-                      
+
                       <TableRow>
                         <TableCell>Approved</TableCell>
                         <TableCell align="right">{leaveBalance.statistics.approved}</TableCell>
                       </TableRow>
-                      
+
                       <TableRow>
                         <TableCell>Pending</TableCell>
                         <TableCell align="right">{leaveBalance.statistics.pending}</TableCell>
                       </TableRow>
-                      
+
                       <TableRow>
                         <TableCell>Rejected</TableCell>
                         <TableCell align="right">{leaveBalance.statistics.rejected}</TableCell>
@@ -848,7 +848,7 @@ const EmployeePayrollDetails = () => {
             <AccountBalanceIcon color="primary" />
             Payroll History (Last 12 Months)
           </Typography>
-          
+
           {existingPayrolls.length > 0 ? (
             <TableContainer component={Paper} variant="outlined">
               <Table>
