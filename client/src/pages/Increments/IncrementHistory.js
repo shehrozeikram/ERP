@@ -22,13 +22,20 @@ import {
   FormControl,
   InputLabel,
   Select,
-  Autocomplete
+  Autocomplete,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   Search as SearchIcon,
   FilterList as FilterIcon,
-  TrendingUp as TrendingUpIcon
+  TrendingUp as TrendingUpIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import incrementService from '../../services/incrementService';
@@ -49,10 +56,15 @@ const IncrementHistory = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const itemsPerPage = 10;
+  
+  // Delete Dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedIncrementForDelete, setSelectedIncrementForDelete] = useState(null);
 
   useEffect(() => {
     fetchEmployees();
     fetchIncrementHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, currentPage]);
 
   const fetchEmployees = async () => {
@@ -72,28 +84,10 @@ const IncrementHistory = () => {
       
       // For now, we'll fetch all increments and filter client-side
       // In a real app, you'd implement server-side filtering and pagination
-      const allIncrements = [];
-      
-      // Fetch increments for each employee
-      for (const employee of employees) {
-        try {
-          const response = await incrementService.getEmployeeIncrementHistory(employee._id);
-          if (response.success && response.data.length > 0) {
-            // Add employee info to each increment
-            const incrementsWithEmployee = response.data.map(inc => ({
-              ...inc,
-              employee: {
-                _id: employee._id,
-                firstName: employee.firstName,
-                lastName: employee.lastName,
-                employeeId: employee.employeeId
-              }
-            }));
-            allIncrements.push(...incrementsWithEmployee);
-          }
-        } catch (error) {
-          console.error(`Error fetching increments for employee ${employee._id}:`, error);
-        }
+      let allIncrements = [];
+      const response = await incrementService.getAllIncrements();
+      if (response.success && response.data) {
+        allIncrements = response.data;
       }
       
       // Sort by request date (newest first)
@@ -176,6 +170,37 @@ const IncrementHistory = () => {
       searchTerm: ''
     });
     setCurrentPage(1);
+  };
+
+  const handleDeleteClick = (increment) => {
+    setSelectedIncrementForDelete(increment);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedIncrementForDelete) return;
+    try {
+      setLoading(true);
+      const response = await incrementService.deleteIncrement(selectedIncrementForDelete._id);
+      if (response.success) {
+        // Refresh the list
+        fetchIncrementHistory();
+        setDeleteDialogOpen(false);
+        setSelectedIncrementForDelete(null);
+      } else {
+        setError(response.error || 'Failed to delete increment');
+      }
+    } catch (error) {
+      console.error('Error deleting increment:', error);
+      setError('An error occurred while deleting the increment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCloseDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setSelectedIncrementForDelete(null);
   };
 
   if (loading) {
@@ -336,6 +361,7 @@ const IncrementHistory = () => {
                   <TableCell>Request Date</TableCell>
                   <TableCell>Effective Date</TableCell>
                   <TableCell>Reason</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -392,6 +418,11 @@ const IncrementHistory = () => {
                         {increment.reason}
                       </Typography>
                     </TableCell>
+                    <TableCell>
+                      <IconButton color="error" onClick={() => handleDeleteClick(increment)}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -411,6 +442,31 @@ const IncrementHistory = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleCloseDeleteDialog}
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete this increment for <b>{selectedIncrementForDelete?.employee?.firstName} {selectedIncrementForDelete?.employee?.lastName}</b>?
+            <br /><br />
+            {['implemented', 'approved'].includes(selectedIncrementForDelete?.status) && (
+              <span style={{ color: 'red' }}>
+                <b>Warning:</b> Since this increment was {selectedIncrementForDelete.status}, deleting it will reverse its effect. The employee's current salary and any upcoming payrolls will be reduced by Rs. {selectedIncrementForDelete?.incrementAmount?.toLocaleString()}.
+              </span>
+            )}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

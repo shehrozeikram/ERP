@@ -95,6 +95,17 @@ const incrementService = {
       console.error('Error fetching increment by ID:', error);
       throw error;
     }
+  },
+
+  // Delete increment
+  deleteIncrement: async (incrementId) => {
+    try {
+      const response = await api.delete(`/hr/increments/${incrementId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting increment:', error);
+      throw error;
+    }
   }
 };
 

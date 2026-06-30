@@ -20,10 +20,10 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  MenuItem,
   Alert,
   CircularProgress,
-  Tooltip
+  Tooltip,
+  DialogContentText
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -31,7 +31,8 @@ import {
   CheckCircle as ApproveIcon,
   Cancel as RejectIcon,
   TrendingUp as TrendingUpIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import incrementService from '../../services/incrementService';
@@ -44,6 +45,11 @@ const IncrementList = () => {
   const [actionDialog, setActionDialog] = useState({ open: false, type: '', increment: null });
   const [comments, setComments] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  
+  // Delete Dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedIncrementForDelete, setSelectedIncrementForDelete] = useState(null);
+
   useEffect(() => {
     fetchPendingIncrements();
   }, []);
@@ -120,6 +126,36 @@ const IncrementList = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleDeleteClick = (increment) => {
+    setSelectedIncrementForDelete(increment);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedIncrementForDelete) return;
+    try {
+      setLoading(true);
+      const response = await incrementService.deleteIncrement(selectedIncrementForDelete._id);
+      if (response.success) {
+        fetchPendingIncrements();
+        setDeleteDialogOpen(false);
+        setSelectedIncrementForDelete(null);
+      } else {
+        setError(response.error || 'Failed to delete increment');
+      }
+    } catch (error) {
+      console.error('Error deleting increment:', error);
+      setError('An error occurred while deleting the increment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCloseDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setSelectedIncrementForDelete(null);
   };
 
   const getStatusColor = (status) => {
@@ -333,6 +369,15 @@ const IncrementList = () => {
                             </Tooltip>
                           </>
                         )}
+                        <Tooltip title="Delete">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteClick(increment)}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                     </TableCell>
                   </TableRow>
@@ -388,6 +433,31 @@ const IncrementList = () => {
             disabled={actionLoading}
           >
             {actionLoading ? <CircularProgress size={20} /> : actionDialog.type === 'approve' ? 'Approve' : 'Reject'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleCloseDeleteDialog}
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete this increment for <b>{selectedIncrementForDelete?.employee?.firstName} {selectedIncrementForDelete?.employee?.lastName}</b>?
+            <br /><br />
+            {['implemented', 'approved'].includes(selectedIncrementForDelete?.status) && (
+              <span style={{ color: 'red' }}>
+                <b>Warning:</b> Since this increment was {selectedIncrementForDelete.status}, deleting it will reverse its effect. The employee's current salary and any upcoming payrolls will be reduced by Rs. {selectedIncrementForDelete?.incrementAmount?.toLocaleString()}.
+              </span>
+            )}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained">
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

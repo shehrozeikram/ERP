@@ -2724,6 +2724,14 @@ router.get('/increments/:id', [
   res.json(result);
 }));
 
+// Delete increment by ID
+router.delete('/increments/:id', [
+  authorize('super_admin', 'hr_manager', 'admin')
+], asyncHandler(async (req, res) => {
+  const result = await incrementService.deleteIncrement(req.params.id);
+  res.json(result);
+}));
+
 // @route   GET /api/hr/migrate-left-employees
 // @desc    Temporary route to migrate left employees
 // @access  Public

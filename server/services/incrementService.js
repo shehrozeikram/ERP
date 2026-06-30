@@ -383,6 +383,59 @@ class IncrementService {
       };
     }
   }
+
+  /**
+   * Delete an increment and revert salary if applied
+   */
+  async deleteIncrement(incrementId) {
+    try {
+      const increment = await EmployeeIncrement.findById(incrementId).populate('employee');
+      
+      if (!increment) {
+        throw new Error('Increment not found');
+      }
+
+      // If increment was implemented or approved, we need to revert the salary
+      if (['implemented', 'approved'].includes(increment.status) && increment.employee) {
+        const employee = increment.employee;
+        const currentGross = employee.salary?.gross || 0;
+        
+        // Subtract the increment amount from current gross
+        const newGross = Math.max(0, currentGross - increment.incrementAmount);
+        
+        // Recalculate breakdown
+        const basicSalary = Math.round(newGross * 0.6666);
+        const medicalAllowance = Math.round(newGross * 0.10);
+        const houseRentAllowance = Math.round(newGross * 0.2334);
+        
+        // Update employee
+        await Employee.findByIdAndUpdate(employee._id, {
+          'salary.gross': newGross,
+          'salary.basic': basicSalary,
+          'salary.medical': medicalAllowance,
+          'salary.houseRent': houseRentAllowance
+        });
+        
+        // Update future payrolls
+        await this.updateFuturePayrolls(employee._id, newGross);
+      }
+
+      // Delete the increment record
+      await EmployeeIncrement.findByIdAndDelete(incrementId);
+
+      return {
+        success: true,
+        message: 'Increment deleted successfully and salary reverted if it was applied'
+      };
+      
+    } catch (error) {
+      console.error('Error deleting increment:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 module.exports = new IncrementService();
