@@ -8,11 +8,7 @@ const Province = require('../server/models/hr/Province');
 const Country = require('../server/models/hr/Country');
 
 const employeesToAdd = [
-  { employeeId: '5390', name: 'Waqar Ali' },
-  { employeeId: '6008', name: 'Waqar Ahmed Chugtai' },
-  { employeeId: '6279', name: 'Muhammad Waqar' },
-  { employeeId: '6382', name: 'Waqar Hassan Shahab' },
-  { employeeId: '6468', name: 'Waqar Younas' }
+  { employeeId: '6403', name: 'Manahil Ameen' }
 ];
 
 async function addEmployees() {
