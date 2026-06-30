@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
+require('../server/models/User'); // Required by Employee schema
 const Employee = require('../server/models/hr/Employee');
 const City = require('../server/models/hr/City');
 const Province = require('../server/models/hr/Province');
