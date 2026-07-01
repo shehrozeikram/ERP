@@ -153,14 +153,15 @@ const ComparativeStatementView = ({
   };
 
   const getQuoteItemForIndentItem = (quote, item, itemIndex) => {
-    let quoteItem = quote.items?.[itemIndex];
-    if (!quoteItem && quote.items?.length) {
+    let quoteItem = null;
+    if (quote.items?.length) {
       const indentDesc = (item.itemName || item.description || '').trim().toLowerCase();
       const match = quote.items.find((qi) => {
         const qDesc = (qi?.description || '').trim().toLowerCase();
         return indentDesc && qDesc && qDesc === indentDesc;
       });
-      quoteItem = match || null;
+      // Fallback to index if no descriptions match (legacy support)
+      quoteItem = match || quote.items[itemIndex] || null;
     }
     return quoteItem;
   };
@@ -285,6 +286,10 @@ const ComparativeStatementView = ({
               </thead>
               <tbody>
                 {selectedRequisition?.items?.length > 0 ? selectedRequisition.items.map((item, itemIndex) => {
+                  // Check if this item exists in ANY quotation
+                  const isQuoted = quotations.some(quote => getQuoteItemForIndentItem(quote, item, itemIndex) != null);
+                  if (!isQuoted) return null; // Hide row if no vendor quoted this item
+
                   const assignedQuotationId = vendorAssignments[itemIndex];
                   return (
                     <React.Fragment key={itemIndex}>

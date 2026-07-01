@@ -74,6 +74,11 @@ const indentSchema = new mongoose.Schema({
       min: [0, 'Estimated cost cannot be negative'],
       default: 0
     },
+    orderedQuantity: {
+      type: Number,
+      default: 0,
+      min: [0, 'Ordered quantity cannot be negative']
+    },
     priority: {
       type: String,
       enum: ['Low', 'Medium', 'High', 'Urgent'],
@@ -573,6 +578,63 @@ indentSchema.index({ requestedBy: 1 });
 indentSchema.index({ requestedDate: -1 });
 indentSchema.index({ category: 1 });
 indentSchema.index({ priority: 1 });
+
+indentSchema.statics.updateFulfillment = async function(indentId) {
+  const indent = await this.findById(indentId);
+  if (!indent) return null;
+
+  // Find all active POs for this indent
+  const PurchaseOrder = mongoose.model('PurchaseOrder');
+  const pos = await PurchaseOrder.find({
+    indent: indentId,
+    status: { $nin: ['Cancelled', 'Rejected'] }
+  });
+
+  // Calculate ordered quantity per item description
+  const orderedQuantities = {};
+  pos.forEach(po => {
+    po.items.forEach(item => {
+      const desc = (item.description || '').trim().toLowerCase();
+      if (!orderedQuantities[desc]) {
+        orderedQuantities[desc] = 0;
+      }
+      orderedQuantities[desc] += item.quantity;
+    });
+  });
+
+  // Update indent items
+  let allFulfilled = true;
+  let anyFulfilled = false;
+
+  indent.items.forEach(item => {
+    const desc = (item.itemName || '').trim().toLowerCase();
+    const orderedQty = orderedQuantities[desc] || 0;
+    item.orderedQuantity = orderedQty;
+
+    if (orderedQty >= item.quantity) {
+      anyFulfilled = true;
+    } else {
+      allFulfilled = false;
+      if (orderedQty > 0) anyFulfilled = true;
+    }
+  });
+
+  // Only update status if it's currently in a state that can be fulfilled
+  const fulfillableStatuses = ['Approved', 'Partially Fulfilled', 'Fulfilled'];
+  if (fulfillableStatuses.includes(indent.status)) {
+    if (allFulfilled && indent.items.length > 0) {
+      indent.status = 'Fulfilled';
+      indent.fulfilledDate = new Date();
+    } else if (anyFulfilled) {
+      indent.status = 'Partially Fulfilled';
+    } else {
+      indent.status = 'Approved'; // Revert back to approved if all POs were cancelled
+    }
+  }
+
+  await indent.save();
+  return indent;
+};
 
 module.exports = mongoose.model('Indent', indentSchema);
 

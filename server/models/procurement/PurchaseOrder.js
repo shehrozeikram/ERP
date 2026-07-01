@@ -319,6 +319,18 @@ purchaseOrderSchema.pre('save', async function(next) {
   next();
 });
 
+// Update Indent fulfillment status after saving a PO
+purchaseOrderSchema.post('save', async function(doc) {
+  if (doc.indent) {
+    try {
+      const Indent = mongoose.model('Indent');
+      await Indent.updateFulfillment(doc.indent);
+    } catch (err) {
+      console.error('Error updating indent fulfillment:', err);
+    }
+  }
+});
+
 // Update status based on received quantities
 purchaseOrderSchema.methods.updateReceivingStatus = function() {
   const totalItems = this.items.length;

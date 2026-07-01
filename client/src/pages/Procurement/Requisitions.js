@@ -42,7 +42,8 @@ import {
   Cancel as RejectIcon,
   Email as EmailIcon,
   Print as PrintIcon,
-  ArticleOutlined as ArticleOutlinedIcon
+  ArticleOutlined as ArticleOutlinedIcon,
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -176,7 +177,7 @@ const Requisitions = () => {
         page: page + 1,
         limit: rowsPerPage,
         search: search || undefined,
-        status: statusFilter || 'Approved', // Default to showing only approved requisitions
+        status: statusFilter || undefined, // undefined lets backend use its default ('Approved', 'Partially Fulfilled', 'Fulfilled')
         forRequisition: 'true', // Only indents moved to procurement by store (exclude pending store check)
         ...(assignmentFilter !== 'all' ? { assignmentStatus: assignmentFilter } : {}),
         ...(assignmentFilter === 'mine' ? { mineOnly: 'true' } : {})
@@ -185,9 +186,7 @@ const Requisitions = () => {
       const response = await api.get('/procurement/requisitions', { params });
       if (response.data.success) {
         const requisitionsData = response.data.data?.indents || [];
-        const filteredRequisitions = requisitionsData.filter((req) =>
-          !statusFilter || req.status === statusFilter
-        );
+        const filteredRequisitions = requisitionsData; // Backend already handles the filter properly
         setRequisitions(filteredRequisitions);
         setCanManageAssignments(Boolean(response.data.data?.canManageAssignments));
         setTotalItems(response.data.data?.pagination?.totalItems || filteredRequisitions.length);
@@ -545,7 +544,7 @@ const Requisitions = () => {
             <MenuItem value="">All Eligible</MenuItem>
             <MenuItem value="Approved">Approved</MenuItem>
             <MenuItem value="Partially Fulfilled">Partially Fulfilled</MenuItem>
-            <MenuItem value="Fulfilled">Fulfilled</MenuItem>
+            <MenuItem value="Fulfilled">Fully Ordered</MenuItem>
             <MenuItem value="Rejected in Procurement">Rejected in Procurement</MenuItem>
           </TextField>
           <TextField
@@ -602,7 +601,7 @@ const Requisitions = () => {
                     </TableCell>
                     <TableCell>
                       <Chip 
-                        label={req.status} 
+                        label={req.status === 'Fulfilled' ? 'Fully Ordered' : req.status} 
                         color={getStatusColor(req.status)} 
                         size="small" 
                       />
@@ -908,7 +907,14 @@ const Requisitions = () => {
                               {(index + 1).toString().padStart(2, '0')}
                             </td>
                             <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                              {renderIndentItemDescriptionCell(item)}
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {renderIndentItemDescriptionCell(item)}
+                                {((item.orderedQuantity || 0) >= item.quantity) && (
+                                  <Tooltip title="PO Created / Fully Ordered">
+                                    <CheckCircleIcon color="success" fontSize="small" sx={{ '@media print': { display: 'none' } }} />
+                                  </Tooltip>
+                                )}
+                              </Box>
                             </td>
                             <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                               {item.brand || '___________'}

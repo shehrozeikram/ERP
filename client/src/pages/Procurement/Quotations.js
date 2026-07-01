@@ -172,7 +172,6 @@ const Quotations = () => {
       const params = {
         page: 1,
         limit: 1000,
-        status: 'Approved',
         ...(canManageAssignments ? {} : { mineOnly: 'true' })
       };
       const response = await procurementService.getRequisitions(params);
@@ -192,17 +191,21 @@ const Quotations = () => {
         quotationDate: new Date().toISOString().split('T')[0],
         expiryDate: '',
         status: 'Received',
-        items: requisition.items.map(item => ({
-          description: item.itemName,
-          specification: item.specification || item.description || '',
-          brand: item.brand || '',
-          quantity: item.quantity,
-          unit: item.unit || 'Piece',
-          unitPrice: 0,
-          taxRate: 0,
-          discount: 0,
-          amount: 0
-        })),
+        items: requisition.items.map(item => {
+          const isFulfilled = (item.orderedQuantity || 0) >= item.quantity;
+          return {
+            description: item.itemName,
+            specification: item.specification || item.description || '',
+            brand: item.brand || '',
+            quantity: isFulfilled ? 0 : item.quantity,
+            unit: item.unit || 'Piece',
+            unitPrice: 0,
+            taxRate: 0,
+            discount: 0,
+            amount: 0,
+            isFulfilled
+          };
+        }),
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
@@ -793,7 +796,33 @@ const Quotations = () => {
               fullWidth
               label="Requisition"
               value={formData.indent}
-              onChange={(e) => setFormData({ ...formData, indent: e.target.value })}
+              onChange={(e) => {
+                const reqId = e.target.value;
+                const req = requisitions.find(r => String(r._id) === String(reqId));
+                if (req) {
+                  setFormData({ 
+                    ...formData, 
+                    indent: reqId,
+                    items: req.items.map(item => {
+                      const isFulfilled = (item.orderedQuantity || 0) >= item.quantity;
+                      return {
+                        description: item.itemName,
+                        specification: item.specification || item.description || '',
+                        brand: item.brand || '',
+                        quantity: isFulfilled ? 0 : item.quantity,
+                        unit: item.unit || 'Piece',
+                        unitPrice: 0,
+                        taxRate: 0,
+                        discount: 0,
+                        amount: 0,
+                        isFulfilled
+                      };
+                    })
+                  });
+                } else {
+                  setFormData({ ...formData, indent: reqId });
+                }
+              }}
               helperText={
                 requisitionsFilteredToAssignee
                   ? 'Only requisitions assigned to you appear here. Managers see all eligible requisitions.'
@@ -871,7 +900,7 @@ const Quotations = () => {
             </Box>
             
             {formData.items.map((item, idx) => (
-              <Paper key={idx} variant="outlined" sx={{ p: 2 }}>
+              <Paper key={idx} variant="outlined" sx={{ p: 2, bgcolor: item.isFulfilled ? '#f0fff0' : 'inherit' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
                   <Chip size="small" label={`S.No. ${idx + 1}`} color="primary" variant="outlined" />
                   {formData.indent && (
@@ -879,12 +908,18 @@ const Quotations = () => {
                       Requisition Item #{idx + 1}
                     </Typography>
                   )}
+                  {item.isFulfilled && (
+                    <Tooltip title="This item's PO has already been created.">
+                      <ApproveIcon color="success" fontSize="small" />
+                    </Tooltip>
+                  )}
                 </Box>
                 <Grid container spacing={2} alignItems="center">
                   <Grid item xs={12} md={4}>
                     <TextField
                       fullWidth
                       size="small"
+                      disabled={item.isFulfilled}
                       label="Description (optional if not quoting)"
                       placeholder="Leave empty if not quoting this item"
                       value={item.description ?? ''}
@@ -895,6 +930,7 @@ const Quotations = () => {
                     <TextField
                       fullWidth
                       size="small"
+                      disabled={item.isFulfilled}
                       label="Specification"
                       placeholder="Technical specs"
                       value={item.specification ?? ''}
@@ -906,6 +942,7 @@ const Quotations = () => {
                       fullWidth
                       size="small"
                       type="number"
+                      disabled={item.isFulfilled}
                       label="Quantity"
                       value={item.quantity}
                       onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
@@ -915,6 +952,7 @@ const Quotations = () => {
                     <TextField
                       fullWidth
                       size="small"
+                      disabled={item.isFulfilled}
                       label="Unit"
                       value={item.unit}
                       onChange={(e) => updateItem(idx, 'unit', e.target.value)}
@@ -925,19 +963,19 @@ const Quotations = () => {
                       fullWidth
                       size="small"
                       type="number"
+                      disabled={item.isFulfilled}
                       label="Unit Price"
                       value={item.unitPrice}
                       onChange={(e) => updateItem(idx, 'unitPrice', parseFloat(e.target.value) || 0)}
                     />
                   </Grid>
                   <Grid item xs={6} md={1}>
-                    <Tooltip title={formData.indent ? 'Cannot remove items when created from requisition (keeps order for Comparative Statement)' : 'Remove item'}>
+                    <Tooltip title="Remove item">
                       <span>
                         <IconButton
                           size="small"
                           color="error"
                           onClick={() => removeItem(idx)}
-                          disabled={!!formData.indent}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -948,6 +986,7 @@ const Quotations = () => {
                     <TextField
                       fullWidth
                       size="small"
+                      disabled={item.isFulfilled}
                       label="Brand"
                       value={item.brand ?? ''}
                       onChange={(e) => updateItem(idx, 'brand', e.target.value)}
@@ -958,6 +997,7 @@ const Quotations = () => {
                       fullWidth
                       size="small"
                       type="number"
+                      disabled={item.isFulfilled}
                       label="Tax Rate %"
                       value={item.taxRate}
                       onChange={(e) => updateItem(idx, 'taxRate', parseFloat(e.target.value) || 0)}
@@ -968,12 +1008,22 @@ const Quotations = () => {
                       fullWidth
                       size="small"
                       type="number"
+                      disabled={item.isFulfilled}
                       label="Discount"
                       value={item.discount}
                       onChange={(e) => updateItem(idx, 'discount', parseFloat(e.target.value) || 0)}
                     />
                   </Grid>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      type="number"
+                      disabled
+                      label="Amount"
+                      value={item.amount}
+                      InputProps={{ readOnly: true }}
+                    />
                     <Typography variant="body2" color="text.secondary">
                       Amount: {formatPKR(item.amount)}
                     </Typography>
