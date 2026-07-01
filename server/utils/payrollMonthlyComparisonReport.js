@@ -10,7 +10,7 @@ const MONTH_NAMES = [
 ];
 
 const EMPLOYEE_REPORT_SELECT =
-  'firstName lastName employeeId joiningDate hireDate appointmentDate terminationDate terminationReason employmentStatus placementDepartment department updatedAt';
+  'firstName lastName employeeId joiningDate hireDate appointmentDate terminationDate terminationReason employmentStatus placementDepartment department updatedAt isLateEntryForPayroll isLateTerminationEntryForPayroll salary';
 const EMPLOYEE_POPULATE = [
   { path: 'placementDepartment', select: 'name' },
   { path: 'department', select: 'name' }
@@ -41,6 +41,9 @@ const mapEmployeeRow = (emp, extra = {}) => ({
   terminationDate: emp?.terminationDate || null,
   employmentStatus: emp?.employmentStatus || '',
   reason: emp?.terminationReason || '',
+  isLateEntryForPayroll: emp?.isLateEntryForPayroll || false,
+  isLateTerminationEntryForPayroll: emp?.isLateTerminationEntryForPayroll || false,
+  grossSalary: emp?.salary?.gross || 0,
   ...extra
 });
 
@@ -111,7 +114,10 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       .sort({ joiningDate: 1, hireDate: 1, appointmentDate: 1 })
       .lean(),
     Employee.find({
-      terminationDate: { $gte: start, $lte: end }
+      $or: [
+        { terminationDate: { $gte: start, $lte: end } },
+        { isLateTerminationEntryForPayroll: true }
+      ]
     })
       .select(EMPLOYEE_REPORT_SELECT)
       .populate(EMPLOYEE_POPULATE)

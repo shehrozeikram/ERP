@@ -12,9 +12,13 @@ const employeesToAdd = [
 ];
 
 async function addEmployees() {
-  const uri = process.env.MONGODB_URI || 'mongodb://shehroze:Cricket%23007@ac-pqbby5q-shard-00-00.fss65hf.mongodb.net:27017,ac-pqbby5q-shard-00-01.fss65hf.mongodb.net:27017,ac-pqbby5q-shard-00-02.fss65hf.mongodb.net:27017/sgc_erp?retryWrites=true&w=majority&ssl=true&authSource=admin';
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+     console.error('No MONGODB_URI found.');
+     process.exit(1);
+  }
   
-  console.log(`🔌 Connecting to: ${uri}`);
+  console.log(`🔌 Connecting to MongoDB (URI hidden)`);
   try {
     await mongoose.connect(uri);
     console.log('✅ Connected to MongoDB\n');

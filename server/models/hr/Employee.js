@@ -1149,6 +1149,10 @@ const employeeSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isLateTerminationEntryForPayroll: {
+    type: Boolean,
+    default: false
+  },
   isDeleted: {
     type: Boolean,
     default: false

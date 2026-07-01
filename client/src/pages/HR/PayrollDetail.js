@@ -838,6 +838,7 @@ const PayrollDetail = () => {
           </Card>
         </Grid>
 
+        {false && (
         <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
@@ -888,6 +889,7 @@ const PayrollDetail = () => {
             </CardContent>
           </Card>
         </Grid>
+        )}
       </Grid>
 
       {/* Database Payroll Data - Summary */}

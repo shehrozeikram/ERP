@@ -99,12 +99,13 @@ const EmployeeTable = ({ title, rows, emptyMessage, showTermination = false, sho
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Employee ID</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell>Department</TableCell>
-              <TableCell>{showTermination ? 'Separation Date' : 'Joining Date'}</TableCell>
-              {showTermination ? <TableCell>Status</TableCell> : null}
-              {showTermination || showNote ? <TableCell>{showTermination ? 'Reason / Note' : 'Note'}</TableCell> : null}
+              <TableCell sx={{ width: '12%' }}>Employee ID</TableCell>
+              <TableCell sx={{ width: '20%' }}>Name</TableCell>
+              <TableCell sx={{ width: '20%' }}>Department</TableCell>
+              <TableCell sx={{ width: '15%' }}>Gross Salary</TableCell>
+              <TableCell sx={{ width: '15%' }}>{showTermination ? 'Separation Date' : 'Joining Date'}</TableCell>
+              {showTermination ? <TableCell sx={{ width: '10%' }}>Status</TableCell> : null}
+              {showTermination || showNote ? <TableCell sx={{ width: 'auto' }}>{showTermination ? 'Reason / Note' : 'Note'}</TableCell> : null}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -113,8 +114,17 @@ const EmployeeTable = ({ title, rows, emptyMessage, showTermination = false, sho
                 <TableCell>{row.employeeId}</TableCell>
                 <TableCell>{row.name}</TableCell>
                 <TableCell>{row.department}</TableCell>
+                <TableCell>{formatCurrency(row.grossSalary)}</TableCell>
                 <TableCell>
-                  {formatDate(showTermination ? row.terminationDate : row.joiningDate)}
+                  <Box display="flex" alignItems="center" gap={1}>
+                    {formatDate(showTermination ? row.terminationDate : row.joiningDate)}
+                    {(!showTermination && row.isLateEntryForPayroll) && (
+                      <Chip label="Late Entry" size="small" color="warning" sx={{ height: 20, fontSize: '0.7rem' }} />
+                    )}
+                    {(showTermination && row.isLateTerminationEntryForPayroll) && (
+                      <Chip label="Late Entry" size="small" color="warning" sx={{ height: 20, fontSize: '0.7rem' }} />
+                    )}
+                  </Box>
                 </TableCell>
                 {showTermination ? <TableCell>{row.employmentStatus || '—'}</TableCell> : null}
                 {showTermination || showNote ? (
@@ -141,15 +151,15 @@ const IncrementTable = ({ title, rows, emptyMessage }) => (
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Employee ID</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell>Department</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell align="right">Previous Salary</TableCell>
-              <TableCell align="right">New Salary</TableCell>
-              <TableCell align="right">Increment</TableCell>
-              <TableCell>Effective Date</TableCell>
-              <TableCell>Status</TableCell>
+              <TableCell sx={{ width: '10%' }}>Employee ID</TableCell>
+              <TableCell sx={{ width: '15%' }}>Name</TableCell>
+              <TableCell sx={{ width: '15%' }}>Department</TableCell>
+              <TableCell sx={{ width: '10%' }}>Type</TableCell>
+              <TableCell align="right" sx={{ width: '12%' }}>Previous Salary</TableCell>
+              <TableCell align="right" sx={{ width: '12%' }}>New Salary</TableCell>
+              <TableCell align="right" sx={{ width: '12%' }}>Increment</TableCell>
+              <TableCell sx={{ width: '10%' }}>Effective Date</TableCell>
+              <TableCell sx={{ width: 'auto' }}>Status</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>

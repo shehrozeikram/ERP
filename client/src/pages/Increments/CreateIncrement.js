@@ -249,6 +249,18 @@ const CreateIncrement = () => {
                     <Grid item xs={12} sm={6}>
                       <TextField
                         fullWidth
+                        label="Previous Salary"
+                        value={selectedEmployee?.salary?.gross || ''}
+                        disabled
+                        InputProps={{
+                          startAdornment: <Typography sx={{ mr: 1, color: 'text.disabled' }}>Rs.</Typography>
+                        }}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
                         label="New Salary *"
                         type="number"
                         value={formData.newSalary}

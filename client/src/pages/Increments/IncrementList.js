@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  MenuItem,
   Alert,
   CircularProgress,
   Tooltip,
@@ -45,6 +46,13 @@ const IncrementList = () => {
   const [actionDialog, setActionDialog] = useState({ open: false, type: '', increment: null });
   const [comments, setComments] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  
+  const filteredIncrements = increments.filter(inc => {
+    const incDate = new Date(inc.requestDate);
+    return (incDate.getMonth() + 1 === selectedMonth) && (incDate.getFullYear() === selectedYear);
+  });
   
   // Delete Dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -219,6 +227,36 @@ const IncrementList = () => {
         </Alert>
       )}
 
+      {/* Filters */}
+      <Box display="flex" gap={2} mb={3}>
+        <TextField
+          select
+          label="Month"
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          sx={{ minWidth: 150 }}
+        >
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+            <MenuItem key={month} value={month}>
+              {new Date(2000, month - 1, 1).toLocaleString('default', { month: 'long' })}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          label="Year"
+          value={selectedYear}
+          onChange={(e) => setSelectedYear(e.target.value)}
+          sx={{ minWidth: 120 }}
+        >
+          {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((year) => (
+            <MenuItem key={year} value={year}>
+              {year}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Box>
+
       {/* Stats Cards */}
       <Grid container spacing={3} mb={3}>
         <Grid item xs={12} sm={6} md={3}>
@@ -228,7 +266,7 @@ const IncrementList = () => {
                 Pending Requests
               </Typography>
               <Typography variant="h4">
-                {increments.filter(inc => inc.status === 'pending').length}
+                {filteredIncrements.filter(inc => inc.status === 'pending').length}
               </Typography>
             </CardContent>
           </Card>
@@ -240,7 +278,7 @@ const IncrementList = () => {
                 Total Requests
               </Typography>
               <Typography variant="h4">
-                {increments.length}
+                {filteredIncrements.length}
               </Typography>
             </CardContent>
           </Card>
@@ -252,8 +290,8 @@ const IncrementList = () => {
                 Average Increment
               </Typography>
               <Typography variant="h4">
-                {increments.length > 0 
-                  ? `Rs. ${Math.round(increments.reduce((sum, inc) => sum + inc.incrementAmount, 0) / increments.length).toLocaleString()}`
+                {filteredIncrements.length > 0 
+                  ? `Rs. ${Math.round(filteredIncrements.reduce((sum, inc) => sum + inc.incrementAmount, 0) / filteredIncrements.length).toLocaleString()}`
                   : 'Rs. 0'
                 }
               </Typography>
@@ -267,7 +305,7 @@ const IncrementList = () => {
                 Total Amount
               </Typography>
               <Typography variant="h4">
-                Rs. {increments.reduce((sum, inc) => sum + inc.incrementAmount, 0).toLocaleString()}
+                Rs. {filteredIncrements.reduce((sum, inc) => sum + inc.incrementAmount, 0).toLocaleString()}
               </Typography>
             </CardContent>
           </Card>
@@ -296,7 +334,7 @@ const IncrementList = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {increments.map((increment) => (
+                {filteredIncrements.map((increment) => (
                   <TableRow key={increment._id}>
                     <TableCell>
                       <Box>

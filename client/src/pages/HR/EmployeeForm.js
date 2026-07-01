@@ -819,6 +819,7 @@ const EmployeeForm = () => {
         confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate).toISOString().split('T')[0] : '',
         isActive: employeeData.isActive !== undefined ? employeeData.isActive : true,
         isLateEntryForPayroll: employeeData.isLateEntryForPayroll !== undefined ? employeeData.isLateEntryForPayroll : false,
+        isLateTerminationEntryForPayroll: employeeData.isLateTerminationEntryForPayroll !== undefined ? employeeData.isLateTerminationEntryForPayroll : false,
         employmentStatus: employeeData.employmentStatus || 'Draft',
         terminationDate: employeeData.terminationDate ? new Date(employeeData.terminationDate).toISOString().split('T')[0] : '',
         terminationReason: employeeData.terminationReason || '',
@@ -992,6 +993,7 @@ const EmployeeForm = () => {
       probationPeriodMonths: 3,
       hireDate: '',
       isLateEntryForPayroll: false,
+      isLateTerminationEntryForPayroll: false,
       salary: {
         gross: ''
       },
@@ -3552,6 +3554,19 @@ const EmployeeForm = () => {
                     onChange={formik.handleChange}
                     error={formik.touched.terminationReason && Boolean(formik.errors.terminationReason)}
                     helperText={formik.touched.terminationReason && formik.errors.terminationReason}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formik.values.isLateTerminationEntryForPayroll}
+                        onChange={(e) => formik.setFieldValue('isLateTerminationEntryForPayroll', e.target.checked)}
+                        name="isLateTerminationEntryForPayroll"
+                        color="primary"
+                      />
+                    }
+                    label="Late Entry (Include in current month's Terminations payroll report)"
                   />
                 </Grid>
               </>
