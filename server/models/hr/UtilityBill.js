@@ -30,6 +30,7 @@ const utilityBillSchema = new mongoose.Schema({
       'Maintenance',    // Building maintenance
       'Security',       // Security services
       'Cleaning',       // Cleaning services
+      'Rent',           // Rent bills
       'Other'           // Other utility bills
     ],
     default: 'Electricity'
