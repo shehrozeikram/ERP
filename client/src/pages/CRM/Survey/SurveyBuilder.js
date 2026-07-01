@@ -33,7 +33,8 @@ import {
   countSectionQuestions,
   legacyQuestionsToSections,
   newQuestion,
-  newSection
+  newSection,
+  newInternalSection
 } from '../../../utils/surveySections';
 
 const QUESTION_TYPES = [
@@ -58,7 +59,7 @@ const SurveyBuilder = () => {
   const [form, setForm] = useState({
     title: '',
     description: '',
-    sections: [newSection(0)],
+    sections: [newSection(0), newInternalSection(1)],
     closesAt: '',
     allowMultipleResponses: false
   });
@@ -76,7 +77,7 @@ const SurveyBuilder = () => {
       setForm({
         title: survey.title || '',
         description: survey.description || '',
-        sections: sections.length ? sections : [newSection(0)],
+        sections: sections.length ? sections : [newSection(0), newInternalSection(1)],
         closesAt: survey.closesAt ? survey.closesAt.slice(0, 10) : '',
         allowMultipleResponses: Boolean(survey.allowMultipleResponses)
       });
@@ -171,6 +172,7 @@ const SurveyBuilder = () => {
     sections: form.sections.map((section, sectionIndex) => ({
       ...section,
       title: section.title.trim() || `Section ${sectionIndex + 1}`,
+      isInternal: Boolean(section.isInternal),
       order: sectionIndex,
       questions: section.questions.map((question, questionIndex) => ({
         ...question,
@@ -287,11 +289,21 @@ const SurveyBuilder = () => {
 
       <Stack spacing={3} sx={{ mb: 3 }}>
         {form.sections.map((section, sectionIndex) => (
-          <Paper key={section.key} variant="outlined" sx={{ overflow: 'hidden' }}>
+          <Paper 
+            key={section.key} 
+            variant="outlined" 
+            sx={{ 
+              overflow: 'hidden',
+              borderColor: section.isInternal ? 'warning.main' : 'divider',
+              borderWidth: section.isInternal ? 2 : 1,
+              bgcolor: section.isInternal ? 'warning.50' : 'background.paper'
+            }}
+          >
             <SurveySectionHeader
               sectionNumber={sectionIndex + 1}
               title={section.title || `Section ${sectionIndex + 1}`}
               subtitle={`${section.questions.length} question${section.questions.length === 1 ? '' : 's'}`}
+              isInternal={section.isInternal}
             />
 
             <Box sx={{ p: 2.5 }}>
@@ -313,6 +325,17 @@ const SurveyBuilder = () => {
                   <DeleteIcon />
                 </IconButton>
               </Stack>
+              <Box sx={{ mb: 2 }}>
+                <FormControlLabel
+                  control={(
+                    <Switch
+                      checked={Boolean(section.isInternal)}
+                      onChange={(e) => updateSection(sectionIndex, { isInternal: e.target.checked })}
+                    />
+                  )}
+                  label="Internal / Creator Only (Assigned users will not see this section)"
+                />
+              </Box>
 
               <Stack spacing={2}>
                 {section.questions.map((question, questionIndex) => (

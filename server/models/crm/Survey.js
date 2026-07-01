@@ -65,6 +65,7 @@ const sectionSchema = new mongoose.Schema({
     required: true,
     maxlength: 200
   },
+  isInternal: { type: Boolean, default: false },
   order: { type: Number, default: 0 },
   questions: {
     type: [questionSchema],

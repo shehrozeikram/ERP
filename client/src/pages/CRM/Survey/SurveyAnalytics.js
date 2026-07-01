@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -15,6 +15,10 @@ import {
   Select,
   Skeleton,
   Stack,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Table,
   TableBody,
   TableCell,
@@ -30,9 +34,13 @@ import {
   Assignment as SurveyIcon,
   Edit as EditIcon,
   Groups as ResponsesIcon,
+  Save as SaveIcon,
   Refresh as RefreshIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  Visibility as VisibilityIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
+import DynamicQuestionField from './DynamicQuestionField';
 import {
   Area,
   AreaChart,
@@ -122,11 +130,55 @@ const SurveyAnalytics = () => {
   const navigate = useNavigate();
   const theme = useTheme();
 
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
-  const [activeTab, setActiveTab] = useState('analytics');
+  const [activeTab, setActiveTab] = useState(location.hash === '#responses' ? 'responses' : 'analytics');
   const [chartMode, setChartMode] = useState('likert');
+
+  const [selectedResponse, setSelectedResponse] = useState(null);
+  const [responseDialogOpen, setResponseDialogOpen] = useState(false);
+  const [internalAnswers, setInternalAnswers] = useState({});
+  const [savingInternal, setSavingInternal] = useState(false);
+
+  const handleViewResponse = (response) => {
+    setSelectedResponse(response);
+    const existingInternalAnswers = {};
+    if (response.answers) {
+      response.answers.forEach(a => {
+        existingInternalAnswers[a.questionKey] = a.value;
+      });
+    }
+    setInternalAnswers(existingInternalAnswers);
+    setResponseDialogOpen(true);
+  };
+
+  const handleInternalAnswerChange = (questionKey, value) => {
+    setInternalAnswers(prev => ({ ...prev, [questionKey]: value }));
+  };
+
+  const handleSaveInternalReview = async () => {
+    if (!selectedResponse) return;
+    setSavingInternal(true);
+    try {
+      const answersArray = Object.entries(internalAnswers).map(([questionKey, value]) => ({ questionKey, value }));
+      await surveyService.saveInternalAnswers(id, selectedResponse._id, answersArray);
+      
+      // Update local state so it shows up instantly without full refresh
+      const updatedResponse = { ...selectedResponse, answers: answersArray };
+      setSelectedResponse(updatedResponse);
+      
+      const newRecent = data.recentResponses.map(r => r._id === selectedResponse._id ? { ...r, answers: answersArray } : r);
+      setData(prev => ({ ...prev, recentResponses: newRecent }));
+      
+      setResponseDialogOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save internal review');
+    } finally {
+      setSavingInternal(false);
+    }
+  };
 
   const loadAnalytics = useCallback(async () => {
     setLoading(true);
@@ -178,6 +230,17 @@ const SurveyAnalytics = () => {
   const distributionTitle = chartMode === 'likert'
     ? `Response Distribution (Q1–Q${distributionData.length})`
     : `Answer Distribution (Q1–Q${distributionData.length})`;
+
+  const surveyData = data?.survey;
+
+  const internalQuestionKeys = useMemo(() => {
+    if (!surveyData?.sections) return new Set();
+    return new Set(surveyData.sections.filter(s => s.isInternal).flatMap(s => s.questions.map(q => q.key)));
+  }, [surveyData]);
+
+  const publicQuestions = useMemo(() => {
+    return (surveyData?.questions || []).filter(q => !internalQuestionKeys.has(q.key));
+  }, [surveyData, internalQuestionKeys]);
 
   if (loading) {
     return (
@@ -324,7 +387,7 @@ const SurveyAnalytics = () => {
                     color={survey.status === 'active' ? 'success' : 'default'}
                   />
                   <Typography variant="caption" color="text.secondary">
-                    {survey.questionCount} questions
+                    {publicQuestions.length} questions
                   </Typography>
                 </Stack>
               </Box>
@@ -625,6 +688,7 @@ const SurveyAnalytics = () => {
                               <TableCell>Department</TableCell>
                               <TableCell>Submitted</TableCell>
                               <TableCell align="right">Answers</TableCell>
+                              <TableCell align="right">Actions</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
@@ -638,11 +702,18 @@ const SurveyAnalytics = () => {
                                 <TableCell>{row.respondent?.department || '—'}</TableCell>
                                 <TableCell>{new Date(row.submittedAt).toLocaleString()}</TableCell>
                                 <TableCell align="right">{row.answers?.length || 0}</TableCell>
+                                <TableCell align="right">
+                                  <Tooltip title="View Feedback">
+                                    <IconButton size="small" onClick={() => handleViewResponse(row)} color="primary">
+                                      <VisibilityIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </TableCell>
                               </TableRow>
                             ))}
                             {recentResponses.length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                                   No responses yet
                                 </TableCell>
                               </TableRow>
@@ -729,7 +800,7 @@ const SurveyAnalytics = () => {
                       </Grid>
                       <Grid item xs={12} sm={4}>
                         <Typography variant="caption" color="text.secondary">Questions</Typography>
-                        <Typography>{survey.questionCount}</Typography>
+                        <Typography>{publicQuestions.length}</Typography>
                       </Grid>
                     </Grid>
                     <Divider sx={{ my: 2 }} />
@@ -743,9 +814,9 @@ const SurveyAnalytics = () => {
                     </Stack>
                   </ChartCard>
 
-                  <ChartCard title="Questions" subtitle={`${survey.questions?.length || 0} total`}>
+                  <ChartCard title="Questions" subtitle={`${publicQuestions.length} total`}>
                     <Stack spacing={1}>
-                      {(survey.questions || []).map((q, i) => (
+                      {publicQuestions.map((q, i) => (
                         <Box
                           key={q.key}
                           sx={{
@@ -773,6 +844,95 @@ const SurveyAnalytics = () => {
           </Box>
         </Stack>
       </Paper>
+
+      {/* Response View Dialog */}
+      <Dialog open={responseDialogOpen} onClose={() => setResponseDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">User Feedback Details</Typography>
+          <IconButton onClick={() => setResponseDialogOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <Divider />
+        <DialogContent dividers sx={{ bgcolor: alpha(theme.palette.primary.main, 0.02) }}>
+          {selectedResponse && survey?.questions && (
+            <Stack spacing={3}>
+              <Paper elevation={0} sx={{ p: 2, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="caption" color="text.secondary">Respondent</Typography>
+                    <Typography fontWeight={600}>
+                      {selectedResponse.respondent ? `${selectedResponse.respondent.firstName || ''} ${selectedResponse.respondent.lastName || ''}`.trim() : 'Unknown'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="caption" color="text.secondary">Submitted At</Typography>
+                    <Typography fontWeight={600}>{new Date(selectedResponse.submittedAt).toLocaleString()}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              <Stack spacing={2}>
+                <Typography variant="subtitle1" fontWeight={700}>Survey Answers</Typography>
+                {publicQuestions.map((q, idx) => {
+                  const answer = selectedResponse.answers.find(a => a.questionKey === q.key);
+                  const value = answer ? answer.value : '—';
+                  let displayValue = value;
+                  if (Array.isArray(value)) {
+                    displayValue = value.join(', ');
+                  } else if (q.type === 'yes_no') {
+                    displayValue = value === 'yes' ? 'Yes' : value === 'no' ? 'No' : value;
+                  }
+                  
+                  return (
+                    <Paper key={q.key} elevation={0} sx={{ p: 2, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        Question {idx + 1}: {q.text || q.label}
+                      </Typography>
+                      <Typography variant="body1" fontWeight={500}>
+                        {displayValue || '—'}
+                      </Typography>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+
+              {survey.sections?.filter(s => s.isInternal).map((section, sIdx) => (
+                <Stack spacing={2} key={section.key} sx={{ mt: 4 }}>
+                  <Typography variant="subtitle1" fontWeight={700} color="primary.main">
+                    Internal Review: {section.title}
+                  </Typography>
+                  <Paper elevation={0} sx={{ p: 3, borderRadius: 2, border: '1px solid', borderColor: 'primary.light', bgcolor: alpha(theme.palette.primary.main, 0.02) }}>
+                    <Stack spacing={3}>
+                      {section.questions.map(q => (
+                        <DynamicQuestionField
+                          key={q.key}
+                          question={q}
+                          value={internalAnswers[q.key] || ''}
+                          onChange={handleInternalAnswerChange}
+                        />
+                      ))}
+                    </Stack>
+                  </Paper>
+                </Stack>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        {survey?.sections?.some(s => s.isInternal) && (
+          <DialogActions sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+            <Button onClick={() => setResponseDialogOpen(false)} disabled={savingInternal}>Cancel</Button>
+            <Button
+              variant="contained"
+              startIcon={<SaveIcon />}
+              onClick={handleSaveInternalReview}
+              disabled={savingInternal}
+            >
+              {savingInternal ? 'Saving...' : 'Save Internal Review'}
+            </Button>
+          </DialogActions>
+        )}
+      </Dialog>
     </Box>
   );
 };

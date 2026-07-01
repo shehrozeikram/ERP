@@ -151,7 +151,7 @@ const SurveyRespond = () => {
   }, [loadSurvey]);
 
   const sortedSections = useMemo(
-    () => resolveSurveySections(survey),
+    () => resolveSurveySections(survey).filter(s => !s.isInternal),
     [survey]
   );
 

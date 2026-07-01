@@ -32,7 +32,8 @@ import {
   PlayArrow as RespondIcon,
   Refresh as RefreshIcon,
   Send as SendIcon,
-  HowToVote as PollIcon
+  HowToVote as PollIcon,
+  Groups as ResponsesIcon
 } from '@mui/icons-material';
 import surveyService from '../../../services/surveyService';
 import CommcraftReviewDialog from './CommcraftReviewDialog';
@@ -284,6 +285,11 @@ const SurveyList = () => {
                       <Tooltip title="Analytics">
                         <IconButton size="small" onClick={() => navigate(`/crm/survey/${survey._id}/analytics`)}>
                           <AnalyticsIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="View Responses">
+                        <IconButton size="small" onClick={() => navigate(`/crm/survey/${survey._id}/analytics#responses`)}>
+                          <ResponsesIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       {(survey.responseCount || 0) > 0 && (

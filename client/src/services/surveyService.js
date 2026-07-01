@@ -21,6 +21,8 @@ const surveyService = {
 
   getResponses: (id) => api.get(`/crm/surveys/${id}/responses`),
 
+  saveInternalAnswers: (id, responseId, answers) => api.patch(`/crm/surveys/${id}/responses/${responseId}/internal`, { answers }),
+
   getAnalytics: (id) => api.get(`/crm/surveys/${id}/analytics`),
 
   getExecutiveDashboard: () => api.get('/crm/surveys/executive-dashboard'),

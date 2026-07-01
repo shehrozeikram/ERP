@@ -125,6 +125,7 @@ const normalizeSections = (sections = [], legacyQuestions = []) => {
     return sections.map((section, sectionIndex) => ({
       key: section.key || Survey.generateSectionKey(),
       title: String(section.title || '').trim() || `Section ${sectionIndex + 1}`,
+      isInternal: Boolean(section.isInternal),
       order: Number.isFinite(Number(section.order)) ? Number(section.order) : sectionIndex,
       questions: normalizeQuestions(section.questions || [])
     }));
@@ -1059,6 +1060,41 @@ router.get('/:id/responses',
   })
 );
 
+// PATCH /api/crm/surveys/:id/responses/:responseId/internal
+router.patch('/:id/responses/:responseId/internal',
+  authorize(...CRM_ROLES),
+  [
+    body('answers').isArray()
+  ],
+  handleValidation,
+  asyncHandler(async (req, res) => {
+    const survey = await Survey.findById(req.params.id);
+    if (!survey) return res.status(404).json({ success: false, message: 'Survey not found' });
+
+    const response = await SurveyResponse.findOne({ _id: req.params.responseId, survey: survey._id });
+    if (!response) return res.status(404).json({ success: false, message: 'Response not found' });
+
+    // Merge new answers into existing answers
+    const newAnswers = req.body.answers;
+    const mergedAnswers = [...response.answers];
+
+    newAnswers.forEach(newAnswer => {
+      const idx = mergedAnswers.findIndex(a => a.questionKey === newAnswer.questionKey);
+      if (idx !== -1) {
+        mergedAnswers[idx].value = newAnswer.value;
+      } else {
+        mergedAnswers.push(newAnswer);
+      }
+    });
+
+    response.answers = mergedAnswers;
+    await response.save();
+
+    await response.populate('respondent', 'firstName lastName email');
+    res.json({ success: true, data: response, message: 'Internal review saved successfully' });
+  })
+);
+
 // GET /api/crm/surveys/:id/analytics
 router.get('/:id/analytics',
   authorize(...CRM_ROLES),
@@ -1100,7 +1136,8 @@ router.get('/:id/analytics',
           publishedAt: survey.publishedAt,
           closesAt: survey.closesAt,
           questionCount: survey.questions?.length || 0,
-          questions: survey.questions || []
+          questions: survey.questions || [],
+          sections: survey.sections || []
         },
         summary: {
           assignedCount,

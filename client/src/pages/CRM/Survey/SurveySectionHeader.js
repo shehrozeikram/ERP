@@ -6,24 +6,35 @@ const SurveySectionHeader = ({
   title,
   subtitle,
   align = 'center',
-  dense = false
+  dense = false,
+  isInternal = false
 }) => (
   <Box
     sx={{
       px: dense ? 1.5 : 2,
       py: dense ? 1.25 : 1.75,
       borderBottom: '1px solid',
-      borderColor: 'divider',
-      bgcolor: 'grey.50',
-      textAlign: align
+      borderColor: isInternal ? 'warning.main' : 'divider',
+      bgcolor: isInternal ? 'warning.100' : 'grey.50',
+      textAlign: align,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: align === 'center' ? 'center' : 'flex-start'
     }}
   >
-    <Typography
-      variant="overline"
-      sx={{ fontWeight: 800, letterSpacing: 1.2, display: 'block', lineHeight: 1.2 }}
-    >
-      SECTION {sectionNumber}
-    </Typography>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Typography
+        variant="overline"
+        sx={{ fontWeight: 800, letterSpacing: 1.2, display: 'block', lineHeight: 1.2, color: isInternal ? 'warning.dark' : 'text.primary' }}
+      >
+        SECTION {sectionNumber}
+      </Typography>
+      {isInternal && (
+        <Typography variant="caption" sx={{ bgcolor: 'warning.main', color: '#fff', px: 1, py: 0.25, borderRadius: 1, fontWeight: 700, fontSize: '0.65rem' }}>
+          INTERNAL ONLY
+        </Typography>
+      )}
+    </Box>
     <Typography
       variant="subtitle1"
       sx={{
