@@ -170,4 +170,35 @@ router.get('/map-status', asyncHandler(async (req, res) => {
   });
 }));
 
+// GET /api/taj-residencia/land-acquisition/map-status/party-khasras/:partyId
+const LandPurchase = require('../models/tajResidencia/LandPurchase');
+router.get('/map-status/party-khasras/:partyId', asyncHandler(async (req, res) => {
+  const { partyId } = req.params;
+  
+  const purchases = await LandPurchase.find({
+    $or: [
+      { seller: partyId },
+      { purchaser: partyId },
+      { dealer: partyId }
+    ],
+    isActive: true
+  }).populate('moza', 'slug').lean();
+
+  const khasras = [];
+  
+  purchases.forEach((purchase) => {
+    if (!purchase.moza || !purchase.moza.slug) return;
+    (purchase.lines || []).forEach((line) => {
+      if (line.khasraNo) {
+        khasras.push(`${purchase.moza.slug}:${normalizeKhasraNo(line.khasraNo)}`);
+      }
+    });
+  });
+
+  res.json({
+    success: true,
+    data: [...new Set(khasras)] // Return unique status keys
+  });
+}));
+
 module.exports = router;

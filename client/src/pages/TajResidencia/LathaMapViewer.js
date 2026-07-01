@@ -10,6 +10,10 @@ import {
   Paper,
   Stack,
   Tooltip,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
   Typography
 } from '@mui/material';
 import {
@@ -24,7 +28,8 @@ import {
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { getMapStatus } from '../../services/landAcquisitionMapService';
+import { getMapStatus, getPartyKhasras } from '../../services/landAcquisitionMapService';
+import landAcquisitionPartyService from '../../services/landAcquisitionPartyService';
 import {
   STATUS_LEGEND,
   buildStatusLookups,
@@ -347,7 +352,38 @@ const LathaMapViewer = () => {
   const [loadError, setLoadError] = useState('');
 
   const [mouzaFilter, setMouzaFilter] = useState('all');
-  const [baseLayer, setBaseLayer] = useState('satellite');
+  const [baseLayer, setBaseLayer] = useState('street');
+
+  // Party Filter State
+  const [partyRoleFilter, setPartyRoleFilter] = useState('');
+  const [partyList, setPartyList] = useState([]);
+  const [partyFilterId, setPartyFilterId] = useState('');
+  const [partyKhasras, setPartyKhasras] = useState([]);
+
+  useEffect(() => {
+    if (!partyRoleFilter) {
+      setPartyList([]);
+      setPartyFilterId('');
+      return;
+    }
+    landAcquisitionPartyService.getParties({ partyType: partyRoleFilter, isActive: true })
+      .then((res) => {
+        if (res.success) setPartyList(res.data);
+      })
+      .catch((err) => console.error('Failed to load parties:', err));
+  }, [partyRoleFilter]);
+
+  useEffect(() => {
+    if (!partyFilterId) {
+      setPartyKhasras([]);
+      return;
+    }
+    getPartyKhasras(partyFilterId)
+      .then((res) => {
+        if (res.success) setPartyKhasras(res.data);
+      })
+      .catch((err) => console.error('Failed to load party khasras:', err));
+  }, [partyFilterId]);
   const [showRegistryLayer, setShowRegistryLayer] = useState(true);
   const [showPossessionLayer, setShowPossessionLayer] = useState(true);
   const [selectedParcel, setSelectedParcel] = useState(null);
@@ -895,6 +931,20 @@ const LathaMapViewer = () => {
     const mouzaActive = mouzaFilter !== 'all';
     const mouzaColor = getMouzaHighlightColor(mouzaFilter);
 
+    const actualMoza = parcel.moza || (mouzaFilter === 'all' ? null : mouzaFilter);
+    const parcelKey = actualMoza ? `${actualMoza}:${normalizeKhasraNo(parcel.k)}` : null;
+    const isPartyTarget = partyFilterId ? partyKhasras.includes(parcelKey) : true;
+
+    if (!isPartyTarget) {
+      return {
+        color: 'rgba(120,120,120,0.15)',
+        fillColor: 'transparent',
+        fillOpacity: 0,
+        weight: 1,
+        opacity: 0.3
+      };
+    }
+
     if (!highlighted) {
       return {
         color: mouzaActive ? mouzaColor : 'rgba(120,120,120,0.35)',
@@ -919,12 +969,28 @@ const LathaMapViewer = () => {
     statusLookups,
     selectedParcel,
     anyErpLayerOn,
-    matchesActiveLayer
+    matchesActiveLayer,
+    partyFilterId,
+    partyKhasras
   ]);
 
   const registryFillStyle = useCallback((feature) => {
     const featureId = parcelIdForFeature(feature);
     const isSelected = selectedParcel?.id === featureId;
+
+    const actualMoza = feature?.properties?.moza || (mouzaFilter === 'all' ? null : mouzaFilter);
+    const parcelKey = actualMoza ? `${actualMoza}:${normalizeKhasraNo(feature?.properties?.k)}` : null;
+    const isPartyTarget = partyFilterId ? partyKhasras.includes(parcelKey) : true;
+
+    if (!isPartyTarget) {
+      return {
+        color: 'transparent',
+        fillColor: 'transparent',
+        fillOpacity: 0,
+        weight: 0,
+        opacity: 0
+      };
+    }
 
     return {
       color: 'rgba(21, 101, 192, 0.9)',
@@ -933,7 +999,7 @@ const LathaMapViewer = () => {
       weight: 1,
       opacity: 0.95
     };
-  }, [selectedParcel]);
+  }, [selectedParcel, mouzaFilter, partyFilterId, partyKhasras]);
 
   const possessionFillStyle = useCallback((feature) => {
     const resolved = resolveStatusForKhasra(
@@ -947,6 +1013,20 @@ const LathaMapViewer = () => {
     const featureId = parcelIdForFeature(feature);
     const isSelected = selectedParcel?.id === featureId;
 
+    const actualMoza = feature?.properties?.moza || (mouzaFilter === 'all' ? null : mouzaFilter);
+    const parcelKey = actualMoza ? `${actualMoza}:${normalizeKhasraNo(feature?.properties?.k)}` : null;
+    const isPartyTarget = partyFilterId ? partyKhasras.includes(parcelKey) : true;
+
+    if (!isPartyTarget) {
+      return {
+        color: 'transparent',
+        fillColor: 'transparent',
+        fillOpacity: 0,
+        weight: 0,
+        opacity: 0
+      };
+    }
+
     return {
       color: strokeForStatus(statusRow, isSelected),
       fillColor: fillForStatus(statusRow),
@@ -954,7 +1034,7 @@ const LathaMapViewer = () => {
       weight: 1,
       opacity: 0.95
     };
-  }, [mouzaFilter, statusMap, mozas, statusLookups, selectedParcel]);
+  }, [statusMap, mozas, statusLookups, selectedParcel, mouzaFilter, partyFilterId, partyKhasras]);
 
   const closeDetail = () => {
     setSelectedParcel(null);
@@ -1150,6 +1230,8 @@ const LathaMapViewer = () => {
         sx={{
           position: 'relative',
           height: { xs: '58vh', md: '70vh' },
+          '&:fullscreen': { height: '100vh !important', width: '100vw !important' },
+          '&:-webkit-full-screen': { height: '100vh !important', width: '100vw !important' },
           bgcolor: '#1a1a1a',
           overflow: 'hidden',
           '& .leaflet-container': {
@@ -1185,6 +1267,110 @@ const LathaMapViewer = () => {
           }
         }}
       >
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1
+          }}
+        >
+          <Paper elevation={3} sx={{ p: 0.5, display: 'flex', flexDirection: 'column', gap: 0.5, bgcolor: 'rgba(255, 255, 255, 0.9)' }}>
+            <Tooltip title="Zoom In" placement="left">
+              <span>
+                <IconButton size="small" onClick={() => changeZoom(1)} disabled={loading || Boolean(loadError) || !mapReady}>
+                  <ZoomInIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Zoom Out" placement="left">
+              <span>
+                <IconButton size="small" onClick={() => changeZoom(-1)} disabled={loading || Boolean(loadError) || !mapReady}>
+                  <ZoomOutIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={baseLayer === 'satellite' ? 'Switch to Street View' : 'Switch to Satellite View'} placement="left">
+              <span>
+                <IconButton size="small" onClick={() => setBaseLayer((prev) => (prev === 'satellite' ? 'street' : 'satellite'))}>
+                  <MapIcon fontSize="small" color={baseLayer === 'satellite' ? 'primary' : 'inherit'} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Paper>
+
+          <Paper elevation={3} sx={{ p: 0.5, display: 'flex', flexDirection: 'column', gap: 0.5, bgcolor: 'rgba(255, 255, 255, 0.9)' }}>
+            <Tooltip title={showRegistryLayer ? 'Hide Registry' : 'Show Registry'} placement="left">
+              <span>
+                <IconButton size="small" onClick={() => setShowRegistryLayer((prev) => !prev)}>
+                  <LayersIcon fontSize="small" sx={{ color: showRegistryLayer ? '#1565C0' : 'text.disabled' }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={showPossessionLayer ? 'Hide Possession' : 'Show Possession'} placement="left">
+              <span>
+                <IconButton size="small" onClick={() => setShowPossessionLayer((prev) => !prev)}>
+                  <LayersIcon fontSize="small" sx={{ color: showPossessionLayer ? '#2E7D32' : 'text.disabled' }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Paper>
+        </Box>
+
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 16,
+            left: 16,
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            width: 250
+          }}
+        >
+          <Paper elevation={3} sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5, bgcolor: 'rgba(255, 255, 255, 0.95)' }}>
+            <Typography variant="subtitle2" fontWeight={600}>Filter by Party</Typography>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Role</InputLabel>
+              <Select
+                value={partyRoleFilter}
+                label="Role"
+                onChange={(e) => setPartyRoleFilter(e.target.value)}
+                MenuProps={{ disablePortal: true }}
+              >
+                <MenuItem value=""><em>None</em></MenuItem>
+                <MenuItem value="seller">Seller</MenuItem>
+                <MenuItem value="buyer">Buyer</MenuItem>
+                <MenuItem value="dealer">Agent / Dealer</MenuItem>
+              </Select>
+            </FormControl>
+            {partyRoleFilter && (
+              <FormControl size="small" fullWidth>
+                <InputLabel>Select Party</InputLabel>
+                <Select
+                  value={partyFilterId}
+                  label="Select Party"
+                  onChange={(e) => setPartyFilterId(e.target.value)}
+                  MenuProps={{ disablePortal: true }}
+                >
+                  <MenuItem value=""><em>None</em></MenuItem>
+                  {partyList.map((p) => (
+                    <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+            {partyFilterId && partyKhasras && (
+              <Typography variant="caption" color="primary" fontWeight={600}>
+                {partyKhasras.length} khasras found
+              </Typography>
+            )}
+          </Paper>
+        </Box>
         {loading && (
           <Stack alignItems="center" justifyContent="center" sx={{ height: '100%' }}>
             <CircularProgress size={36} />
