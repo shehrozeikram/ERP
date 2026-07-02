@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { authorize } = require('../middleware/auth');
+const { authorize, authMiddleware } = require('../middleware/auth');
 const Employee = require('../models/hr/Employee');
 const User = require('../models/User');
 const Department = require('../models/hr/Department');
@@ -2027,7 +2027,7 @@ router.delete('/sectors/:id',
 // @desc    Get all companies
 // @access  Private (HR and Admin)
 router.get('/companies', 
-  authorize('super_admin', 'admin', 'hr_manager'), 
+  authMiddleware, 
   asyncHandler(async (req, res) => {
     const { type, search, status = 'active' } = req.query;
     

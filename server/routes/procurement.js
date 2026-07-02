@@ -2850,7 +2850,7 @@ const generateNextSupplierId = async () => {
 // @desc    Get all vendors (suppliers)
 // @access  Private (Procurement and Admin)
 router.get('/vendors', 
-  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'hr_manager'), 
+  authMiddleware, 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 

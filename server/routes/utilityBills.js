@@ -541,7 +541,7 @@ router.get('/pending', permissions.checkSubRolePermission('admin', 'utility_bill
 });
 
 // Get active users for approval authority selection
-router.get('/approver-candidates', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
+router.get('/approver-candidates', authMiddleware, async (req, res) => {
   try {
     const search = String(req.query.search || '').trim();
     const limit = parseInt(req.query.limit, 10) || 50;
@@ -555,7 +555,7 @@ router.get('/approver-candidates', permissions.checkSubRolePermission('admin', '
 });
 
 // Department + custodian (employee) lists for create/edit — same data as HR dropdowns but allowed for utility_bills_management read (no HR manager role required)
-router.get('/form-master-data', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
+router.get('/form-master-data', authMiddleware, async (req, res) => {
   try {
     const departments = await Department.find({ isActive: true })
       .populate('manager', 'firstName lastName employeeId')
