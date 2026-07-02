@@ -138,6 +138,21 @@ const MozaReportTable = ({ mozaId, active }) => {
     if (active) loadEntries();
   }, [loadEntries, active]);
 
+  const totals = React.useMemo(() => {
+    const res = {};
+    AREA_COLUMNS.forEach(col => {
+      res[col.key] = { kanal: 0, marla: 0, sarsai: 0 };
+    });
+    entries.forEach(row => {
+      AREA_COLUMNS.forEach(col => {
+        if (row[col.key]) {
+          res[col.key] = addAreas(res[col.key], row[col.key]);
+        }
+      });
+    });
+    return res;
+  }, [entries]);
+
   if (!active) return null;
 
   return (
@@ -201,6 +216,23 @@ const MozaReportTable = ({ mozaId, active }) => {
                   })}
                 </TableRow>
               ))}
+              {entries.length > 0 && (
+                <TableRow sx={{ bgcolor: 'grey.100', '& > *': { fontWeight: 'bold !important' } }}>
+                  <TableCell colSpan={3} align="right" sx={{ px: 2, py: 1.5, fontSize: '0.9375rem', fontWeight: 700 }}>
+                    Totals:
+                  </TableCell>
+                  {AREA_COLUMNS.map((col) => {
+                    const a = totals[col.key];
+                    return (
+                      <React.Fragment key={`total-${col.key}`}>
+                        <TableCell align="center" sx={kmsCellSx('k')}>{a.kanal || '—'}</TableCell>
+                        <TableCell align="center" sx={kmsCellSx('m')}>{a.marla || '—'}</TableCell>
+                        <TableCell align="center" sx={kmsCellSx('s')}>{a.sarsai || '—'}</TableCell>
+                      </React.Fragment>
+                    );
+                  })}
+                </TableRow>
+              )}
               {!entries.length && (
                 <TableRow>
                   <TableCell colSpan={3 + AREA_COLUMNS.length * 3} align="center" sx={{ py: 4 }}>
