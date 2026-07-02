@@ -14,7 +14,8 @@ import {
   TableHead,
   TableRow,
   Typography,
-  Chip
+  Chip,
+  TextField
 } from '@mui/material';
 import { ExpandMore } from '@mui/icons-material';
 import { getMozas } from '../../services/landAcquisitionMozaService';
