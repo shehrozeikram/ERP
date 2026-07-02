@@ -119,6 +119,8 @@ const MozaReportTable = ({ mozaId, active }) => {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [khewatFilter, setKhewatFilter] = useState('');
+  const [khasraFilter, setKhasraFilter] = useState('');
 
   const loadEntries = useCallback(async () => {
     if (!mozaId || !active) return;
@@ -138,12 +140,20 @@ const MozaReportTable = ({ mozaId, active }) => {
     if (active) loadEntries();
   }, [loadEntries, active]);
 
+  const filteredEntries = React.useMemo(() => {
+    return entries.filter(row => {
+      const matchKhewat = khewatFilter ? String(row.khewatNo || '').toLowerCase().includes(khewatFilter.toLowerCase()) : true;
+      const matchKhasra = khasraFilter ? String(row.khasraNo || '').toLowerCase().includes(khasraFilter.toLowerCase()) : true;
+      return matchKhewat && matchKhasra;
+    });
+  }, [entries, khewatFilter, khasraFilter]);
+
   const totals = React.useMemo(() => {
     const res = {};
     AREA_COLUMNS.forEach(col => {
       res[col.key] = { kanal: 0, marla: 0, sarsai: 0 };
     });
-    entries.forEach(row => {
+    filteredEntries.forEach(row => {
       AREA_COLUMNS.forEach(col => {
         if (row[col.key]) {
           res[col.key] = addAreas(res[col.key], row[col.key]);
@@ -151,13 +161,32 @@ const MozaReportTable = ({ mozaId, active }) => {
       });
     });
     return res;
-  }, [entries]);
+  }, [filteredEntries]);
 
   if (!active) return null;
 
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {!loading && !error && entries.length > 0 && (
+        <Stack direction="row" spacing={2} sx={{ mb: 2, px: 0.5 }}>
+          <TextField
+            size="small"
+            label="Filter Khewat No."
+            value={khewatFilter}
+            onChange={(e) => setKhewatFilter(e.target.value)}
+            sx={{ width: 200 }}
+          />
+          <TextField
+            size="small"
+            label="Filter Khasra No."
+            value={khasraFilter}
+            onChange={(e) => setKhasraFilter(e.target.value)}
+            sx={{ width: 200 }}
+          />
+        </Stack>
+      )}
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -199,7 +228,7 @@ const MozaReportTable = ({ mozaId, active }) => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {entries.map((row) => (
+              {filteredEntries.map((row) => (
                 <TableRow key={row.khasraEntryId} hover>
                   <TableCell align="center" sx={COMPACT_CELL_SX}>{row.srNo}</TableCell>
                   <TableCell align="center" sx={COMPACT_CELL_SX}>{row.khewatNo}</TableCell>
@@ -216,7 +245,7 @@ const MozaReportTable = ({ mozaId, active }) => {
                   })}
                 </TableRow>
               ))}
-              {entries.length > 0 && (
+              {filteredEntries.length > 0 && (
                 <TableRow sx={{ bgcolor: 'primary.main', '& td': { color: 'white !important', fontWeight: 800, border: 'none', py: 1.5 } }}>
                   <TableCell colSpan={3} align="right" sx={{ px: 2, fontSize: '1rem', textTransform: 'uppercase', letterSpacing: 1 }}>
                     Total:
@@ -239,10 +268,10 @@ const MozaReportTable = ({ mozaId, active }) => {
                   })}
                 </TableRow>
               )}
-              {!entries.length && (
+              {!filteredEntries.length && (
                 <TableRow>
                   <TableCell colSpan={3 + AREA_COLUMNS.length * 3} align="center" sx={{ py: 4 }}>
-                    No khasra records found for this mouza.
+                    {entries.length ? 'No records match the filters.' : 'No khasra records found for this mouza.'}
                   </TableCell>
                 </TableRow>
               )}
