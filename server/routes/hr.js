@@ -2166,7 +2166,7 @@ router.delete('/companies/:id',
 // @desc    Get all projects
 // @access  Private (HR and Admin)
 router.get('/projects', 
-  authorize('super_admin', 'admin', 'hr_manager'), 
+  authMiddleware, 
   asyncHandler(async (req, res) => {
     const { company, search, status } = req.query;
     const query = {};
