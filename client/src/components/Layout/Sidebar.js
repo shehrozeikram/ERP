@@ -440,17 +440,18 @@ const Sidebar = () => {
 
   // Filter menu items based on user's roleRef (RBAC) or sub-roles
   const getFilteredMenuItems = useCallback((userRole) => {
-    // Get ALL menu items first (use a role that has access to all modules)
-    // We'll filter based on actual permissions, not the legacy role field
-    let baseMenuItems = getMenuItems('super_admin') || [];
+    const generateItems = () => {
+      // Get ALL menu items first (use a role that has access to all modules)
+      // We'll filter based on actual permissions, not the legacy role field
+      let baseMenuItems = getMenuItems('super_admin') || [];
 
-    // Super admin and higher management: full menu
-    if (['super_admin', 'higher_management'].includes(userRole)) {
-      return baseMenuItems;
-    }
+      // Super admin and higher management: full menu
+      if (['super_admin', 'higher_management'].includes(userRole)) {
+        return baseMenuItems;
+      }
 
-    // Developer: full menu except core Finance (allow Taj Utilities & Charges + Recovery only) and CEO Secretariat
-    if (userRole === 'developer') {
+      // Developer: full menu except core Finance (allow Taj Utilities & Charges + Recovery only) and CEO Secretariat
+      if (userRole === 'developer') {
       return baseMenuItems.map((item) => {
         if (item.path === '/finance') {
           const allowedFinanceRoots = new Set([
@@ -759,6 +760,34 @@ const Sidebar = () => {
         return {
           ...module,
           subItems: filteredSubItems
+        };
+      }
+      return module;
+    });
+    };
+
+    const items = generateItems();
+    
+    // Restrict Payroll (Finance)
+    const allowedForFinancePayroll = ['ceo@sgc.com', 'developer@tovus.net', 'iftikharrashid@tovus.net', 'faisalfarooq@tovus.net'];
+    const canSeeFinancePayroll = user && (
+      allowedForFinancePayroll.includes(user.email?.toLowerCase()) || 
+      ['2197', '5898'].includes(String(user.employeeId))
+    );
+
+    return items.map(module => {
+      if (module.path === '/finance' && module.subItems && !canSeeFinancePayroll) {
+        return {
+          ...module,
+          subItems: module.subItems.map(subGroup => {
+            if (subGroup.subItems) {
+              return {
+                ...subGroup,
+                subItems: subGroup.subItems.filter(item => item.path !== '/finance/payroll-queue')
+              };
+            }
+            return subGroup;
+          }).filter(subGroup => subGroup.subItems ? subGroup.subItems.length > 0 : true)
         };
       }
       return module;
