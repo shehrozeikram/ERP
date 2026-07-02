@@ -217,17 +217,23 @@ const MozaReportTable = ({ mozaId, active }) => {
                 </TableRow>
               ))}
               {entries.length > 0 && (
-                <TableRow sx={{ bgcolor: 'grey.100', '& > *': { fontWeight: 'bold !important' } }}>
-                  <TableCell colSpan={3} align="right" sx={{ px: 2, py: 1.5, fontSize: '0.9375rem', fontWeight: 700 }}>
-                    Totals:
+                <TableRow sx={{ bgcolor: 'primary.main', '& td': { color: 'white !important', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell colSpan={3} align="right" sx={{ px: 2, fontSize: '1rem', textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Total:
                   </TableCell>
                   {AREA_COLUMNS.map((col) => {
                     const a = totals[col.key];
                     return (
                       <React.Fragment key={`total-${col.key}`}>
-                        <TableCell align="center" sx={kmsCellSx('k')}>{a.kanal || '—'}</TableCell>
-                        <TableCell align="center" sx={kmsCellSx('m')}>{a.marla || '—'}</TableCell>
-                        <TableCell align="center" sx={kmsCellSx('s')}>{a.sarsai || '—'}</TableCell>
+                        <TableCell align="center" sx={{ fontSize: '1rem' }}>
+                          {a.kanal || '—'} <span style={{ opacity: 0.8, fontSize: '0.75rem', marginLeft: 2 }}>K</span>
+                        </TableCell>
+                        <TableCell align="center" sx={{ fontSize: '1rem' }}>
+                          {a.marla || '—'} <span style={{ opacity: 0.8, fontSize: '0.75rem', marginLeft: 2 }}>M</span>
+                        </TableCell>
+                        <TableCell align="center" sx={{ fontSize: '1rem' }}>
+                          {a.sarsai || '—'} <span style={{ opacity: 0.8, fontSize: '0.75rem', marginLeft: 2 }}>S</span>
+                        </TableCell>
                       </React.Fragment>
                     );
                   })}
