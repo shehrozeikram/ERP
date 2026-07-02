@@ -70,7 +70,7 @@ const buildMozaAcquisitionStatus = async (mozaId, { khewatNo, search } = {}) => 
       registered,
       possessed,
       remainingToRegister: subtractAreas(baseline, registered),
-      remainingToPossess: subtractAreas(registered, possessed),
+      remainingToPossess: subtractAreas(baseline, possessed),
       purchaseStatus,
       possessionStatus
     };

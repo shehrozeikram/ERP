@@ -40,7 +40,7 @@ const calcTransferPercent = (totalOwned, khasraArea) => {
   const ownedSarsais = toSarsais(totalOwned);
   const khasraSarsais = toSarsais(khasraArea);
   if (!khasraSarsais || !ownedSarsais) return 0;
-  return Math.min(100, Math.round((ownedSarsais / khasraSarsais) * 10000) / 100);
+  return Math.round((ownedSarsais / khasraSarsais) * 10000) / 100;
 };
 
 const formatTransferPercent = (pct) => {
@@ -173,9 +173,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
   };
 
   const lineExceedsKhasra = (line) => {
-    const khasra = khasraAreaForLine(line);
-    if (!line.khasraEntry || !toSarsais(khasra)) return false;
-    return toSarsais(totalLandOwnedForLine(line)) > toSarsais(khasra);
+    return false; // Disabled restriction to allow exceeding khasra area
   };
 
   const acquiredTotal = useMemo(
@@ -525,9 +523,8 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
                             readOnly
                           />
                           {line.khasraEntry && (
-                            <Typography variant="caption" color={rowKhasraError ? 'error' : 'text.secondary'}>
+                            <Typography variant="caption" color="text.secondary">
                               Prior: {formatKMS(priorOwned)}
-                              {rowKhasraError ? ' · exceeds khasra area' : ''}
                             </Typography>
                           )}
                         </Stack>

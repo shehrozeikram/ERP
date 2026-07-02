@@ -50,7 +50,7 @@ const ensureDefaultExpenseAccount = async () => {
 // GET store config + category tree + items (catalog for bills)
 router.get(
   '/catalog',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'),
+  authMiddleware,
   async (req, res) => {
     try {
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
@@ -93,7 +93,7 @@ router.get(
 
 router.get(
   '/',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'),
+  authMiddleware,
   async (req, res) => {
     try {
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));

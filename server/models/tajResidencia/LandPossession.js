@@ -29,7 +29,7 @@ const possessionLineSchema = new mongoose.Schema({
   khasraArea: { type: landAreaSchema, default: () => ({}) },
   possessedArea: { type: landAreaSchema, default: () => ({}) },
   totalLandPossessed: { type: landAreaSchema, default: () => ({}) },
-  transferPercent: { type: Number, default: 0, min: 0, max: 100 },
+  transferPercent: { type: Number, default: 0, min: 0 },
   remarks: { type: String, trim: true, default: '' }
 }, { _id: true });
 

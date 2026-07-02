@@ -126,25 +126,8 @@ const fetchRegisteredTotalsByKhasra = async (moza, excludeRegistryId) => {
 };
 
 const assertKhasraOwnershipLimits = async (moza, lines, excludeRegistryId) => {
-  const totals = await fetchRegisteredTotalsByKhasra(moza, excludeRegistryId);
-
-  for (const line of lines) {
-    const id = String(line.khasraEntry || '');
-    if (!id || !toSarsais(line.khasraArea)) continue;
-
-    const prior = totals[id] || { kanal: 0, marla: 0, sarsai: 0 };
-    const owned = addAreas(prior, line.acquiredArea);
-    const khasraArea = normalizeArea(line.khasraArea);
-
-    if (toSarsais(owned) > toSarsais(khasraArea)) {
-      const remArea = subtractAreas(khasraArea, prior);
-      const err = new Error(
-        `Total land owned for Khasra ${line.khasraNo} cannot exceed khasra area. Maximum area in registry: ${remArea.kanal}-${remArea.marla}-${remArea.sarsai}`
-      );
-      err.status = 400;
-      throw err;
-    }
-  }
+  // Disabled assertion to allow area in registry to exceed khasra area
+  return;
 };
 
 const parseLine = (line) => ({
@@ -155,7 +138,7 @@ const parseLine = (line) => ({
   landOfKhasra: parseAreaInput(line.landOfKhasra),
   acquiredArea: parseAreaInput(line.acquiredArea),
   landWithMalkiyat: parseAreaInput(line.landWithMalkiyat),
-  transferPercent: Math.min(100, Math.max(0, Number(line.transferPercent) || 0)),
+  transferPercent: Math.max(0, Number(line.transferPercent) || 0),
   remarks: String(line.remarks || '').trim()
 });
 

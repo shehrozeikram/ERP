@@ -26,7 +26,7 @@ const registryLineSchema = new mongoose.Schema({
   landOfKhasra: { type: landAreaSchema, default: () => ({}) },
   acquiredArea: { type: landAreaSchema, default: () => ({}) },
   landWithMalkiyat: { type: landAreaSchema, default: () => ({}) },
-  transferPercent: { type: Number, default: 0, min: 0, max: 100 },
+  transferPercent: { type: Number, default: 0, min: 0 },
   remarks: { type: String, trim: true, default: '' }
 }, { _id: true });
 

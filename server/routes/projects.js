@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { authorize } = require('../middleware/auth');
+const { authorize, authMiddleware } = require('../middleware/auth');
 const Project = require('../models/hr/Project');
 
 const router = express.Router();
@@ -11,7 +11,7 @@ const router = express.Router();
 // @desc    Get all projects
 // @access  Private (HR and Admin)
 router.get('/', 
-  authorize('super_admin', 'admin', 'hr_manager'), 
+  authMiddleware, 
   asyncHandler(async (req, res) => {
     const { company, status, search } = req.query;
     const query = { status: status || 'Active' };

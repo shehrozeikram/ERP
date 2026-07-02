@@ -2110,6 +2110,10 @@ function App() {
               element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
             />
             <Route 
+              path="/taj-residencia/land-acquisition/reports" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
               path="/taj-residencia/land-acquisition/dashboard" 
               element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
             />
