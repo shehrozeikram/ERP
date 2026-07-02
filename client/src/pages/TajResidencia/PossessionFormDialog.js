@@ -525,26 +525,27 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <TextField
+            <Autocomplete
               fullWidth
-              select
-              label="Link Registry"
-              value={form.registry}
-              onChange={handleRegistryLinkChange}
+              options={registries}
+              getOptionLabel={(r) => r ? `${r.registryNo}${r.inteqalNo ? ` / ${r.inteqalNo}` : ''}` : ''}
+              value={registries.find(r => r._id === form.registry) || null}
+              onChange={(e, newValue) => {
+                handleRegistryLinkChange({ target: { value: newValue ? newValue._id : '' } });
+              }}
               disabled={!form.moza}
-              helperText={
-                linkedRegistry
-                  ? `Pre-filled ${linkedRegistry.lines?.length || 0} khasra row(s) from registry`
-                  : 'Optional — auto-fills khasra rows'
-              }
-            >
-              <MenuItem value="">None</MenuItem>
-              {registries.map((r) => (
-                <MenuItem key={r._id} value={r._id}>
-                  {r.registryNo}{r.inteqalNo ? ` / ${r.inteqalNo}` : ''}
-                </MenuItem>
-              ))}
-            </TextField>
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Link Registry"
+                  helperText={
+                    linkedRegistry
+                      ? `Pre-filled ${linkedRegistry.lines?.length || 0} khasra row(s) from registry`
+                      : 'Optional — auto-fills khasra rows'
+                  }
+                />
+              )}
+            />
           </Grid>
           <Grid item xs={12} md={2}>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
