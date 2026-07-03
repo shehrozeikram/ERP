@@ -177,8 +177,9 @@ const buildRegistryPayload = (body) => {
     throw err;
   }
 
-  if (toSarsais(linesTotal) > toSarsais(totalArea)) {
-    const err = new Error('Sum of area in registry lines cannot exceed total area');
+  const finalTotal = toSarsais(totalArea) ? totalArea : linesTotal;
+  if (toSarsais(totalArea) && toSarsais(linesTotal) !== toSarsais(totalArea)) {
+    const err = new Error('Sum of area in registry lines must exactly match the total area');
     err.status = 400;
     throw err;
   }
@@ -195,7 +196,7 @@ const buildRegistryPayload = (body) => {
     moza: body.moza,
     khewatNo: khewatNos.join(', '),
     khewatNos,
-    totalArea,
+    totalArea: finalTotal,
     registryNo: String(body.registryNo || '').trim(),
     inteqalNo: String(body.inteqalNo || '').trim(),
     lines,
@@ -208,18 +209,28 @@ const mapRegistry = (doc) => {
   const khewatNos = (obj.khewatNos?.length
     ? obj.khewatNos
     : String(obj.khewatNo || '').split(',').map((s) => s.trim()).filter(Boolean));
+
+  const lines = (obj.lines || []).map((line) => ({
+    ...line,
+    khasraArea: normalizeArea(line.khasraArea),
+    landOfKhasra: normalizeArea(line.landOfKhasra),
+    acquiredArea: normalizeArea(line.acquiredArea),
+    landWithMalkiyat: normalizeArea(line.landWithMalkiyat)
+  }));
+  const linesTotalSarsais = lines.reduce((acc, line) => {
+    return acc + (line.acquiredArea.kanal * 180 + line.acquiredArea.marla * 9 + line.acquiredArea.sarsai);
+  }, 0);
+  const totalK = Math.floor(linesTotalSarsais / 180);
+  const remM = linesTotalSarsais % 180;
+  const totalM = Math.floor(remM / 9);
+  const totalS = remM % 9;
+
   return {
     ...obj,
     khewatNos,
     khewatNo: khewatNos.join(', ') || obj.khewatNo,
-    totalArea: normalizeArea(obj.totalArea),
-    lines: (obj.lines || []).map((line) => ({
-      ...line,
-      khasraArea: normalizeArea(line.khasraArea),
-      landOfKhasra: normalizeArea(line.landOfKhasra),
-      acquiredArea: normalizeArea(line.acquiredArea),
-      landWithMalkiyat: normalizeArea(line.landWithMalkiyat)
-    }))
+    totalArea: { kanal: totalK, marla: totalM, sarsai: totalS },
+    lines
   };
 };
 
@@ -250,15 +261,16 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
     LandRegistry.countDocuments(filter),
     LandRegistry.aggregate([
       { $match: filter },
+      { $unwind: "$lines" },
       {
         $group: {
           _id: null,
           totalSarsais: {
             $sum: {
               $add: [
-                { $multiply: [{ $ifNull: ['$totalArea.kanal', 0] }, SARSAIS_PER_KANAL] },
-                { $multiply: [{ $ifNull: ['$totalArea.marla', 0] }, SARSAI_PER_MARLA] },
-                { $ifNull: ['$totalArea.sarsai', 0] }
+                { $multiply: [{ $ifNull: ['$lines.acquiredArea.kanal', 0] }, SARSAIS_PER_KANAL] },
+                { $multiply: [{ $ifNull: ['$lines.acquiredArea.marla', 0] }, SARSAI_PER_MARLA] },
+                { $ifNull: ['$lines.acquiredArea.sarsai', 0] }
               ]
             }
           }
