@@ -41,7 +41,7 @@ const landRegistrySchema = new mongoose.Schema({
   khewatNo: { type: String, required: true, trim: true },
   khewatNos: { type: [String], default: [] },
   totalArea: { type: landAreaSchema, default: () => ({}) },
-  registryNo: { type: String, required: true, trim: true },
+  registryNo: { type: String, trim: true, default: '' },
   inteqalNo: { type: String, trim: true, default: '' },
   lines: { type: [registryLineSchema], default: [] },
   attachments: { type: [registryAttachmentSchema], default: [] },
@@ -54,7 +54,7 @@ const landRegistrySchema = new mongoose.Schema({
 
 landRegistrySchema.index(
   { moza: 1, registryNo: 1 },
-  { unique: true, partialFilterExpression: { isActive: true } }
+  { unique: true, partialFilterExpression: { isActive: true, registryNo: { $type: "string", $ne: "" } } }
 );
 
 module.exports = mongoose.model('LandRegistry', landRegistrySchema);

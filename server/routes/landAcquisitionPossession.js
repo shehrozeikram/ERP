@@ -171,7 +171,10 @@ router.get('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   const { moza, search = '', page = 1, limit = 50 } = req.query;
   const filter = { isActive: true };
 
-  if (moza) filter.moza = moza;
+  if (moza) {
+    const mongoose = require('mongoose');
+    filter.moza = new mongoose.Types.ObjectId(moza);
+  }
   if (search) {
     const re = new RegExp(search, 'i');
     filter.$or = [{ possessionRef: re }, { khewatNo: re }];

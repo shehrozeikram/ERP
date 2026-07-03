@@ -239,7 +239,10 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   const { moza, search = '', page = 1, limit = 50 } = req.query;
   const filter = { isActive: true };
 
-  if (moza) filter.moza = moza;
+  if (moza) {
+    const mongoose = require('mongoose');
+    filter.moza = new mongoose.Types.ObjectId(moza);
+  }
   if (search) {
     const re = new RegExp(search, 'i');
     filter.$or = [{ registryNo: re }, { inteqalNo: re }, { khewatNo: re }];
@@ -352,9 +355,6 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
   if (!payload.khewatNos?.length) {
     return res.status(400).json({ success: false, message: 'At least one Khewat is required' });
   }
-  if (!payload.registryNo) {
-    return res.status(400).json({ success: false, message: 'Registry No. is required' });
-  }
   if (!payload.lines.length) {
     return res.status(400).json({ success: false, message: 'At least one khasra line is required' });
   }
@@ -364,16 +364,18 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     return res.status(404).json({ success: false, message: 'Moza not found' });
   }
 
-  const duplicate = await LandRegistry.findOne({
-    moza: payload.moza,
-    registryNo: payload.registryNo,
-    isActive: true
-  });
-  if (duplicate) {
-    return res.status(409).json({
-      success: false,
-      message: `Registry No. ${payload.registryNo} already exists for this mouza`
+  if (payload.registryNo) {
+    const duplicate = await LandRegistry.findOne({
+      moza: payload.moza,
+      registryNo: payload.registryNo,
+      isActive: true
     });
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        message: `Registry No. ${payload.registryNo} already exists for this mouza`
+      });
+    }
   }
 
   try {
@@ -432,21 +434,23 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
   if (!payload.registryDate || Number.isNaN(payload.registryDate.getTime())) {
     return res.status(400).json({ success: false, message: 'Registry date is required' });
   }
-  if (!payload.khewatNos?.length || !payload.registryNo || !payload.lines.length) {
-    return res.status(400).json({ success: false, message: 'Registry No., at least one Khewat, and one line are required' });
+  if (!payload.khewatNos?.length || !payload.lines.length) {
+    return res.status(400).json({ success: false, message: 'At least one Khewat and one line are required' });
   }
 
-  const duplicate = await LandRegistry.findOne({
-    _id: { $ne: registry._id },
-    moza: registry.moza,
-    registryNo: payload.registryNo,
-    isActive: true
-  });
-  if (duplicate) {
-    return res.status(409).json({
-      success: false,
-      message: `Registry No. ${payload.registryNo} already exists for this mouza`
+  if (payload.registryNo) {
+    const duplicate = await LandRegistry.findOne({
+      _id: { $ne: registry._id },
+      moza: registry.moza,
+      registryNo: payload.registryNo,
+      isActive: true
     });
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        message: `Registry No. ${payload.registryNo} already exists for this mouza`
+      });
+    }
   }
 
   try {

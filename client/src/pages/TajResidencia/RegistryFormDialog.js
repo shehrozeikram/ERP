@@ -397,7 +397,6 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
           <Grid item xs={12} sm={6} md={2}>
             <TextField
               fullWidth
-              required
               label="Registry No."
               value={form.registryNo}
               onChange={setHeader('registryNo')}
@@ -647,7 +646,6 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
             saving
             || !form.registryDate
             || !form.moza
-            || !form.registryNo.trim()
             || !hasValidLines
             || !hasTotalArea
             || linesExceedTotal
