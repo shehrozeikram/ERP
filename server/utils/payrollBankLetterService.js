@@ -46,11 +46,7 @@ const buildLetterPayload = async (app) => {
     err.statusCode = 404;
     throw err;
   }
-  if (app.workflowStatus !== 'fully_approved') {
-    const err = new Error('Bank letter can only be generated after payment is fully approved');
-    err.statusCode = 400;
-    throw err;
-  }
+
 
   const payrollIds = Array.isArray(app.payrollIds) ? app.payrollIds.filter(Boolean) : [];
   const payrolls = payrollIds.length
@@ -176,6 +172,11 @@ const generateBankLetterForPayment = async (paymentApplicationId, { format = 'pr
   if (!app) {
     const err = new Error('Payroll payment not found');
     err.statusCode = 404;
+    throw err;
+  }
+  if (app.workflowStatus !== 'fully_approved') {
+    const err = new Error('Bank letter can only be generated and recorded after payment is fully approved');
+    err.statusCode = 400;
     throw err;
   }
   return recordBankLetterGeneration(app, { format, generatedBy });

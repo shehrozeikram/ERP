@@ -1318,7 +1318,7 @@ export default function FinancePayroll() {
           </Grid>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between', px: 3, pb: 2 }}>
-          <Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
             {activeDraftId ? (
               <Button
                 color="error"
@@ -1327,6 +1327,16 @@ export default function FinancePayroll() {
                 disabled={processingPayment}
               >
                 Delete Draft
+              </Button>
+            ) : null}
+            {activeDraftId ? (
+              <Button
+                color="info"
+                startIcon={<PrintIcon />}
+                onClick={() => handleReprintBankLetter(activeDraftId)}
+                disabled={processingPayment}
+              >
+                Preview Bank Letter
               </Button>
             ) : null}
           </Box>

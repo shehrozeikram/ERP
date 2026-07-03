@@ -110,8 +110,8 @@ const buildSubjectAccountLabel = (company = {}) => {
 };
 
 const buildLetterMeta = ({ letter = {}, company = {} }) => {
-  const bankName = String(company.bankName || '________________ Bank').trim();
-  const branchName = String(company.bankBranchName || company.bankBranchCode || '________________ Branch').trim();
+  const bankName = 'Allied Bank';
+  const branchName = 'Centaurus Branch';
   const city = String(company.city || 'Islamabad').trim();
   const chequeNumber = String(letter.chequeNumber || letter.reference || '________________').trim();
   const amount = Math.round(Number(letter.totalNetSalary) || 0);
@@ -187,7 +187,6 @@ const buildAttachmentTableHtml = (letter) => {
       <td>${esc(row.employeeId)}</td>
       <td>${esc(row.name)}</td>
       <td>${esc(row.cnic)}</td>
-      <td>${esc(row.bankName)}</td>
       <td>${esc(row.branchCode)}</td>
       <td>${esc(row.accountNumber)}</td>
       <td class="num">${fmtAmount(row.netSalary)}</td>
@@ -204,19 +203,18 @@ const buildAttachmentTableHtml = (letter) => {
             <th>Employee ID</th>
             <th>Name</th>
             <th>CNIC</th>
-            <th>Bank</th>
             <th>Branch Code</th>
             <th>Account No</th>
             <th class="num">Net Salary</th>
           </tr>
         </thead>
-        <tbody>${rowsHtml}</tbody>
-        <tfoot>
-          <tr>
-            <td colspan="7" align="right"><strong>Grand Total (${letter.employeeCount} Employees)</strong></td>
+        <tbody>
+          ${rowsHtml}
+          <tr class="grand-total-row">
+            <td colspan="6" align="right"><strong>Grand Total (${letter.employeeCount} Employees)</strong></td>
             <td class="num"><strong>${fmtAmount(letter.totalNetSalary)}</strong></td>
           </tr>
-        </tfoot>
+        </tbody>
       </table>
     </div>
   `;
@@ -310,8 +308,9 @@ const buildPayrollBankLetterHtml = ({ letter, company = {} }) => {
       text-align: center;
     }
     td.num, th.num { text-align: right; white-space: nowrap; }
-    tfoot td {
-      font-weight: 700;
+    .grand-total-row td {
+      font-weight: 900;
+      font-size: 11pt;
       background: #efefef;
     }
   </style>
@@ -371,7 +370,6 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
     'Employee ID',
     'Name',
     'CNIC',
-    'Bank',
     'Branch Code',
     'Account No',
     'Net Salary'
@@ -410,7 +408,6 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
     { width: 14 },
     { width: 28 },
     { width: 18 },
-    { width: 18 },
     { width: 14 },
     { width: 20 },
     { width: 16 }
@@ -441,7 +438,6 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
       row.employeeId,
       row.name,
       row.cnic,
-      row.bankName,
       row.branchCode,
       row.accountNumber,
       Math.round(Number(row.netSalary) || 0)
@@ -454,7 +450,6 @@ export const downloadPayrollBankLetterExcel = async ({ letter, company = {} }) =
     '',
     'Grand Total',
     `${letter.employeeCount} Employees`,
-    '',
     '',
     '',
     '',
