@@ -69,10 +69,22 @@ const buildLetterPayload = async (app) => {
     throw err;
   }
 
-  const [companyBank, globalProfile] = await Promise.all([
+  let [companyBank, globalProfile] = await Promise.all([
     resolveCompanyBank(app.companyId),
     loadGlobalCompanyProfile()
   ]);
+
+  if (app.paymentMeta?.bankAccountId) {
+    const Account = require('../models/finance/Account');
+    const voucherAccount = await Account.findById(app.paymentMeta.bankAccountId).lean();
+    if (voucherAccount) {
+      companyBank = {
+        ...(companyBank || {}),
+        bankName: voucherAccount.name || companyBank?.bankName || '',
+        accountNumber: voucherAccount.accountNumber || companyBank?.accountNumber || ''
+      };
+    }
+  }
 
   const je = app.journalEntryId && typeof app.journalEntryId === 'object'
     ? app.journalEntryId
