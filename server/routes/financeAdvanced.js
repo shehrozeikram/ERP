@@ -1531,8 +1531,9 @@ router.get('/accounts-payable/vendor-advance-po-queue',
     const advancePos = pos.filter((po) => isFullAdvancePaymentTerm(po.paymentTerms));
     const poIds = advancePos.map((p) => p._id);
 
+    const { q } = await financeScope(req);
     const advances = poIds.length
-      ? await VendorAdvance.find({
+      ? await VendorAdvance.find(q({
         referenceId: { $in: poIds },
         $or: [
           { referenceType: 'purchase_order' },
@@ -1541,7 +1542,7 @@ router.get('/accounts-payable/vendor-advance-po-queue',
           { referenceType: '' },
           { referenceType: { $exists: false } }
         ]
-      })
+      }))
         .select('referenceId amount voucherWorkflowStatus journalEntryId')
         .lean()
       : [];
@@ -2190,7 +2191,8 @@ router.post('/accounts-payable/advance-payment',
       referenceType,
       referenceId,
       createdBy: req.user._id,
-      financeApprovalAuthorities
+      financeApprovalAuthorities,
+      companyId: req.body.companyId || req.user?.companyId || null
     });
 
     const message =

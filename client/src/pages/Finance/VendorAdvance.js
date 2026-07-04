@@ -30,6 +30,8 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import api from '../../services/api';
+import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import { formatPKR } from '../../utils/currency';
 import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 import toast from 'react-hot-toast';
@@ -77,6 +79,14 @@ const VendorAdvance = () => {
   const [bankAccounts, setBankAccounts] = useState([]);
   const advanceHistorySectionRef = useRef(null);
   const [highlightPoId, setHighlightPoId] = useState(null);
+  const { selectedCompanyId } = useFinanceCompany();
+
+  useEffect(() => {
+    setSelectedVendor(null);
+    setSelectedPo(null);
+    setQueuePrefillPoId(null);
+    setQueuePrefillSnapshot(null);
+  }, [selectedCompanyId]);
 
   const loadVendors = useCallback(async () => {
     setLoadingVendors(true);
@@ -121,10 +131,10 @@ const VendorAdvance = () => {
   }, [loadVendors]);
 
   useEffect(() => {
-    fetchPayFromAccounts(api)
+    fetchPayFromAccounts(api, { companyId: selectedCompanyId })
       .then(setBankAccounts)
       .catch(() => setBankAccounts([]));
-  }, []);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,7 +153,9 @@ const VendorAdvance = () => {
   const loadPoQueue = useCallback(async () => {
     setLoadingQueue(true);
     try {
-      const res = await api.get('/finance/accounts-payable/vendor-advance-po-queue');
+      const res = await api.get('/finance/accounts-payable/vendor-advance-po-queue', {
+        params: { companyId: selectedCompanyId }
+      });
       const items = res.data?.data?.items || [];
       setPoQueue(Array.isArray(items) ? items : []);
     } catch (e) {
@@ -152,7 +164,7 @@ const VendorAdvance = () => {
     } finally {
       setLoadingQueue(false);
     }
-  }, []);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
     loadPoQueue();
@@ -203,7 +215,7 @@ const VendorAdvance = () => {
     setLoadingAdvances(true);
     try {
       const res = await api.get('/finance/accounts-payable/vendor-advances', {
-        params: { vendorId, limit: 50, page: 1 }
+        params: { vendorId, limit: 50, page: 1, companyId: selectedCompanyId }
       });
       const list = res.data?.data?.advances || [];
       setAdvances(Array.isArray(list) ? list : []);
@@ -213,7 +225,7 @@ const VendorAdvance = () => {
     } finally {
       setLoadingAdvances(false);
     }
-  }, []);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
     if (selectedVendor?._id) {
@@ -297,7 +309,8 @@ const VendorAdvance = () => {
         financeApprovalAuthorities: {
           accountsManagerUser: finAuth.accountsManagerUser._id,
           financeControllerUser: finAuth.financeControllerUser._id
-        }
+        },
+        companyId: selectedCompanyId
       };
       const res = await api.post('/finance/accounts-payable/advance-payment', body);
       if (res.data?.success) {
@@ -367,9 +380,12 @@ const VendorAdvance = () => {
 
   return (
     <Box sx={{ p: 2 }}>
-      <Typography variant="h5" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <PaymentsIcon color="primary" /> Vendor Advance
-      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', md: 'center' }, gap: 2, mb: 1 }}>
+        <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PaymentsIcon color="primary" /> Vendor Advance
+        </Typography>
+        <FinanceCompanySelector minWidth={280} showHelper={false} />
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Record prepayment to a supplier (DR Advance to suppliers / CR pay-from account). Link an optional PO for traceability.
         Apply this advance later on Accounts Payable when the vendor bill is created.
