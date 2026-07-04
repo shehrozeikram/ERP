@@ -47,8 +47,7 @@ const landPurchaseSchema = new mongoose.Schema({
   },
   dealNo: {
     type: Number,
-    required: true,
-    unique: true
+    required: true
   },
   purchaseDate: { type: Date, required: true },
   project: { type: String, trim: true, default: 'Taj Residencia' },
