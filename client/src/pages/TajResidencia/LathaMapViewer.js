@@ -366,7 +366,7 @@ const LathaMapViewer = () => {
       setPartyFilterId('');
       return;
     }
-    landAcquisitionPartyService.getParties({ partyType: partyRoleFilter, isActive: true })
+    landAcquisitionPartyService.getParties({ type: partyRoleFilter, isActive: true })
       .then((res) => {
         if (res.success) setPartyList(res.data);
       })
@@ -439,9 +439,9 @@ const LathaMapViewer = () => {
 
         setMapIndex(indexRes);
         setMozaKhasrasIndex(mozaKhasrasRes);
-        setMozas(statusRes.data?.data?.mozas || []);
-        setStatusMap(statusRes.data?.data?.status || {});
-        setRecordsByMoza(statusRes.data?.data?.recordsByMoza || {});
+        setMozas(statusRes.data?.mozas || []);
+        setStatusMap(statusRes.data?.status || {});
+        setRecordsByMoza(statusRes.data?.recordsByMoza || {});
         setLines(linesRes);
 
         if (parcelsRes?.features?.[0]?.geometry?.type === 'Polygon') {
