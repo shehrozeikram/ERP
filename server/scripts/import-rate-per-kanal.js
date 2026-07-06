@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const isProd = process.argv.includes('--prod');
-require('dotenv').config({ path: require('path').join(__dirname, isProd ? '../../.env.production' : '../../.env') });
+// On the server, deploy-simple.sh renames .env.production to .env
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const mongoose = require('mongoose');
 const xlsx = require('xlsx');
 const path = require('path');
