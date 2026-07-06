@@ -185,12 +185,12 @@ export default function LandPurchaseViewer() {
               <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>LAND PURCHASE NO.</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>DEAL NO.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>PROJECT</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>SELLER NAME</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>DEALER NAME</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>CNIC</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>MOZA</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>SIZE</TableCell>
+              <TableCell sx={{ fontWeight: 700 }} align="right">RATE PER KANAAL</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">TOTAL LAND PRICE</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
             </TableRow>
@@ -214,12 +214,12 @@ export default function LandPurchaseViewer() {
                   <TableCell>{page * rowsPerPage + idx + 1}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{row.purchaseNo}</TableCell>
                   <TableCell>{row.dealNo}</TableCell>
-                  <TableCell>{row.project || '—'}</TableCell>
                   <TableCell>{row.seller?.name || '—'}</TableCell>
                   <TableCell>{row.dealer?.name || '—'}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.seller?.cnic || '—'}</TableCell>
                   <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{formatAreaReadable(row.totalArea)}</TableCell>
+                  <TableCell align="right">{formatMoney(row.ratePerKanal)}</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600 }}>
                     {formatMoney(row.agreedAmount)}
                   </TableCell>
