@@ -502,6 +502,10 @@ router.get('/',
     const { status, search, page = 1, limit = 20, kind } = req.query;
     const filter = {};
 
+    if (req.user.role !== 'super_admin' && req.user.role !== 'admin') {
+      filter.createdBy = req.user._id;
+    }
+
     if (status) filter.status = status;
     if (kind && ['survey', 'poll'].includes(kind)) filter.kind = kind;
     if (search) {
