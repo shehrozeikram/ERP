@@ -5,7 +5,10 @@ const utilityBillSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    default: () => `UB${Date.now().toString().slice(-6)}`
+    default: function() {
+      const prefix = this.utilityType ? this.utilityType.substring(0, 3).toUpperCase() : 'UB';
+      return `${prefix}${Date.now().toString().slice(-6)}`;
+    }
   },
   accountHead: {
     type: String,

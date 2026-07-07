@@ -2878,7 +2878,7 @@ const PreAudit = () => {
                 : (viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder))
                   ? 'Purchase Order Details'
                   : viewDialog.document?.workflowSubmodule === 'utility_bills_management'
-                    ? 'UTILITY BILL'
+                    ? (viewDialog.fullDocument?.utilityType?.toUpperCase() || 'UTILITY BILL')
                     : viewDialog.document?.workflowSubmodule === 'rental_management'
                       ? 'RENTAL MANAGEMENT'
                       : 'PAYMENT SETTLEMENT'}
@@ -3172,7 +3172,7 @@ const PreAudit = () => {
                       fontSize: '24px',
                       letterSpacing: '1px'
                     }}>
-                      {viewDialog.fullDocument.accountHead || viewDialog.fullDocument.parentCompanyName || (viewDialog.document?.workflowSubmodule === 'utility_bills_management' ? 'UTILITY BILL' : viewDialog.document?.workflowSubmodule === 'rental_management' ? 'RENTAL MANAGEMENT' : 'PAYMENT SETTLEMENT')}
+                      {viewDialog.fullDocument.accountHead || viewDialog.fullDocument.parentCompanyName || (viewDialog.document?.workflowSubmodule === 'utility_bills_management' ? (viewDialog.fullDocument?.utilityType?.toUpperCase() || 'UTILITY BILL') : viewDialog.document?.workflowSubmodule === 'rental_management' ? 'RENTAL MANAGEMENT' : 'PAYMENT SETTLEMENT')}
                     </Typography>
                     
                     <Grid container spacing={2} sx={{ mb: 2 }}>
