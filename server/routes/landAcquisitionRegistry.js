@@ -378,6 +378,20 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     }
   }
 
+  if (payload.inteqalNo) {
+    const duplicate = await LandRegistry.findOne({
+      moza: payload.moza,
+      inteqalNo: payload.inteqalNo,
+      isActive: true
+    });
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        message: `Inteqal No. ${payload.inteqalNo} already exists for this mouza`
+      });
+    }
+  }
+
   try {
     await assertKhasraOwnershipLimits(payload.moza, payload.lines);
   } catch (err) {
@@ -449,6 +463,21 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
       return res.status(409).json({
         success: false,
         message: `Registry No. ${payload.registryNo} already exists for this mouza`
+      });
+    }
+  }
+
+  if (payload.inteqalNo) {
+    const duplicate = await LandRegistry.findOne({
+      _id: { $ne: registry._id },
+      moza: registry.moza,
+      inteqalNo: payload.inteqalNo,
+      isActive: true
+    });
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        message: `Inteqal No. ${payload.inteqalNo} already exists for this mouza`
       });
     }
   }
