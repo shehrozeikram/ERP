@@ -52,9 +52,6 @@ const landRegistrySchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-landRegistrySchema.index(
-  { moza: 1, registryNo: 1 },
-  { unique: true, partialFilterExpression: { isActive: true, registryNo: { $type: "string", $ne: "" } } }
-);
+// Application logic enforces uniqueness for non-empty registry numbers.
 
 module.exports = mongoose.model('LandRegistry', landRegistrySchema);
