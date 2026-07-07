@@ -47,17 +47,31 @@ const getAccountByNumber = async (companyId, accountNumber) => {
 
   if (cid) {
     const scoped = await Account.findOne({ companyId: cid, accountNumber: number, isActive: true });
-    return scoped || null;
+    if (scoped) return scoped;
   }
 
-  return Account.findOne({ accountNumber: number, isActive: true });
+  return Account.findOne({ 
+    accountNumber: number, 
+    isActive: true, 
+    $or: [{ companyId: null }, { companyId: { $exists: false } }] 
+  });
 };
 
 const getAccountByCode = async (companyId, accountCode) => {
   const cid = await normalizeCompanyObjectId(companyId);
   const code = String(accountCode || '').trim().toUpperCase();
-  if (!cid || !code) return null;
-  return Account.findOne({ companyId: cid, accountCode: code, isActive: true });
+  if (!code) return null;
+  
+  if (cid) {
+    const scoped = await Account.findOne({ companyId: cid, accountCode: code, isActive: true });
+    if (scoped) return scoped;
+  }
+  
+  return Account.findOne({ 
+    accountCode: code, 
+    isActive: true, 
+    $or: [{ companyId: null }, { companyId: { $exists: false } }] 
+  });
 };
 
 const resolveSystemAccount = async (companyId, accountNumber) => {
@@ -74,8 +88,7 @@ const resolveSystemAccount = async (companyId, accountNumber) => {
 
 const mapAccountToCompany = async (companyId, accountDocOrId) => {
   const cid = await normalizeCompanyObjectId(companyId);
-  if (!cid) return null;
-
+  
   let account = accountDocOrId;
   if (!account) return null;
   if (mongoose.Types.ObjectId.isValid(String(account))) {
@@ -83,7 +96,7 @@ const mapAccountToCompany = async (companyId, accountDocOrId) => {
   }
   if (!account?._id) return null;
 
-  if (account.companyId && String(account.companyId) === String(cid)) {
+  if (cid && account.companyId && String(account.companyId) === String(cid)) {
     return account;
   }
 
@@ -93,7 +106,13 @@ const mapAccountToCompany = async (companyId, accountDocOrId) => {
   }
 
   if (account.accountNumber) {
-    return getAccountByNumber(cid, account.accountNumber);
+    const byNumber = await getAccountByNumber(cid, account.accountNumber);
+    if (byNumber) return byNumber;
+  }
+
+  // Fallback: If it's a global account, it can be used across companies
+  if (!account.companyId) {
+    return account;
   }
 
   return null;
