@@ -3,7 +3,15 @@ const AccountResolver = require('./accountResolver');
 /** Extract companyId from an options/doc object or raw id. */
 const co = (source) => {
   if (source == null) return null;
-  if (typeof source === 'object' && source.companyId != null) return source.companyId;
+  if (typeof source === 'object') {
+    if ('companyId' in source && source.companyId !== undefined) {
+      return source.companyId;
+    }
+    if (source._bsontype === 'ObjectId' || (source.constructor && source.constructor.name === 'ObjectId') || typeof source.toHexString === 'function') {
+      return source;
+    }
+    return null; // source is an object without companyId
+  }
   return source;
 };
 
