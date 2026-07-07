@@ -459,6 +459,7 @@ const AccountsPayable = () => {
           billDate: b.billDate,
           dueDate: b.dueDate,
           totalAmount: Number(b.totalAmount || 0),
+          company: b.company || 'Unassigned',
           outstanding,
           payAmount: seedBillId && String(b._id) === String(seedBillId) ? outstanding : 0,
           advanceApplyAmount: 0
@@ -1896,6 +1897,11 @@ const AccountsPayable = () => {
       >
         <DialogTitle>
           Bill Payment
+          {outstandingTransactions.length > 0 && outstandingTransactions[0].company && (
+            <Typography variant="body2" color="text.secondary">
+              Company: {outstandingTransactions[0].company}
+            </Typography>
+          )}
           <Typography variant="body2" color="text.secondary">Amount to post: {formatPKR(paymentData.amount || 0)}</Typography>
         </DialogTitle>
         <DialogContent dividers>

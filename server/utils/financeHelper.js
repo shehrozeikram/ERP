@@ -831,6 +831,11 @@ const FinanceHelper = {
         : [];
 
       const companyId = co(bill);
+      if (companyId) {
+        const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
+        await seedChartOfAccountsForCompany(companyId, { skipExisting: true });
+      }
+      
       const A = acct(companyId);
       const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
       let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
