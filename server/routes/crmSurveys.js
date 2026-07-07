@@ -5,8 +5,30 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const Survey = require('../models/crm/Survey');
 const SurveyResponse = require('../models/crm/SurveyResponse');
 const User = require('../models/User');
+const Notification = require('../models/hr/Notification');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, '../uploads/crm/surveys');
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'survey-report-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit
+});
 
 const CRM_ROLES = ['super_admin', 'admin', 'crm_manager', 'sales_manager'];
 
@@ -671,7 +693,12 @@ router.get('/executive-dashboard',
           ? { average: Math.round((surveyRatingSum / surveyRatingCount) * 10) / 10, max: maxScale }
           : null,
         publishedAt: survey.publishedAt,
-        createdBy: survey.createdBy
+        createdBy: survey.createdBy,
+        analysisReport: (survey.analysisReport && survey.analysisReport.isSentToManagement &&
+          (req.user.role === 'super_admin' || 
+           (survey.analysisReport.targetUsers && survey.analysisReport.targetUsers.some(uid => String(uid) === String(req.user._id))) ||
+           String(survey.createdBy?._id || survey.createdBy) === String(req.user._id)
+          )) ? survey.analysisReport : undefined
       };
     });
 
@@ -1230,6 +1257,93 @@ router.put('/:id/commcraft-review',
         review: serializeCommcraftReview(survey.commcraftReview)
       }
     });
+  })
+);
+
+// POST /api/crm/surveys/:id/analysis-report
+router.post('/:id/analysis-report',
+  authorize(...CRM_ROLES),
+  asyncHandler(async (req, res) => {
+    const survey = await Survey.findById(req.params.id);
+    if (!survey) return res.status(404).json({ success: false, message: 'Survey not found' });
+    if (!canManageSurvey(survey, req.user)) return res.status(403).json({ success: false, message: 'Not authorized' });
+
+    const { findings, adviceToHigherManagement, recommendations, notVeryImportant, attachments } = req.body;
+
+    survey.analysisReport = {
+      ...(survey.analysisReport || {}),
+      findings: findings || '',
+      adviceToHigherManagement: adviceToHigherManagement || '',
+      recommendations: recommendations || '',
+      notVeryImportant: notVeryImportant || '',
+      attachments: attachments || [],
+      createdBy: req.user._id,
+      updatedAt: new Date()
+    };
+
+    await survey.save();
+    res.json({ success: true, data: survey.analysisReport });
+  })
+);
+
+// POST /api/crm/surveys/:id/analysis-report/upload
+router.post('/:id/analysis-report/upload',
+  authorize(...CRM_ROLES),
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+    
+    // Convert to relative URL
+    const fileUrl = `/uploads/crm/surveys/${req.file.filename}`;
+    res.json({ success: true, url: fileUrl, name: req.file.originalname });
+  })
+);
+
+// POST /api/crm/surveys/:id/analysis-report/send
+router.post('/:id/analysis-report/send',
+  authorize(...CRM_ROLES),
+  asyncHandler(async (req, res) => {
+    const survey = await Survey.findById(req.params.id);
+    if (!survey) return res.status(404).json({ success: false, message: 'Survey not found' });
+    if (!canManageSurvey(survey, req.user)) return res.status(403).json({ success: false, message: 'Not authorized' });
+
+    const { targetUsers } = req.body;
+
+    if (!survey.analysisReport) {
+      survey.analysisReport = { createdBy: req.user._id, updatedAt: new Date() };
+    }
+
+    survey.analysisReport.isSentToManagement = true;
+    survey.analysisReport.sentAt = new Date();
+    
+    if (Array.isArray(targetUsers)) {
+      survey.analysisReport.targetUsers = targetUsers;
+    }
+
+    await survey.save();
+
+    // Create notifications for selected target users
+    if (survey.analysisReport.targetUsers && survey.analysisReport.targetUsers.length > 0) {
+      const notifications = survey.analysisReport.targetUsers.map(userId => ({
+        recipient: userId,
+        title: 'New Survey Analysis Report',
+        message: `A new Survey Analysis Report for "${survey.title}" is available for your review.`,
+        type: 'info',
+        category: 'system',
+        priority: 'high',
+        actionUrl: '/crm/survey',
+        actionText: 'View Dashboard',
+        metadata: {
+          module: 'crm',
+          entityId: survey._id,
+          entityType: 'Survey'
+        },
+        createdBy: req.user._id
+      }));
+      await Notification.insertMany(notifications);
+    }
+
+    res.json({ success: true, message: 'Survey Analysis Report sent to higher management.', data: survey.analysisReport });
   })
 );
 

@@ -131,6 +131,21 @@ const surveySchema = new mongoose.Schema({
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     reviewedAt: Date
+  },
+  analysisReport: {
+    findings: { type: String, trim: true, default: '' },
+    adviceToHigherManagement: { type: String, trim: true, default: '' },
+    recommendations: { type: String, trim: true, default: '' },
+    notVeryImportant: { type: String, trim: true, default: '' },
+    attachments: [{
+      name: String,
+      url: String
+    }],
+    targetUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    isSentToManagement: { type: Boolean, default: false },
+    sentAt: Date,
+    updatedAt: Date
   }
 }, {
   timestamps: true

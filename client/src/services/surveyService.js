@@ -31,7 +31,15 @@ const surveyService = {
 
   getCommcraftReview: (id) => api.get(`/crm/surveys/${id}/commcraft-review`),
 
-  saveCommcraftReview: (id, payload) => api.put(`/crm/surveys/${id}/commcraft-review`, payload)
+  saveCommcraftReview: (id, payload) => api.put(`/crm/surveys/${id}/commcraft-review`, payload),
+
+  saveAnalysisReport: (id, payload) => api.post(`/crm/surveys/${id}/analysis-report`, payload),
+
+  uploadAnalysisAttachment: (id, formData) => api.post(`/crm/surveys/${id}/analysis-report/upload`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+
+  sendAnalysisReport: (id, payload) => api.post(`/crm/surveys/${id}/analysis-report/send`, payload)
 };
 
 export default surveyService;

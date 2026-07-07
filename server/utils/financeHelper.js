@@ -839,7 +839,16 @@ const FinanceHelper = {
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
-      if (!apAccount || !bankAccount) throw new Error('AP or Bank/Cash account not found');
+      
+      if (!apAccount || !bankAccount) {
+        const missing = [];
+        if (!apAccount) missing.push('AP account (2001)');
+        if (!bankAccount) {
+          if (bankAccountId) missing.push(`Bank/Cash account (ID: ${bankAccountId})`);
+          else missing.push(`Bank/Cash account (${paymentMethod === 'cash' ? '1001' : '1002'})`);
+        }
+        throw new Error(`${missing.join(' and ')} not found. Please ensure these accounts exist in the Chart of Accounts.`);
+      }
 
       const lines = [
         { account: apAccount._id, description: `Payment to ${bill.vendor.name} – ${bill.billNumber}`, debit: amount_, department: bill.department },

@@ -28,15 +28,15 @@ import {
   Analytics as AnalyticsIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  FactCheck as CommcraftReviewIcon,
   PlayArrow as RespondIcon,
   Refresh as RefreshIcon,
   Send as SendIcon,
   HowToVote as PollIcon,
-  Groups as ResponsesIcon
+  Groups as ResponsesIcon,
+  Summarize as ReportIcon
 } from '@mui/icons-material';
 import surveyService from '../../../services/surveyService';
-import CommcraftReviewDialog from './CommcraftReviewDialog';
+import SurveyAnalysisReportDialog from './SurveyAnalysisReportDialog';
 
 const statusColor = {
   draft: 'default',
@@ -68,8 +68,8 @@ const SurveyList = () => {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
 
-  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-  const [reviewSurvey, setReviewSurvey] = useState(null);
+  const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false);
+  const [analysisSurvey, setAnalysisSurvey] = useState(null);
 
   const pageTitle = useMemo(
     () => (isMineView ? 'My Surveys' : 'Manage Surveys'),
@@ -182,18 +182,22 @@ const SurveyList = () => {
     }
   };
 
-  const openReviewDialog = (survey) => {
-    setReviewSurvey(survey);
-    setReviewDialogOpen(true);
+  const openAnalysisDialog = (survey) => {
+    setAnalysisSurvey(survey);
+    setAnalysisDialogOpen(true);
   };
 
-  const closeReviewDialog = () => {
-    setReviewDialogOpen(false);
-    setReviewSurvey(null);
+  const closeAnalysisDialog = () => {
+    setAnalysisDialogOpen(false);
+    setAnalysisSurvey(null);
   };
 
-  const handleReviewSaved = () => {
-    setSuccess('Commcraft review saved and linked to this survey.');
+  const handleAnalysisSaved = (isSent) => {
+    if (isSent) {
+      setSuccess('Survey Analysis Report sent to higher management.');
+    } else {
+      setSuccess('Survey Analysis Report saved.');
+    }
     loadManaged();
   };
 
@@ -292,17 +296,15 @@ const SurveyList = () => {
                           <ResponsesIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {(survey.responseCount || 0) > 0 && (
-                        <Tooltip title={survey.hasCommcraftReview ? 'Edit Commcraft review' : 'Commcraft review section'}>
-                          <IconButton
-                            size="small"
-                            color={survey.hasCommcraftReview ? 'success' : 'secondary'}
-                            onClick={() => openReviewDialog(survey)}
-                          >
-                            <CommcraftReviewIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
+                      <Tooltip title={survey.analysisReport?.isSentToManagement ? "View Analysis Report" : "Analysis Report"}>
+                        <IconButton 
+                          size="small" 
+                          color={survey.analysisReport?.isSentToManagement ? "success" : "default"}
+                          onClick={() => openAnalysisDialog(survey)}
+                        >
+                          <ReportIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Edit">
                         <IconButton
                           size="small"
@@ -460,11 +462,11 @@ const SurveyList = () => {
         </DialogActions>
       </Dialog>
 
-      <CommcraftReviewDialog
-        open={reviewDialogOpen}
-        survey={reviewSurvey}
-        onClose={closeReviewDialog}
-        onSaved={handleReviewSaved}
+      <SurveyAnalysisReportDialog
+        open={analysisDialogOpen}
+        survey={analysisSurvey}
+        onClose={closeAnalysisDialog}
+        onSaved={handleAnalysisSaved}
       />
     </Box>
   );

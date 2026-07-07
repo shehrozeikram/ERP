@@ -24,7 +24,8 @@ import {
   Analytics as AnalyticsIcon,
   ArrowForward as ArrowForwardIcon,
   Refresh as RefreshIcon,
-  TrendingUp as TrendingUpIcon
+  TrendingUp as TrendingUpIcon,
+  Summarize as ReportIcon
 } from '@mui/icons-material';
 import {
   Area,
@@ -43,6 +44,7 @@ import {
   YAxis
 } from 'recharts';
 import surveyService from '../../../services/surveyService';
+import SurveyAnalysisReportDialog from './SurveyAnalysisReportDialog';
 
 const PRIMARY_BLUE = '#1565C0';
 const BORDER = '1px solid #e0e0e0';
@@ -433,6 +435,9 @@ const SurveyExecutiveDashboard = () => {
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
 
+  const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false);
+  const [analysisSurvey, setAnalysisSurvey] = useState(null);
+
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     try {
@@ -449,6 +454,16 @@ const SurveyExecutiveDashboard = () => {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+  const openAnalysisDialog = (survey) => {
+    setAnalysisSurvey(survey);
+    setAnalysisDialogOpen(true);
+  };
+
+  const closeAnalysisDialog = () => {
+    setAnalysisDialogOpen(false);
+    setAnalysisSurvey(null);
+  };
 
   const statusPieData = useMemo(() => {
     if (!data?.charts?.statusBreakdown) return [];
@@ -756,6 +771,16 @@ const SurveyExecutiveDashboard = () => {
                       {survey.avgSatisfaction ? `${survey.avgSatisfaction.average}/${survey.avgSatisfaction.max}` : '—'}
                     </TableCell>
                     <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                      {survey.analysisReport?.isSentToManagement && (
+                        <IconButton 
+                          size="small" 
+                          sx={{ color: '#16A34A', bgcolor: '#DCFCE7', '&:hover': { bgcolor: '#BBF7D0' }, mr: 1 }} 
+                          onClick={(e) => { e.stopPropagation(); openAnalysisDialog(survey); }}
+                          title="View Analysis Report"
+                        >
+                          <ReportIcon fontSize="small" />
+                        </IconButton>
+                      )}
                       <IconButton size="small" sx={{ color: barColor, bgcolor: `${barColor}15`, '&:hover': { bgcolor: `${barColor}28` } }} onClick={() => navigate(`/crm/survey/${survey._id}/analytics`)}>
                         <AnalyticsIcon fontSize="small" />
                       </IconButton>
@@ -834,6 +859,12 @@ const SurveyExecutiveDashboard = () => {
           Manage Surveys
         </Button>
       </Stack>
+      <SurveyAnalysisReportDialog
+        open={analysisDialogOpen}
+        survey={analysisSurvey}
+        onClose={closeAnalysisDialog}
+        onSaved={() => {}}
+      />
     </Box>
   );
 };
