@@ -115,6 +115,9 @@ const RegistryDetailDialog = ({ open, onClose, registryId }) => {
                 <DetailField label="Inteqal no." value={registry.inteqalNo || '—'} />
               </Grid>
               <Grid item xs={6} sm={4} md={3}>
+                <DetailField label="Dealer" value={registry.dealer?.name || '—'} />
+              </Grid>
+              <Grid item xs={6} sm={4} md={3}>
                 <DetailField label="Total area" value={formatKMS(registry.totalArea)} />
               </Grid>
               <Grid item xs={6} sm={4} md={3}>

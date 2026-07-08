@@ -24,6 +24,7 @@ import {
 import { Add, AttachFile, Delete } from '@mui/icons-material';
 import { getMozas, getMozaKhasras } from '../../services/landAcquisitionMozaService';
 import { getRegisteredTotals } from '../../services/landAcquisitionRegistryService';
+import landAcquisitionPartyService from '../../services/landAcquisitionPartyService';
 import {
   addAreas,
   areaToForm,
@@ -69,6 +70,7 @@ const registryToForm = (registry) => ({
   totalArea: areaToForm(registry.totalArea),
   registryNo: registry.registryNo || '',
   inteqalNo: registry.inteqalNo || '',
+  dealer: registry.dealer || null,
   lines: (registry.lines || []).length
     ? (registry.lines || []).map((line) => ({
       khasraEntry: line.khasraEntry || '',
@@ -109,9 +111,11 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
     totalArea: emptyArea(),
     registryNo: '',
     inteqalNo: '',
+    dealer: null,
     lines: []
   });
   const [mozas, setMozas] = useState([]);
+  const [dealers, setDealers] = useState([]);
   const [mozaKhasras, setMozaKhasras] = useState([]);
   const [registeredTotals, setRegisteredTotals] = useState({});
   const [newFiles, setNewFiles] = useState([]);
@@ -120,6 +124,9 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
   useEffect(() => {
     if (!open) return;
     getMozas().then((res) => setMozas(res.data?.data || [])).catch(() => setMozas([]));
+    landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100, page: 1 })
+      .then((res) => setDealers(res.data || []))
+      .catch(() => setDealers([]));
     setNewFiles([]);
     setRemovedAttachmentIds([]);
     if (registry) {
@@ -131,6 +138,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
         totalArea: emptyArea(),
         registryNo: '',
         inteqalNo: '',
+        dealer: null,
         lines: []
       });
     }
@@ -197,6 +205,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
       totalArea: emptyArea(),
       registryNo: form.registryNo,
       inteqalNo: form.inteqalNo,
+      dealer: form.dealer?._id || undefined,
       lines: mozaId ? [emptyLine()] : []
     });
   };
@@ -326,6 +335,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
         totalArea: parseAreaForm(form.totalArea),
         registryNo: form.registryNo.trim(),
         inteqalNo: form.inteqalNo.trim(),
+        dealer: form.dealer?._id || undefined,
         lines: form.lines.map((line) => ({
           khasraEntry: line.khasraEntry || undefined,
           khewatNo: line.khewatNo.trim(),
@@ -408,6 +418,18 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
               label="Inteqal No."
               value={form.inteqalNo}
               onChange={setHeader('inteqalNo')}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <Autocomplete
+              size="small"
+              options={dealers}
+              getOptionLabel={(option) => option?.name || ''}
+              value={form.dealer}
+              onChange={(_, value) => setForm((prev) => ({ ...prev, dealer: value }))}
+              renderInput={(params) => (
+                <TextField {...params} label="Dealer" placeholder="Select dealer" />
+              )}
             />
           </Grid>
         </Grid>

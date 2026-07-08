@@ -43,6 +43,10 @@ const landRegistrySchema = new mongoose.Schema({
   totalArea: { type: landAreaSchema, default: () => ({}) },
   registryNo: { type: String, trim: true, default: '' },
   inteqalNo: { type: String, trim: true, default: '' },
+  dealer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'LandParty'
+  },
   lines: { type: [registryLineSchema], default: [] },
   attachments: { type: [registryAttachmentSchema], default: [] },
   isActive: { type: Boolean, default: true, index: true },

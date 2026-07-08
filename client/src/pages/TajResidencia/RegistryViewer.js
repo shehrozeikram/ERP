@@ -163,6 +163,7 @@ const RegistryViewer = () => {
         'Khewat No': row.khewatNo || '',
         'Registry No': row.registryNo || '',
         'Inteqal No': row.inteqalNo || '',
+        'Dealer': row.dealer?.name || '',
         'Total Acquired': formatKMS(row.totalArea),
         'Total Khasras': row.lines?.length || 0
       }));
@@ -267,6 +268,7 @@ const RegistryViewer = () => {
                 <TableCell><strong>Khewat</strong></TableCell>
                 <TableCell><strong>Registry No.</strong></TableCell>
                 <TableCell><strong>Inteqal No.</strong></TableCell>
+                <TableCell><strong>Dealer</strong></TableCell>
                 <TableCell><strong>Total Acquired</strong></TableCell>
                 <TableCell><strong>Lines</strong></TableCell>
                 <TableCell align="center" width={128}><strong>Actions</strong></TableCell>
@@ -280,6 +282,7 @@ const RegistryViewer = () => {
                   <TableCell>{row.khewatNo}</TableCell>
                   <TableCell>{row.registryNo}</TableCell>
                   <TableCell>{row.inteqalNo || '—'}</TableCell>
+                  <TableCell>{row.dealer?.name || '—'}</TableCell>
                   <TableCell>{formatKMS(row.totalArea)}</TableCell>
                   <TableCell>
                     <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />

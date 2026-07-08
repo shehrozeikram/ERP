@@ -6,6 +6,7 @@ const { authMiddleware } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandMoza = require('../models/tajResidencia/LandMoza');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
+const LandParty = require('../models/tajResidencia/LandParty');
 const {
   parseAreaInput, addAreas, toSarsais, normalizeArea, subtractAreas
 } = require('../utils/landAreaUnits');
@@ -199,6 +200,7 @@ const buildRegistryPayload = (body) => {
     totalArea: finalTotal,
     registryNo: (body.registryNo === 'null' || body.registryNo === 'undefined') ? '' : String(body.registryNo || '').trim(),
     inteqalNo: (body.inteqalNo === 'null' || body.inteqalNo === 'undefined') ? '' : String(body.inteqalNo || '').trim(),
+    dealer: body.dealer || undefined,
     lines,
     linesTotal
   };
@@ -258,6 +260,7 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   const [rows, total, grandTotalAgg] = await Promise.all([
     LandRegistry.find(filter)
       .populate('moza', 'name slug')
+      .populate('dealer', 'name cnic phoneNumber')
       .sort({ registryDate: -1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum),
@@ -317,7 +320,8 @@ router.get('/registries/registered-totals', authMiddleware, asyncHandler(async (
 // GET /api/taj-residencia/land-acquisition/registries/:id
 router.get('/registries/:id', authMiddleware, asyncHandler(async (req, res) => {
   const registry = await LandRegistry.findOne({ _id: req.params.id, isActive: true })
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug')
+    .populate('dealer', 'name cnic phoneNumber partyDate');
 
   if (!registry) {
     return res.status(404).json({ success: false, message: 'Registry not found' });
@@ -364,6 +368,13 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     return res.status(404).json({ success: false, message: 'Moza not found' });
   }
 
+  if (payload.dealer) {
+    const dealer = await LandParty.findOne({ _id: payload.dealer, partyType: 'dealer', isActive: true });
+    if (!dealer) {
+      return res.status(404).json({ success: false, message: 'Dealer not found' });
+    }
+  }
+
   if (payload.registryNo) {
     const duplicate = await LandRegistry.findOne({
       moza: payload.moza,
@@ -406,6 +417,7 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     totalArea: payload.totalArea,
     registryNo: payload.registryNo,
     inteqalNo: payload.inteqalNo,
+    dealer: payload.dealer,
     lines: payload.lines,
     attachments: mapUploadedAttachments(req.files),
     createdBy: req.user?._id
@@ -443,6 +455,13 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
     payload.khewatNo = khewatNos.join(', ');
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, message: err.message });
+  }
+
+  if (payload.dealer) {
+    const dealer = await LandParty.findOne({ _id: payload.dealer, partyType: 'dealer', isActive: true });
+    if (!dealer) {
+      return res.status(404).json({ success: false, message: 'Dealer not found' });
+    }
   }
 
   if (!payload.registryDate || Number.isNaN(payload.registryDate.getTime())) {
@@ -494,10 +513,12 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
   registry.totalArea = payload.totalArea;
   registry.registryNo = payload.registryNo;
   registry.inteqalNo = payload.inteqalNo;
+  registry.dealer = payload.dealer;
   registry.lines = payload.lines;
   applyAttachmentChanges(registry, body, req.files);
   await registry.save();
   await registry.populate('moza', 'name slug');
+  await registry.populate('dealer', 'name cnic phoneNumber partyDate');
 
   res.json({
     success: true,
