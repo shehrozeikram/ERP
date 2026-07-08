@@ -69,9 +69,9 @@ async function nextTransferNumbers() {
   let maxUtn = 0;
   let maxLtn = 0;
   for (const row of transfers) {
-    const utnMatch = String(row.transferNo || '').match(/UTN-(\d+)/i);
-    if (utnMatch) {
-      const n = Number(utnMatch[1]);
+    const ltnTransferMatch = String(row.transferNo || '').match(/LT-(\d+)/i);
+    if (ltnTransferMatch) {
+      const n = Number(ltnTransferMatch[1]);
       if (!Number.isNaN(n) && n > maxUtn) maxUtn = n;
     }
     const ltnMatch = String(row.referenceNo || '').match(/LTN-(\d+)/i);
@@ -83,7 +83,7 @@ async function nextTransferNumbers() {
 
   const next = Math.max(maxUtn, maxLtn) + 1;
   return {
-    transferNo: `UTN-${next}`,
+    transferNo: `LT-${String(next).padStart(4, '0')}`,
     referenceNo: `LTN-${String(next).padStart(6, '0')}`
   };
 };

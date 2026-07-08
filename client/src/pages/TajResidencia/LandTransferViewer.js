@@ -198,7 +198,6 @@ export default function LandTransferViewer() {
               <TableCell sx={{ fontWeight: 700 }}>Reference No.</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Land Transfer No.</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Deal No.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Land Purchase No.</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Seller</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Purchaser</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Inteqal #</TableCell>
@@ -206,7 +205,6 @@ export default function LandTransferViewer() {
               <TableCell sx={{ fontWeight: 700 }}>Transfer Moza</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Transfer Charges</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Payment Status</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Created At</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
@@ -215,13 +213,13 @@ export default function LandTransferViewer() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={16} align="center" sx={{ py: 5 }}>
+                <TableCell colSpan={14} align="center" sx={{ py: 5 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={16} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                <TableCell colSpan={14} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                   No land transfers yet — create one from a land purchase record.
                 </TableCell>
               </TableRow>
@@ -241,7 +239,6 @@ export default function LandTransferViewer() {
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.transferNo}</TableCell>
                   <TableCell>{row.dealNo}</TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace' }}>{row.purchaseNo}</TableCell>
                   <TableCell>{row.seller?.name || '—'}</TableCell>
                   <TableCell>{row.purchaser?.name || '—'}</TableCell>
                   <TableCell>{row.intiqalNo || '—'}</TableCell>
@@ -250,15 +247,6 @@ export default function LandTransferViewer() {
                   <TableCell>{formatAreaReadable(row.transferArea)}</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600, color: 'warning.dark' }}>
                     {formatMoney(row.totalTransferPayments)}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={row.status === 'Closed' ? 'Close' : row.status}
-                      size="small"
-                      color={row.status === 'Closed' ? 'default' : 'warning'}
-                      variant={row.status === 'Closed' ? 'filled' : 'outlined'}
-                      sx={{ fontWeight: 700 }}
-                    />
                   </TableCell>
                   <TableCell>
                     <Chip

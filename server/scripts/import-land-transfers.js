@@ -156,7 +156,7 @@ const run = async () => {
     
     const payload = {
       referenceNo: String(referenceNo),
-      transferNo: String(referenceNo),
+      transferNo: `LT-${String(i+1).padStart(4, '0')}`,
       landPurchase: isDryRun ? 'DUMMY_PURCHASE' : purchase._id,
       dealNo: purchase ? purchase.dealNo : Number(dealNo),
       purchaseNo: purchase ? purchase.purchaseNo : `DUMMY-${dealNo}`,
