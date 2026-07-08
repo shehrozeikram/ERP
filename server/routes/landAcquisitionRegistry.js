@@ -197,8 +197,8 @@ const buildRegistryPayload = (body) => {
     khewatNo: khewatNos.join(', '),
     khewatNos,
     totalArea: finalTotal,
-    registryNo: String(body.registryNo || '').trim(),
-    inteqalNo: String(body.inteqalNo || '').trim(),
+    registryNo: (body.registryNo === 'null' || body.registryNo === 'undefined') ? '' : String(body.registryNo || '').trim(),
+    inteqalNo: (body.inteqalNo === 'null' || body.inteqalNo === 'undefined') ? '' : String(body.inteqalNo || '').trim(),
     lines,
     linesTotal
   };

@@ -20,7 +20,8 @@ import {
   Refresh as RefreshIcon,
   AccountBalanceWallet as PurchaseIcon,
   Key as PossessionIcon,
-  Timer as PendingIcon
+  Timer as PendingIcon,
+  Assessment as AssessmentIcon
 } from '@mui/icons-material';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 
@@ -229,6 +230,19 @@ export default function LandAcquisitionDashboard() {
     exportCSV('unregistered_possession_summary_by_moza.csv', headers, rows);
   };
 
+  const handleExportLandSummaryCSV = () => {
+    if (!data) return;
+    const headers = ['#', 'Moza', 'Kanal', 'Marla', 'Sarsai', 'Land Value', 'Transfer Charges', 'Commission', 'Total Land Value & Allied Expense'];
+    const rows = (data.landSummary?.rows || []).map((r, i) => [
+      i + 1, r.mozaName, r.kanal, r.marla, r.sarsai, r.landValue, r.transferCharges, r.commission, r.totalAllied
+    ]);
+    const t = data.landSummary?.totals;
+    if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai, t.landValue, t.transferCharges, t.commission, t.totalAllied]);
+    exportCSV('land_summary_report.csv', headers, rows);
+  };
+
+  const landSummaryRows = data?.landSummary?.rows || [];
+  const landSummaryTotals = data?.landSummary?.totals;
   const registryRows = data?.registryMozaSummary?.rows || [];
   const registryTotals = data?.registryMozaSummary?.totals;
   const possessionRows = data?.possessionMozaSummary?.rows || [];
@@ -255,6 +269,80 @@ export default function LandAcquisitionDashboard() {
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {/* Land Summary Report */}
+      <SectionCard
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AssessmentIcon sx={{ color: 'primary.main' }} />
+            <Typography variant="h6" fontWeight={700} color="primary.dark">Land Summary Report</Typography>
+          </Box>
+        }
+        loading={loading}
+        onExportExcel={handleExportLandSummaryCSV}
+      >
+        <TableContainer>
+          <Table size="medium">
+            <TableHead>
+              <TableRow>
+                <ColHeader align="center" sx={{ width: 64 }}>#</ColHeader>
+                <ColHeader align="left" sx={{ fontSize: '0.75rem' }}>Moza</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Kanal</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Marla</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Sarsai</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Land Value</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Transfer Charges</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Commission</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Total Land Value & Allied Expense</ColHeader>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {landSummaryRows.length === 0 && !loading ? (
+                <TableRow>
+                  <TableCell colSpan={9} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                    No records found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                landSummaryRows.map((row, idx) => (
+                  <TableRow key={row.mozaName} hover sx={{ '&:last-child td': { border: 0 }, transition: 'background-color 0.2s', '&:hover': { bgcolor: 'primary.50' } }}>
+                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
+                      {idx + 1}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.9rem', color: 'text.primary' }}>{row.mozaName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.kanal)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.marla)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.sarsai)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>{fmt(row.landValue)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>{fmt(row.transferCharges)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>{fmt(row.commission)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>{fmt(row.totalAllied)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+              {landSummaryTotals && (
+                <TableRow sx={{ bgcolor: 'grey.300', '& td': { color: 'text.primary', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell align="center"></TableCell>
+                  <TableCell align="left" sx={{ fontSize: '1rem' }}>Total</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(landSummaryTotals.kanal)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(landSummaryTotals.marla)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(landSummaryTotals.sarsai)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmt(landSummaryTotals.landValue)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmt(landSummaryTotals.transferCharges)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmt(landSummaryTotals.commission)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmt(landSummaryTotals.totalAllied)}</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </SectionCard>
 
       {/* Acquired Land Summary by Moza */}
       <SectionCard
