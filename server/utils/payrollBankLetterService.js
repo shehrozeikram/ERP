@@ -77,7 +77,7 @@ const buildLetterPayload = async (app) => {
       companyBank = {
         ...(companyBank || {}),
         bankName: voucherAccount.name || companyBank?.bankName || '',
-        accountNumber: voucherAccount.accountNumber || companyBank?.accountNumber || ''
+        accountNumber: companyBank?.accountNumber || voucherAccount.accountNumber || ''
       };
     }
   }
