@@ -1383,7 +1383,6 @@ export default function FinancePayroll() {
               disabled={
                 processingPayment
                 || !activeDraftId
-                || !paymentFinAuth.financeControllerUser
               }
             >
               {processingPayment ? 'Processing…' : 'Create BPV & Submit'}
