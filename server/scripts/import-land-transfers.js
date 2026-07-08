@@ -62,12 +62,16 @@ const run = async () => {
   }
 
   const mozas = await LandMoza.find();
-  const getMozaId = (name) => {
+  const getMozaId = async (name) => {
     if (!name) return null;
     let n = name.toLowerCase().trim();
     if (n === 'ropa') n = 'rupa';
     const found = mozas.find(m => m.name.toLowerCase().trim() === n);
-    return found ? found._id : null;
+    if (found) return found._id;
+    if (isDryRun) return `NEW_MOZA_${n}`;
+    const newMoza = await LandMoza.create({ name: name, slug: n.replace(/\s+/g, '-') + '-' + Date.now().toString().slice(-4) });
+    mozas.push(newMoza);
+    return newMoza._id;
   };
 
   const getOrCreateParty = async (name, type) => {
@@ -120,7 +124,7 @@ const run = async () => {
       continue;
     }
 
-    const mozaId = getMozaId(row['Moza']);
+    const mozaId = await getMozaId(row['Moza']);
     if (!mozaId) {
       console.log(`Row ${i + 2}: Moza '${row['Moza']}' not found. Skipping.`);
       skipCount++;
