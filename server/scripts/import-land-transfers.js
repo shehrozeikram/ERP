@@ -24,7 +24,6 @@ const parseArea = (str) => {
   if (sMatch) sarsai = parseFloat(sMatch[1]);
   
   if (!kMatch && !mMatch && !sMatch && !isNaN(parseFloat(s))) {
-    // If it's just a number, assume kanals (or what is the norm? Usually kanals)
     kanal = parseFloat(s);
   }
   
@@ -63,20 +62,18 @@ const run = async () => {
 
   const mozas = await LandMoza.find();
   const getMozaId = async (name) => {
-    if (!name) return null;
-    let n = name.toLowerCase().trim();
+    let n = (name || 'Unknown Moza').toLowerCase().trim();
     if (n === 'ropa') n = 'rupa';
     const found = mozas.find(m => m.name.toLowerCase().trim() === n);
     if (found) return found._id;
     if (isDryRun) return `NEW_MOZA_${n}`;
-    const newMoza = await LandMoza.create({ name: name, slug: n.replace(/\s+/g, '-') + '-' + Date.now().toString().slice(-4) });
+    const newMoza = await LandMoza.create({ name: n, slug: n.replace(/\s+/g, '-') + '-' + Date.now().toString().slice(-4) });
     mozas.push(newMoza);
     return newMoza._id;
   };
 
   const getOrCreateParty = async (name, type) => {
-    if (!name) return null;
-    const n = String(name).trim();
+    const n = String(name || `Unknown ${type}`).trim();
     let p = await LandParty.findOne({ name: { $regex: new RegExp(`^${n}$`, 'i') }, partyType: type });
     if (!p) {
       if (isDryRun) {
@@ -107,43 +104,33 @@ const run = async () => {
 
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
-    const dealNo = row['Deal No.'];
-    const referenceNo = row['Reference No.'] || `T-${Date.now()}-${i}`;
-    
-    // Find Land Purchase
+    let dealNo = row['Deal No.'];
     if (dealNo === null || dealNo === undefined) {
-      console.log(`Row ${i + 2}: Deal No is empty. Skipping.`);
-      skipCount++;
-      continue;
+      dealNo = 999000 + i;
     }
     
-    const purchase = await LandPurchase.findOne({ dealNo: Number(dealNo) });
-    if (!purchase) {
-      console.log(`Row ${i + 2}: Land Purchase not found for Deal No ${dealNo}. Skipping.`);
-      skipCount++;
-      continue;
-    }
-
+    // Append row number to ensure strictly unique reference number
+    const baseRef = row['Reference No.'] ? String(row['Reference No.']).trim() : 'T';
+    const referenceNo = `${baseRef}_R${i+2}`;
+    
     const mozaId = await getMozaId(row['Moza']);
-    if (!mozaId) {
-      console.log(`Row ${i + 2}: Moza '${row['Moza']}' not found. Skipping.`);
-      skipCount++;
-      continue;
-    }
-    
+    const sellerId = await getOrCreateParty(row['Seller Name'], 'seller');
+    const purchaserId = await getOrCreateParty(row['Purchaser Name'], 'buyer');
     const transferDate = excelDateToJSDate(row['Transfer Date']) || new Date();
-    
-    const sellerId = await getOrCreateParty(row['Seller Name'] || 'Unknown Seller', 'seller');
-    if (!sellerId) {
-      console.log(`Row ${i + 2}: Seller is empty. Skipping.`);
-      skipCount++;
-      continue;
-    }
-
-    const purchaserId = await getOrCreateParty(row['Purchaser Name'] || 'Unknown Purchaser', 'buyer');
-
     const transferArea = parseArea(row['Land']);
     
+    let purchase = await LandPurchase.findOne({ dealNo: Number(dealNo) });
+    if (!purchase && !isDryRun) {
+      purchase = await LandPurchase.create({
+        purchaseNo: `DUMMY-PURCHASE-${dealNo}-${Date.now().toString().slice(-4)}`,
+        dealNo: Number(dealNo),
+        purchaseDate: transferDate,
+        seller: sellerId,
+        moza: mozaId,
+        totalArea: transferArea
+      });
+    }
+
     const transferPayments = [];
     let totalTransferPayments = 0;
     
@@ -154,7 +141,6 @@ const run = async () => {
         val = parseFloat(val);
       }
       if (val && !isNaN(val) && val > 0) {
-        // Fix typos
         let pType = col;
         if (pType === 'Distrcit Council Fee') pType = 'District Council Fee';
         if (pType === 'Other / Miscellenous Cost') pType = 'Miscellaneous Cost';
@@ -171,17 +157,17 @@ const run = async () => {
     const payload = {
       referenceNo: String(referenceNo),
       transferNo: String(referenceNo),
-      landPurchase: purchase._id,
-      dealNo: purchase.dealNo,
-      purchaseNo: purchase.purchaseNo,
+      landPurchase: isDryRun ? 'DUMMY_PURCHASE' : purchase._id,
+      dealNo: purchase ? purchase.dealNo : Number(dealNo),
+      purchaseNo: purchase ? purchase.purchaseNo : `DUMMY-${dealNo}`,
       transferDate,
       intiqalNo: row['Inteqal No.'] ? String(row['Inteqal No.']) : '',
       registryNo: row['Registry No.'] ? String(row['Registry No.']) : '',
       moza: mozaId,
       seller: sellerId,
       purchaser: purchaserId,
-      lines: [], // dummy line? we might need at least one line if schema requires
-      purchaseArea: purchase.totalArea,
+      lines: [], 
+      purchaseArea: purchase ? purchase.totalArea : transferArea,
       transferArea,
       transferPayments,
       totalTransferPayments,
@@ -193,12 +179,6 @@ const run = async () => {
       successCount++;
     } else {
       try {
-        const existing = await LandTransfer.findOne({ referenceNo: payload.referenceNo });
-        if (existing) {
-          console.log(`Row ${i + 2}: Transfer ${payload.referenceNo} already exists. Skipping.`);
-          skipCount++;
-          continue;
-        }
         await LandTransfer.create(payload);
         successCount++;
       } catch (err) {
