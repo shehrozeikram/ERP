@@ -17,11 +17,25 @@ mongoose.connect(uri, {
     console.log('Index moza_1_registryNo_1 might not exist or already dropped:', err.message);
   }
   
-  try {
+    try {
     await LandRegistry.collection.dropIndex('registryNo_1');
     console.log('Successfully dropped old registryNo_1 index.');
   } catch (err) {
     console.log('Index registryNo_1 might not exist or already dropped:', err.message);
+  }
+
+  try {
+    await LandRegistry.collection.dropIndex('moza_1_inteqalNo_1');
+    console.log('Successfully dropped old moza_1_inteqalNo_1 index.');
+  } catch (err) {
+    console.log('Index moza_1_inteqalNo_1 might not exist or already dropped:', err.message);
+  }
+  
+  try {
+    await LandRegistry.collection.dropIndex('inteqalNo_1');
+    console.log('Successfully dropped old inteqalNo_1 index.');
+  } catch (err) {
+    console.log('Index inteqalNo_1 might not exist or already dropped:', err.message);
   }
 
   try {
