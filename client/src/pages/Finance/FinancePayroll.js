@@ -129,6 +129,7 @@ export default function FinancePayroll() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [companyFilter, setCompanyFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const { selectedCompanyId, companies: financeCompanies } = useFinanceCompany();
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -193,6 +194,7 @@ export default function FinancePayroll() {
 
   useEffect(() => {
     setCompanyFilter('');
+    setProjectFilter('');
   }, [selected?.month, selected?.year]);
 
   const payFromCompanyId = useMemo(() => {
@@ -418,11 +420,19 @@ export default function FinancePayroll() {
       .sort((a, b) => a.localeCompare(b));
   }, [detail]);
 
+  const projectOptions = useMemo(() => {
+    if (!detail?.payrolls?.length) return [];
+    return [...new Set(detail.payrolls.map((row) => row.employee?.project).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+  }, [detail]);
+
   const filteredPayrolls = useMemo(() => {
     if (!detail?.payrolls?.length) return [];
-    if (!companyFilter) return detail.payrolls;
-    return detail.payrolls.filter((row) => row.employee?.company === companyFilter);
-  }, [detail, companyFilter]);
+    let rows = detail.payrolls;
+    if (companyFilter) rows = rows.filter((row) => row.employee?.company === companyFilter);
+    if (projectFilter) rows = rows.filter((row) => row.employee?.project === projectFilter);
+    return rows;
+  }, [detail, companyFilter, projectFilter]);
 
   const filteredSummary = useMemo(() => {
     const totalNetSalary = filteredPayrolls.reduce((sum, row) => sum + (Number(row.netSalary) || 0), 0);
@@ -655,10 +665,10 @@ export default function FinancePayroll() {
                   <Typography variant="h6">{detail.periodLabel}</Typography>
                   <Typography variant="body2" color="text.secondary">
                     {filteredSummary.employeeCount} employees
-                    {companyFilter ? ` in ${companyFilter}` : ''}
+                    {companyFilter || projectFilter ? ` in ${[companyFilter, projectFilter].filter(Boolean).join(' / ')}` : ''}
                     {' · '}Net {fmt(filteredSummary.totalNetSalary)}
                     {' · '}Gross {fmt(filteredSummary.totalGrossSalary)}
-                    {companyFilter ? ` (filtered from ${detail.summary.employeeCount})` : ''}
+                    {companyFilter || projectFilter ? ` (filtered from ${detail.summary.employeeCount})` : ''}
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -822,9 +832,26 @@ export default function FinancePayroll() {
                     ))}
                   </Select>
                 </FormControl>
-                {companyFilter ? (
-                  <Button size="small" onClick={() => setCompanyFilter('')} sx={{ alignSelf: { sm: 'center' } }}>
-                    Clear filter
+
+                <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+                  <InputLabel>Project</InputLabel>
+                  <Select
+                    value={projectFilter}
+                    label="Project"
+                    onChange={(e) => setProjectFilter(e.target.value)}
+                  >
+                    <MenuItem value="">All Projects</MenuItem>
+                    {projectOptions.map((project) => (
+                      <MenuItem key={project} value={project}>
+                        {project}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {companyFilter || projectFilter ? (
+                  <Button size="small" onClick={() => { setCompanyFilter(''); setProjectFilter(''); }} sx={{ alignSelf: { sm: 'center' } }}>
+                    Clear filters
                   </Button>
                 ) : null}
               </Stack>
@@ -909,7 +936,7 @@ export default function FinancePayroll() {
 
               <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
                 Employee Salary Detail
-                {companyFilter ? ` — ${companyFilter}` : ''}
+                {companyFilter || projectFilter ? ` — ${[companyFilter, projectFilter].filter(Boolean).join(' / ')}` : ''}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                 Full salary breakdown per employee (same columns as Company-Wise Summary Report).
@@ -974,7 +1001,7 @@ export default function FinancePayroll() {
                     <TableRow>
                       <TableCell colSpan={7} align="right" sx={grandTotalRowSx}>
                         <strong>
-                          {companyFilter ? `Total — ${companyFilter}` : 'Grand Total'}
+                          {companyFilter || projectFilter ? `Total — ${[companyFilter, projectFilter].filter(Boolean).join(' / ')}` : 'Grand Total'}
                         </strong>
                         {' '}
                         ({filteredSummary.employeeCount} employees)
