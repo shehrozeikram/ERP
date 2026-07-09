@@ -437,6 +437,64 @@ router.get('/purchases/:id', asyncHandler(async (req, res) => {
   res.json({ success: true, data: mapPurchase(purchase) });
 }));
 
+// GET /purchases/migrate-lakhu (TEMPORARY SCRIPT ROUTE)
+router.get('/purchases/migrate-lakhu', async (req, res) => {
+  try {
+    const LandMoza = require('../models/tajResidencia/LandMoza');
+    const LandMozaKhasraEntry = require('../models/tajResidencia/LandMozaKhasraEntry');
+    const LandTransfer = require('../models/tajResidencia/LandTransfer');
+
+    const lakhuMozas = await LandMoza.find({ name: /Lakhu/i });
+    if (lakhuMozas.length <= 1) {
+      return res.json({ success: true, message: `Found ${lakhuMozas.length} Lakhu Moza(s). No duplicates to merge.` });
+    }
+    
+    let primaryMoza = null;
+    let maxKhasras = -1;
+    
+    for (const moza of lakhuMozas) {
+      const khasraCount = await LandMozaKhasraEntry.countDocuments({ moza: moza._id });
+      if (khasraCount > maxKhasras) {
+        maxKhasras = khasraCount;
+        primaryMoza = moza;
+      }
+    }
+    
+    const duplicateIds = lakhuMozas
+      .filter(m => m._id.toString() !== primaryMoza._id.toString())
+      .map(m => m._id);
+      
+    const purchaseUpdate = await LandPurchase.updateMany(
+      { moza: { $in: duplicateIds } },
+      { $set: { moza: primaryMoza._id } }
+    );
+    
+    const transferUpdate = await LandTransfer.updateMany(
+      { moza: { $in: duplicateIds } },
+      { $set: { moza: primaryMoza._id } }
+    );
+    
+    const entryUpdate = await LandMozaKhasraEntry.updateMany(
+      { moza: { $in: duplicateIds } },
+      { $set: { moza: primaryMoza._id } }
+    );
+    
+    const deleteRes = await LandMoza.deleteMany({ _id: { $in: duplicateIds } });
+    
+    res.json({
+      success: true,
+      message: 'Merge complete!',
+      primaryMoza: primaryMoza._id,
+      duplicatesRemoved: deleteRes.deletedCount,
+      purchasesMigrated: purchaseUpdate.modifiedCount,
+      transfersMigrated: transferUpdate.modifiedCount,
+      khasrasMigrated: entryUpdate.modifiedCount
+    });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
 // POST /purchases
 router.post('/purchases', asyncHandler(async (req, res) => {
   const payload = buildDealPayload(req.body);
