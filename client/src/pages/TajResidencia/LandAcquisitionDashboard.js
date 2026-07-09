@@ -21,8 +21,10 @@ import {
   AccountBalanceWallet as PurchaseIcon,
   Key as PossessionIcon,
   Timer as PendingIcon,
-  Assessment as AssessmentIcon
+  Assessment as AssessmentIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 
 const fmt = (n) =>
@@ -171,6 +173,7 @@ const exportCSV = (filename, headers, rows) => {
 };
 
 export default function LandAcquisitionDashboard() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -241,8 +244,21 @@ export default function LandAcquisitionDashboard() {
     exportCSV('land_summary_report.csv', headers, rows);
   };
 
+  const handleExportOwnerSummaryCSV = () => {
+    if (!data) return;
+    const headers = ['#', 'Owner Name', 'Kanal', 'Marla', 'Sarsai'];
+    const rows = (data.ownerSummary?.rows || []).map((r, i) => [
+      i + 1, r.ownerName, r.kanal, r.marla, r.sarsai
+    ]);
+    const t = data.ownerSummary?.totals;
+    if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai]);
+    exportCSV('land_transfer_owner_summary.csv', headers, rows);
+  };
+
   const landSummaryRows = data?.landSummary?.rows || [];
   const landSummaryTotals = data?.landSummary?.totals;
+  const ownerSummaryRows = data?.ownerSummary?.rows || [];
+  const ownerSummaryTotals = data?.ownerSummary?.totals;
   const registryRows = data?.registryMozaSummary?.rows || [];
   const registryTotals = data?.registryMozaSummary?.totals;
   const possessionRows = data?.possessionMozaSummary?.rows || [];
@@ -337,6 +353,79 @@ export default function LandAcquisitionDashboard() {
                   <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmt(landSummaryTotals.transferCharges)}</TableCell>
                   <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmt(landSummaryTotals.commission)}</TableCell>
                   <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmt(landSummaryTotals.totalAllied)}</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </SectionCard>
+
+      {/* Land Transfer Owner Summary */}
+      <SectionCard
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AssessmentIcon sx={{ color: 'primary.main' }} />
+            <Typography variant="h6" fontWeight={700} color="primary.dark">Land Transfer Owner Summary</Typography>
+          </Box>
+        }
+        loading={loading}
+        onExportExcel={handleExportOwnerSummaryCSV}
+      >
+        <TableContainer>
+          <Table size="medium">
+            <TableHead>
+              <TableRow>
+                <ColHeader align="center" sx={{ width: 64 }}>#</ColHeader>
+                <ColHeader align="left" sx={{ fontSize: '0.75rem' }}>Owner Name</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Kanal</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Marla</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Sarsai</ColHeader>
+                <ColHeader align="center" sx={{ fontSize: '0.75rem' }}>Detail</ColHeader>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {ownerSummaryRows.length === 0 && !loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                    No records found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                ownerSummaryRows.map((row, idx) => (
+                  <TableRow key={row.ownerName} hover sx={{ '&:last-child td': { border: 0 }, transition: 'background-color 0.2s', '&:hover': { bgcolor: 'primary.50' } }}>
+                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
+                      {idx + 1}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.9rem', color: 'text.primary' }}>{row.ownerName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.kanal)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.marla)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.sarsai)}
+                    </TableCell>
+                    <TableCell align="center">
+                      <IconButton 
+                        size="small" 
+                        color="primary"
+                        onClick={() => navigate(row.ownerName === 'In Progress' ? '/taj-residencia/land-transfer' : `/taj-residencia/land-transfer?search=${encodeURIComponent(row.ownerName)}`)}
+                      >
+                        <ViewIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+              {ownerSummaryTotals && (
+                <TableRow sx={{ bgcolor: 'grey.300', '& td': { color: 'text.primary', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell align="center"></TableCell>
+                  <TableCell align="left" sx={{ fontSize: '1rem' }}>Total</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(ownerSummaryTotals.kanal)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(ownerSummaryTotals.marla)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(ownerSummaryTotals.sarsai)}</TableCell>
+                  <TableCell align="center"></TableCell>
                 </TableRow>
               )}
             </TableBody>
