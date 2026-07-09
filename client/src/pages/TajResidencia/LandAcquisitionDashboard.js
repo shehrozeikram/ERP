@@ -266,6 +266,7 @@ export default function LandAcquisitionDashboard() {
   const ownerSummaryRows = data?.ownerSummary?.rows || [];
   const ownerSummaryTotals = data?.ownerSummary?.totals;
   const dealsInProgressRows = data?.dealsInProgressSummary?.rows || [];
+  const dealsInProgressTotals = data?.dealsInProgressSummary?.totals;
   const registryRows = data?.registryMozaSummary?.rows || [];
   const registryTotals = data?.registryMozaSummary?.totals;
   const possessionRows = data?.possessionMozaSummary?.rows || [];
@@ -499,6 +500,16 @@ export default function LandAcquisitionDashboard() {
                     </TableCell>
                   </TableRow>
                 ))
+              )}
+              {dealsInProgressTotals && (
+                <TableRow sx={{ bgcolor: 'grey.300', '& td': { color: 'text.primary', fontWeight: 800, border: 'none', py: 1.5 } }}>
+                  <TableCell align="center"></TableCell>
+                  <TableCell align="left" sx={{ fontSize: '1rem' }}>Total</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(dealsInProgressTotals.kanal)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(dealsInProgressTotals.marla)}</TableCell>
+                  <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(dealsInProgressTotals.sarsai)}</TableCell>
+                  <TableCell align="center"></TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>

@@ -564,20 +564,19 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   let noInteqalSarsais = 0;
 
   for (const t of transfers) {
-    const name = t.purchaser?.name || t.purchaserName;
+    const name = t.purchaser?.name || t.purchaserName || 'In Progress';
     const sarsais = toSarsaisLocal(t.transferArea);
     
-    if (name) {
-      if (!purchaserMap[name]) purchaserMap[name] = { ownerName: name, totalSarsais: 0 };
-      purchaserMap[name].totalSarsais += sarsais;
-    } else {
-      // No purchaser name -> Deals in Progress
-      if (!t.registryNo || t.registryNo.trim() === '') {
-        noRegistrySarsais += sarsais;
-      }
-      if (!t.intiqalNo || t.intiqalNo.trim() === '') {
-        noInteqalSarsais += sarsais;
-      }
+    // Always add to Owner Summary
+    if (!purchaserMap[name]) purchaserMap[name] = { ownerName: name, totalSarsais: 0 };
+    purchaserMap[name].totalSarsais += sarsais;
+
+    // Deals in Progress (Applies to ALL transfers missing docs)
+    if (!t.registryNo || t.registryNo.trim() === '') {
+      noRegistrySarsais += sarsais;
+    }
+    if (!t.intiqalNo || t.intiqalNo.trim() === '') {
+      noInteqalSarsais += sarsais;
     }
   }
 
@@ -596,6 +595,10 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   dealsInProgressRows.push({ ownerName: 'Un-Available Registries', type: 'registry', kanal: noRegArea.kanal, marla: noRegArea.marla, sarsai: noRegArea.sarsai });
   const noIntArea = fromSarsais(noInteqalSarsais);
   dealsInProgressRows.push({ ownerName: 'Un-Available Inteqal', type: 'inteqal', kanal: noIntArea.kanal, marla: noIntArea.marla, sarsai: noIntArea.sarsai });
+  
+  const dealsTotalSarsais = noRegistrySarsais + noInteqalSarsais;
+  const dealsTotalArea = fromSarsais(dealsTotalSarsais);
+  const dealsInProgressTotals = { kanal: dealsTotalArea.kanal, marla: dealsTotalArea.marla, sarsai: dealsTotalArea.sarsai };
 
   // 6a. Registry summary by moza
   const registries = await LandRegistry.find({ isActive: true }).populate('moza', 'name').lean();
@@ -694,7 +697,7 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
     data: {
       landSummary: { rows, totals },
       ownerSummary: { rows: ownerRows, totals: ownerTotals },
-      dealsInProgressSummary: { rows: dealsInProgressRows },
+      dealsInProgressSummary: { rows: dealsInProgressRows, totals: dealsInProgressTotals },
       dashboardTotals,
       registryMozaSummary: { rows: registryMozaRows, totals: registryMozaTotals },
       possessionMozaSummary: { rows: possessionMozaRows, totals: possessionMozaTotals },
