@@ -195,19 +195,17 @@ export default function LandTransferViewer() {
           <TableHead>
             <TableRow sx={{ bgcolor: 'grey.50' }}>
               <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Reference No.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Land Transfer No.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Deal No.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Seller</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Purchaser</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Inteqal #</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Registry #</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Transfer Moza</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">Transfer Charges</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Payment Status</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Transfer Date</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>DATE</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>REFERENCE NO</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>LAND TRANSFER NO</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>DEAL NO</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>MOZA</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>INTIQAL</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>REGISTRY</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700 }}>DOC (INTIQAL)</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700 }}>DOC (REGISTRY)</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>SIZE</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>ACTIONS</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -227,41 +225,25 @@ export default function LandTransferViewer() {
               rows.map((row, idx) => (
                 <TableRow key={row._id} hover>
                   <TableCell>{page * rowsPerPage + idx + 1}</TableCell>
+                  <TableCell>{new Date(row.transferDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-')}</TableCell>
                   <TableCell>
                     <Button
                       size="small"
                       variant="text"
-                      sx={{ fontFamily: 'monospace', fontWeight: 700, p: 0, minWidth: 0 }}
+                      sx={{ fontFamily: 'monospace', fontWeight: 700, p: 0, minWidth: 0, color: 'text.secondary' }}
                       onClick={() => setEditDialog({ open: true, transferId: row._id, purchaseId: null })}
                     >
                       {row.referenceNo}
                     </Button>
                   </TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.transferNo}</TableCell>
+                  <TableCell sx={{ color: 'text.secondary' }}>{row.transferNo}</TableCell>
                   <TableCell>{row.dealNo}</TableCell>
-                  <TableCell>{row.seller?.name || '—'}</TableCell>
-                  <TableCell>{row.purchaser?.name || '—'}</TableCell>
+                  <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{row.intiqalNo || '—'}</TableCell>
                   <TableCell>{row.registryNo || '—'}</TableCell>
-                  <TableCell>{row.moza?.name || '—'}</TableCell>
+                  <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
+                  <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
                   <TableCell>{formatAreaReadable(row.transferArea)}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600, color: 'warning.dark' }}>
-                    {formatMoney(row.totalTransferPayments)}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={row.paymentStatus || 'Pending'}
-                      size="small"
-                      color={
-                        row.paymentStatus === 'Paid' ? 'success'
-                          : row.paymentStatus === 'Partial Paid' ? 'warning'
-                          : 'error'
-                      }
-                      variant="outlined"
-                      sx={{ fontWeight: 700 }}
-                    />
-                  </TableCell>
-                  <TableCell>{formatDate(row.transferDate)}</TableCell>
                   <TableCell align="right">
                     {row.status !== 'Closed' && (
                       <Tooltip title="Close transfer">
