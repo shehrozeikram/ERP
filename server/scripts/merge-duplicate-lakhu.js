@@ -21,11 +21,11 @@ async function run() {
     const lakhuMozas = await LandMoza.find({ name: /Lakhu/i });
     
     if (lakhuMozas.length <= 1) {
-      console.log(\`Found \${lakhuMozas.length} Lakhu Moza(s). No duplicates to merge.\`);
+      console.log(`Found ${lakhuMozas.length} Lakhu Moza(s). No duplicates to merge.`);
       process.exit(0);
     }
     
-    console.log(\`Found \${lakhuMozas.length} duplicate Lakhu Mozas. Analyzing to find the primary one...\`);
+    console.log(`Found ${lakhuMozas.length} duplicate Lakhu Mozas. Analyzing to find the primary one...`);
     
     let primaryMoza = null;
     let maxKhasras = -1;
@@ -33,7 +33,7 @@ async function run() {
     // Find the one with the most Khasra entries to be the "primary" one
     for (const moza of lakhuMozas) {
       const khasraCount = await LandMozaKhasraEntry.countDocuments({ moza: moza._id });
-      console.log(\` - Moza \${moza._id} (\${moza.name}) has \${khasraCount} Khasra entries.\`);
+      console.log(` - Moza ${moza._id} (${moza.name}) has ${khasraCount} Khasra entries.`);
       
       if (khasraCount > maxKhasras) {
         maxKhasras = khasraCount;
@@ -41,38 +41,38 @@ async function run() {
       }
     }
     
-    console.log(\`\nSelected Primary Moza: \${primaryMoza._id} (\${primaryMoza.name}) with \${maxKhasras} Khasra entries.\`);
+    console.log(`\nSelected Primary Moza: ${primaryMoza._id} (${primaryMoza.name}) with ${maxKhasras} Khasra entries.`);
     
     const duplicateIds = lakhuMozas
       .filter(m => m._id.toString() !== primaryMoza._id.toString())
       .map(m => m._id);
       
-    console.log(\`Migrating data from \${duplicateIds.length} duplicate Moza(s)...\`);
+    console.log(`Migrating data from ${duplicateIds.length} duplicate Moza(s)...`);
     
     // Migrate Land Purchases
     const purchaseUpdate = await LandPurchase.updateMany(
-      { moza: { \$in: duplicateIds } },
-      { \$set: { moza: primaryMoza._id } }
+      { moza: { $in: duplicateIds } },
+      { $set: { moza: primaryMoza._id } }
     );
-    console.log(\` => Migrated \${purchaseUpdate.modifiedCount} Land Purchase deals.\`);
+    console.log(` => Migrated ${purchaseUpdate.modifiedCount} Land Purchase deals.`);
     
     // Migrate Land Transfers (just in case they exist)
     const transferUpdate = await LandTransfer.updateMany(
-      { moza: { \$in: duplicateIds } },
-      { \$set: { moza: primaryMoza._id } }
+      { moza: { $in: duplicateIds } },
+      { $set: { moza: primaryMoza._id } }
     );
-    console.log(\` => Migrated \${transferUpdate.modifiedCount} Land Transfers.\`);
+    console.log(` => Migrated ${transferUpdate.modifiedCount} Land Transfers.`);
     
     // Migrate any stray Khasra Entries
     const entryUpdate = await LandMozaKhasraEntry.updateMany(
-      { moza: { \$in: duplicateIds } },
-      { \$set: { moza: primaryMoza._id } }
+      { moza: { $in: duplicateIds } },
+      { $set: { moza: primaryMoza._id } }
     );
-    console.log(\` => Migrated \${entryUpdate.modifiedCount} stray Khasra Entries.\`);
+    console.log(` => Migrated ${entryUpdate.modifiedCount} stray Khasra Entries.`);
     
     // Delete the duplicates
-    const deleteRes = await LandMoza.deleteMany({ _id: { \$in: duplicateIds } });
-    console.log(\`\nSuccessfully deleted \${deleteRes.deletedCount} duplicate Lakhu Moza(s).\`);
+    const deleteRes = await LandMoza.deleteMany({ _id: { $in: duplicateIds } });
+    console.log(`\nSuccessfully deleted ${deleteRes.deletedCount} duplicate Lakhu Moza(s).`);
     console.log('Merge complete! Production database is now clean.');
     
   } catch (err) {
