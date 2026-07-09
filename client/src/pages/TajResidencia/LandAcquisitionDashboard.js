@@ -247,18 +247,25 @@ export default function LandAcquisitionDashboard() {
   const handleExportOwnerSummaryCSV = () => {
     if (!data) return;
     const headers = ['#', 'Owner Name', 'Kanal', 'Marla', 'Sarsai'];
-    const rows = (data.ownerSummary?.rows || []).map((r, i) => [
-      i + 1, r.ownerName, r.kanal, r.marla, r.sarsai
-    ]);
+    const rows = (data.ownerSummary?.rows || []).map((r, i) => [i + 1, r.ownerName, r.kanal, r.marla, r.sarsai]);
     const t = data.ownerSummary?.totals;
     if (t) rows.push(['', 'Total', t.kanal, t.marla, t.sarsai]);
-    exportCSV('land_transfer_owner_summary.csv', headers, rows);
+    exportCSV('owner_summary.csv', headers, rows);
   };
+
+  const handleExportDealsInProgressCSV = () => {
+    if (!data) return;
+    const headers = ['#', 'Owner Name', 'Kanal', 'Marla', 'Sarsai'];
+    const rows = (data.dealsInProgressSummary?.rows || []).map((r, i) => [i + 1, r.ownerName, r.kanal, r.marla, r.sarsai]);
+    exportCSV('deals_in_progress.csv', headers, rows);
+  };
+
 
   const landSummaryRows = data?.landSummary?.rows || [];
   const landSummaryTotals = data?.landSummary?.totals;
   const ownerSummaryRows = data?.ownerSummary?.rows || [];
   const ownerSummaryTotals = data?.ownerSummary?.totals;
+  const dealsInProgressRows = data?.dealsInProgressSummary?.rows || [];
   const registryRows = data?.registryMozaSummary?.rows || [];
   const registryTotals = data?.registryMozaSummary?.totals;
   const possessionRows = data?.possessionMozaSummary?.rows || [];
@@ -427,6 +434,71 @@ export default function LandAcquisitionDashboard() {
                   <TableCell align="right" sx={{ fontSize: '1rem' }}>{fmtArea(ownerSummaryTotals.sarsai)}</TableCell>
                   <TableCell align="center"></TableCell>
                 </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </SectionCard>
+
+      {/* Deals in Progress */}
+      <SectionCard
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PendingIcon sx={{ color: 'warning.main' }} />
+            <Typography variant="h6" fontWeight={700} color="primary.dark">Deals in Progress</Typography>
+          </Box>
+        }
+        loading={loading}
+        onExportExcel={handleExportDealsInProgressCSV}
+      >
+        <TableContainer>
+          <Table size="medium">
+            <TableHead>
+              <TableRow>
+                <ColHeader align="center" sx={{ width: 64 }}>#</ColHeader>
+                <ColHeader align="left" sx={{ fontSize: '0.75rem' }}>Owner Name</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Kanal</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Marla</ColHeader>
+                <ColHeader sx={{ fontSize: '0.75rem' }}>Sarsai</ColHeader>
+                <ColHeader align="center" sx={{ fontSize: '0.75rem' }}>Detail</ColHeader>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {dealsInProgressRows.length === 0 && !loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                    No records found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                dealsInProgressRows.map((row, idx) => (
+                  <TableRow key={row.ownerName} hover sx={{ '&:last-child td': { border: 0 }, transition: 'background-color 0.2s', '&:hover': { bgcolor: 'primary.50' } }}>
+                    <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.85rem' }}>
+                      {idx + 1}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.9rem', color: 'text.primary' }}>{row.ownerName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.kanal)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.marla)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 500 }}>
+                      {fmtArea(row.sarsai)}
+                    </TableCell>
+                    <TableCell align="center">
+                      <IconButton 
+                        size="small" 
+                        color="primary"
+                        onClick={() => navigate(row.type === 'registry' 
+                          ? '/taj-residencia/land-transfers?missing=registry' 
+                          : '/taj-residencia/land-transfers?missing=intiqal')}
+                      >
+                        <ViewIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))
               )}
             </TableBody>
           </Table>

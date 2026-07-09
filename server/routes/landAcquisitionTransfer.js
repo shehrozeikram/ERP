@@ -558,12 +558,27 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
     totalAllied: Math.round(rows.reduce((s, r) => s + r.totalAllied, 0) * 100) / 100
   };
 
-  // 6. Owner (purchaser) summary by land transfer
+  // 6. Owner (purchaser) summary by land transfer & Deals in Progress
   const purchaserMap = {};
+  let noRegistrySarsais = 0;
+  let noInteqalSarsais = 0;
+
   for (const t of transfers) {
-    const name = t.purchaser?.name || t.purchaserName || 'In Progress';
-    if (!purchaserMap[name]) purchaserMap[name] = { ownerName: name, totalSarsais: 0 };
-    purchaserMap[name].totalSarsais += toSarsaisLocal(t.transferArea);
+    const name = t.purchaser?.name || t.purchaserName;
+    const sarsais = toSarsaisLocal(t.transferArea);
+    
+    if (name) {
+      if (!purchaserMap[name]) purchaserMap[name] = { ownerName: name, totalSarsais: 0 };
+      purchaserMap[name].totalSarsais += sarsais;
+    } else {
+      // No purchaser name -> Deals in Progress
+      if (!t.registryNo || t.registryNo.trim() === '') {
+        noRegistrySarsais += sarsais;
+      }
+      if (!t.intiqalNo || t.intiqalNo.trim() === '') {
+        noInteqalSarsais += sarsais;
+      }
+    }
   }
 
   const ownerRows = Object.values(purchaserMap).map((o) => {
@@ -574,6 +589,13 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   const ownerTotalSarsais = ownerRows.reduce((s, r) => s + toSarsaisLocal({ kanal: r.kanal, marla: r.marla, sarsai: r.sarsai }), 0);
   const ownerTotalArea = fromSarsais(ownerTotalSarsais);
   const ownerTotals = { kanal: ownerTotalArea.kanal, marla: ownerTotalArea.marla, sarsai: ownerTotalArea.sarsai };
+
+  // Generate Deals in Progress Rows
+  const dealsInProgressRows = [];
+  const noRegArea = fromSarsais(noRegistrySarsais);
+  dealsInProgressRows.push({ ownerName: 'Un-Available Registries', type: 'registry', kanal: noRegArea.kanal, marla: noRegArea.marla, sarsai: noRegArea.sarsai });
+  const noIntArea = fromSarsais(noInteqalSarsais);
+  dealsInProgressRows.push({ ownerName: 'Un-Available Inteqal', type: 'inteqal', kanal: noIntArea.kanal, marla: noIntArea.marla, sarsai: noIntArea.sarsai });
 
   // 6a. Registry summary by moza
   const registries = await LandRegistry.find({ isActive: true }).populate('moza', 'name').lean();
@@ -672,6 +694,7 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
     data: {
       landSummary: { rows, totals },
       ownerSummary: { rows: ownerRows, totals: ownerTotals },
+      dealsInProgressSummary: { rows: dealsInProgressRows },
       dashboardTotals,
       registryMozaSummary: { rows: registryMozaRows, totals: registryMozaTotals },
       possessionMozaSummary: { rows: possessionMozaRows, totals: possessionMozaTotals },
