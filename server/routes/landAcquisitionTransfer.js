@@ -314,7 +314,14 @@ router.get('/transfers', asyncHandler(async (req, res) => {
 
   const filter = { isActive: true };
   if (purchase) filter.landPurchase = purchase;
-  if (moza) filter.moza = moza;
+  if (moza) {
+    const mongoose = require('mongoose');
+    if (mongoose.Types.ObjectId.isValid(moza)) {
+      filter.moza = new mongoose.Types.ObjectId(moza);
+    } else {
+      filter.moza = moza;
+    }
+  }
 
   let transfers = await populateTransfer(LandTransfer.find(filter))
     .sort({ createdAt: -1 })

@@ -379,7 +379,14 @@ router.get('/purchases', asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   const filter = { isActive: true };
-  if (moza) filter.moza = moza;
+  if (moza) {
+    const mongoose = require('mongoose');
+    if (mongoose.Types.ObjectId.isValid(moza)) {
+      filter.moza = new mongoose.Types.ObjectId(moza);
+    } else {
+      filter.moza = moza;
+    }
+  }
 
   let purchases = await LandPurchase.find(filter)
     .populate('seller', 'name cnic phoneNumber')
