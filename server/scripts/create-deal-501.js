@@ -34,13 +34,22 @@ async function run() {
       console.log('Created dummy Seller');
     }
 
-    // 3. Create Deal No 501
+    // 3. Delete existing Deal No 501 if it exists
     const existing = await LandPurchase.findOne({ dealNo: 501 });
     if (existing) {
       console.log('Deal No 501 already exists with Purchase No:', existing.purchaseNo);
-      process.exit(0);
+      
+      // Delete associated transfers
+      const LandTransfer = require('../models/tajResidencia/LandTransfer');
+      await LandTransfer.deleteMany({ landPurchase: existing._id });
+      console.log('Deleted associated Land Transfers');
+
+      // Delete the purchase
+      await LandPurchase.deleteOne({ _id: existing._id });
+      console.log('Deleted existing Deal No 501');
     }
 
+    // 4. Create Deal No 501
     const purchase = await LandPurchase.create({
       purchaseNo: 'LP-501',
       dealNo: 501,
