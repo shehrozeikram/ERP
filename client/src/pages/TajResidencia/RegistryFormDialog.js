@@ -124,7 +124,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
   useEffect(() => {
     if (!open) return;
     getMozas().then((res) => setMozas(res.data?.data || [])).catch(() => setMozas([]));
-    landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100, page: 1 })
+    landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100000, page: 1 })
       .then((res) => setDealers(res.data || []))
       .catch(() => setDealers([]));
     setNewFiles([]);

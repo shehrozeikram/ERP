@@ -114,9 +114,9 @@ export default function LandPurchaseFormPage() {
 
   const loadParties = useCallback(async () => {
     try {
-      const sellerRes = await landAcquisitionPartyService.getParties({ type: 'seller', limit: 100, page: 1 });
+      const sellerRes = await landAcquisitionPartyService.getParties({ type: 'seller', limit: 100000, page: 1 });
       setSellers(sellerRes.data || []);
-      const dealerRes = await landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100, page: 1 });
+      const dealerRes = await landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100000, page: 1 });
       setDealers(dealerRes.data || []);
     } catch {
       setSellers([]);
