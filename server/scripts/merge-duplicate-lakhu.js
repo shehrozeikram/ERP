@@ -4,12 +4,10 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 async function run() {
   try {
-    if (!process.env.MONGODB_URI) {
-      throw new Error('MONGODB_URI is not defined in .env');
-    }
+    const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc_erp';
     
-    console.log('Connecting to MongoDB...');
-    await mongoose.connect(process.env.MONGODB_URI);
+    console.log(`Connecting to MongoDB at ${uri}...`);
+    await mongoose.connect(uri);
     console.log('Connected to MongoDB successfully.');
     
     const LandMoza = require('../models/tajResidencia/LandMoza');
