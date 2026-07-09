@@ -1,10 +1,26 @@
 const mongoose = require('mongoose');
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+const fs = require('fs');
+
+const envPaths = [
+  path.resolve(__dirname, '../../.env'), // /var/www/sgc-erp/.env
+  path.resolve(__dirname, '../.env'),    // /var/www/sgc-erp/server/.env
+];
+
+for (const envPath of envPaths) {
+  if (fs.existsSync(envPath)) {
+    console.log(`Found .env file at ${envPath}`);
+    require('dotenv').config({ path: envPath });
+    break;
+  }
+}
 
 async function run() {
   try {
     const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc_erp';
+    if (!process.env.MONGODB_URI) {
+      console.log('WARNING: MONGODB_URI is still not defined. Falling back to default.');
+    }
     
     console.log(`Connecting to MongoDB at ${uri}...`);
     await mongoose.connect(uri);
