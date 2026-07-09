@@ -174,9 +174,13 @@ export default function LandPurchaseFormPage() {
         }
 
         const selectedKhasras = (row.lines || [])
-          .map((line) => khasraOptions.find((k) => 
-            String(k._id) === String(line.khasraEntry?._id || line.khasraEntry)
-          ))
+          .map((line) => {
+            const entryId = line.khasraEntry?._id || line.khasraEntry;
+            if (entryId) {
+              return khasraOptions.find((k) => String(k._id) === String(entryId));
+            }
+            return khasraOptions.find((k) => k.khasraNo === line.khasraNo && k.khewatNo === line.khewatNo);
+          })
           .filter(Boolean);
 
         setForm({

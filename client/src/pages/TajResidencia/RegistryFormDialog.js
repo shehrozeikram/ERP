@@ -218,8 +218,14 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
     setForm((prev) => {
       let changed = false;
       const lines = prev.lines.map((line) => {
-        if (!line.khasraEntry) return line;
-        const entry = mozaKhasras.find((k) => String(k._id) === String(line.khasraEntry?._id || line.khasraEntry));
+        if (!line.khasraEntry && !line.khasraNo) return line;
+        let entry = null;
+        const entryId = line.khasraEntry?._id || line.khasraEntry;
+        if (entryId) {
+          entry = mozaKhasras.find((k) => String(k._id) === String(entryId));
+        } else {
+          entry = mozaKhasras.find((k) => k.khasraNo === line.khasraNo && k.khewatNo === line.khewatNo);
+        }
         if (!entry) return line;
         if (line.khewatNo === entry.khewatNo && line.khasraNo === entry.khasraNo) return line;
         changed = true;
