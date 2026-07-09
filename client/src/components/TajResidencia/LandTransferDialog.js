@@ -177,7 +177,10 @@ export default function LandTransferDialog({
             if (entryId) {
               return khasraOptions.find((k) => String(k._id) === String(entryId));
             }
-            return khasraOptions.find((k) => k.khasraNo === line.khasraNo && k.khewatNo === line.khewatNo);
+            return khasraOptions.find((k) => 
+              k.khasraNo === line.khasraNo && 
+              (!line.khewatNo || k.khewatNo === line.khewatNo)
+            );
           })
           .filter(Boolean);
 
@@ -230,7 +233,7 @@ export default function LandTransferDialog({
       const purchaseIds = new Set((purchaseRow.lines || []).map((line) => String(line.khasraEntry?._id || line.khasraEntry)).filter(Boolean));
       const defaultKhasras = khasraOptions.filter((entry) => 
         purchaseIds.has(String(entry._id)) || 
-        (purchaseRow.lines || []).some(l => l.khasraNo === entry.khasraNo && l.khewatNo === entry.khewatNo && !l.khasraEntry)
+        (purchaseRow.lines || []).some(l => l.khasraNo === entry.khasraNo && (!l.khewatNo || l.khewatNo === entry.khewatNo) && !l.khasraEntry)
       );
       // Use the deal's recorded totalArea directly
       const purchaseArea = purchaseRow.totalArea || { kanal: 0, marla: 0, sarsai: 0 };
@@ -283,7 +286,7 @@ export default function LandTransferDialog({
       const purchaseIds = new Set((purchaseRow.lines || []).map((line) => String(line.khasraEntry?._id || line.khasraEntry)).filter(Boolean));
       const defaultKhasras = khasraOptions.filter((entry) => 
         purchaseIds.has(String(entry._id)) || 
-        (purchaseRow.lines || []).some(l => l.khasraNo === entry.khasraNo && l.khewatNo === entry.khewatNo && !l.khasraEntry)
+        (purchaseRow.lines || []).some(l => l.khasraNo === entry.khasraNo && (!l.khewatNo || l.khewatNo === entry.khewatNo) && !l.khasraEntry)
       );
       
       const purchaseArea = purchaseRow.totalArea || { kanal: 0, marla: 0, sarsai: 0 };

@@ -179,7 +179,10 @@ export default function LandPurchaseFormPage() {
             if (entryId) {
               return khasraOptions.find((k) => String(k._id) === String(entryId));
             }
-            return khasraOptions.find((k) => k.khasraNo === line.khasraNo && k.khewatNo === line.khewatNo);
+            return khasraOptions.find((k) => 
+              k.khasraNo === line.khasraNo && 
+              (!line.khewatNo || k.khewatNo === line.khewatNo)
+            );
           })
           .filter(Boolean);
 
