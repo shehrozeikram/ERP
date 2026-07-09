@@ -82,7 +82,7 @@ router.get('/parties', asyncHandler(async (req, res) => {
   const partyType = parsePartyType(req.query.type);
   const search = String(req.query.search || '').trim();
   const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const limit = Math.min(100000, Math.max(1, Number(req.query.limit) || 25));
 
   if (!partyType) {
     return res.status(400).json({ success: false, message: 'Party type is required' });
