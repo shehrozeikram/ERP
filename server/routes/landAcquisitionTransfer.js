@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
@@ -315,7 +316,6 @@ router.get('/transfers', asyncHandler(async (req, res) => {
   const filter = { isActive: true };
   if (purchase) filter.landPurchase = purchase;
   if (moza) {
-    const mongoose = require('mongoose');
     if (mongoose.Types.ObjectId.isValid(moza)) {
       filter.moza = new mongoose.Types.ObjectId(moza);
     } else {
