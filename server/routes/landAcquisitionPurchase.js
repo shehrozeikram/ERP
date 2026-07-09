@@ -420,7 +420,8 @@ router.get('/purchases/:id', asyncHandler(async (req, res) => {
     .populate('seller', 'name cnic phoneNumber partyDate')
     .populate('purchaser', 'name cnic phoneNumber partyDate')
     .populate('dealer', 'name cnic phoneNumber partyDate')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug')
+    .populate('installments.paidBy', 'firstName lastName');
 
   if (!purchase) {
     return res.status(404).json({ success: false, message: 'Land purchase not found' });
@@ -446,7 +447,7 @@ router.post('/purchases', asyncHandler(async (req, res) => {
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.status(201).json({ success: true, message: 'Land purchase created', data: mapPurchase(populated) });
 }));
@@ -470,7 +471,7 @@ router.put('/purchases/:id', asyncHandler(async (req, res) => {
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.json({ success: true, message: 'Land purchase updated', data: mapPurchase(populated) });
 }));
@@ -504,7 +505,7 @@ router.patch('/purchases/:id/payment', asyncHandler(async (req, res) => {
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.json({ success: true, message: 'Payment information updated', data: mapPurchase(populated) });
 }));
@@ -553,7 +554,7 @@ router.post('/purchases/:id/installments', asyncHandler(async (req, res) => {
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.status(201).json({ success: true, message: 'Installment added', data: mapPurchase(populated) });
 }));
@@ -607,7 +608,7 @@ router.put('/purchases/:id/installments/:installmentId', asyncHandler(async (req
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.json({ success: true, message: 'Installment updated', data: mapPurchase(populated) });
 }));
@@ -674,7 +675,7 @@ router.patch('/purchases/:id/installments/:installmentId/pay', asyncHandler(asyn
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.json({ success: true, message: 'Installment payment recorded', data: mapPurchase(populated) });
 }));
@@ -778,7 +779,7 @@ router.post('/purchases/:id/installments/pay-bulk', asyncHandler(async (req, res
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.json({ success: true, message: 'Bulk installment payments recorded', data: mapPurchase(populated) });
 }));
@@ -807,7 +808,7 @@ router.delete('/purchases/:id/installments/:installmentId', asyncHandler(async (
     .populate('seller', 'name cnic phoneNumber')
     .populate('purchaser', 'name cnic phoneNumber')
     .populate('dealer', 'name cnic phoneNumber')
-    .populate('moza', 'name slug');
+    .populate('moza', 'name slug').populate('installments.paidBy', 'firstName lastName');
 
   res.json({ success: true, message: 'Installment deleted', data: mapPurchase(populated) });
 }));

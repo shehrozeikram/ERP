@@ -303,7 +303,7 @@ export default function LandPurchaseDetailPage() {
               <th style={{ ...thStyle, textAlign: 'center' }}>Moza</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>Size</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>Cost</th>
-              <th style={{ ...thStyle, textAlign: 'center' }}>Created At</th>
+              <th style={{ ...thStyle, textAlign: 'center' }}>Transfer Date</th>
             </tr>
             {transfers.length === 0 ? (
               <tr><td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: '#888' }}>No land transfers recorded</td></tr>
@@ -311,12 +311,12 @@ export default function LandPurchaseDetailPage() {
               <tr key={idx}>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{idx + 1}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{t.transferNo || ''}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}></td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}></td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}>{t.intiqalNo || ''}</td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}>{t.registryNo || ''}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{purchase.moza?.name || ''}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatAreaReadable(t.transferredArea)}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(t.totalPrice)}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(t.createdAt)}</td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatAreaReadable(t.transferArea)}</td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(t.totalTransferPayments)}</td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(t.transferDate)}</td>
               </tr>
             ))}
           </tbody>
@@ -343,7 +343,7 @@ export default function LandPurchaseDetailPage() {
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.refNo || ''}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.description || ''}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(inst.paidAmount)}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.paidBy?.name || ''}</td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.paidBy ? `${inst.paidBy.firstName || ''} ${inst.paidBy.lastName || ''}`.trim() : ''}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.drawnOn || ''}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(inst.paymentDate)}</td>
               </tr>

@@ -206,7 +206,7 @@ export default function LandTransferViewer() {
               <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Transfer Charges</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Payment Status</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Created At</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Transfer Date</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -261,7 +261,7 @@ export default function LandTransferViewer() {
                       sx={{ fontWeight: 700 }}
                     />
                   </TableCell>
-                  <TableCell>{formatDate(row.createdAt)}</TableCell>
+                  <TableCell>{formatDate(row.transferDate)}</TableCell>
                   <TableCell align="right">
                     {row.status !== 'Closed' && (
                       <Tooltip title="Close transfer">
