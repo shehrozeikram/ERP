@@ -496,6 +496,7 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   // 2. Fetch all active transfers for transfer charges aggregation
   const transfers = await LandTransfer.find({ isActive: true })
     .populate('moza', 'name')
+    .populate('purchaser', 'name')
     .lean();
 
   // Build a map: purchaseId -> totalTransferPayments (transfer charges)
@@ -560,7 +561,7 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   // 6. Owner (purchaser) summary by land transfer
   const purchaserMap = {};
   for (const t of transfers) {
-    const name = t.purchaserName || 'In Progress';
+    const name = t.purchaser?.name || t.purchaserName || 'In Progress';
     if (!purchaserMap[name]) purchaserMap[name] = { ownerName: name, totalSarsais: 0 };
     purchaserMap[name].totalSarsais += toSarsaisLocal(t.transferArea);
   }
