@@ -219,7 +219,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
       let changed = false;
       const lines = prev.lines.map((line) => {
         if (!line.khasraEntry) return line;
-        const entry = mozaKhasras.find((k) => String(k._id) === String(line.khasraEntry));
+        const entry = mozaKhasras.find((k) => String(k._id) === String(line.khasraEntry?._id || line.khasraEntry));
         if (!entry) return line;
         if (line.khewatNo === entry.khewatNo && line.khasraNo === entry.khasraNo) return line;
         changed = true;

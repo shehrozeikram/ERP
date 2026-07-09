@@ -174,7 +174,9 @@ export default function LandPurchaseFormPage() {
         }
 
         const selectedKhasras = (row.lines || [])
-          .map((line) => khasraOptions.find((k) => String(k._id) === String(line.khasraEntry)))
+          .map((line) => khasraOptions.find((k) => 
+            String(k._id) === String(line.khasraEntry?._id || line.khasraEntry)
+          ))
           .filter(Boolean);
 
         setForm({
