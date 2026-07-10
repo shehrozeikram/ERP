@@ -572,6 +572,79 @@ router.get('/finance-vendors/:supplierId',
   })
 );
 
+// @route   GET /api/pre-audit/finance-vendors/bills/:id
+// @desc    Get bill details for audit reference
+// @access  Private (Audit users)
+router.get('/finance-vendors/bills/:id',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    if (!hasAuditAccess(req.user)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to audit resources.' });
+    }
+    const AccountsPayable = require('../models/finance/AccountsPayable');
+    const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+
+    const bill = await AccountsPayable.findById(req.params.id)
+      .populate('payeeEmployee', 'firstName lastName employeeId')
+      .lean();
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+
+    let poDetail = null;
+    if (bill.referenceType === 'purchase_order' && bill.referenceId) {
+      const Quotation = require('../models/procurement/Quotation');
+      const Indent = require('../models/general/Indent');
+      const po = await PurchaseOrder.findById(bill.referenceId)
+        .populate('vendor', 'name email phone address')
+        .populate('indent')
+        .lean();
+      if (po) {
+        const indentId = po.indent?._id || po.indent;
+        let quotations = [];
+        let indent = null;
+        if (indentId) {
+          indent = await Indent.findById(indentId)
+            .populate('requestedBy', 'firstName lastName name email digitalSignature')
+            .populate('department', 'name code')
+            .lean();
+          quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
+        }
+        const GoodsReceive = require('../models/procurement/GoodsReceive');
+        const grns = await GoodsReceive.find({ purchaseOrder: po._id }).populate('supplier', 'name').lean();
+        poDetail = { po, indent, quotations, grns };
+      }
+    }
+
+    let cashApproval = null;
+    const caId = bill.employeeAdvanceAllocations?.[0]?.cashApprovalId;
+    if (caId) {
+      const CashApproval = require('../models/procurement/CashApproval');
+      cashApproval = await CashApproval.findById(caId)
+        .populate('workflowHistory.changedBy', 'firstName lastName name email digitalSignature')
+        .lean();
+    } else if (bill.internalNotes && /CA-\d{4}\d{2}-\d{4}/.test(bill.internalNotes)) {
+      const caMatch = bill.internalNotes.match(/CA-\d{4}\d{2}-\d{4}/);
+      if (caMatch) {
+        const CashApproval = require('../models/procurement/CashApproval');
+        cashApproval = await CashApproval.findOne({ caNumber: caMatch[0] })
+          .populate('workflowHistory.changedBy', 'firstName lastName name email digitalSignature')
+          .lean();
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...bill,
+        vendorName: bill.vendor?.name || 'Unknown Vendor',
+        poDetail,
+        cashApproval
+      }
+    });
+  })
+);
+
 // @route   GET /api/pre-audit/:id
 // @desc    Get a single pre-audit document by ID
 // @access  Private (Super Admin, Audit Manager, Auditor)

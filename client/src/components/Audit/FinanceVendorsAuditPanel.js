@@ -2,10 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TextField, MenuItem, Stack, CircularProgress, Alert, Chip, Grid, Card, CardContent, Button,
-  Avatar, Tabs, Tab
+  Avatar, Tabs, Tab, Dialog, DialogTitle, DialogContent, IconButton
 } from '@mui/material';
-import { ArrowBack as BackIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon, Close as CloseIcon, Visibility as ViewIcon } from '@mui/icons-material';
 import api from '../../services/api';
+import toast from 'react-hot-toast';
+import CentralizedStoreBillInvoiceBody from '../UtilityBill/CentralizedStoreBillInvoiceBody';
+import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -34,6 +37,25 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
   const [detail, setDetail] = useState(null);
   const [billStatusFilter, setBillStatusFilter] = useState('');
   const [detailTab, setDetailTab] = useState(0);
+
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [selectedBill, setSelectedBill] = useState(null);
+  const [loadingBill, setLoadingBill] = useState(false);
+
+  const handleViewBill = async (bill) => {
+    try {
+      setLoadingBill(true);
+      const res = await api.get(`/pre-audit/finance-vendors/bills/${bill._id}`);
+      if (res.data?.success) {
+        setSelectedBill(res.data.data);
+        setViewDialogOpen(true);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to fetch bill details');
+    } finally {
+      setLoadingBill(false);
+    }
+  };
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(search.trim()), 400);
@@ -310,6 +332,7 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
                       <TableCell align="right"><b>Paid</b></TableCell>
                       <TableCell align="right"><b>Balance</b></TableCell>
                       <TableCell><b>Status</b></TableCell>
+                      <TableCell align="center"><b>Action</b></TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -331,6 +354,17 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
                           <TableCell align="right" sx={{ color: 'error.main' }}>{fmt(b.balanceDue)}</TableCell>
                           <TableCell>
                             <Chip label={b.status || '—'} size="small" color={STATUS_COLOR[b.status] || 'default'} />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Button 
+                              size="small" 
+                              variant="outlined" 
+                              startIcon={<ViewIcon />}
+                              onClick={() => handleViewBill(b)}
+                              disabled={loadingBill}
+                            >
+                              View
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))
@@ -379,6 +413,165 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
           )}
         </>
       )}
+
+      {/* Bill Details Dialog */}
+      <Dialog 
+        open={viewDialogOpen} 
+        onClose={() => setViewDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Bill Details: {selectedBill?.billNumber}
+          <IconButton onClick={() => setViewDialogOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedBill && (
+            <>
+              <CentralizedStoreBillInvoiceBody 
+                bill={{
+                  ...selectedBill,
+                  billId: selectedBill.billNumber,
+                  billDate: selectedBill.billDate,
+                  createdAt: selectedBill.createdAt || selectedBill.billDate,
+                  provider: selectedBill.vendorName || selectedBill.vendor?.name,
+                  location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
+                  notes: selectedBill.notes || selectedBill.internalNotes,
+                  billLines: (selectedBill.lineItems || []).map((line) => ({
+                    ...line,
+                    itemName: line.description,
+                    itemCode: line.itemCode || 'N/A',
+                    amount: line.amount || (line.quantity * line.unitPrice)
+                  }))
+                }}
+                showChargesSummary={true}
+              />
+              {(() => {
+                const getApprovalRows = () => {
+                  const formatDateTime = (date) => {
+                    if (!date) return '-';
+                    return new Date(date).toLocaleString('en-PK', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit'
+                    });
+                  };
+
+                  const rows = [];
+                  
+                  // If linked to a Cash Approval, show its workflow history
+                  if (selectedBill?.cashApproval?.workflowHistory?.length > 0) {
+                    const history = [...selectedBill.cashApproval.workflowHistory].reverse();
+                    history.forEach(entry => {
+                      let actionDesc = entry.toStatus;
+                      if (entry.comments) {
+                        actionDesc += ` (${entry.comments})`;
+                      }
+                      rows.push({
+                        authority: actionDesc,
+                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
+                        signatureUser: entry.changedBy,
+                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
+                      });
+                    });
+                    return rows;
+                  }
+
+                  // If linked to a Purchase Order, show its workflow history
+                  if (selectedBill?.poDetail?.po?.workflowHistory?.length > 0) {
+                    const history = [...selectedBill.poDetail.po.workflowHistory].reverse();
+                    history.forEach(entry => {
+                      let actionDesc = entry.toStatus;
+                      if (entry.comments) {
+                        actionDesc += ` (${entry.comments})`;
+                      }
+                      rows.push({
+                        authority: actionDesc,
+                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
+                        signatureUser: entry.changedBy,
+                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
+                      });
+                    });
+                    return rows;
+                  }
+
+                  // Fallback for bills without workflow history
+                  rows.push({
+                    authority: 'Preparer',
+                    name: [selectedBill?.createdBy?.firstName, selectedBill?.createdBy?.lastName].filter(Boolean).join(' ') || selectedBill?.createdBy?.name || '-',
+                    signatureUser: selectedBill?.createdBy,
+                    dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
+                  });
+
+                  if (selectedBill?.approval?.approvedBy) {
+                    rows.push({
+                      authority: 'Approver',
+                      name: [selectedBill.approval.approvedBy?.firstName, selectedBill.approval.approvedBy?.lastName].filter(Boolean).join(' ') || selectedBill.approval.approvedBy?.name || '-',
+                      signatureUser: selectedBill.approval.approvedBy,
+                      dateTime: selectedBill.approval.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
+                    });
+                  }
+                  return rows;
+                };
+                const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
+                return (
+                  <Table
+                    size="small"
+                    sx={{
+                      mt: 4,
+                      mb: 2,
+                      border: '1px solid',
+                      borderColor: 'grey.300',
+                      '& th': {
+                        bgcolor: 'grey.100',
+                        fontWeight: 800,
+                        fontSize: 14,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.300'
+                      },
+                      '& td': {
+                        fontSize: 14,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.200',
+                        py: 1.4
+                      },
+                      '& tr:last-child td': {
+                        borderBottom: 0
+                      }
+                    }}
+                  >
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Authority</TableCell>
+                        <TableCell>Name</TableCell>
+                        <TableCell>Digital Signature</TableCell>
+                        <TableCell>Date &amp; Time</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {getApprovalRows().map((row) => (
+                        <TableRow key={row.authority}>
+                          <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                          <TableCell>{row.name}</TableCell>
+                          <TableCell>
+                            {getSignatureSource(row) ? (
+                              <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                            ) : (
+                              row.signature || '-'
+                            )}
+                          </TableCell>
+                          <TableCell>{row.dateTime}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                );
+              })()}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 
