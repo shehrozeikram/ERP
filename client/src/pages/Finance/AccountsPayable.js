@@ -1384,7 +1384,8 @@ const AccountsPayable = () => {
                     ...line,
                     itemName: line.description,
                     itemCode: line.itemCode || 'N/A',
-                    amount: line.amount || (line.quantity * line.unitPrice)
+                    amount: line.amount || (line.quantity * line.unitPrice),
+                    attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
                   }))
                 }}
                 showChargesSummary={true}

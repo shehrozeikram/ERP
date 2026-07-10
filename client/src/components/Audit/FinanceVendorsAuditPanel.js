@@ -356,9 +356,9 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
                             <Chip label={b.status || '—'} size="small" color={STATUS_COLOR[b.status] || 'default'} />
                           </TableCell>
                           <TableCell align="center">
-                            <Button 
-                              size="small" 
-                              variant="outlined" 
+                            <Button
+                              size="small"
+                              variant="outlined"
                               startIcon={<ViewIcon />}
                               onClick={() => handleViewBill(b)}
                               disabled={loadingBill}
@@ -415,8 +415,8 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
       )}
 
       {/* Bill Details Dialog */}
-      <Dialog 
-        open={viewDialogOpen} 
+      <Dialog
+        open={viewDialogOpen}
         onClose={() => setViewDialogOpen(false)}
         maxWidth="lg"
         fullWidth
@@ -430,7 +430,7 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
         <DialogContent dividers>
           {selectedBill && (
             <>
-              <CentralizedStoreBillInvoiceBody 
+              <CentralizedStoreBillInvoiceBody
                 bill={{
                   ...selectedBill,
                   billId: selectedBill.billNumber,
@@ -439,11 +439,12 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
                   provider: selectedBill.vendorName || selectedBill.vendor?.name,
                   location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
                   notes: selectedBill.notes || selectedBill.internalNotes,
-                  billLines: (selectedBill.lineItems || []).map((line) => ({
+                  billLines: (selectedBill.lineItems || []).map((line, idx) => ({
                     ...line,
                     itemName: line.description,
                     itemCode: line.itemCode || 'N/A',
-                    amount: line.amount || (line.quantity * line.unitPrice)
+                    amount: line.amount || (line.quantity * line.unitPrice),
+                    attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
                   }))
                 }}
                 showChargesSummary={true}
@@ -459,7 +460,7 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
                   };
 
                   const rows = [];
-                  
+
                   // If linked to a Cash Approval, show its workflow history
                   if (selectedBill?.cashApproval?.workflowHistory?.length > 0) {
                     const history = [...selectedBill.cashApproval.workflowHistory].reverse();
