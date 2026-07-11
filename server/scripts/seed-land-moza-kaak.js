@@ -19,7 +19,7 @@ async function main() {
 
   let parsed;
   try {
-    parsed = parseLandMozaExcel(XLSX_PATH, { fallbackMozaName: 'Kaak', colOffset: 1 });
+    parsed = parseLandMozaExcel(XLSX_PATH, { fallbackMozaName: 'Kak', colOffset: 1 });
   } catch (e) {
     console.error("Parse error:", e.message);
     process.exit(1);
