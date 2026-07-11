@@ -101,7 +101,11 @@ const parseLandMozaExcel = (input, options = {}) => {
     : XLSX.read(input, { type: 'buffer' });
 
   const sheetName = wb.SheetNames[0];
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+  let rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+
+  if (options.colOffset) {
+    rows = rows.map((r) => r.slice(options.colOffset));
+  }
 
   if (!rows.length) {
     const err = new Error('Excel file is empty');
