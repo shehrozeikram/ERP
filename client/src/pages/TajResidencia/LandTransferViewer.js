@@ -24,6 +24,7 @@ import {
 import {
   CheckCircle as CloseIcon,
   Delete as DeleteIcon,
+  Download as DownloadIcon,
   Edit as EditIcon,
   Search as SearchIcon,
   SwapHoriz as TransferIcon,
@@ -136,6 +137,37 @@ export default function LandTransferViewer() {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const xlsx = await import('xlsx');
+      const wb = xlsx.utils.book_new();
+      
+      const exportData = rows.map((r) => ({
+        'Transfer No': r.transferNo,
+        'Deal No': r.dealNo,
+        'Date': formatDate(r.transferDate),
+        'Moza': r.moza?.name || '—',
+        'Intiqal No': r.intiqalNo || '—',
+        'Registry No': r.registryNo || '—',
+        'Seller': r.sellerName || r.seller?.name || '—',
+        'Purchaser': r.purchaserName || r.purchaser?.name || '—',
+        'Area': formatAreaReadable(r.transferArea),
+        'Size (Kanals)': r.transferSizeInKanal || 0,
+        'Rate/Kanal': r.ratePerKanal || 0,
+        'Total Cost': r.totalTransferPayments || 0,
+        'Status': r.status || 'Open'
+      }));
+
+      const ws = xlsx.utils.json_to_sheet(exportData);
+      xlsx.utils.book_append_sheet(wb, ws, 'Land Transfers');
+      xlsx.writeFile(wb, `land-transfers-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success('Exported successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error('Export failed');
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={3} flexWrap="wrap" gap={2}>
@@ -148,13 +180,22 @@ export default function LandTransferViewer() {
             </Typography>
           </Box>
         </Stack>
-        <Button
-          variant="contained"
-          startIcon={<TransferIcon />}
-          onClick={() => setEditDialog({ open: true, transferId: null, purchaseId: null })}
-        >
-          Create Land Transfer
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleExport}
+          >
+            Export to Excel
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<TransferIcon />}
+            onClick={() => setEditDialog({ open: true, transferId: null, purchaseId: null })}
+          >
+            Create Land Transfer
+          </Button>
+        </Stack>
       </Stack>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>

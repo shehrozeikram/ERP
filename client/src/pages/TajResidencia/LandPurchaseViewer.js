@@ -23,6 +23,7 @@ import {
 import {
   Add as AddIcon,
   Delete as DeleteIcon,
+  Download as DownloadIcon,
   Edit as EditIcon,
   Payments as PaymentIcon,
   Search as SearchIcon,
@@ -113,6 +114,38 @@ export default function LandPurchaseViewer() {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const xlsx = await import('xlsx');
+      const wb = xlsx.utils.book_new();
+      
+      const exportData = rows.map((r) => ({
+        'Deal No': r.dealNo,
+        'Purchase No': r.purchaseNo,
+        'Date': formatDate(r.purchaseDate),
+        'Moza': r.moza?.name || '—',
+        'Project': r.project || '—',
+        'Seller': r.seller?.name || '—',
+        'Area': formatAreaReadable(r.totalArea),
+        'Size (Kanals)': r.totalSizeInKanal || 0,
+        'Rate/Kanal': r.ratePerKanal || 0,
+        'Agreed Amount': r.agreedAmount || 0,
+        'Token Amount': r.tokenAmount || 0,
+        'Paid Amount': r.installments ? r.installments.reduce((sum, inst) => sum + (inst.paidAmount || 0), 0) : 0,
+        'Balance': r.balanceAmount || 0,
+        'Status': r.status || 'Open'
+      }));
+
+      const ws = xlsx.utils.json_to_sheet(exportData);
+      xlsx.utils.book_append_sheet(wb, ws, 'Land Purchases');
+      xlsx.writeFile(wb, `land-purchases-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success('Exported successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error('Export failed');
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={3} flexWrap="wrap" gap={2}>
@@ -126,6 +159,13 @@ export default function LandPurchaseViewer() {
           </Box>
         </Stack>
         <Stack direction="row" spacing={1}>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleExport}
+          >
+            Export to Excel
+          </Button>
           <Button
             variant="outlined"
             startIcon={<TransferIcon />}
