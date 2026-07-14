@@ -247,7 +247,7 @@ export default function LandTransferViewer() {
                   <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
                   <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
                   <TableCell>{formatAreaReadable(row.transferArea)}</TableCell>
-                  <TableCell align="right">{formatCurrency((row.transferSizeInKanal || 0) * (row.ratePerKanal || 0))}</TableCell>
+                  <TableCell align="right">{formatCurrency(row.totalTransferPayments)}</TableCell>
                   <TableCell align="right">
                     {row.status !== 'Closed' && (
                       <Tooltip title="Close transfer">
