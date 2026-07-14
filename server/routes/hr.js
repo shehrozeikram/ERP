@@ -1334,7 +1334,7 @@ router.post('/employees/:id/update-payrolls', [
 router.get('/departments', 
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
-  const departments = await Department.find({ isActive: true })
+  const departments = await Department.find({})
     .populate('manager', 'firstName lastName employeeId')
     .populate('parentDepartment', 'name code');
 
@@ -1586,13 +1586,12 @@ router.delete('/departments/:id',
       deletedDocsCount++;
     }
 
-    // Soft delete the department
-    department.isActive = false;
-    await department.save();
+    // Permanently delete the department
+    await Department.findByIdAndDelete(req.params.id);
 
     res.json({
       success: true,
-      message: `Department deleted successfully. ${deletedDocsCount} evaluation document(s) and ${deletedTrackingCount} tracking record(s) were also deleted.`
+      message: `Department deleted permanently. ${deletedDocsCount} evaluation document(s) and ${deletedTrackingCount} tracking record(s) were also deleted.`
     });
   })
 );
