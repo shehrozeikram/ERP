@@ -104,8 +104,10 @@ async function nextPurchaseNumbers() {
   let maxLp = 0;
   for (const row of purchases) {
     const deal = Number(row.dealNo);
-    if (!Number.isNaN(deal) && deal > maxDeal) maxDeal = deal;
-
+    // Ignore deals > 100000 in case an anomaly was entered manually
+    if (!Number.isNaN(deal) && deal < 100000 && deal > maxDeal) {
+      maxDeal = deal;
+    }
     const match = String(row.purchaseNo || '').match(/LP-(\d+)/i);
     if (match) {
       const n = Number(match[1]);
