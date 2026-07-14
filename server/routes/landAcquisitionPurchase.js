@@ -100,7 +100,7 @@ async function nextPurchaseNumbers() {
     .select('purchaseNo dealNo')
     .lean();
 
-  let maxDeal = 500;
+  let maxDeal = 0;
   let maxLp = 0;
   for (const row of purchases) {
     const deal = Number(row.dealNo);

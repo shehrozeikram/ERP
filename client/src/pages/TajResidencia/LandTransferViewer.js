@@ -48,6 +48,8 @@ const formatDate = (value) => {
   });
 };
 
+const formatCurrency = (n) => new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(n || 0);
+
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -205,6 +207,7 @@ export default function LandTransferViewer() {
               <TableCell align="center" sx={{ fontWeight: 700 }}>DOC (INTIQAL)</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>DOC (REGISTRY)</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>SIZE</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>AMOUNT</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>ACTIONS</TableCell>
             </TableRow>
           </TableHead>
@@ -244,6 +247,7 @@ export default function LandTransferViewer() {
                   <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
                   <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
                   <TableCell>{formatAreaReadable(row.transferArea)}</TableCell>
+                  <TableCell align="right">{formatCurrency((row.transferSizeInKanal || 0) * (row.ratePerKanal || 0))}</TableCell>
                   <TableCell align="right">
                     {row.status !== 'Closed' && (
                       <Tooltip title="Close transfer">
