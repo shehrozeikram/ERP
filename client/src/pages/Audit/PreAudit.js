@@ -2512,9 +2512,10 @@ const PreAudit = () => {
                                             </TableCell>
                                             <TableCell>{formatDate(doc.documentDate)}</TableCell>
                                             <TableCell>
-                                              {(doc.sourceModule === 'Utility Bills' || doc.documentType === 'Utility Bill') ? (
-                                                doc.lastMonthAmount != null ? formatPKR(doc.lastMonthAmount) : '—'
-                                              ) : '—'}
+                                              {(() => {
+                                                const lastMonthAmt = doc.lastMonthAmount ?? doc.originalDocument?.lastMonthAmount;
+                                                return (lastMonthAmt !== undefined && lastMonthAmt !== null) ? formatPKR(lastMonthAmt) : '—';
+                                              })()}
                                             </TableCell>
                                             <TableCell>
                                               <Chip
