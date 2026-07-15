@@ -25,7 +25,6 @@ import landAcquisitionTransferService from '../../services/landAcquisitionTransf
 import landAcquisitionPartyService from '../../services/landAcquisitionPartyService';
 import { getMozaKhasras } from '../../services/landAcquisitionMozaService';
 import {
-  addAreas,
   areaToDecimalKanal,
   areaToForm,
   emptyArea,
@@ -317,14 +316,9 @@ export default function LandTransferDialog({
   }, [open, loadData]);
 
   const handleKhasraChange = (_, value) => {
-    const calculatedArea = value.reduce(
-      (sum, entry) => addAreas(sum, entry.landInKhasra || {}),
-      { kanal: 0, marla: 0, sarsai: 0 }
-    );
     setForm((prev) => ({
       ...prev,
-      selectedKhasras: value,
-      transferArea: areaToForm(calculatedArea)
+      selectedKhasras: value
     }));
   };
 

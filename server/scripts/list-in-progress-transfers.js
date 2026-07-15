@@ -5,6 +5,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
 const LandMoza = require('../models/tajResidencia/LandMoza');
+const LandParty = require('../models/tajResidencia/LandParty');
 
 async function run() {
   try {
