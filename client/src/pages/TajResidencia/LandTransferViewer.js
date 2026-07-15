@@ -146,14 +146,15 @@ export default function LandTransferViewer() {
       const wb = xlsx.utils.book_new();
       
       const exportData = allTransfers.map((r) => ({
-        'Transfer No': r.transferNo,
+        'Reference No': r.referenceNo,
         'Deal No': r.dealNo,
         'Date': formatDate(r.transferDate),
         'Moza': r.moza?.name || '—',
         'Intiqal No': r.intiqalNo || '—',
         'Registry No': r.registryNo || '—',
-        'Seller': r.sellerName || r.seller?.name || '—',
-        'Purchaser': r.purchaserName || r.purchaser?.name || '—',
+        'Seller': r.seller?.name || r.sellerName || '—',
+        'Purchaser': r.purchaser?.name || r.purchaserName || '—',
+        'Dealer': r.landPurchase?.dealer?.name || '—',
         'Area': formatAreaReadable(r.transferArea),
         'Size (Kanals)': r.transferSizeInKanal || 0,
         'Rate/Kanal': r.ratePerKanal || 0,
@@ -243,7 +244,9 @@ export default function LandTransferViewer() {
               <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>DATE</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>REFERENCE NO</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>LAND TRANSFER NO</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>SELLER</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>PURCHASER</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>DEALER</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>DEAL NO</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>MOZA</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>INTIQAL</TableCell>
@@ -258,13 +261,13 @@ export default function LandTransferViewer() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={14} align="center" sx={{ py: 5 }}>
+                <TableCell colSpan={15} align="center" sx={{ py: 5 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={14} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                <TableCell colSpan={15} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                   No land transfers yet — create one from a land purchase record.
                 </TableCell>
               </TableRow>
@@ -283,7 +286,9 @@ export default function LandTransferViewer() {
                       {row.referenceNo}
                     </Button>
                   </TableCell>
-                  <TableCell sx={{ color: 'text.secondary' }}>{row.transferNo}</TableCell>
+                  <TableCell>{row.seller?.name || row.sellerName || '—'}</TableCell>
+                  <TableCell>{row.purchaser?.name || row.purchaserName || '—'}</TableCell>
+                  <TableCell>{row.landPurchase?.dealer?.name || '—'}</TableCell>
                   <TableCell>{row.dealNo}</TableCell>
                   <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{row.intiqalNo || '—'}</TableCell>

@@ -196,7 +196,11 @@ const validateTransferPayload = async (payload, purchase, { isCreate = false } =
 };
 
 const populateTransfer = (query) => query
-  .populate('landPurchase', 'purchaseNo dealNo ratePerKanal agreedAmount')
+  .populate({
+    path: 'landPurchase',
+    select: 'purchaseNo dealNo ratePerKanal agreedAmount dealer',
+    populate: { path: 'dealer', select: 'name' }
+  })
   .populate('seller', 'name cnic phoneNumber')
   .populate('purchaser', 'name cnic phoneNumber')
   .populate('moza', 'name slug');
