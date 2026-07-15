@@ -3,7 +3,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   IconButton,
   InputAdornment,
@@ -31,7 +30,6 @@ import {
   Payment as PaymentIcon,
   Visibility as VisibilityIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 import { getMozas } from '../../services/landAcquisitionMozaService';
@@ -51,11 +49,7 @@ const formatDate = (value) => {
 
 const formatCurrency = (n) => new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(n || 0);
 
-const formatMoney = (value) =>
-  Number(value || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 export default function LandTransferViewer() {
-  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [mozas, setMozas] = useState([]);
   const [total, setTotal] = useState(0);
@@ -138,11 +132,20 @@ export default function LandTransferViewer() {
   };
 
   const handleExport = async () => {
+    const toastId = toast.loading('Fetching all records for export...');
     try {
+      const res = await landAcquisitionTransferService.getTransfers({
+        page: 1,
+        limit: 'all',
+        ...(searchDebounced && { search: searchDebounced }),
+        ...(mozaFilter && { moza: mozaFilter })
+      });
+      const allTransfers = res.data?.transfers || [];
+
       const xlsx = await import('xlsx');
       const wb = xlsx.utils.book_new();
       
-      const exportData = rows.map((r) => ({
+      const exportData = allTransfers.map((r) => ({
         'Transfer No': r.transferNo,
         'Deal No': r.dealNo,
         'Date': formatDate(r.transferDate),
@@ -161,10 +164,10 @@ export default function LandTransferViewer() {
       const ws = xlsx.utils.json_to_sheet(exportData);
       xlsx.utils.book_append_sheet(wb, ws, 'Land Transfers');
       xlsx.writeFile(wb, `land-transfers-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      toast.success('Exported successfully');
+      toast.success('Exported successfully', { id: toastId });
     } catch (err) {
       console.error(err);
-      toast.error('Export failed');
+      toast.error('Export failed', { id: toastId });
     }
   };
 

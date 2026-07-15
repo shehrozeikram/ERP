@@ -62,8 +62,8 @@ export const areaToDecimalKanal = (area) => {
 export const formatAreaReadable = (area) => {
   const a = normalizeArea(area);
   const parts = [];
-  if (a.kanal) parts.push(`${a.kanal} Kanal`);
-  if (a.marla) parts.push(`${a.marla} Marla`);
-  if (a.sarsai) parts.push(`${a.sarsai} Sarsai`);
-  return parts.join(' ') || '—';
+  if (a.kanal) parts.push(`${a.kanal} K`);
+  if (a.marla) parts.push(`${a.marla} M`);
+  if (a.sarsai) parts.push(`${a.sarsai} S`);
+  return parts.join('   ') || '—';
 };

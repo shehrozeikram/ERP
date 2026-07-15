@@ -310,7 +310,7 @@ router.get('/transfers', asyncHandler(async (req, res) => {
   const purchase = String(req.query.purchase || '').trim();
   const moza = String(req.query.moza || '').trim();
   const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const limit = req.query.limit === 'all' ? 999999 : Math.min(100, Math.max(1, Number(req.query.limit) || 25));
   const skip = (page - 1) * limit;
 
   const filter = { isActive: true };

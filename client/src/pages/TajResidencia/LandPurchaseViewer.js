@@ -115,11 +115,20 @@ export default function LandPurchaseViewer() {
   };
 
   const handleExport = async () => {
+    const toastId = toast.loading('Fetching all records for export...');
     try {
+      const res = await landAcquisitionPurchaseService.getPurchases({
+        page: 1,
+        limit: 'all',
+        ...(searchDebounced && { search: searchDebounced }),
+        ...(mozaFilter && { moza: mozaFilter })
+      });
+      const allPurchases = res.data?.purchases || [];
+
       const xlsx = await import('xlsx');
       const wb = xlsx.utils.book_new();
       
-      const exportData = rows.map((r) => ({
+      const exportData = allPurchases.map((r) => ({
         'Deal No': r.dealNo,
         'Purchase No': r.purchaseNo,
         'Date': formatDate(r.purchaseDate),
@@ -139,10 +148,10 @@ export default function LandPurchaseViewer() {
       const ws = xlsx.utils.json_to_sheet(exportData);
       xlsx.utils.book_append_sheet(wb, ws, 'Land Purchases');
       xlsx.writeFile(wb, `land-purchases-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      toast.success('Exported successfully');
+      toast.success('Exported successfully', { id: toastId });
     } catch (err) {
       console.error(err);
-      toast.error('Export failed');
+      toast.error('Export failed', { id: toastId });
     }
   };
 
