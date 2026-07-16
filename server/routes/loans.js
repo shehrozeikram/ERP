@@ -286,7 +286,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
 });
 
 // Approve loan
-router.patch('/:id/approve', authMiddleware, checkPermission('loan_approval'), async (req, res) => {
+router.patch('/:id/approve', authMiddleware, checkPermission('hr.loan.approve'), async (req, res) => {
   try {
     const { rejectionReason } = req.body;
     
@@ -329,7 +329,7 @@ router.patch('/:id/approve', authMiddleware, checkPermission('loan_approval'), a
 });
 
 // Reject loan
-router.patch('/:id/reject', authMiddleware, checkPermission('loan_approval'), async (req, res) => {
+router.patch('/:id/reject', authMiddleware, checkPermission('hr.loan.approve'), async (req, res) => {
   try {
     const { rejectionReason } = req.body;
     
@@ -371,7 +371,7 @@ router.patch('/:id/reject', authMiddleware, checkPermission('loan_approval'), as
 });
 
 // Disburse loan
-router.patch('/:id/disburse', authMiddleware, checkPermission('loan_disbursement'), async (req, res) => {
+router.patch('/:id/disburse', authMiddleware, checkPermission('hr.loan.disburse'), async (req, res) => {
   try {
     const { disbursementMethod, bankAccount } = req.body;
     
