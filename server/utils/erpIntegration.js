@@ -1,5 +1,8 @@
 const axios = require('axios');
 
+const erpCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Fetches the Customer Account Statement from the external ERP database.
  * @param {string|number} orderCode 
@@ -7,6 +10,12 @@ const axios = require('axios');
  */
 async function fetchStatementFromERP(orderCode) {
   if (!orderCode) return null;
+
+  const now = Date.now();
+  const cached = erpCache.get(orderCode);
+  if (cached && now - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
 
   try {
     const response = await axios.post(
@@ -33,12 +42,15 @@ async function fetchStatementFromERP(orderCode) {
       // The statement returns an array of records (one per installment typically).
       // The aggregate fields (SalePrice, TotalReceived, CurrentPayable) are the same on all rows.
       const row = records[0];
-      return {
+      const result = {
         salePrice: Number(row.SalePrice) || 0,
         received: Number(row.TotalReceived) || 0,
         currentlyDue: Number(row.CurrentPayable) || 0
       };
+      erpCache.set(orderCode, { data: result, timestamp: now });
+      return result;
     }
+    erpCache.set(orderCode, { data: null, timestamp: now });
     return null;
   } catch (error) {
     // console.error(`Error fetching ERP statement for OrderCode ${orderCode}:`, error.message);
@@ -56,7 +68,7 @@ async function decorateWithERPData(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
 
   const decoratedRows = [];
-  const chunkSize = 5;
+  const chunkSize = 20;
   for (let i = 0; i < rows.length; i += chunkSize) {
     const chunk = rows.slice(i, i + chunkSize);
     const chunkResults = await Promise.all(
