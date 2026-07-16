@@ -729,7 +729,7 @@ const MyTasks = () => {
     }
   };
 
-  const action = (row) => row.assignedToMember?.action || '';
+  const action = (row) => String(row.assignedToMember?.action || '').toLowerCase();
   const showWhatsApp = (row) => {
     const a = action(row);
     return a === 'whatsapp' || a === 'both';
@@ -1016,19 +1016,21 @@ const MyTasks = () => {
                             </TableCell>
                             <TableCell align="right" sx={{ overflow: 'visible', py: 1.25 }}>
                               {showWhatsApp(row) && (
-                                <IconButton size="small" onClick={() => handleOpenWhatsApp(row)} title="Send WhatsApp">
-                                  <WhatsAppIcon sx={{ color: '#25D366' }} />
-                                </IconButton>
+                                <>
+                                  <IconButton size="small" onClick={() => handleOpenWhatsApp(row)} title="Send WhatsApp">
+                                    <WhatsAppIcon sx={{ color: '#25D366' }} />
+                                  </IconButton>
+                                  <Badge
+                                    badgeContent={unreadCounts[normalizeWhatsAppNumber(row.mobileNumber)] || 0}
+                                    color="error"
+                                    invisible={!(unreadCounts[normalizeWhatsAppNumber(row.mobileNumber)] > 0)}
+                                  >
+                                    <IconButton size="small" onClick={() => handleOpenReplies(row)} title="View replies">
+                                      <ChatIcon />
+                                    </IconButton>
+                                  </Badge>
+                                </>
                               )}
-                              <Badge
-                                badgeContent={unreadCounts[normalizeWhatsAppNumber(row.mobileNumber)] || 0}
-                                color="error"
-                                invisible={!(unreadCounts[normalizeWhatsAppNumber(row.mobileNumber)] > 0)}
-                              >
-                                <IconButton size="small" onClick={() => handleOpenReplies(row)} title="View replies">
-                                  <ChatIcon />
-                                </IconButton>
-                              </Badge>
                               <IconButton
                                 size="small"
                                 onClick={() => setCompletingId(row._id)}
