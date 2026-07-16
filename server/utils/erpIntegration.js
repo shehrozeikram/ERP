@@ -55,21 +55,27 @@ async function fetchStatementFromERP(orderCode) {
 async function decorateWithERPData(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
 
-  const decoratedRows = await Promise.all(
-    rows.map(async (row) => {
-      const liveData = await fetchStatementFromERP(row.orderCode);
-      if (liveData) {
-        return {
-          ...row,
-          salePrice: liveData.salePrice !== undefined ? liveData.salePrice : row.salePrice,
-          received: liveData.received !== undefined ? liveData.received : row.received,
-          currentlyDue: liveData.currentlyDue !== undefined ? liveData.currentlyDue : row.currentlyDue,
-          _erpDataFetched: true // flag to indicate data is live
-        };
-      }
-      return row; // Fallback to local DB values
-    })
-  );
+  const decoratedRows = [];
+  const chunkSize = 5;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    const chunkResults = await Promise.all(
+      chunk.map(async (row) => {
+        const liveData = await fetchStatementFromERP(row.orderCode);
+        if (liveData) {
+          return {
+            ...row,
+            salePrice: liveData.salePrice !== undefined ? liveData.salePrice : row.salePrice,
+            received: liveData.received !== undefined ? liveData.received : row.received,
+            currentlyDue: liveData.currentlyDue !== undefined ? liveData.currentlyDue : row.currentlyDue,
+            _erpDataFetched: true // flag to indicate data is live
+          };
+        }
+        return row; // Fallback to local DB values
+      })
+    );
+    decoratedRows.push(...chunkResults);
+  }
 
   return decoratedRows;
 }
