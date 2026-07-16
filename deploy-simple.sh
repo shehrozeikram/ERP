@@ -127,6 +127,11 @@ cd "$S"
 npm install --omit=dev --omit=optional
 say "npm install done."
 
+# --- run database cleanup and slab populator ---
+say "Running database cleanup and FBR tax slabs populator..."
+NODE_ENV=production node "$S/server/scripts/cleanup-future-balances.js"
+NODE_ENV=production node "$S/server/scripts/populate-fbr-tax-slabs-2026.js"
+
 # --- publish static files (remove stale hashed JS/CSS chunks) ---
 say "Syncing build → /var/www/html..."
 mkdir -p /var/www/html

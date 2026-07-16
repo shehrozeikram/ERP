@@ -37,11 +37,15 @@ function applyFBRSlabs(annualTaxableIncome) {
   } else if (annualTaxableIncome <= 2200000) {
     annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
   } else if (annualTaxableIncome <= 3200000) {
-    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
   } else if (annualTaxableIncome <= 4100000) {
-    annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+    annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
+  } else if (annualTaxableIncome <= 5600000) {
+    annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
+  } else if (annualTaxableIncome <= 7000000) {
+    annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
   } else {
-    annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+    annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
   }
   if (annualTaxableIncome > 10000000) annualTax += annualTax * 0.09;
   return annualTax;
@@ -83,7 +87,7 @@ const tests = [
     payrollMonth: 6,
     payrollYear: 2026,
     expectedFYMonths: 12,
-    expectedTax: null // just check it's > 0
+    expectedTax: 50400 // Taxable: 360,000 * 12 = 4.32M -> 541,000 + (4.32M - 4.1M)*0.29 = 604,800 -> 604,800 / 12 = 50,400
   },
   {
     name: 'Employee hired January 1, 2026 (6 months in FY) | Salary 400,000/mo',

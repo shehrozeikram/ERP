@@ -1214,7 +1214,7 @@ Do you want to:
   //     setMonthlyTaxUpdateLoading(true);
   //     setError(null);
   //     
-  //     const confirmMessage = 'This will update taxes for all payrolls in the current month using the latest FBR 2025-2026 tax slabs. This action cannot be undone. Continue?';
+  //     const confirmMessage = 'This will update taxes for all payrolls in the current month using the latest FBR 2026-2027 tax slabs. This action cannot be undone. Continue?';
   //     if (!window.confirm(confirmMessage)) {
   //       return;
   //     }

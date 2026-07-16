@@ -644,7 +644,7 @@ payrollSchema.pre('save', function(next) {
     // 2. Calculate taxable income (total earnings - medical allowance)
     const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
     
-    // 3. Calculate tax using FBR 2025-2026 rules on taxable income
+    // 3. Calculate tax using FBR 2026-2027 rules on taxable income
     const annualTaxableIncome = taxableIncome * 12;
     
     let annualTax = 0;
@@ -656,11 +656,15 @@ payrollSchema.pre('save', function(next) {
     } else if (annualTaxableIncome <= 2200000) {
       annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
     } else if (annualTaxableIncome <= 3200000) {
-      annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+      annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
     } else if (annualTaxableIncome <= 4100000) {
-      annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+      annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
+    } else if (annualTaxableIncome <= 5600000) {
+      annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
+    } else if (annualTaxableIncome <= 7000000) {
+      annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
     } else {
-      annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+      annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
     }
     
     // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
@@ -756,7 +760,7 @@ payrollSchema.methods.calculateTax = function() {
   // 2. Calculate taxable income (total earnings - medical allowance)
   const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
   
-  // 3. Calculate tax using FBR 2025-2026 rules on taxable income
+  // 3. Calculate tax using FBR 2026-2027 rules on taxable income
   const annualTaxableIncome = taxableIncome * 12;
   
   let annualTax = 0;
@@ -768,11 +772,15 @@ payrollSchema.methods.calculateTax = function() {
   } else if (annualTaxableIncome <= 2200000) {
     annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
   } else if (annualTaxableIncome <= 3200000) {
-    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
   } else if (annualTaxableIncome <= 4100000) {
-    annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+    annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
+  } else if (annualTaxableIncome <= 5600000) {
+    annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
+  } else if (annualTaxableIncome <= 7000000) {
+    annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
   } else {
-    annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+    annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
   }
   
   // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000

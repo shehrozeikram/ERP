@@ -1,6 +1,6 @@
 /**
  * Pakistan FBR Tax Calculator
- * Implements exact FBR 2025-2026 tax slabs
+ * Implements exact FBR 2026-2027 tax slabs
  */
 const { vehicleFuelTotal } = require('./allowanceHelpers');
 
@@ -55,7 +55,7 @@ function getRemainingFYMonths(hireDate, payrollMonth, payrollYear) {
 }
 
 /**
- * Calculate monthly tax deduction using FBR 2025-2026 tax slabs
+ * Calculate monthly tax deduction using FBR 2026-2027 tax slabs
  * @param {number} monthlySalary - Monthly taxable salary (after medical allowance deduction)
  * @returns {number} Monthly tax amount
  */
@@ -67,7 +67,7 @@ function calculateMonthlyTax(monthlySalary) {
   // Calculate annual taxable income (12 months)
   const annualTaxableIncome = monthlySalary * 12;
   
-  // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
+  // FBR 2026-2027 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
   // Source: Federal Board of Revenue Pakistan
   let annualTax = 0;
   
@@ -81,14 +81,20 @@ function calculateMonthlyTax(monthlySalary) {
     // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
     annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
   } else if (annualTaxableIncome <= 3200000) {
-    // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
-    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+    // Rs. 116,000 + 20% on income from 2,200,001 to 3,200,000
+    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
   } else if (annualTaxableIncome <= 4100000) {
-    // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
-    annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+    // Rs. 316,000 + 25% on income from 3,200,001 to 4,100,000
+    annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
+  } else if (annualTaxableIncome <= 5600000) {
+    // Rs. 541,000 + 29% on income from 4,100,001 to 5,600,000
+    annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
+  } else if (annualTaxableIncome <= 7000000) {
+    // Rs. 976,000 + 32% on income from 5,600,001 to 7,000,000
+    annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
   } else {
-    // Rs. 616,000 + 35% on income above 4,100,000
-    annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+    // Rs. 1,424,000 + 35% on income above 7,000,000
+    annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
   }
   
   // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
@@ -353,11 +359,15 @@ function calculateMonthlyTaxFYAware(monthlySalary, hireDate, payrollMonth, payro
   } else if (annualTaxableIncome <= 2200000) {
     annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
   } else if (annualTaxableIncome <= 3200000) {
-    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
   } else if (annualTaxableIncome <= 4100000) {
-    annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+    annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
+  } else if (annualTaxableIncome <= 5600000) {
+    annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
+  } else if (annualTaxableIncome <= 7000000) {
+    annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
   } else {
-    annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+    annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
   }
 
   if (annualTaxableIncome > 10000000) {

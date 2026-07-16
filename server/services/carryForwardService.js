@@ -15,6 +15,9 @@ class CarryForwardService {
    * @returns {Object} Carry forward calculation result
    */
   static async calculateCarryForward(employeeId, workYear, newAllocation = 20) {
+    if (workYear >= 50) {
+      throw new Error(`Work year ${workYear} exceeds maximum limit of 50`);
+    }
     try {
       const employee = await Employee.findById(employeeId);
       if (!employee) {
@@ -103,6 +106,9 @@ class CarryForwardService {
    * @returns {Object} Created or existing balance
    */
   static async ensureWorkYearBalance(employeeId, workYear) {
+    if (workYear >= 50) {
+      throw new Error(`Work year ${workYear} exceeds maximum limit of 50`);
+    }
     try {
       // Check if balance already exists
       let balance = await LeaveBalance.findOne({
@@ -226,6 +232,9 @@ class CarryForwardService {
    * @returns {Object} Balance with carry forward
    */
   static async getOrCreateBalanceWithCarryForward(employeeId, workYear) {
+    if (workYear >= 50) {
+      throw new Error(`Work year ${workYear} exceeds maximum limit of 50`);
+    }
     try {
       // First check if the requested work year balance already exists
       let balance = await LeaveBalance.findOne({
@@ -254,7 +263,13 @@ class CarryForwardService {
       }
 
       // If still not found, ensure all previous work year balances exist
+      const existingBalances = await LeaveBalance.find({ employee: employeeId });
+      const existingWorkYears = new Set(existingBalances.map(b => b.workYear));
+
       for (let year = 0; year <= workYear; year++) {
+        if (existingWorkYears.has(year)) {
+          continue;
+        }
         try {
           await this.ensureWorkYearBalance(employeeId, year);
         } catch (error) {

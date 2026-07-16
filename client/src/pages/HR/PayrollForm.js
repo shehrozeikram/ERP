@@ -1837,7 +1837,7 @@ const PayrollForm = () => {
                               {formatPKR(totals.autoCalculatedTax || 0)}
                             </Typography>
                             <Typography variant="caption" color="textSecondary">
-                              Calculated on (Total Earnings - 10% Medical Allowance) per FBR 2025-2026
+                              Calculated on (Total Earnings - 10% Medical Allowance) per FBR 2026-2027
                             </Typography>
                           </Box>
                           
@@ -1966,7 +1966,7 @@ const PayrollForm = () => {
                     <Card variant="outlined" sx={{ bgcolor: '#f8f9fa' }}>
                       <CardContent>
                         <Typography variant="h6" gutterBottom color="primary">
-                          🧮 Pakistan FBR Tax Calculation (FY 2025-26)
+                          🧮 Pakistan FBR Tax Calculation (FY 2026-27)
                         </Typography>
                         <Grid container spacing={2}>
                           <Grid item xs={12} md={6}>
@@ -1988,7 +1988,7 @@ const PayrollForm = () => {
                               <strong>Tax Slab:</strong> Based on annual taxable income
                             </Typography>
                             <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Tax Rate:</strong> Per FBR 2025-2026 rules
+                              <strong>Tax Rate:</strong> Per FBR 2026-2027 rules
                             </Typography>
                             <Typography variant="body2" sx={{ mb: 1 }}>
                               <strong>Monthly Tax:</strong> {formatPKR(totals.autoCalculatedTax || 0)}
@@ -2061,7 +2061,7 @@ const PayrollForm = () => {
               <CardContent>
                 <Typography variant="h6" gutterBottom sx={{ color: '#1976d2', display: 'flex', alignItems: 'center' }}>
                   <CalculateIcon sx={{ mr: 1 }} />
-                  Pakistan FBR Tax Calculation (FY 2025-26)
+                  Pakistan FBR Tax Calculation (FY 2026-27)
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
@@ -2102,7 +2102,7 @@ const PayrollForm = () => {
               <Card variant="outlined" sx={{ bgcolor: '#f8f9fa' }}>
                 <CardContent>
                   <Typography variant="h6" gutterBottom color="primary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    🧮 Pakistan FBR Tax Calculation (FY 2025-26)
+                    🧮 Pakistan FBR Tax Calculation (FY 2026-27)
                   </Typography>
                   <Grid container spacing={2}>
                     <Grid item xs={12} md={6}>

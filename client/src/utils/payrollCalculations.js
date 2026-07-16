@@ -135,7 +135,7 @@ export const calculateNetSalary = (totalEarnings = 0, totalDeductions = 0) => {
 };
 
 /**
- * Calculate Tax using Pakistan FBR 2025-2026 rules
+ * Calculate Tax using Pakistan FBR 2026-2027 rules
  * @param {number} totalEarnings - Total earnings
  * @returns {Object} Tax breakdown
  */
@@ -151,7 +151,7 @@ export const calculateTaxBreakdown = (totalEarnings = 0) => {
   // Calculate annual taxable income
   const annualTaxableIncome = taxableIncome * 12;
   
-  // FBR 2025-2026 Tax Slabs for Salaried Persons
+  // FBR 2026-2027 Tax Slabs for Salaried Persons
   let annualTax = 0;
   
   if (annualTaxableIncome <= 600000) {
@@ -161,11 +161,15 @@ export const calculateTaxBreakdown = (totalEarnings = 0) => {
   } else if (annualTaxableIncome <= 2200000) {
     annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
   } else if (annualTaxableIncome <= 3200000) {
-    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
   } else if (annualTaxableIncome <= 4100000) {
-    annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+    annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
+  } else if (annualTaxableIncome <= 5600000) {
+    annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
+  } else if (annualTaxableIncome <= 7000000) {
+    annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
   } else {
-    annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+    annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
   }
   
   // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
