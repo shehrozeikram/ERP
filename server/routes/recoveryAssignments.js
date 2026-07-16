@@ -96,6 +96,26 @@ function resolveAssignedMember(record, sectorRules, slabRules) {
   return null;
 }
 
+function isTaskAssignedToMember(record, memberId, sectorRules, slabRules) {
+  const sector = normalizeSectorValue(record.sector);
+  const due = Number(record.currentlyDue) || 0;
+
+  const memberSectorRule = sectorRules.find(r => r.assignedTo && r.assignedTo._id.toString() === memberId.toString() && normalizeSectorValue(r.sector) === sector);
+  if (memberSectorRule) return true;
+
+  const memberSlabRule = slabRules.find(r => {
+    if (!r.assignedTo || r.assignedTo._id.toString() !== memberId.toString()) return false;
+    const min = Number(r.minAmount) || 0;
+    const max = r.maxAmount != null && r.maxAmount !== '' ? Number(r.maxAmount) : null;
+    const sectorMatch = !normalizeSectorValue(r.sector) || normalizeSectorValue(r.sector) === sector;
+    const inRange = due >= min && (max === null || due < max);
+    return sectorMatch && inRange;
+  });
+  if (memberSlabRule) return true;
+
+  return false;
+}
+
 /** True when the logged-in user is linked to an active RecoveryMember (field agent). */
 async function userIsActiveRecoveryMember(req) {
   if (!req.user?.employeeId) return false;
@@ -1469,7 +1489,11 @@ router.put(
     if (!isAdmin && assignedToMember) {
       const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
       const recoveryMember = employee ? await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean() : null;
-      if (!recoveryMember || assignedToMember._id.toString() !== recoveryMember._id.toString()) {
+      if (!recoveryMember) {
+        return res.status(403).json({ success: false, message: 'You can only update feedback for your assigned tasks' });
+      }
+      const isAssigned = isTaskAssignedToMember(assignment, recoveryMember._id, sectorRules, slabRules);
+      if (!isAssigned) {
         return res.status(403).json({ success: false, message: 'You can only update feedback for your assigned tasks' });
       }
     }
@@ -1618,7 +1642,11 @@ router.put(
     if (!isAdmin && assignedToMember) {
       const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
       const recoveryMember = employee ? await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean() : null;
-      if (!recoveryMember || assignedToMember._id.toString() !== recoveryMember._id.toString()) {
+      if (!recoveryMember) {
+        return res.status(403).json({ success: false, message: 'You can only complete your assigned tasks' });
+      }
+      const isAssigned = isTaskAssignedToMember(assignment, recoveryMember._id, sectorRules, slabRules);
+      if (!isAssigned) {
         return res.status(403).json({ success: false, message: 'You can only complete your assigned tasks' });
       }
     }
