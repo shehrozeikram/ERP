@@ -179,27 +179,23 @@ const MyTasks = () => {
       setLoading(true);
       setNotRecoveryMember(false);
       const ruleFilter = selectedRuleId ? rules.find((r) => r._id === selectedRuleId) : null;
-      const useWideFetch = Boolean(selectedTaskId || ruleFilter);
       const params = {
-        ...(useWideFetch ? { page: 1, limit: 500 } : pagination.getApiParams()),
+        ...pagination.getApiParams(),
         ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter }),
         ...(unreadFilter === 'unread' && { unread: 'true' }),
         ...(dueSort && { dueSort }),
-        ...(selectedTaskId && !ruleFilter && { recoveryTaskId: selectedTaskId })
+        ...(selectedTaskId && !ruleFilter && { recoveryTaskId: selectedTaskId }),
+        ...(ruleFilter && { recoveryRuleId: ruleFilter._id })
       };
       const res = await fetchMyRecoveryTasks(params);
       const data = res.data?.data || [];
       const pag = res.data?.pagination || {};
       let rows = Array.isArray(data) ? data : [];
 
-      if (ruleFilter) {
-        rows = rows.filter((row) => assignmentMatchesRecoveryRule(row, ruleFilter));
-      }
-
       setRecords(rows);
-      pagination.setTotal(useWideFetch ? rows.length : (pag.total || 0));
+      pagination.setTotal(pag.total || 0);
       if (res.data?.notRecoveryMember) setNotRecoveryMember(true);
     } catch (err) {
       setSnackbar({

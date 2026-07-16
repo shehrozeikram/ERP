@@ -228,7 +228,7 @@ router.get(
   '/my-tasks',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, search, sector, status, unread, dueSort, recoveryTaskId } = req.query;
+    const { page = 1, limit = 50, search, sector, status, unread, dueSort, recoveryTaskId, recoveryRuleId } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
 
     let recoveryTaskFilter = null;
@@ -262,6 +262,7 @@ router.get(
     // Super admin and admin: only assignments that are assigned to some recovery member (any rule)
     if (req.user.role === 'super_admin' || req.user.role === 'developer' || req.user.role === 'admin') {
       const allRules = await RecoveryTaskAssignmentRule.find({ isActive: true })
+        .sort({ createdAt: -1 })
         .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
         .lean();
       const sectorRulesAll = allRules.filter((r) => r.type === 'sector');
@@ -283,6 +284,26 @@ router.get(
           orConditions.push({ currentlyDue: dueCondition });
         }
       });
+
+      if (recoveryRuleId && String(recoveryRuleId).trim()) {
+        const targetRule = allRules.find((r) => String(r._id) === String(recoveryRuleId).trim());
+        if (targetRule) {
+          orConditions.length = 0; // Clear other conditions
+          if (targetRule.type === 'sector') {
+            orConditions.push({ sector: sectorExactRegex(String(targetRule.sector || '').trim()) });
+          } else if (targetRule.type === 'slab') {
+            const min = Number(targetRule.minAmount) || 0;
+            const max = targetRule.maxAmount != null && targetRule.maxAmount !== '' ? Number(targetRule.maxAmount) : null;
+            const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
+            const sectorVal = (targetRule.sector || '').trim();
+            if (sectorVal) {
+              orConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
+            } else {
+              orConditions.push({ currentlyDue: dueCondition });
+            }
+          }
+        }
+      }
 
       if (orConditions.length === 0) {
         return res.json({
@@ -387,12 +408,15 @@ router.get(
     }
 
     const rules = await RecoveryTaskAssignmentRule.find({ isActive: true, assignedTo: recoveryMember._id })
+      .sort({ createdAt: -1 })
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .lean();
     const sectorRulesAll = await RecoveryTaskAssignmentRule.find({ isActive: true, type: 'sector' })
+      .sort({ createdAt: -1 })
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .lean();
     const slabRulesAll = await RecoveryTaskAssignmentRule.find({ isActive: true, type: 'slab' })
+      .sort({ createdAt: -1 })
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .lean();
 
@@ -414,6 +438,26 @@ router.get(
         orConditions.push({ currentlyDue: dueCondition });
       }
     });
+
+    if (recoveryRuleId && String(recoveryRuleId).trim()) {
+      const targetRule = rules.find((r) => String(r._id) === String(recoveryRuleId).trim());
+      if (targetRule) {
+        orConditions.length = 0; // Clear other conditions
+        if (targetRule.type === 'sector') {
+          orConditions.push({ sector: sectorExactRegex(String(targetRule.sector || '').trim()) });
+        } else if (targetRule.type === 'slab') {
+          const min = Number(targetRule.minAmount) || 0;
+          const max = targetRule.maxAmount != null && targetRule.maxAmount !== '' ? Number(targetRule.maxAmount) : null;
+          const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
+          const sectorVal = (targetRule.sector || '').trim();
+          if (sectorVal) {
+            orConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
+          } else {
+            orConditions.push({ currentlyDue: dueCondition });
+          }
+        }
+      }
+    }
 
     if (orConditions.length === 0) {
       return res.json({
@@ -583,6 +627,7 @@ router.get(
     }
 
     const rules = await RecoveryTaskAssignmentRule.find({ isActive: true })
+      .sort({ createdAt: -1 })
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .populate('createdBy', 'firstName lastName email')
       .lean();
