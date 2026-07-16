@@ -18,7 +18,6 @@ import {
   CircularProgress,
   Alert,
   Button,
-  Divider,
   IconButton,
   Tooltip,
   Avatar
@@ -27,14 +26,9 @@ import {
   ArrowBack as ArrowBackIcon,
   Visibility as ViewIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon,
-  Person as PersonIcon,
-  Work as WorkIcon,
   AccountBalance as AccountBalanceIcon,
-  Receipt as ReceiptIcon,
   Download as DownloadIcon
 } from '@mui/icons-material';
-import { format } from 'date-fns';
 import api from '../../services/api';
 import leaveService from '../../services/leaveService';
 import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
@@ -83,13 +77,13 @@ const EmployeePayrollDetails = () => {
     fetchEmployeePayrollDetails();
     fetchEmployeeLoans();
     fetchEmployeeLeaveBalance();
-  }, [employeeId]);
+  }, [employeeId]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const fetchEmployeeLeaveBalance = async () => {
     try {
       setLeaveLoading(true);
       const currentYear = new Date().getFullYear();
-      const response = await leaveService.getEmployeeLeaveSummary(employeeId, currentYear);
+      const response = await leaveService.getEmployeeLeaveSummary(employeeId, null, currentYear);
       setLeaveBalance(response.data);
     } catch (error) {
       console.error('Error fetching leave balance:', error);
@@ -178,19 +172,6 @@ const EmployeePayrollDetails = () => {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     }).format(amount);
-  };
-
-  const formatEmployeeId = (employeeId) => {
-    if (!employeeId) return 'N/A';
-    return employeeId.toString().padStart(5, '0');
-  };
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
   };
 
   const getStatusColor = (status) => {

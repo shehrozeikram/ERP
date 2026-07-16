@@ -13,6 +13,12 @@ class LeaveIntegrationService {
    */
   static async getEmployeeLeaveSummary(employeeId, workYear = null, year = null) {
     try {
+      // If workYear looks like a calendar year (e.g. > 100), treat it as calendar year
+      if (workYear !== null && workYear > 100) {
+        year = workYear;
+        workYear = null;
+      }
+
       // Get employee
       const employee = await Employee.findById(employeeId);
       if (!employee) {
@@ -806,6 +812,17 @@ class LeaveIntegrationService {
    */
   static async getWorkYearBalance(employeeId, workYear) {
     try {
+      if (workYear > 100) {
+        // It's a calendar year! Translate it to workYear
+        const employee = await Employee.findById(employeeId);
+        if (employee) {
+          const hireDate = employee.hireDate || employee.joiningDate;
+          if (hireDate) {
+            const hireYear = new Date(hireDate).getFullYear();
+            workYear = Math.max(0, workYear - hireYear - 1);
+          }
+        }
+      }
       return await LeaveBalance.getOrCreateBalanceWithCarryForward(employeeId, workYear);
     } catch (error) {
       throw new Error(`Failed to get work year balance: ${error.message}`);

@@ -22,25 +22,19 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon
+
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
   Save as SaveIcon,
   ArrowBack as ArrowBackIcon,
   ArrowForward as ArrowForwardIcon,
-  Calculate as CalculateIcon,
-  Receipt as ReceiptIcon,
-  AccountBalance as AccountBalanceIcon,
-  TrendingUp as TrendingUpIcon
+  Calculate as CalculateIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { format } from 'date-fns';
+
 import { formatPKR } from '../../utils/currency';
 import { allowancesForForm, vehicleAllowanceAmount, fuelAllowanceAmount } from '../../utils/allowanceHelpers';
 import api from '../../services/authService';
@@ -318,32 +312,30 @@ const PayrollForm = () => {
         }
 
         let savedPayroll;
-        {
-          console.log('🔄 UPDATING EXISTING PAYROLL:', id);
-          console.log('📤 COMPLETE PAYLOAD BEING SENT TO BACKEND:');
-          console.log('   Payroll ID:', id);
-          console.log('   Employee ID:', payrollData.employee);
-          console.log('   Pay Period:', payrollData.payPeriod);
-          console.log('   Basic Salary:', payrollData.basicSalary);
-          console.log('   Allowances:', JSON.stringify(payrollData.allowances, null, 2));
-          console.log('   Overtime:', JSON.stringify(payrollData.overtime, null, 2));
-          console.log('   Bonuses:', JSON.stringify(payrollData.bonuses, null, 2));
-          console.log('   Deductions:', JSON.stringify(payrollData.deductions, null, 2));
-          console.log('   Attendance:', JSON.stringify(payrollData.attendance, null, 2));
-          console.log('   Leave Deductions:', JSON.stringify(payrollData.leaveDeductions, null, 2));
-          console.log('   Notes:', payrollData.notes);
-          console.log('📊 SUMMARY OF KEY CHANGES:');
-          console.log('   Vehicle Allowance:', payrollData.allowances?.vehicle?.isActive ?
-            `Active (Rs. ${payrollData.allowances.vehicle.amount})` : 'Inactive');
-          console.log('   Fuel Allowance:', payrollData.allowances?.fuel?.isActive ?
-            `Active (Rs. ${payrollData.allowances.fuel.amount})` : 'Inactive');
-          console.log('   Medical Allowance:', payrollData.allowances?.medical?.isActive ? 
-            `Active (Rs. ${payrollData.allowances.medical.amount})` : 'Inactive');
-          console.log('   Total Allowances:', Object.values(payrollData.allowances || {}).reduce((sum, allowance) => 
-            sum + (allowance.isActive ? allowance.amount : 0), 0));
-          console.log('🚀 SENDING PUT REQUEST TO:', `/api/payroll/${id}`);
-          savedPayroll = await api.put(`/payroll/${id}`, payrollData);
-        }
+        console.log('🔄 UPDATING EXISTING PAYROLL:', id);
+        console.log('📤 COMPLETE PAYLOAD BEING SENT TO BACKEND:');
+        console.log('   Payroll ID:', id);
+        console.log('   Employee ID:', payrollData.employee);
+        console.log('   Pay Period:', payrollData.payPeriod);
+        console.log('   Basic Salary:', payrollData.basicSalary);
+        console.log('   Allowances:', JSON.stringify(payrollData.allowances, null, 2));
+        console.log('   Overtime:', JSON.stringify(payrollData.overtime, null, 2));
+        console.log('   Bonuses:', JSON.stringify(payrollData.bonuses, null, 2));
+        console.log('   Deductions:', JSON.stringify(payrollData.deductions, null, 2));
+        console.log('   Attendance:', JSON.stringify(payrollData.attendance, null, 2));
+        console.log('   Leave Deductions:', JSON.stringify(payrollData.leaveDeductions, null, 2));
+        console.log('   Notes:', payrollData.notes);
+        console.log('📊 SUMMARY OF KEY CHANGES:');
+        console.log('   Vehicle Allowance:', payrollData.allowances?.vehicle?.isActive ?
+          `Active (Rs. ${payrollData.allowances.vehicle.amount})` : 'Inactive');
+        console.log('   Fuel Allowance:', payrollData.allowances?.fuel?.isActive ?
+          `Active (Rs. ${payrollData.allowances.fuel.amount})` : 'Inactive');
+        console.log('   Medical Allowance:', payrollData.allowances?.medical?.isActive ? 
+          `Active (Rs. ${payrollData.allowances.medical.amount})` : 'Inactive');
+        console.log('   Total Allowances:', Object.values(payrollData.allowances || {}).reduce((sum, allowance) => 
+          sum + (allowance.isActive ? allowance.amount : 0), 0));
+        console.log('🚀 SENDING PUT REQUEST TO:', `/api/payroll/${id}`);
+        savedPayroll = await api.put(`/payroll/${id}`, payrollData);
 
         // Process loan payment if there's a loan deduction
         if (values.deductions.loan > 0 && employeeLoans.length > 0) {
@@ -409,7 +401,7 @@ const PayrollForm = () => {
     }
     fetchEmployees();
     fetchPayroll();
-  }, [id, navigate]);
+  }, [id, navigate]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   // Update loan deduction when employee loans change
   useEffect(() => {
@@ -439,7 +431,7 @@ const PayrollForm = () => {
         formik.setFieldValue('deductions.loan', 0);
       }
     }
-  }, [employeeLoans, selectedEmployee]);
+  }, [employeeLoans, selectedEmployee]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   // 🔧 AUTOMATIC ABSENT DAYS CALCULATION
   // Recalculate absent days whenever present days, total days, or leave days change
@@ -459,7 +451,7 @@ const PayrollForm = () => {
     formik.values.attendance?.totalDays, 
     formik.values.attendance?.presentDays, 
     formik.values.leaveDeductions?.totalLeaveDays
-  ]);
+  ]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const fetchEmployees = async () => {
     try {

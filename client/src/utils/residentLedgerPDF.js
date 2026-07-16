@@ -1,5 +1,3 @@
-import jsPDF from 'jspdf';
-import { autoTable } from 'jspdf-autotable';
 import dayjs from 'dayjs';
 import {
   buildLedgerSectionDisplayRows,
@@ -33,14 +31,15 @@ const formatAmount = (value) => {
  * @param {Object} ledger - { resident, invoices, transactions }
  * @param {Object} options - { filename, openInNewTab }
  */
-export const generateResidentLedgerPDF = (ledger, options = {}) => {
+export const generateResidentLedgerPDF = async (ledger, options = {}) => {
   if (!ledger || !ledger.resident) return;
+
+  const jsPDF = (await import('jspdf')).default;
+  const { autoTable } = await import('jspdf-autotable');
 
   const pdf = new jsPDF('p', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = PDF_CONFIG.margin;
-  const marginRight = pageWidth - margin;
   let y = margin;
 
   const resident = ledger.resident || {};
@@ -69,12 +68,6 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
     otherInvoices
   ]);
 
-  const checkNewPage = (requiredSpace = 20) => {
-    if (y + requiredSpace > pageHeight - margin) {
-      pdf.addPage();
-      y = margin;
-    }
-  };
 
   // Set default text color
   pdf.setTextColor(...PDF_CONFIG.textColor);

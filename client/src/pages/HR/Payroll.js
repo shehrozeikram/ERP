@@ -49,14 +49,12 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   Download as DownloadIcon,
-  DoneAll as DoneAllIcon,
   CompareArrows as CompareArrowsIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
 import { useData } from '../../contexts/DataContext';
 import api from '../../services/authService';
-import { PageLoading } from '../../components/LoadingSpinner';
 import MonthlyPayrollApprovalSection from '../../components/HR/MonthlyPayrollApprovalSection';
 import PayrollMonthlyComparisonDialog from '../../components/HR/PayrollMonthlyComparisonDialog';
 import { getPayrollStatusColor, getPayrollStatusLabel } from '../../utils/payrollStatusHelpers';
@@ -80,7 +78,7 @@ const months = [
 
 const Payroll = () => {
   const navigate = useNavigate();
-  const { employees, departments, positions, projects, loading: dataLoading } = useData();
+  const { employees, departments, projects, loading: dataLoading } = useData();
   const [payrolls, setPayrolls] = useState([]);
   const [monthlyPayrolls, setMonthlyPayrolls] = useState([]);
   const [paginatedMonthlyPayrolls, setPaginatedMonthlyPayrolls] = useState([]);
@@ -121,6 +119,7 @@ const Payroll = () => {
   const [exportMonth, setExportMonth] = useState((new Date().getMonth() + 1).toString());
   const [exportYear, setExportYear] = useState(new Date().getFullYear());
   const [exportLoadingKey, setExportLoadingKey] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [bulkApproveLoadingKey, setBulkApproveLoadingKey] = useState(null);
   const [monthlyApprovals, setMonthlyApprovals] = useState({});
   const [monthlyApprovalLoadingKeys, setMonthlyApprovalLoadingKeys] = useState(new Set());
@@ -152,7 +151,7 @@ const Payroll = () => {
   const fetchPayrolls = useCallback(async () => {
     // This function is kept for backward compatibility but now calls fetchMonthlyPayrolls
     return fetchMonthlyPayrolls();
-  }, []);
+  }, []); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const fetchStats = useCallback(async () => {
     try {
@@ -1138,6 +1137,7 @@ Do you want to:
   const canApproveDraftsForMonth = (month, year) =>
     monthlyApprovals[`${month}-${year}`]?.authorityStatus === 'approved';
 
+  // eslint-disable-next-line no-unused-vars
   const bulkApprovePayrolls = async (month, year, periodLabel, options = {}) => {
     const { silent = false } = options;
     const monthNum = Number(month);
@@ -2200,8 +2200,8 @@ Do you want to:
                   const approvalDoc = monthlyApprovals[monthKey];
                   const approvalLoading = monthlyApprovalLoadingKeys.has(monthKey);
                   const canApproveDrafts = canApproveDraftsForMonth(monthly.month, monthly.year);
-                  const bulkApproveBlocked = draftCount > 0 && !canApproveDrafts;
-                  const bulkApproveTooltip = bulkApproveBlocked
+                  // eslint-disable-next-line no-unused-vars
+                  const bulkApproveTooltip = (draftCount > 0 && !canApproveDrafts)
                     ? 'Configure approval authorities and complete all sign-offs first'
                     : `Approve all ${draftCount} draft payroll(s)`;
                   

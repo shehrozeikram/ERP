@@ -2,9 +2,6 @@
  * Shared report export utility.
  * Uses jspdf + jspdf-autotable for PDF, xlsx for Excel.
  */
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
 
 const COMPANY = 'SGC International';
 
@@ -14,7 +11,7 @@ const fmtPKR = (n) =>
 
 const todayStr = () => new Date().toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
 
-function baseDoc(title, subtitle) {
+function baseDoc(title, subtitle, jsPDF) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   // Header bar
   doc.setFillColor(25, 118, 210);
@@ -37,8 +34,10 @@ function baseDoc(title, subtitle) {
 }
 
 // ─── Balance Sheet ───────────────────────────────────────────────────────────
-export function exportBalanceSheetPDF(data) {
-  const doc = baseDoc('Balance Sheet', `As of ${new Date(data.asOfDate).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' })}`);
+export async function exportBalanceSheetPDF(data) {
+  const jsPDF = (await import('jspdf')).default;
+  const autoTable = (await import('jspdf-autotable')).default;
+  const doc = baseDoc('Balance Sheet', `As of ${new Date(data.asOfDate).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' })}`, jsPDF);
   let y = 42;
 
   const addSection = (title, rows, total, color) => {
@@ -68,7 +67,8 @@ export function exportBalanceSheetPDF(data) {
   doc.save(`Balance-Sheet-${data.asOfDate}.pdf`);
 }
 
-export function exportBalanceSheetExcel(data) {
+export async function exportBalanceSheetExcel(data) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const rows = [
     ['SGC International — Balance Sheet'],
@@ -101,9 +101,11 @@ export function exportBalanceSheetExcel(data) {
 }
 
 // ─── Profit & Loss ───────────────────────────────────────────────────────────
-export function exportProfitLossPDF(data, filters) {
+export async function exportProfitLossPDF(data, filters) {
+  const jsPDF = (await import('jspdf')).default;
+  const autoTable = (await import('jspdf-autotable')).default;
   const sub = `Period: ${filters.fromDate || 'Start'} → ${filters.toDate || 'Today'}`;
-  const doc = baseDoc('Profit & Loss Statement', sub);
+  const doc = baseDoc('Profit & Loss Statement', sub, jsPDF);
   let y = 42;
 
   const addSection = (title, rows, total, color) => {
@@ -138,7 +140,8 @@ export function exportProfitLossPDF(data, filters) {
   doc.save(`Profit-Loss-${filters.fromDate}-${filters.toDate}.pdf`);
 }
 
-export function exportProfitLossExcel(data, filters) {
+export async function exportProfitLossExcel(data, filters) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const rows = [
     ['SGC International — Profit & Loss Statement'],
@@ -164,8 +167,10 @@ export function exportProfitLossExcel(data, filters) {
 }
 
 // ─── Trial Balance ───────────────────────────────────────────────────────────
-export function exportTrialBalancePDF(data, asOfDate) {
-  const doc = baseDoc('Trial Balance', `As of ${asOfDate}`);
+export async function exportTrialBalancePDF(data, asOfDate) {
+  const jsPDF = (await import('jspdf')).default;
+  const autoTable = (await import('jspdf-autotable')).default;
+  const doc = baseDoc('Trial Balance', `As of ${asOfDate}`, jsPDF);
   const totalOpening = data.accounts?.reduce((s, a) => s + (a.openingBalance || 0), 0) || 0;
   const totalDebits = data.accounts?.reduce((s, a) => s + (a.totalDebit || 0), 0) || 0;
   const totalCredits = data.accounts?.reduce((s, a) => s + (a.totalCredit || 0), 0) || 0;
@@ -194,7 +199,8 @@ export function exportTrialBalancePDF(data, asOfDate) {
   doc.save(`Trial-Balance-${asOfDate}.pdf`);
 }
 
-export function exportTrialBalanceExcel(data, asOfDate) {
+export async function exportTrialBalanceExcel(data, asOfDate) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const rows = [
     ['SGC International — Trial Balance'],
@@ -218,9 +224,11 @@ export function exportTrialBalanceExcel(data, asOfDate) {
 }
 
 // ─── Cash Flow ───────────────────────────────────────────────────────────────
-export function exportCashFlowPDF(data, filters) {
+export async function exportCashFlowPDF(data, filters) {
+  const jsPDF = (await import('jspdf')).default;
+  const autoTable = (await import('jspdf-autotable')).default;
   const sub = `Period: ${filters.fromDate || 'Start'} → ${filters.toDate || 'Today'}`;
-  const doc = baseDoc('Cash Flow Statement', sub);
+  const doc = baseDoc('Cash Flow Statement', sub, jsPDF);
   let y = 42;
 
   const addSection = (title, items, total, color) => {
@@ -254,7 +262,8 @@ export function exportCashFlowPDF(data, filters) {
   doc.save(`Cash-Flow-${filters.fromDate}-${filters.toDate}.pdf`);
 }
 
-export function exportCashFlowExcel(data, filters) {
+export async function exportCashFlowExcel(data, filters) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const makeSection = (title, items, total) => [
     [title.toUpperCase()],
@@ -280,9 +289,11 @@ export function exportCashFlowExcel(data, filters) {
 }
 
 // ─── Tax Summary ─────────────────────────────────────────────────────────────
-export function exportTaxSummaryPDF(data, filters) {
+export async function exportTaxSummaryPDF(data, filters) {
+  const jsPDF = (await import('jspdf')).default;
+  const autoTable = (await import('jspdf-autotable')).default;
   const sub = `Period: ${filters.fromDate || 'Start'} → ${filters.toDate || 'Today'}`;
-  const doc = baseDoc('FBR Tax Summary', sub);
+  const doc = baseDoc('FBR Tax Summary', sub, jsPDF);
   let y = 42;
 
   const addTable = (title, rows, color) => {
@@ -312,7 +323,8 @@ export function exportTaxSummaryPDF(data, filters) {
   doc.save(`Tax-Summary-${filters.fromDate}-${filters.toDate}.pdf`);
 }
 
-export function exportTaxSummaryExcel(data, filters) {
+export async function exportTaxSummaryExcel(data, filters) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const rows = [
     ['SGC International — FBR Tax Summary'],

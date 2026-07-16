@@ -1,5 +1,5 @@
-import React from 'react';
-import { Box, Typography, Tabs, Tab, Paper } from '@mui/material';
+import React, { lazy, Suspense } from 'react';
+import { Box, Typography, Tabs, Tab, Paper, CircularProgress } from '@mui/material';
 import {
   Map as MapIcon,
   TableChart as TableChartIcon,
@@ -9,12 +9,13 @@ import {
   Assessment as AssessmentIcon
 } from '@mui/icons-material';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import LathaMapViewer from './LathaMapViewer';
-import MozaViewer from './MozaViewer';
-import RegistryViewer from './RegistryViewer';
-import PossessionViewer from './PossessionViewer';
-import LandAcquisitionDashboard from './LandAcquisitionDashboard';
-import LandAcquisitionReports from './LandAcquisitionReports';
+
+const LathaMapViewer = lazy(() => import('./LathaMapViewer'));
+const MozaViewer = lazy(() => import('./MozaViewer'));
+const RegistryViewer = lazy(() => import('./RegistryViewer'));
+const PossessionViewer = lazy(() => import('./PossessionViewer'));
+const LandAcquisitionDashboard = lazy(() => import('./LandAcquisitionDashboard'));
+const LandAcquisitionReports = lazy(() => import('./LandAcquisitionReports'));
 
 const BASE_PATH = '/taj-residencia/land-acquisition';
 const DASHBOARD_PATH = `${BASE_PATH}/dashboard`;
@@ -88,12 +89,18 @@ const LandAcquisition = () => {
         </Tabs>
       </Paper>
 
-      {isDashboardTab && <LandAcquisitionDashboard />}
-      {isMapsTab && <LathaMapViewer />}
-      {isMozaTab && <MozaViewer />}
-      {isRegistryTab && <RegistryViewer />}
-      {isPossessionTab && <PossessionViewer />}
-      {isReportsTab && <LandAcquisitionReports />}
+      <Suspense fallback={
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+          <CircularProgress />
+        </Box>
+      }>
+        {isDashboardTab && <LandAcquisitionDashboard />}
+        {isMapsTab && <LathaMapViewer />}
+        {isMozaTab && <MozaViewer />}
+        {isRegistryTab && <RegistryViewer />}
+        {isPossessionTab && <PossessionViewer />}
+        {isReportsTab && <LandAcquisitionReports />}
+      </Suspense>
     </Box>
   );
 };

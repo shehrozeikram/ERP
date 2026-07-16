@@ -43,26 +43,7 @@ import AccountsReceivable from './pages/Finance/AccountsReceivable';
 import AccountsPayable from './pages/Finance/AccountsPayable';
 import Banking from './pages/Finance/Banking';
 import FinancialReports from './pages/Finance/FinancialReports';
-import RentalAgreementsFinance from './pages/Finance/TajUtilities/RentalAgreements';
-import RentalAgreementDetailFinance from './pages/Finance/TajUtilities/RentalAgreementDetail';
-import RentalManagementFinance from './pages/Finance/TajUtilities/RentalManagement';
-import TajProperties from './pages/Finance/TajUtilities/TajProperties';
-import TajPropertyDetail from './pages/Finance/TajUtilities/TajPropertyDetail';
-import RentalManagementDetailFinance from './pages/Finance/TajUtilities/RentalManagementDetail';
-import TajUtilitiesDashboard from './pages/Finance/TajUtilities/Dashboard';
-import CAMCharges from './pages/Finance/TajUtilities/CAMCharges';
-import WaterBills from './pages/Finance/TajUtilities/WaterBills';
-import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
-import Invoices from './pages/Finance/TajUtilities/Invoices';
-import OpenInvoices from './pages/Finance/TajUtilities/OpenInvoices';
-import TajResidents from './pages/Finance/TajUtilities/TajResidents';
-import Deposits from './pages/Finance/TajUtilities/Deposits';
-import TajUtilityBanks from './pages/Finance/TajUtilities/Banks';
-import SuspenseAccount from './pages/Finance/TajUtilities/SuspenseAccount';
-import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
-import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
-import TajUtilitiesReconciliation from './pages/Finance/TajUtilities/Reconciliation';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import FinanceJournals from './pages/Finance/FinanceJournals';
@@ -102,14 +83,10 @@ import VendorAdvance from './pages/Finance/VendorAdvance';
 import VendorRefunds from './pages/Finance/VendorRefunds';
 import BillToReceive from './pages/Finance/BillToReceive';
 import BilledNotReceived from './pages/Finance/BilledNotReceived';
-import InvoicePrint from './pages/Finance/InvoicePrint';
-import BillPrint from './pages/Finance/BillPrint';
 import RecurringJournals from './pages/Finance/RecurringJournals';
 import BatchPayment from './pages/Finance/BatchPayment';
 import CompanyProfile from './pages/Finance/CompanyProfile';
 import FinanceCompanies from './pages/Finance/FinanceCompanies';
-import ComparativePL from './pages/Finance/ComparativePL';
-import CostCenterPL from './pages/Finance/CostCenterPL';
 import BudgetList from './pages/Finance/BudgetList';
 import BudgetForm from './pages/Finance/BudgetForm';
 import DeferredEntries from './pages/Finance/DeferredEntries';
@@ -345,6 +322,33 @@ const MyTasks = lazy(() => import('./pages/Finance/Recovery/MyTasks'));
 const CashApprovals = lazy(() => import('./pages/Procurement/CashApprovals'));
 const CashApprovalDocumentView = lazy(() => import('./pages/Procurement/CashApprovalDocumentView'));
 
+// Taj Utilities Lazy Loaded Pages
+const RentalAgreementsFinance = lazy(() => import('./pages/Finance/TajUtilities/RentalAgreements'));
+const RentalAgreementDetailFinance = lazy(() => import('./pages/Finance/TajUtilities/RentalAgreementDetail'));
+const RentalManagementFinance = lazy(() => import('./pages/Finance/TajUtilities/RentalManagement'));
+const TajProperties = lazy(() => import('./pages/Finance/TajUtilities/TajProperties'));
+const TajPropertyDetail = lazy(() => import('./pages/Finance/TajUtilities/TajPropertyDetail'));
+const RentalManagementDetailFinance = lazy(() => import('./pages/Finance/TajUtilities/RentalManagementDetail'));
+const TajUtilitiesDashboard = lazy(() => import('./pages/Finance/TajUtilities/Dashboard'));
+const CAMCharges = lazy(() => import('./pages/Finance/TajUtilities/CAMCharges'));
+const WaterBills = lazy(() => import('./pages/Finance/TajUtilities/WaterBills'));
+const Electricity = lazy(() => import('./pages/Finance/TajUtilities/Electricity'));
+const Invoices = lazy(() => import('./pages/Finance/TajUtilities/Invoices'));
+const OpenInvoices = lazy(() => import('./pages/Finance/TajUtilities/OpenInvoices'));
+const TajResidents = lazy(() => import('./pages/Finance/TajUtilities/TajResidents'));
+const Deposits = lazy(() => import('./pages/Finance/TajUtilities/Deposits'));
+const TajUtilityBanks = lazy(() => import('./pages/Finance/TajUtilities/Banks'));
+const SuspenseAccount = lazy(() => import('./pages/Finance/TajUtilities/SuspenseAccount'));
+const TajResidentDetail = lazy(() => import('./pages/Finance/TajUtilities/TajResidentDetail'));
+const TajUtilitiesReports = lazy(() => import('./pages/Finance/TajUtilities/Reports'));
+const TajUtilitiesReconciliation = lazy(() => import('./pages/Finance/TajUtilities/Reconciliation'));
+
+// Printing / PDF & Excel Export Heavy Pages
+const InvoicePrint = lazy(() => import('./pages/Finance/InvoicePrint'));
+const BillPrint = lazy(() => import('./pages/Finance/BillPrint'));
+const ComparativePL = lazy(() => import('./pages/Finance/ComparativePL'));
+const CostCenterPL = lazy(() => import('./pages/Finance/CostCenterPL'));
+
 const lazyPageFallback = (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
     <CircularProgress />
@@ -546,12 +550,13 @@ function App() {
           <Header />
           <ChatFloatingButton />
           <Box component="main" className="app-main-print" sx={{ flexGrow: 1, p: 3 }}>
-            <Routes>
-            {/* Dashboard */}
-            <Route 
-              path="/dashboard" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><Dashboard /></ProtectedRoute>} 
-            />
+            <Suspense fallback={lazyPageFallback}>
+              <Routes>
+              {/* Dashboard */}
+              <Route 
+                path="/dashboard" 
+                element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><Dashboard /></ProtectedRoute>} 
+              />
             <Route
               path="/settings"
               element={<ProtectedRoute><SettingsPage /></ProtectedRoute>}
@@ -2255,12 +2260,12 @@ function App() {
               element={<RoleBasedRedirect />} 
             />
 
-            {/* 404 */}
             <Route 
               path="*" 
               element={<NotFound />} 
             />
-                      </Routes>
+              </Routes>
+            </Suspense>
           </Box>
         </Box>
       </Layout>
