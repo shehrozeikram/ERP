@@ -194,13 +194,12 @@ const ROLE_MODULE_ACCESS = {
     description: 'HR module management and event management'
   },
   
-  // HR General Manager has access to HR module only
+  // HR General Manager & Payroll Manager have access to HR module
   'Hr General Manager': {
     canAccessAll: false,
     modules: [MODULES.HR],
     description: 'HR module access only'
   },
-  // Also support lowercase/underscore variations
   'hr_general_manager': {
     canAccessAll: false,
     modules: [MODULES.HR],
@@ -210,6 +209,21 @@ const ROLE_MODULE_ACCESS = {
     canAccessAll: false,
     modules: [MODULES.HR],
     description: 'HR module access only'
+  },
+  'Payroll Manager': {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'Payroll & HR module access'
+  },
+  'payroll_manager': {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'Payroll & HR module access'
+  },
+  'payroll manager': {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'Payroll & HR module access'
   },
   
   [ROLES.FINANCE_MANAGER]: {
@@ -300,31 +314,31 @@ const ROLE_MODULE_ACCESS = {
 // Specific Permission Mappings
 const PERMISSION_MAPPINGS = {
   // HR Module Permissions
-  'hr.employee.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.employee.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.employee.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'hr.employee.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.employee.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.employee.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   'hr.employee.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'hr.payroll.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.payroll.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER],
-  'hr.payroll.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.payroll.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'hr.payroll.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.payroll.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.payroll.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.payroll.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
-  'hr.attendance.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.attendance.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.attendance.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'hr.attendance.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.attendance.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.attendance.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
-  'hr.leave.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.EMPLOYEE],
-  'hr.leave.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.leave.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'hr.leave.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.EMPLOYEE, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.leave.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.leave.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
-  'hr.loan.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.EMPLOYEE],
-  'hr.loan.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.loan.disburse': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER],
+  'hr.loan.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.EMPLOYEE, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.loan.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.loan.disburse': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
-  'hr.settlement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'hr.settlement.process': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER],
+  'hr.settlement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.settlement.process': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
   // Finance Module Permissions
   'finance.invoice.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.FINANCE_MANAGER],
