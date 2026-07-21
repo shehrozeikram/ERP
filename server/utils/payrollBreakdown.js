@@ -26,8 +26,8 @@ const PAYROLL_PAYMENT_CREDIT_SLOTS = [
   },
   {
     key: 'advanceDeduction',
-    label: 'Staff Advance Recovery',
-    voucherNarration: 'Staff Advance — Recovery',
+    label: 'Advance Salary Recovery',
+    voucherNarration: 'Advance Salary — Recovery',
     accountNumber: '1120'
   },
   {
@@ -140,7 +140,8 @@ const emptyPayrollBreakdownTotals = () =>
 
 const resolveAdvanceDeduction = (payroll = {}) =>
   Math.round(
-    Number(payroll.advanceDeduction)
+    Number(payroll.advanceSalary)
+    || Number(payroll.advanceDeduction)
     || Number(payroll.leaveDeductions?.advanceDeduction)
     || 0
   );

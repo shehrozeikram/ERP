@@ -208,7 +208,20 @@ export default function FinancePayroll() {
     let cancelled = false;
     fetchFinanceAuthorityCandidates()
       .then((list) => {
-        if (!cancelled) setFinanceAuthorityCandidates(list);
+        if (!cancelled) {
+          setFinanceAuthorityCandidates(list);
+          // Pre-select Faisal Farooq by default if available in candidates list
+          const faisalMatch = list.find((user) => {
+            const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim().toLowerCase();
+            return fullName.includes('faisal') && fullName.includes('farooq');
+          });
+          if (faisalMatch) {
+            setPaymentFinAuth((prev) => ({
+              ...prev,
+              financeControllerUser: faisalMatch
+            }));
+          }
+        }
       })
       .catch(() => {
         if (!cancelled) setFinanceAuthorityCandidates([]);

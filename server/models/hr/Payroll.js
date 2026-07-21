@@ -53,6 +53,23 @@ const calculateLoanDeductions = async (employeeId, month, year) => {
   }
 };
 
+const calculateSalaryAdvance = async (employeeId, month, year) => {
+  try {
+    const SalaryAdvance = mongoose.model('SalaryAdvance');
+    const activeAdvances = await SalaryAdvance.find({
+      employee: employeeId,
+      payrollMonth: Number(month),
+      payrollYear: Number(year),
+      status: 'Unadjusted'
+    });
+
+    return activeAdvances.reduce((sum, adv) => sum + (adv.amount || 0), 0);
+  } catch (error) {
+    console.error('Error calculating salary advance:', error);
+    return 0;
+  }
+};
+
 const payrollSchema = new mongoose.Schema({
   employee: {
     type: mongoose.Schema.Types.ObjectId,
@@ -246,6 +263,11 @@ const payrollSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Loan deductions cannot be negative']
+  },
+  advanceSalary: {
+    type: Number,
+    default: 0,
+    min: [0, 'Advance salary cannot be negative']
   },
   otherDeductions: {
     type: Number,
@@ -717,6 +739,7 @@ payrollSchema.pre('save', function(next) {
     (this.incomeTax || 0) + 
     (this.healthInsurance || 0) + 
     (this.loanDeductions || 0) +
+    (this.advanceSalary || 0) +
     (this.eobi || 0) + 
     (this.attendanceDeduction || 0) + // Attendance deduction (26-day basis)
     (this.leaveDeduction || 0) + // Leave deduction
@@ -727,6 +750,7 @@ payrollSchema.pre('save', function(next) {
   console.log(`   Income Tax: Rs. ${this.incomeTax?.toFixed(2) || 0}`);
   console.log(`   Health Insurance: Rs. ${this.healthInsurance?.toFixed(2) || 0}`);
   console.log(`   Loan Deductions: Rs. ${this.loanDeductions?.toFixed(2) || 0}`);
+  console.log(`   Advance Salary: Rs. ${this.advanceSalary?.toFixed(2) || 0}`);
   console.log(`   EOBI: Rs. ${this.eobi || 0}`);
   console.log(`   Attendance Deduction: Rs. ${this.attendanceDeduction?.toFixed(2) || 0}`);
   console.log(`   Other Deductions: Rs. ${this.otherDeductions?.toFixed(2) || 0}`);
@@ -910,9 +934,9 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   const overtimeRate = (basicSalary / 176); // Assuming 176 working hours per month
   const overtimeAmount = overtimeHours * overtimeRate;
 
-  // Get loan deductions
-  // Calculate total loan deductions from active loans
+  // Get loan deductions and salary advances
   const loanDeductions = await calculateLoanDeductions(employee._id, month, year);
+  const advanceSalary = await calculateSalaryAdvance(employee._id, month, year);
 
   // Create payroll object
   const payrollData = {
@@ -940,6 +964,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     incomeTax: attendanceData.incomeTax || 0,
     healthInsurance: attendanceData.healthInsurance || 0,
     loanDeductions: loanDeductions,
+    advanceSalary: advanceSalary,
     otherDeductions: attendanceData.otherDeductions || 0,
     totalWorkingDays: totalWorkingDays,
     presentDays: presentDays,
@@ -1129,6 +1154,29 @@ payrollSchema.methods.markAsPaid = async function(paymentMethod = 'Bank Transfer
   } catch (loanError) {
     console.error(`❌ Error processing loan payments:`, loanError);
     // Continue with payroll processing even if loan processing fails
+  }
+
+  // 💵 Adjust Salary Advances when payroll is paid
+  try {
+    const SalaryAdvance = mongoose.model('SalaryAdvance');
+    await SalaryAdvance.updateMany(
+      {
+        employee: this.employee,
+        payrollMonth: this.month,
+        payrollYear: this.year,
+        status: 'Unadjusted'
+      },
+      {
+        $set: {
+          status: 'Adjusted',
+          adjustedPayroll: this._id,
+          adjustedAt: new Date()
+        }
+      }
+    );
+    console.log(`💵 Salary advances adjusted for employee ${this.employee} for ${this.month}/${this.year}`);
+  } catch (advError) {
+    console.error(`❌ Error adjusting salary advances:`, advError);
   }
   
   // Reset arrears to 0 after payroll is processed

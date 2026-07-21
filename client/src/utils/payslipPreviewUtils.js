@@ -167,7 +167,7 @@ export const buildPayslipCreatePayload = ({ employee, payroll, notes }) => {
       eobi: deductions.eobi,
       incomeTax: deductions.incomeTax,
       loanDeduction: deductions.loanDeductions,
-      advanceDeduction: 0,
+      advanceDeduction: deductions.advanceSalary || payroll?.advanceSalary || 0,
       lateDeduction: 0,
       absentDeduction: deductions.attendanceDeduction,
       otherDeductions: deductions.leaveDeduction + deductions.otherDeductions

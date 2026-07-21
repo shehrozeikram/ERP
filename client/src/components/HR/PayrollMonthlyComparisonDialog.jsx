@@ -186,6 +186,51 @@ const IncrementTable = ({ title, rows, emptyMessage }) => (
   </Box>
 );
 
+const AdvanceSalaryTable = ({ title, rows, totalAmount, emptyMessage }) => (
+  <Box sx={{ mt: 3 }}>
+    <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+      {title} ({rows?.length || 0}) — Total: {formatCurrency(totalAmount)}
+    </Typography>
+    {!rows?.length ? (
+      <Alert severity="info" sx={{ mt: 1 }}>{emptyMessage}</Alert>
+    ) : (
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ width: '12%' }}>Employee ID</TableCell>
+              <TableCell sx={{ width: '22%' }}>Name</TableCell>
+              <TableCell sx={{ width: '20%' }}>Department</TableCell>
+              <TableCell align="right" sx={{ width: '15%' }}>Advance Amount</TableCell>
+              <TableCell sx={{ width: '15%' }}>Payment Method</TableCell>
+              <TableCell sx={{ width: '16%' }}>Status</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((row, index) => (
+              <TableRow key={`${row.employeeId}-${index}`}>
+                <TableCell>{row.employeeId}</TableCell>
+                <TableCell><b>{row.name}</b></TableCell>
+                <TableCell>{row.department}</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold' }}>{formatCurrency(row.amount)}</TableCell>
+                <TableCell>{row.paymentMethod || 'Bank Transfer'}</TableCell>
+                <TableCell>
+                  <Chip
+                    label={row.status || 'Unadjusted'}
+                    size="small"
+                    color={row.status === 'Adjusted' ? 'success' : 'warning'}
+                    variant="outlined"
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    )}
+  </Box>
+);
+
 const PayrollMonthlyComparisonDialog = ({
   open,
   onClose,
@@ -343,6 +388,14 @@ const PayrollMonthlyComparisonDialog = ({
                         <ChangeChip value={comparison?.netSalaryChange} />
                       </TableCell>
                     </TableRow>
+                    <TableRow>
+                      <TableCell>Salary Advances Disbursed</TableCell>
+                      <TableCell align="right">{formatCurrency(report?.salaryAdvances?.previous?.totalAmount)}</TableCell>
+                      <TableCell align="right">{formatCurrency(report?.salaryAdvances?.current?.totalAmount)}</TableCell>
+                      <TableCell align="right">
+                        <ChangeChip value={(report?.salaryAdvances?.current?.totalAmount || 0) - (report?.salaryAdvances?.previous?.totalAmount || 0)} />
+                      </TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               </TableContainer>
@@ -365,6 +418,13 @@ const PayrollMonthlyComparisonDialog = ({
               title="Salary Increments This Month"
               rows={report?.salaryIncrements}
               emptyMessage="No salary increments effective in this month."
+            />
+
+            <AdvanceSalaryTable
+              title="Salary Advances Issued This Month"
+              rows={report?.salaryAdvances?.current?.items}
+              totalAmount={report?.salaryAdvances?.current?.totalAmount || 0}
+              emptyMessage="No salary advances issued for this month."
             />
 
             <EmployeeTable

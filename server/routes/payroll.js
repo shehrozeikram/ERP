@@ -1808,6 +1808,16 @@ router.post('/', [
             if (loan.pausedMonths?.some((p) => p.month === month && p.year === year)) return total;
             return total + (loan.monthlyInstallment || 0);
           }, 0);
+
+          // 🔧 CALCULATE SALARY ADVANCE FOR THIS MONTH
+          const salaryAdvanceModel = require('../models/hr/SalaryAdvance');
+          const unadjustedAdvances = await salaryAdvanceModel.find({
+            employee: employee._id,
+            payrollMonth: Number(month),
+            payrollYear: Number(year),
+            status: 'Unadjusted'
+          });
+          const advanceSalary = unadjustedAdvances.reduce((sum, adv) => sum + (adv.amount || 0), 0);
           
           // 🔧 USE PRE-FETCHED BULK ATTENDANCE DATA (Major performance boost)
           const rawAttendanceData = bulkAttendanceData[employee.employeeId] || {
@@ -1834,14 +1844,14 @@ router.post('/', [
           } = attendanceData;
         
           // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
-          const totalDeductions = monthlyTax + eobi + attendanceDeduction + loanDeductions;
+          const totalDeductions = monthlyTax + eobi + attendanceDeduction + loanDeductions + advanceSalary;
           
           // Define healthInsurance and otherDeductions
           const healthInsurance = 0;
           const otherDeductions = 0;
           
           // Net = Total Earnings − all deductions (Provident Fund is display-only, not deducted)
-          const netSalary = totalEarnings - monthlyTax - eobi - healthInsurance - loanDeductions - attendanceDeduction - otherDeductions;
+          const netSalary = totalEarnings - monthlyTax - eobi - healthInsurance - loanDeductions - advanceSalary - attendanceDeduction - otherDeductions;
 
           if (netSalary < 0) {
             return {
@@ -1874,6 +1884,7 @@ router.post('/', [
             incomeTax: monthlyTax,
             healthInsurance: 0,
             loanDeductions: loanDeductions,
+            advanceSalary: advanceSalary,
             otherDeductions: 0,
             eobi,
             totalWorkingDays,

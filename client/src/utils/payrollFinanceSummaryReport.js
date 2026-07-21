@@ -51,7 +51,7 @@ export const PAYROLL_ALLOWANCE_SUMMARY_ROWS = [
 export const PAYROLL_DEDUCTION_SUMMARY_ROWS = [
   { key: 'incomeTax', label: 'Income Tax (WHT)' },
   { key: 'companyLoan', label: 'Employee Loan Recovery' },
-  { key: 'advanceDeduction', label: 'Staff Advance Recovery' },
+  { key: 'advanceDeduction', label: 'Advance Salary Recovery' },
   { key: 'empSecurityDed', label: 'Provident Fund (Employee)' },
   { key: 'eobiEmployee', label: 'EOBI Payable — Employee Contribution' },
   { key: 'eobiEmployer', label: 'EOBI Payable — Employer Contribution' },
@@ -101,10 +101,15 @@ export const aggregatePayrollBreakdownFromRows = (payrollRows = []) => {
 
   payrollRows.forEach((row) => {
     PROJECT_SUMMARY_AMOUNT_COLUMNS.forEach((col) => {
-      const legacyEobi = col.key === 'eobiEmployee'
-        ? (row.eobiEmployee ?? row.eobiDeduction ?? row.eobi ?? 0)
-        : (row[col.key] ?? 0);
-      totals[col.key] += Number(legacyEobi) || 0;
+      let val = 0;
+      if (col.key === 'eobiEmployee') {
+        val = row.eobiEmployee ?? row.eobiDeduction ?? row.eobi ?? 0;
+      } else if (col.key === 'advanceDeduction') {
+        val = row.advanceSalary ?? row.advanceDeduction ?? row.leaveDeductions?.advanceDeduction ?? 0;
+      } else {
+        val = row[col.key] ?? 0;
+      }
+      totals[col.key] += Number(val) || 0;
     });
     totals.netPayable += Number(row.netPayable ?? row.netSalary) || 0;
   });

@@ -94,11 +94,19 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
   const prev = prevPeriod(month, year);
   const { start, end } = monthRange(month, year);
 
-  const [currentPayrolls, previousPayrolls, hirings, separationsByDate, salaryIncrements] = await Promise.all([
+  const SalaryAdvance = require('../models/hr/SalaryAdvance');
+
+  const [currentPayrolls, previousPayrolls, currentAdvances, previousAdvances, hirings, separationsByDate, salaryIncrements] = await Promise.all([
     Payroll.find({ month, year })
       .populate({ path: 'employee', select: EMPLOYEE_REPORT_SELECT, populate: EMPLOYEE_POPULATE })
       .lean(),
     Payroll.find({ month: prev.month, year: prev.year })
+      .populate({ path: 'employee', select: EMPLOYEE_REPORT_SELECT, populate: EMPLOYEE_POPULATE })
+      .lean(),
+    SalaryAdvance.find({ payrollMonth: Number(month), payrollYear: Number(year) })
+      .populate({ path: 'employee', select: EMPLOYEE_REPORT_SELECT, populate: EMPLOYEE_POPULATE })
+      .lean(),
+    SalaryAdvance.find({ payrollMonth: Number(prev.month), payrollYear: Number(prev.year) })
       .populate({ path: 'employee', select: EMPLOYEE_REPORT_SELECT, populate: EMPLOYEE_POPULATE })
       .lean(),
     Employee.find({
@@ -224,6 +232,25 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       headcountChangePercent,
       grossSalaryChange: current.totalGrossSalary - previous.totalGrossSalary,
       netSalaryChange: current.totalNetSalary - previous.totalNetSalary
+    },
+    salaryAdvances: {
+      current: {
+        count: currentAdvances.length,
+        totalAmount: currentAdvances.reduce((sum, a) => sum + (a.amount || 0), 0),
+        items: currentAdvances.map(a => ({
+          employeeId: a.employee?.employeeId || '—',
+          name: employeeName(a.employee),
+          department: employeeDepartment(a.employee),
+          amount: a.amount || 0,
+          paymentMethod: a.paymentMethod || 'Bank Transfer',
+          status: a.status || 'Unadjusted',
+          reason: a.reason || ''
+        }))
+      },
+      previous: {
+        count: previousAdvances.length,
+        totalAmount: previousAdvances.reduce((sum, a) => sum + (a.amount || 0), 0)
+      }
     },
     hirings: hirings.map((emp) => mapEmployeeRow(emp)),
     separations: [...separationMap.values()],

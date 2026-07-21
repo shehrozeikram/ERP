@@ -59,6 +59,8 @@ import MonthlyPayrollApprovalSection from '../../components/HR/MonthlyPayrollApp
 import PayrollMonthlyComparisonDialog from '../../components/HR/PayrollMonthlyComparisonDialog';
 import { getPayrollStatusColor, getPayrollStatusLabel } from '../../utils/payrollStatusHelpers';
 import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
+import SalaryAdvanceManagement from '../../components/HR/SalaryAdvanceManagement';
+import { Tabs, Tab } from '@mui/material';
 
 // Months array moved outside component to prevent recreation on every render
 const months = [
@@ -79,6 +81,7 @@ const months = [
 const Payroll = () => {
   const navigate = useNavigate();
   const { employees, departments, projects, loading: dataLoading } = useData();
+  const [activeTab, setActiveTab] = useState(0);
   const [payrolls, setPayrolls] = useState([]);
   const [monthlyPayrolls, setMonthlyPayrolls] = useState([]);
   const [paginatedMonthlyPayrolls, setPaginatedMonthlyPayrolls] = useState([]);
@@ -1512,14 +1515,24 @@ Do you want to:
         </Grid>
       </Grid>
 
-      {/* Error Alert */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
+      {/* Navigation Tabs */}
+      <Paper sx={{ mb: 3 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, newValue) => setActiveTab(newValue)}
+          indicatorColor="primary"
+          textColor="primary"
+        >
+          <Tab label="Monthly Payroll & Overview" />
+          <Tab label="Salary Advances" />
+        </Tabs>
+      </Paper>
 
-      {/* General Payroll Overview Card */}
+      {activeTab === 1 ? (
+        <SalaryAdvanceManagement employees={employees} />
+      ) : (
+        <>
+          {/* General Payroll Overview Card */}
       <Card sx={{ mb: 3, bgcolor: 'primary.50' }}>
         <CardContent>
           <Typography variant="h6" color="primary.main" sx={{ mb: 2, fontWeight: 600 }}>
@@ -2721,6 +2734,8 @@ Do you want to:
           await fetchMonthlyPayrolls();
         }}
       />
+        </>
+      )}
     </Box>
   );
 };

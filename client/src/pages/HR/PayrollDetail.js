@@ -748,6 +748,10 @@ const PayrollDetail = () => {
                       <TableCell align="right">{formatPKR(payroll.loanDeductions || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
+                      <TableCell>Advance Salary Deduction ({payroll.month ? format(new Date(payroll.year, payroll.month - 1), 'MMMM yyyy') : ''})</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.advanceSalary || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
                       <TableCell>Other Deductions</TableCell>
                       <TableCell align="right">{formatPKR(payroll.otherDeductions || 0)}</TableCell>
                     </TableRow>
