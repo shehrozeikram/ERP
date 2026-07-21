@@ -30,7 +30,7 @@ const registryUploadStorage = multer.diskStorage({
 
 const registryUpload = multer({
   storage: registryUploadStorage,
-  limits: { fileSize: 10 * 1024 * 1024, files: 10 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 30 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
       cb(null, true);
@@ -41,13 +41,17 @@ const registryUpload = multer({
 });
 
 const handleRegistryUpload = (req, res, next) => {
-  registryUpload.array('attachments', 10)(req, res, (err) => {
+  registryUpload.fields([
+    { name: 'attachments', maxCount: 10 },
+    { name: 'registryDocAttachments', maxCount: 10 },
+    { name: 'inteqalDocAttachments', maxCount: 10 }
+  ])(req, res, (err) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ success: false, message: 'Each attachment must be 10 MB or less' });
     }
     if (err.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ success: false, message: 'Maximum 10 attachments per registry' });
+      return res.status(400).json({ success: false, message: 'Maximum 10 attachments per document type' });
     }
     return res.status(400).json({ success: false, message: err.message || 'File upload error' });
   });
@@ -82,8 +86,8 @@ const deleteAttachmentFile = (attachment) => {
   }
 };
 
-const parseRemovedAttachmentIds = (body) => {
-  const raw = body.removedAttachmentIds;
+const parseRemovedAttachmentIds = (body, key = 'removedAttachmentIds') => {
+  const raw = body[key];
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
   try {
@@ -94,16 +98,17 @@ const parseRemovedAttachmentIds = (body) => {
   }
 };
 
-const applyAttachmentChanges = (registry, body, files) => {
-  const removedIds = new Set(parseRemovedAttachmentIds(body));
-  const kept = (registry.attachments || []).filter((att) => {
+const applyAttachmentChanges = (registry, body, filesMap = {}, keyName = 'attachments', removedKey = 'removedAttachmentIds') => {
+  const removedIds = new Set(parseRemovedAttachmentIds(body, removedKey));
+  const kept = (registry[keyName] || []).filter((att) => {
     if (removedIds.has(String(att._id))) {
       deleteAttachmentFile(att);
       return false;
     }
     return true;
   });
-  registry.attachments = [...kept, ...mapUploadedAttachments(files)];
+  const newFiles = filesMap[keyName] || [];
+  registry[keyName] = [...kept, ...mapUploadedAttachments(newFiles)];
 };
 
 const fetchRegisteredTotalsByKhasra = async (moza, excludeRegistryId) => {
@@ -200,6 +205,8 @@ const buildRegistryPayload = (body) => {
     totalArea: finalTotal,
     registryNo: (body.registryNo === 'null' || body.registryNo === 'undefined') ? '' : String(body.registryNo || '').trim(),
     inteqalNo: (body.inteqalNo === 'null' || body.inteqalNo === 'undefined') ? '' : String(body.inteqalNo || '').trim(),
+    seller: body.seller || undefined,
+    purchaser: body.purchaser || undefined,
     dealer: body.dealer || undefined,
     lines,
     linesTotal
@@ -219,20 +226,14 @@ const mapRegistry = (doc) => {
     acquiredArea: normalizeArea(line.acquiredArea),
     landWithMalkiyat: normalizeArea(line.landWithMalkiyat)
   }));
-  const linesTotalSarsais = lines.reduce((acc, line) => {
-    return acc + (line.acquiredArea.kanal * 180 + line.acquiredArea.marla * 9 + line.acquiredArea.sarsai);
-  }, 0);
-  const totalK = Math.floor(linesTotalSarsais / 180);
-  const remM = linesTotalSarsais % 180;
-  const totalM = Math.floor(remM / 9);
-  const totalS = remM % 9;
 
   return {
     ...obj,
     khewatNos,
     khewatNo: khewatNos.join(', ') || obj.khewatNo,
-    totalArea: { kanal: totalK, marla: totalM, sarsai: totalS },
-    lines
+    lines,
+    registryDocAttachments: obj.registryDocAttachments || [],
+    inteqalDocAttachments: obj.inteqalDocAttachments || []
   };
 };
 
@@ -260,6 +261,8 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   const [rows, total, grandTotalAgg] = await Promise.all([
     LandRegistry.find(filter)
       .populate('moza', 'name slug')
+      .populate('seller', 'name cnic phoneNumber')
+      .populate('purchaser', 'name cnic phoneNumber')
       .populate('dealer', 'name cnic phoneNumber')
       .sort({ registryDate: -1, createdAt: -1 })
       .skip(skip)
@@ -321,6 +324,8 @@ router.get('/registries/registered-totals', authMiddleware, asyncHandler(async (
 router.get('/registries/:id', authMiddleware, asyncHandler(async (req, res) => {
   const registry = await LandRegistry.findOne({ _id: req.params.id, isActive: true })
     .populate('moza', 'name slug')
+    .populate('seller', 'name cnic phoneNumber partyDate')
+    .populate('purchaser', 'name cnic phoneNumber partyDate')
     .populate('dealer', 'name cnic phoneNumber partyDate');
 
   if (!registry) {
@@ -409,6 +414,7 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     return res.status(err.status || 400).json({ success: false, message: err.message });
   }
 
+  const filesMap = req.files || {};
   const registry = await LandRegistry.create({
     registryDate: payload.registryDate,
     moza: payload.moza,
@@ -417,13 +423,20 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     totalArea: payload.totalArea,
     registryNo: payload.registryNo,
     inteqalNo: payload.inteqalNo,
+    seller: payload.seller,
+    purchaser: payload.purchaser,
     dealer: payload.dealer,
     lines: payload.lines,
-    attachments: mapUploadedAttachments(req.files),
+    attachments: mapUploadedAttachments(filesMap.attachments || []),
+    registryDocAttachments: mapUploadedAttachments(filesMap.registryDocAttachments || []),
+    inteqalDocAttachments: mapUploadedAttachments(filesMap.inteqalDocAttachments || []),
     createdBy: req.user?._id
   });
 
   await registry.populate('moza', 'name slug');
+  await registry.populate('seller', 'name cnic phoneNumber partyDate');
+  await registry.populate('purchaser', 'name cnic phoneNumber partyDate');
+  await registry.populate('dealer', 'name cnic phoneNumber partyDate');
 
   res.status(201).json({
     success: true,
@@ -513,11 +526,20 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
   registry.totalArea = payload.totalArea;
   registry.registryNo = payload.registryNo;
   registry.inteqalNo = payload.inteqalNo;
+  registry.seller = payload.seller;
+  registry.purchaser = payload.purchaser;
   registry.dealer = payload.dealer;
   registry.lines = payload.lines;
-  applyAttachmentChanges(registry, body, req.files);
+
+  const filesMap = req.files || {};
+  applyAttachmentChanges(registry, body, filesMap, 'attachments', 'removedAttachmentIds');
+  applyAttachmentChanges(registry, body, filesMap, 'registryDocAttachments', 'removedRegistryDocAttachmentIds');
+  applyAttachmentChanges(registry, body, filesMap, 'inteqalDocAttachments', 'removedInteqalDocAttachmentIds');
+
   await registry.save();
   await registry.populate('moza', 'name slug');
+  await registry.populate('seller', 'name cnic phoneNumber partyDate');
+  await registry.populate('purchaser', 'name cnic phoneNumber partyDate');
   await registry.populate('dealer', 'name cnic phoneNumber partyDate');
 
   res.json({

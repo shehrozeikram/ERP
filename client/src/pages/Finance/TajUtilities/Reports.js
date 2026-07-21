@@ -51,13 +51,6 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 0
   }).format(Number(value || 0));
 
-const getPaymentStatusConfig = (status) => {
-  const s = (status || '').toLowerCase();
-  if (s === 'paid') return { color: 'success', label: 'Paid' };
-  if (s === 'partial_paid') return { color: 'warning', label: 'Partial' };
-  return { color: 'error', label: 'Unpaid' };
-};
-
 const ALL_PROPERTIES_OPTION = { _id: '', label: 'All properties' };
 
 const getTransactionTypeLabel = (type) => {
@@ -178,6 +171,7 @@ const TajUtilitiesReports = () => {
         'Resident ID',
         'Property',
         'Owner',
+        'Address',
         'Charge Types',
         'Period From',
         'Period To',
@@ -200,6 +194,7 @@ const TajUtilitiesReports = () => {
         const residentId = isOpen ? '—' : (inv.property?.resident?.residentId ?? inv.property?.residentId ?? '—');
         const propertyName = isOpen ? (inv.customerName || 'Open Invoice') : (inv.property?.propertyName || inv.property?.plotNumber || '—');
         const owner = isOpen ? (inv.customerName || '—') : (inv.property?.ownerName || '—');
+        const address = isOpen ? (inv.customerAddress || '—') : (inv.property?.address || inv.property?.resident?.address || inv.customerAddress || '—');
         const chargeTypes = Array.isArray(inv.chargeTypes) ? inv.chargeTypes.join(', ') : (inv.chargeTypes || '—');
         const recordedBy = inv.createdBy ? [inv.createdBy.firstName, inv.createdBy.lastName].filter(Boolean).join(' ') : '—';
         const num = (v) => Number(v) || 0;
@@ -218,6 +213,7 @@ const TajUtilitiesReports = () => {
           residentId,
           propertyName,
           owner,
+          address,
           chargeTypes,
           inv.periodFrom ? dayjs(inv.periodFrom).format('DD MMM YYYY') : '—',
           inv.periodTo ? dayjs(inv.periodTo).format('DD MMM YYYY') : '—',
@@ -240,7 +236,7 @@ const TajUtilitiesReports = () => {
       const workbook = new Workbook();
 
       const worksheet = workbook.addWorksheet('Invoices', { views: [{ state: 'frozen', ySplit: 1 }] });
-      const colWidths = [20, 14, 26, 22, 24, 14, 14, 14, 16, 18, 16, 18, 16, 16, 14, 12, 18, 22, 24, 12];
+      const colWidths = [20, 14, 26, 22, 28, 24, 14, 14, 14, 16, 18, 16, 18, 16, 16, 14, 12, 18, 22, 24, 12];
       headers.forEach((h, i) => {
         worksheet.getColumn(i + 1).width = colWidths[i] || 12;
       });
@@ -249,28 +245,28 @@ const TajUtilitiesReports = () => {
       headerRow.alignment = { vertical: 'middle' };
       rows.forEach((row) => worksheet.addRow(row));
 
-      const totalInvoiceAmount = rows.reduce((s, row) => s + (Number(row[9]) || 0), 0);
-      const totalArrears = rows.reduce((s, row) => s + (Number(row[10]) || 0), 0);
-      const totalGrandTotal = rows.reduce((s, row) => s + (Number(row[11]) || 0), 0);
-      const totalPaid = rows.reduce((s, row) => s + (Number(row[12]) || 0), 0);
-      const totalBalance = rows.reduce((s, row) => s + (Number(row[13]) || 0), 0);
+      const totalInvoiceAmount = rows.reduce((s, row) => s + (Number(row[10]) || 0), 0);
+      const totalArrears = rows.reduce((s, row) => s + (Number(row[11]) || 0), 0);
+      const totalGrandTotal = rows.reduce((s, row) => s + (Number(row[12]) || 0), 0);
+      const totalPaid = rows.reduce((s, row) => s + (Number(row[13]) || 0), 0);
+      const totalBalance = rows.reduce((s, row) => s + (Number(row[14]) || 0), 0);
       const totalsRow = [
-        '', '', '', '', '', '', '', '', '',
+        '', '', '', '', '', '', '', '', '', '',
         totalInvoiceAmount,
         totalArrears,
         totalGrandTotal,
         totalPaid,
         totalBalance,
-        '', '', '', '', ''
+        '', '', '', '', '', ''
       ];
       const totalsRowNode = worksheet.addRow(totalsRow);
       totalsRowNode.font = { bold: true, size: 11 };
       totalsRowNode.getCell(1).value = 'Total';
-      totalsRowNode.getCell(10).numFmt = '#,##0.00';
       totalsRowNode.getCell(11).numFmt = '#,##0.00';
       totalsRowNode.getCell(12).numFmt = '#,##0.00';
       totalsRowNode.getCell(13).numFmt = '#,##0.00';
       totalsRowNode.getCell(14).numFmt = '#,##0.00';
+      totalsRowNode.getCell(15).numFmt = '#,##0.00';
 
       const depositHeaders = ['Deposit Date', 'Resident ID', 'Resident Name', 'Amount'];
       const depositRows = deposits.map((d) => [

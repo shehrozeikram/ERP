@@ -70,6 +70,8 @@ const registryToForm = (registry) => ({
   totalArea: areaToForm(registry.totalArea),
   registryNo: registry.registryNo || '',
   inteqalNo: registry.inteqalNo || '',
+  seller: registry.seller || null,
+  purchaser: registry.purchaser || null,
   dealer: registry.dealer || null,
   lines: (registry.lines || []).length
     ? (registry.lines || []).map((line) => ({
@@ -111,15 +113,27 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
     totalArea: emptyArea(),
     registryNo: '',
     inteqalNo: '',
+    seller: null,
+    purchaser: null,
     dealer: null,
     lines: []
   });
   const [mozas, setMozas] = useState([]);
   const [dealers, setDealers] = useState([]);
+  const [sellers, setSellers] = useState([]);
+  const [purchasers, setPurchasers] = useState([]);
   const [mozaKhasras, setMozaKhasras] = useState([]);
   const [registeredTotals, setRegisteredTotals] = useState({});
+
+  // File states for 3 categories
   const [newFiles, setNewFiles] = useState([]);
   const [removedAttachmentIds, setRemovedAttachmentIds] = useState([]);
+
+  const [newRegistryDocFiles, setNewRegistryDocFiles] = useState([]);
+  const [removedRegistryDocAttachmentIds, setRemovedRegistryDocAttachmentIds] = useState([]);
+
+  const [newInteqalDocFiles, setNewInteqalDocFiles] = useState([]);
+  const [removedInteqalDocAttachmentIds, setRemovedInteqalDocAttachmentIds] = useState([]);
 
   useEffect(() => {
     if (!open) return;
@@ -127,8 +141,20 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
     landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100000, page: 1 })
       .then((res) => setDealers(res.data || []))
       .catch(() => setDealers([]));
+    landAcquisitionPartyService.getParties({ type: 'seller', limit: 100000, page: 1 })
+      .then((res) => setSellers(res.data || []))
+      .catch(() => setSellers([]));
+    landAcquisitionPartyService.getParties({ type: 'purchaser', limit: 100000, page: 1 })
+      .then((res) => setPurchasers(res.data || []))
+      .catch(() => setPurchasers([]));
+
     setNewFiles([]);
     setRemovedAttachmentIds([]);
+    setNewRegistryDocFiles([]);
+    setRemovedRegistryDocAttachmentIds([]);
+    setNewInteqalDocFiles([]);
+    setRemovedInteqalDocAttachmentIds([]);
+
     if (registry) {
       setForm(registryToForm(registry));
     } else {
@@ -138,6 +164,8 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
         totalArea: emptyArea(),
         registryNo: '',
         inteqalNo: '',
+        seller: null,
+        purchaser: null,
         dealer: null,
         lines: []
       });
@@ -333,6 +361,38 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
     setRemovedAttachmentIds((prev) => [...prev, attachmentId]);
   };
 
+  const existingRegistryDocAttachments = (registry?.registryDocAttachments || []).filter(
+    (att) => !removedRegistryDocAttachmentIds.includes(String(att._id))
+  );
+
+  const existingInteqalDocAttachments = (registry?.inteqalDocAttachments || []).filter(
+    (att) => !removedInteqalDocAttachmentIds.includes(String(att._id))
+  );
+
+  const handleRegistryDocFileSelect = (e) => {
+    const selected = Array.from(e.target.files || []);
+    const valid = selected.filter(
+      (file) => file.type.startsWith('image/') || file.type === 'application/pdf'
+    );
+    if (!valid.length) { e.target.value = ''; return; }
+    const currentCount = existingRegistryDocAttachments.length + newRegistryDocFiles.length;
+    const room = Math.max(0, 10 - currentCount);
+    if (room > 0) setNewRegistryDocFiles((prev) => [...prev, ...valid.slice(0, room)]);
+    e.target.value = '';
+  };
+
+  const handleInteqalDocFileSelect = (e) => {
+    const selected = Array.from(e.target.files || []);
+    const valid = selected.filter(
+      (file) => file.type.startsWith('image/') || file.type === 'application/pdf'
+    );
+    if (!valid.length) { e.target.value = ''; return; }
+    const currentCount = existingInteqalDocAttachments.length + newInteqalDocFiles.length;
+    const room = Math.max(0, 10 - currentCount);
+    if (room > 0) setNewInteqalDocFiles((prev) => [...prev, ...valid.slice(0, room)]);
+    e.target.value = '';
+  };
+
   const handleSubmit = () => {
     const khewatNos = uniqueKhewatNos(form.lines);
     onSave({
@@ -344,6 +404,8 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
         totalArea: parseAreaForm(form.totalArea),
         registryNo: form.registryNo.trim(),
         inteqalNo: form.inteqalNo.trim(),
+        seller: form.seller?._id || undefined,
+        purchaser: form.purchaser?._id || undefined,
         dealer: form.dealer?._id || undefined,
         lines: form.lines.map((line) => ({
           khasraEntry: line.khasraEntry || undefined,
@@ -358,7 +420,11 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
         }))
       },
       files: newFiles,
-      removedAttachmentIds
+      removedAttachmentIds,
+      registryDocFiles: newRegistryDocFiles,
+      removedRegistryDocAttachmentIds,
+      inteqalDocFiles: newInteqalDocFiles,
+      removedInteqalDocAttachmentIds
     });
   };
 
@@ -427,6 +493,30 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
               label="Inteqal No."
               value={form.inteqalNo}
               onChange={setHeader('inteqalNo')}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <Autocomplete
+              size="small"
+              options={sellers}
+              getOptionLabel={(option) => option?.name || ''}
+              value={form.seller}
+              onChange={(_, value) => setForm((prev) => ({ ...prev, seller: value }))}
+              renderInput={(params) => (
+                <TextField {...params} label="Seller" placeholder="Select seller" />
+              )}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <Autocomplete
+              size="small"
+              options={purchasers}
+              getOptionLabel={(option) => option?.name || ''}
+              value={form.purchaser}
+              onChange={(_, value) => setForm((prev) => ({ ...prev, purchaser: value }))}
+              renderInput={(params) => (
+                <TextField {...params} label="Purchaser" placeholder="Select purchaser" />
+              )}
             />
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
@@ -610,9 +700,125 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
           </Button>
         </Box>
 
+        <Grid container spacing={2} sx={{ mt: 2 }}>
+          <Grid item xs={12} md={6}>
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                Registry Document Attachments
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Button variant="outlined" component="label" startIcon={<AttachFile />} size="small">
+                  Add Registry File
+                  <input
+                    type="file"
+                    hidden
+                    multiple
+                    accept="image/*,.pdf,application/pdf"
+                    onChange={handleRegistryDocFileSelect}
+                  />
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  PDF, JPG, PNG
+                </Typography>
+              </Stack>
+              {!existingRegistryDocAttachments.length && !newRegistryDocFiles.length ? (
+                <Typography variant="body2" color="text.secondary">
+                  No registry documents added.
+                </Typography>
+              ) : (
+                <Stack spacing={0.5}>
+                  {existingRegistryDocAttachments.map((att) => (
+                    <Stack key={att._id} direction="row" spacing={1} alignItems="center">
+                      <AttachFile fontSize="small" color="action" />
+                      <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                        {att.originalName || att.filename}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => setRemovedRegistryDocAttachmentIds((prev) => [...prev, String(att._id)])}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                  {newRegistryDocFiles.map((file, index) => (
+                    <Stack key={`${file.name}-${index}`} direction="row" spacing={1} alignItems="center">
+                      <AttachFile fontSize="small" color="primary" />
+                      <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                        {file.name} (new)
+                      </Typography>
+                      <IconButton size="small" color="error" onClick={() => setNewRegistryDocFiles((prev) => prev.filter((_, i) => i !== index))}>
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Paper>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                Inteqal Document Attachments
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Button variant="outlined" component="label" startIcon={<AttachFile />} size="small">
+                  Add Inteqal File
+                  <input
+                    type="file"
+                    hidden
+                    multiple
+                    accept="image/*,.pdf,application/pdf"
+                    onChange={handleInteqalDocFileSelect}
+                  />
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  PDF, JPG, PNG
+                </Typography>
+              </Stack>
+              {!existingInteqalDocAttachments.length && !newInteqalDocFiles.length ? (
+                <Typography variant="body2" color="text.secondary">
+                  No inteqal documents added.
+                </Typography>
+              ) : (
+                <Stack spacing={0.5}>
+                  {existingInteqalDocAttachments.map((att) => (
+                    <Stack key={att._id} direction="row" spacing={1} alignItems="center">
+                      <AttachFile fontSize="small" color="action" />
+                      <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                        {att.originalName || att.filename}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => setRemovedInteqalDocAttachmentIds((prev) => [...prev, String(att._id)])}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                  {newInteqalDocFiles.map((file, index) => (
+                    <Stack key={`${file.name}-${index}`} direction="row" spacing={1} alignItems="center">
+                      <AttachFile fontSize="small" color="primary" />
+                      <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                        {file.name} (new)
+                      </Typography>
+                      <IconButton size="small" color="error" onClick={() => setNewInteqalDocFiles((prev) => prev.filter((_, i) => i !== index))}>
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Paper>
+          </Grid>
+        </Grid>
+
         <Box sx={{ mt: 3 }}>
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-            Attachments (PDF or image)
+            Other Attachments (PDF or image)
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
             <Button variant="outlined" component="label" startIcon={<AttachFile />} size="small">

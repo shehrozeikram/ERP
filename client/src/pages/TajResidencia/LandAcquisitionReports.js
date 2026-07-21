@@ -5,7 +5,9 @@ import {
   AccordionSummary,
   Alert,
   Box,
+  Button,
   CircularProgress,
+  Paper,
   Stack,
   Table,
   TableBody,
@@ -21,6 +23,8 @@ import { ExpandMore } from '@mui/icons-material';
 import { getMozas } from '../../services/landAcquisitionMozaService';
 import { getPossessionStatus } from '../../services/landAcquisitionPossessionService';
 import { formatKMS, addAreas } from '../../utils/landAreaUnits';
+import RegistryViewer from './RegistryViewer';
+import PossessionViewer from './PossessionViewer';
 
 const TABLE_HEAD_SX = {
   fontWeight: 700,
@@ -285,6 +289,7 @@ const MozaReportTable = ({ mozaId, active }) => {
 };
 
 const LandAcquisitionReports = () => {
+  const [reportType, setReportType] = useState('acquisition'); // 'acquisition', 'registry', 'possession'
   const [mozas, setMozas] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [listLoading, setListLoading] = useState(true);
@@ -297,9 +302,7 @@ const LandAcquisitionReports = () => {
       const res = await getMozas();
       const list = res.data?.data || [];
       setMozas(list);
-      if (list.length > 0) {
-        setExpandedId(list[0]._id);
-      }
+      // Keep all cards collapsed initially for a clean list overview
     } catch {
       setError('Failed to load moza list');
     } finally {
@@ -318,9 +321,37 @@ const LandAcquisitionReports = () => {
           Land Acquisition Reports
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          View Khasra-wise land purchased and possession details.
+          Select a report below to view detailed breakdown and analytics.
         </Typography>
       </Box>
+
+      {/* Report Selection Tabs / Pill Cards */}
+      <Paper elevation={0} sx={{ p: 0.5, mb: 3, bgcolor: 'grey.100', borderRadius: 2, display: 'inline-flex', gap: 1 }}>
+        <Button
+          variant={reportType === 'acquisition' ? 'contained' : 'text'}
+          color="primary"
+          onClick={() => setReportType('acquisition')}
+          sx={{ borderRadius: 1.5, px: 2.5, fontWeight: 700 }}
+        >
+          Khasra Acquisition Report
+        </Button>
+        <Button
+          variant={reportType === 'registry' ? 'contained' : 'text'}
+          color="primary"
+          onClick={() => setReportType('registry')}
+          sx={{ borderRadius: 1.5, px: 2.5, fontWeight: 700 }}
+        >
+          Registry Summary Report
+        </Button>
+        <Button
+          variant={reportType === 'possession' ? 'contained' : 'text'}
+          color="primary"
+          onClick={() => setReportType('possession')}
+          sx={{ borderRadius: 1.5, px: 2.5, fontWeight: 700 }}
+        >
+          Possession Summary Report
+        </Button>
+      </Paper>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
@@ -332,10 +363,15 @@ const LandAcquisitionReports = () => {
         <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
           No mouza found.
         </Typography>
+      ) : reportType === 'registry' ? (
+        <RegistryViewer />
+      ) : reportType === 'possession' ? (
+        <PossessionViewer />
       ) : (
         <Stack spacing={1.5}>
           {mozas.map((m) => {
             const isExpanded = expandedId === m._id;
+            const totals = m.totals || {};
             return (
               <Accordion
                 key={m._id}
@@ -355,19 +391,48 @@ const LandAcquisitionReports = () => {
                   expandIcon={<ExpandMore />}
                   sx={{
                     bgcolor: isExpanded ? 'action.selected' : 'background.paper',
-                    '&:hover': { bgcolor: 'action.hover' }
+                    '&:hover': { bgcolor: 'action.hover' },
+                    py: 1
                   }}
                 >
                   <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1}
-                    alignItems={{ sm: 'center' }}
+                    direction={{ xs: 'column', lg: 'row' }}
+                    spacing={2}
+                    alignItems={{ lg: 'center' }}
+                    justifyContent="space-between"
                     sx={{ width: '100%', pr: 1 }}
                   >
-                    <Typography variant="subtitle1" fontWeight={700}>
-                      Mouza {m.name}
-                    </Typography>
-                    <Chip size="small" label={`${m.entryCount || 0} khasra records`} color="primary" variant="outlined" />
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 200 }}>
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        Mouza {m.name}
+                      </Typography>
+                      <Chip size="small" label={`${m.entryCount || 0} khasra records`} color="primary" variant="outlined" />
+                    </Stack>
+
+                    {totals.baseline && (
+                      <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ fontSize: '0.8125rem' }}>
+                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'grey.100', border: '1px solid', borderColor: 'grey.300' }}>
+                          <Typography variant="caption" color="text.secondary" display="block" fontWeight={600}>Land in Khasra</Typography>
+                          <Typography variant="body2" fontWeight={700}>{formatKMS(totals.baseline)}</Typography>
+                        </Box>
+                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
+                          <Typography variant="caption" color="success.main" display="block" fontWeight={600}>Purchased (Registry)</Typography>
+                          <Typography variant="body2" fontWeight={700} color="success.dark">{formatKMS(totals.registered)}</Typography>
+                        </Box>
+                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.200' }}>
+                          <Typography variant="caption" color="warning.main" display="block" fontWeight={600}>Pending Purchased</Typography>
+                          <Typography variant="body2" fontWeight={700} color="warning.dark">{formatKMS(totals.remainingToRegister)}</Typography>
+                        </Box>
+                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+                          <Typography variant="caption" color="primary.main" display="block" fontWeight={600}>Possession</Typography>
+                          <Typography variant="body2" fontWeight={700} color="primary.dark">{formatKMS(totals.possessed)}</Typography>
+                        </Box>
+                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'error.50', border: '1px solid', borderColor: 'error.200' }}>
+                          <Typography variant="caption" color="error.main" display="block" fontWeight={600}>Pending Possession</Typography>
+                          <Typography variant="body2" fontWeight={700} color="error.dark">{formatKMS(totals.remainingToPossess)}</Typography>
+                        </Box>
+                      </Stack>
+                    )}
                   </Stack>
                 </AccordionSummary>
                 <AccordionDetails sx={{ pt: 1, pb: 2, px: 2, bgcolor: 'grey.50', minHeight: 480 }}>

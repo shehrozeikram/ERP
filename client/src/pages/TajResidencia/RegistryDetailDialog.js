@@ -115,6 +115,12 @@ const RegistryDetailDialog = ({ open, onClose, registryId }) => {
                 <DetailField label="Inteqal no." value={registry.inteqalNo || '—'} />
               </Grid>
               <Grid item xs={6} sm={4} md={3}>
+                <DetailField label="Seller" value={registry.seller?.name || '—'} />
+              </Grid>
+              <Grid item xs={6} sm={4} md={3}>
+                <DetailField label="Purchaser" value={registry.purchaser?.name || '—'} />
+              </Grid>
+              <Grid item xs={6} sm={4} md={3}>
                 <DetailField label="Dealer" value={registry.dealer?.name || '—'} />
               </Grid>
               <Grid item xs={6} sm={4} md={3}>
@@ -166,12 +172,78 @@ const RegistryDetailDialog = ({ open, onClose, registryId }) => {
               </Table>
             </TableContainer>
 
+            <Grid container spacing={2} sx={{ mt: 3 }}>
+              <Grid item xs={12} md={6}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                    Registry Document Attachments
+                  </Typography>
+                  {!(registry.registryDocAttachments || []).length ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No registry document attachments.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={0.75}>
+                      {(registry.registryDocAttachments || []).map((att) => {
+                        const href = resolveUploadFileHref(att.path, att.mimetype);
+                        return (
+                          <Stack key={att._id || att.path} direction="row" spacing={1} alignItems="center">
+                            <AttachFile fontSize="small" color="primary" />
+                            {href ? (
+                              <Link href={href} target="_blank" rel="noopener noreferrer" underline="hover">
+                                {att.originalName || att.filename}
+                                {isAttachmentPdf(att.path, att.mimetype) ? ' (PDF)' : ''}
+                              </Link>
+                            ) : (
+                              <Typography variant="body2">{att.originalName || att.filename}</Typography>
+                            )}
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
+                  )}
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                    Inteqal Document Attachments
+                  </Typography>
+                  {!(registry.inteqalDocAttachments || []).length ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No inteqal document attachments.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={0.75}>
+                      {(registry.inteqalDocAttachments || []).map((att) => {
+                        const href = resolveUploadFileHref(att.path, att.mimetype);
+                        return (
+                          <Stack key={att._id || att.path} direction="row" spacing={1} alignItems="center">
+                            <AttachFile fontSize="small" color="primary" />
+                            {href ? (
+                              <Link href={href} target="_blank" rel="noopener noreferrer" underline="hover">
+                                {att.originalName || att.filename}
+                                {isAttachmentPdf(att.path, att.mimetype) ? ' (PDF)' : ''}
+                              </Link>
+                            ) : (
+                              <Typography variant="body2">{att.originalName || att.filename}</Typography>
+                            )}
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
+                  )}
+                </Paper>
+              </Grid>
+            </Grid>
+
             <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1 }}>
-              Attachments
+              Other Attachments
             </Typography>
             {!attachments.length ? (
               <Typography variant="body2" color="text.secondary">
-                No attachments uploaded.
+                No other attachments uploaded.
               </Typography>
             ) : (
               <Stack spacing={0.75}>

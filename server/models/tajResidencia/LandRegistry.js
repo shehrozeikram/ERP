@@ -43,12 +43,22 @@ const landRegistrySchema = new mongoose.Schema({
   totalArea: { type: landAreaSchema, default: () => ({}) },
   registryNo: { type: String, trim: true, default: '' },
   inteqalNo: { type: String, trim: true, default: '' },
+  seller: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'LandParty'
+  },
+  purchaser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'LandParty'
+  },
   dealer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'LandParty'
   },
   lines: { type: [registryLineSchema], default: [] },
   attachments: { type: [registryAttachmentSchema], default: [] },
+  registryDocAttachments: { type: [registryAttachmentSchema], default: [] },
+  inteqalDocAttachments: { type: [registryAttachmentSchema], default: [] },
   isActive: { type: Boolean, default: true, index: true },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

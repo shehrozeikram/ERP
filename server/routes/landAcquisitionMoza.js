@@ -101,7 +101,44 @@ router.get('/mozas', authMiddleware, asyncHandler(async (req, res) => {
     .select('name slug sourceLabel entryCount createdAt updatedAt')
     .lean();
 
-  res.json({ success: true, data: mozas });
+  const { buildMozaAcquisitionStatus } = require('../utils/landAcquisitionStatus');
+  const { addAreas } = require('../utils/landAreaUnits');
+
+  const mozasWithTotals = await Promise.all(
+    mozas.map(async (m) => {
+      try {
+        const rows = await buildMozaAcquisitionStatus(m._id);
+        let baseline = { kanal: 0, marla: 0, sarsai: 0 };
+        let registered = { kanal: 0, marla: 0, sarsai: 0 };
+        let remainingToRegister = { kanal: 0, marla: 0, sarsai: 0 };
+        let possessed = { kanal: 0, marla: 0, sarsai: 0 };
+        let remainingToPossess = { kanal: 0, marla: 0, sarsai: 0 };
+
+        rows.forEach((row) => {
+          if (row.baseline) baseline = addAreas(baseline, row.baseline);
+          if (row.registered) registered = addAreas(registered, row.registered);
+          if (row.remainingToRegister) remainingToRegister = addAreas(remainingToRegister, row.remainingToRegister);
+          if (row.possessed) possessed = addAreas(possessed, row.possessed);
+          if (row.remainingToPossess) remainingToPossess = addAreas(remainingToPossess, row.remainingToPossess);
+        });
+
+        return {
+          ...m,
+          totals: {
+            baseline,
+            registered,
+            remainingToRegister,
+            possessed,
+            remainingToPossess
+          }
+        };
+      } catch {
+        return m;
+      }
+    })
+  );
+
+  res.json({ success: true, data: mozasWithTotals });
 }));
 
 // GET /api/taj-residencia/land-acquisition/mozas/:id/khewats

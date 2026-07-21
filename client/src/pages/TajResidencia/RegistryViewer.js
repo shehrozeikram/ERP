@@ -21,7 +21,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { Add, Delete, Edit, Search as SearchIcon, Visibility, Download as DownloadIcon } from '@mui/icons-material';
+import { Add, AttachFile, Delete, Edit, Search as SearchIcon, Visibility, Download as DownloadIcon } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import RegistryFormDialog from './RegistryFormDialog';
@@ -34,6 +34,7 @@ import {
   updateRegistry
 } from '../../services/landAcquisitionRegistryService';
 import { formatKMS } from '../../utils/landAreaUnits';
+import { resolveUploadFileHref } from '../../utils/uploadPaths';
 
 const formatDate = (value) => {
   if (!value) return '—';
@@ -107,14 +108,30 @@ const RegistryViewer = () => {
     setDialogOpen(true);
   };
 
-  const handleSave = async ({ payload, files = [], removedAttachmentIds = [] }) => {
+  const handleSave = async ({
+    payload,
+    files = [],
+    removedAttachmentIds = [],
+    registryDocFiles = [],
+    removedRegistryDocAttachmentIds = [],
+    inteqalDocFiles = [],
+    removedInteqalDocAttachmentIds = []
+  }) => {
     setSaving(true);
+    const options = {
+      files,
+      removedAttachmentIds,
+      registryDocFiles,
+      removedRegistryDocAttachmentIds,
+      inteqalDocFiles,
+      removedInteqalDocAttachmentIds
+    };
     try {
       if (editing) {
-        const res = await updateRegistry(editing._id, payload, files, removedAttachmentIds);
+        const res = await updateRegistry(editing._id, payload, options);
         toast.success(res.data?.message || 'Registry updated');
       } else {
-        const res = await createRegistry(payload, files);
+        const res = await createRegistry(payload, options);
         toast.success(res.data?.message || 'Registry created');
       }
       setDialogOpen(false);
@@ -268,8 +285,12 @@ const RegistryViewer = () => {
                 <TableCell><strong>Khewat</strong></TableCell>
                 <TableCell><strong>Registry No.</strong></TableCell>
                 <TableCell><strong>Inteqal No.</strong></TableCell>
+                <TableCell><strong>Seller</strong></TableCell>
+                <TableCell><strong>Purchaser</strong></TableCell>
                 <TableCell><strong>Dealer</strong></TableCell>
                 <TableCell><strong>Total Acquired</strong></TableCell>
+                <TableCell><strong>Registry Docs</strong></TableCell>
+                <TableCell><strong>Inteqal Docs</strong></TableCell>
                 <TableCell><strong>Lines</strong></TableCell>
                 <TableCell align="center" width={128}><strong>Actions</strong></TableCell>
               </TableRow>
@@ -282,8 +303,64 @@ const RegistryViewer = () => {
                   <TableCell>{row.khewatNo}</TableCell>
                   <TableCell>{row.registryNo}</TableCell>
                   <TableCell>{row.inteqalNo || '—'}</TableCell>
+                  <TableCell>{row.seller?.name || '—'}</TableCell>
+                  <TableCell>{row.purchaser?.name || '—'}</TableCell>
                   <TableCell>{row.dealer?.name || '—'}</TableCell>
                   <TableCell>{formatKMS(row.totalArea)}</TableCell>
+                  <TableCell>
+                    {(row.registryDocAttachments || []).length > 0 ? (
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                        {row.registryDocAttachments.map((att, i) => {
+                          const href = resolveUploadFileHref(att.path, att.mimetype);
+                          return href ? (
+                            <Chip
+                              key={att._id || i}
+                              icon={<AttachFile fontSize="small" />}
+                              label={att.originalName || `Doc ${i + 1}`}
+                              component="a"
+                              href={href}
+                              target="_blank"
+                              clickable
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                          ) : (
+                            <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
+                          );
+                        })}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">—</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {(row.inteqalDocAttachments || []).length > 0 ? (
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                        {row.inteqalDocAttachments.map((att, i) => {
+                          const href = resolveUploadFileHref(att.path, att.mimetype);
+                          return href ? (
+                            <Chip
+                              key={att._id || i}
+                              icon={<AttachFile fontSize="small" />}
+                              label={att.originalName || `Doc ${i + 1}`}
+                              component="a"
+                              href={href}
+                              target="_blank"
+                              clickable
+                              size="small"
+                              color="secondary"
+                              variant="outlined"
+                            />
+                          ) : (
+                            <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
+                          );
+                        })}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">—</Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />
                   </TableCell>
