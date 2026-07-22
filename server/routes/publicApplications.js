@@ -61,38 +61,9 @@ router.post('/submit', async (req, res) => {
       });
     }
 
-    // Create or update candidate
-    let candidate = await Candidate.findOne({ email });
-    
-    if (!candidate) {
-      candidate = new Candidate({
-        name: candidateName,
-        email,
-        phone,
-        experience,
-        education,
-        skills,
-        expectedSalary,
-        availability,
-        source: 'Public Application'
-      });
-      await candidate.save();
-    } else {
-      // Update existing candidate
-      candidate.name = candidateName;
-      candidate.phone = phone;
-      candidate.experience = experience;
-      candidate.education = education;
-      candidate.skills = skills;
-      candidate.expectedSalary = expectedSalary;
-      candidate.availability = availability;
-      await candidate.save();
-    }
-
-    // Create application
+    // Create application directly (storing applicant info inside application document)
     const application = new Application({
       jobPosting: jobPosting._id,
-      candidate: candidate._id,
       affiliateCode: jobPosting.affiliateCode || affiliateCode,
       applicationType: 'standard',
       personalInfo: personalInfo || {
@@ -106,17 +77,21 @@ router.post('/submit', async (req, res) => {
       skills: typeof skills === 'object' ? skills : { technicalSkills: String(skills || '') },
       additionalInfo: req.body.additionalInfo || {},
       status: 'applied',
+      submittedAt: new Date(),
       source: 'Public'
     });
 
     await application.save();
 
+    // Increment job posting application counter
+    jobPosting.applications = (jobPosting.applications || 0) + 1;
+    await jobPosting.save();
+
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
       data: {
-        applicationId: application._id,
-        candidateId: candidate._id
+        applicationId: application._id
       }
     });
 
