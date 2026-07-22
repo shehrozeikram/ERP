@@ -96,7 +96,7 @@ const getRemainingInstallmentCapacity = (purchase, excludeInstallmentId = null) 
 };
 
 async function nextPurchaseNumbers() {
-  const purchases = await LandPurchase.find({})
+  const purchases = await LandPurchase.find({ isActive: true })
     .select('purchaseNo dealNo')
     .lean();
 
