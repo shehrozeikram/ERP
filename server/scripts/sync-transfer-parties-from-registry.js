@@ -1,7 +1,7 @@
+const mongoose = require('mongoose');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-const { connectDB } = require('../config/database');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
@@ -9,8 +9,9 @@ const LandParty = require('../models/tajResidencia/LandParty');
 
 async function syncTransferParties() {
   try {
-    console.log('Connecting to MongoDB...');
-    await connectDB();
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc_erp';
+    console.log('Connecting to MongoDB:', mongoUri.replace(/\/\/.*@/, '//<credentials>@'));
+    await mongoose.connect(mongoUri);
 
     console.log('Fetching active LandTransfers, LandRegistries, and LandPurchases...');
     const [transfers, registries, purchases] = await Promise.all([
@@ -40,8 +41,7 @@ async function syncTransferParties() {
       }
     }
 
-    let transferUpdatedCount = 0;
-    let registryUpdatedCount = 0;
+    let updatedCount = 0;
     let registryMatchedCount = 0;
     let purchaseFallbackCount = 0;
     let noMatchCount = 0;
@@ -66,7 +66,6 @@ async function syncTransferParties() {
 
       if (matchedRegistry) {
         registryMatchedCount++;
-        // 1) Update LandTransfer from LandRegistry
         if (matchedRegistry.seller) {
           newSellerId = matchedRegistry.seller._id || matchedRegistry.seller;
           newSellerName = matchedRegistry.seller.name || matchedRegistry.sellerName || newSellerName;
@@ -78,25 +77,8 @@ async function syncTransferParties() {
         if (matchedRegistry.dealer) {
           targetDealerId = matchedRegistry.dealer._id || matchedRegistry.dealer;
         }
-
-        // 2) Reverse sync: If LandRegistry itself is missing seller, purchaser, or dealer, update LandRegistry from LandTransfer / LandPurchase!
-        const matchedPurchase = t.landPurchase ? purchases.find(p => String(p._id) === String(t.landPurchase)) : purchaseByDealNo.get(Number(t.dealNo));
-        const regUpdateDoc = {};
-        if (!matchedRegistry.seller && (t.seller || matchedPurchase?.seller)) {
-          regUpdateDoc.seller = t.seller || matchedPurchase.seller._id || matchedPurchase.seller;
-        }
-        if (!matchedRegistry.purchaser && (t.purchaser || matchedPurchase?.purchaser)) {
-          regUpdateDoc.purchaser = t.purchaser || matchedPurchase.purchaser._id || matchedPurchase.purchaser;
-        }
-        if (!matchedRegistry.dealer && matchedPurchase?.dealer) {
-          regUpdateDoc.dealer = matchedPurchase.dealer._id || matchedPurchase.dealer;
-        }
-        if (Object.keys(regUpdateDoc).length > 0) {
-          await LandRegistry.updateOne({ _id: matchedRegistry._id }, { $set: regUpdateDoc });
-          registryUpdatedCount++;
-        }
       } else {
-        // Fallback to linked LandPurchase for LandTransfer
+        // Fallback to linked LandPurchase
         const matchedPurchase = t.landPurchase ? purchases.find(p => String(p._id) === String(t.landPurchase)) : purchaseByDealNo.get(Number(t.dealNo));
         if (matchedPurchase) {
           purchaseFallbackCount++;
@@ -133,7 +115,7 @@ async function syncTransferParties() {
 
       if (changed) {
         await LandTransfer.updateOne({ _id: t._id }, { $set: updateDoc });
-        transferUpdatedCount++;
+        updatedCount++;
       }
 
       // Update linked LandPurchase dealer if targetDealerId exists and differs
@@ -150,14 +132,33 @@ async function syncTransferParties() {
     console.log(`Matched via LandRegistry (Registry No / Inteqal No): ${registryMatchedCount}`);
     console.log(`Matched via LandPurchase fallback: ${purchaseFallbackCount}`);
     console.log(`No match found: ${noMatchCount}`);
-    console.log(`LandTransfer records updated: ${transferUpdatedCount}`);
-    console.log(`LandRegistry records updated with Seller/Purchaser/Dealer: ${registryUpdatedCount}`);
+    console.log(`LandTransfer records updated: ${updatedCount}`);
 
     process.exit(0);
   } catch (err) {
     console.error('Error syncing transfer parties:', err);
     process.exit(1);
   }
+}
+
+syncTransferParties();
+        }
+      }
+    }
+
+console.log('--- SYNC COMPLETED ---');
+console.log(`Total Transfers evaluated: ${transfers.length}`);
+console.log(`Matched via LandRegistry (Registry No / Inteqal No): ${registryMatchedCount}`);
+console.log(`Matched via LandPurchase fallback: ${purchaseFallbackCount}`);
+console.log(`No match found: ${noMatchCount}`);
+console.log(`LandTransfer records updated: ${transferUpdatedCount}`);
+console.log(`LandRegistry records updated with Seller/Purchaser/Dealer: ${registryUpdatedCount}`);
+
+process.exit(0);
+  } catch (err) {
+  console.error('Error syncing transfer parties:', err);
+  process.exit(1);
+}
 }
 
 syncTransferParties();
