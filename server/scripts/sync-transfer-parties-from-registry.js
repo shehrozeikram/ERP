@@ -1,7 +1,4 @@
-const mongoose = require('mongoose');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
-
+const { connectDB } = require('../config/database');
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
@@ -9,9 +6,8 @@ const LandParty = require('../models/tajResidencia/LandParty');
 
 async function syncTransferParties() {
   try {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc_erp';
-    console.log('Connecting to MongoDB:', mongoUri.replace(/\/\/.*@/, '//<credentials>@'));
-    await mongoose.connect(mongoUri);
+    console.log('Connecting to MongoDB...');
+    await connectDB();
 
     console.log('Fetching active LandTransfers, LandRegistries, and LandPurchases...');
     const [transfers, registries, purchases] = await Promise.all([
