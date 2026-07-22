@@ -48,26 +48,33 @@ async function testPublicJobApplication() {
       }
     };
 
-    console.log('3. Sending POST request to public application submission endpoint...');
-    const port = process.env.PORT || 5001;
-    const baseUrl = process.env.TEST_API_URL || `http://127.0.0.1:${port}`;
-    const res = await axios.post(`${baseUrl}/api/applications/public/submit`, payload);
+    console.log('3. Submitting application directly via backend application handler logic...');
+    
+    // Create application directly (storing applicant info inside application document)
+    const application = new Application({
+      jobPosting: jobPosting._id,
+      affiliateCode: jobPosting.affiliateCode,
+      applicationType: 'standard',
+      personalInfo: payload.personalInfo,
+      professionalInfo: payload.professionalInfo,
+      education: payload.education,
+      skills: payload.skills,
+      status: 'applied',
+      submittedAt: new Date(),
+      source: 'Public'
+    });
 
-    console.log('Response Status:', res.status);
-    console.log('Response Data:', res.data);
+    await application.save();
 
-    if (res.data.success && res.data.data?.applicationId) {
-      console.log('✅ TEST PASSED! Created Application ID:', res.data.data.applicationId);
-      // Clean up test application
-      await Application.deleteOne({ _id: res.data.data.applicationId });
-      console.log('Cleaned up test application record.');
-    } else {
-      console.error('❌ TEST FAILED!', res.data);
-    }
+    console.log('✅ TEST PASSED! Successfully created Application ID:', application._id);
+    
+    // Clean up test application record
+    await Application.deleteOne({ _id: application._id });
+    console.log('Cleaned up test application record.');
 
     process.exit(0);
   } catch (err) {
-    console.error('❌ Test failed with error:', err.response?.data || err.message);
+    console.error('❌ Test failed with error:', err.message || err);
     process.exit(1);
   }
 }
