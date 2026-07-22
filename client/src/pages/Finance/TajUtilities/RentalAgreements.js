@@ -36,7 +36,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Close as CloseIcon,
-  Visibility as VisibilityIcon
+  Visibility as VisibilityIcon,
+  GetApp as GetAppIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -347,6 +348,53 @@ const RentalAgreements = () => {
     return { totalRent, active, expired, expiredRent, total: agreements.length };
   }, [agreements]);
 
+  const handleExportExcel = useCallback(async () => {
+    try {
+      const xlsx = await import('xlsx');
+      const headers = [
+        'Agreement No',
+        'Property Name',
+        'Property Address',
+        'Tenant Name',
+        'Tenant Contact',
+        'Tenant CNIC',
+        'Monthly Rent (PKR)',
+        'Security Deposit (PKR)',
+        'Annual Rent Increase',
+        'Start Date',
+        'End Date',
+        'Status',
+        'Created At'
+      ];
+
+      const rows = agreements.map((item) => [
+        item.agreementNumber || 'N/A',
+        item.propertyName || 'N/A',
+        item.propertyAddress || 'N/A',
+        item.tenantName || 'N/A',
+        item.tenantContact || 'N/A',
+        item.tenantIdCard || 'N/A',
+        item.monthlyRent || 0,
+        item.securityDeposit || 0,
+        item.annualRentIncreaseValue 
+          ? `${item.annualRentIncreaseValue}${item.annualRentIncreaseType === 'percentage' ? '%' : ' PKR'}` 
+          : 'None',
+        item.startDate ? dayjs(item.startDate).format('DD/MM/YYYY') : 'N/A',
+        item.endDate ? dayjs(item.endDate).format('DD/MM/YYYY') : 'N/A',
+        item.status || 'Active',
+        item.createdAt ? dayjs(item.createdAt).format('DD/MM/YYYY HH:mm') : 'N/A'
+      ]);
+
+      const wb = xlsx.utils.book_new();
+      const ws = xlsx.utils.aoa_to_sheet([headers, ...rows]);
+      xlsx.utils.book_append_sheet(wb, ws, 'Rental Agreements');
+      xlsx.writeFile(wb, `rental-agreements-${dayjs().format('YYYY-MM-DD')}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export rental agreements to Excel:', err);
+      setError('Failed to export rental agreements to Excel');
+    }
+  }, [agreements]);
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
@@ -358,9 +406,19 @@ const RentalAgreements = () => {
             Create property agreements before generating rental payments.
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
-          New Agreement
-        </Button>
+        <Stack direction="row" spacing={2}>
+          <Button
+            variant="outlined"
+            startIcon={<GetAppIcon />}
+            onClick={handleExportExcel}
+            disabled={agreements.length === 0}
+          >
+            Export Excel
+          </Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
+            New Agreement
+          </Button>
+        </Stack>
       </Stack>
 
       {error && (

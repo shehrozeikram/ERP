@@ -3544,6 +3544,15 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
 
     await invoice.save();
 
+    // Auto-cascade CAM arrears changes to proceeding invoices for this property
+    if (invoice.property && invoice.chargeTypes?.includes('CAM')) {
+      try {
+        await repairCamInvoiceChain(invoice.property, { fromInvoiceNumber: invoice.invoiceNumber });
+      } catch (err) {
+        console.error('⚠️ Error auto-repairing CAM invoice chain on update:', err);
+      }
+    }
+
     // OPTIMIZATION: Invalidate caches on invoice update
     clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
     if (invoice.property) {
@@ -3876,6 +3885,15 @@ router.delete('/:invoiceId/payments/:paymentId', authMiddleware, asyncHandler(as
 
     await invoice.save();
 
+    // Auto-cascade CAM arrears changes to proceeding invoices for this property
+    if (invoice.property && invoice.chargeTypes?.includes('CAM')) {
+      try {
+        await repairCamInvoiceChain(invoice.property, { fromInvoiceNumber: invoice.invoiceNumber });
+      } catch (err) {
+        console.error('⚠️ Error auto-repairing CAM invoice chain on payment deletion:', err);
+      }
+    }
+
     // OPTIMIZATION: Invalidate caches on payment deletion
     clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
     if (invoice.property) {
@@ -4003,7 +4021,17 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
       clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW);
     }
     
+    const wasCamInvoice = invoice.chargeTypes?.includes('CAM');
     await PropertyInvoice.findByIdAndDelete(req.params.id);
+
+    // Auto-cascade CAM arrears recalculation to proceeding invoices for this property
+    if (propertyId && wasCamInvoice) {
+      try {
+        await repairCamInvoiceChain(propertyId);
+      } catch (err) {
+        console.error('⚠️ Error auto-repairing CAM invoice chain on invoice deletion:', err);
+      }
+    }
 
     // OPTIMIZATION: Invalidate caches on invoice deletion
     clearCached(CACHE_KEYS.INVOICES_OVERVIEW);

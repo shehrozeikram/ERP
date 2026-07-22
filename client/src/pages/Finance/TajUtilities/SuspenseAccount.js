@@ -518,6 +518,17 @@ const SuspenseAccount = () => {
                 required
               />
             </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Deposit Date"
+                type="date"
+                value={editForm.depositDate || ''}
+                onChange={(e) => setEditForm({ ...editForm, depositDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
             <Grid item xs={12}>
               <TextField
                 fullWidth
@@ -539,7 +550,8 @@ const SuspenseAccount = () => {
               paymentMethod: 'Cash',
               bank: '',
               referenceNumberExternal: '',
-              description: ''
+              description: '',
+              depositDate: ''
             });
           }}>Cancel</Button>
           <Button onClick={handleUpdate} variant="contained" disabled={loading || !editForm.amount || !editForm.referenceNumberExternal}>

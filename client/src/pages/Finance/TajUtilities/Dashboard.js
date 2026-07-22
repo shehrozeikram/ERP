@@ -17,7 +17,8 @@ import {
   TableRow,
   TextField,
   ToggleButton,
-  ToggleButtonGroup
+  ToggleButtonGroup,
+  Tooltip as MuiTooltip
 } from '@mui/material';
 import { Refresh as RefreshIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -325,11 +326,11 @@ const Dashboard = () => {
 
   const chargeRows = useMemo(() => {
     const mk = (id, label, s) => {
-      const invoiced = Number(s.totalAmountAllPages ?? s.totalAmount ?? 0);
-      const arrears = Number(s.totalArrears ?? 0);
+      const invoiced = Math.round(Number(s.totalAmountAllPages ?? s.totalAmount ?? 0));
+      const arrears = Math.round(Number(s.totalArrears ?? 0));
       const total = invoiced + arrears;
-      const paid = Math.max(0, Number(s.paymentsReceived ?? 0));
-      const balances = Math.max(0, Number(s.totalArrearsAllPages ?? total - paid));
+      const paid = Math.round(Math.max(0, Number(s.paymentsReceived ?? 0)));
+      const balances = Math.max(0, total - paid);
       return {
         id,
         label,
@@ -612,22 +613,62 @@ const Dashboard = () => {
                           >
                             <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
                             <TableCell align="right">{formatTableNumber(row.no)}</TableCell>
-                            <TableCell align="right">{formatTableNumber(row.invoiced)}</TableCell>
-                            <TableCell align="right">{formatTableNumber(row.arrears)}</TableCell>
-                            <TableCell align="right">{formatTableNumber(row.total)}</TableCell>
-                            <TableCell align="right">{formatTableNumber(row.paid)}</TableCell>
-                            <TableCell align="right">{formatTableNumber(row.balances)}</TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${row.invoiced.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(row.invoiced)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${row.arrears.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(row.arrears)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${row.total.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(row.total)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${row.paid.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(row.paid)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${row.balances.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(row.balances)}</span>
+                              </MuiTooltip>
+                            </TableCell>
                           </TableRow>
                         ))}
                     {!loading && (
                       <TableRow sx={{ bgcolor: '#eeeeee', '& td': { fontWeight: 700 } }}>
                         <TableCell>Total</TableCell>
                         <TableCell align="right">{formatTableNumber(chargeRows.totals.no)}</TableCell>
-                        <TableCell align="right">{formatTableNumber(chargeRows.totals.invoiced)}</TableCell>
-                        <TableCell align="right">{formatTableNumber(chargeRows.totals.arrears)}</TableCell>
-                        <TableCell align="right">{formatTableNumber(chargeRows.totals.total)}</TableCell>
-                        <TableCell align="right">{formatTableNumber(chargeRows.totals.paid)}</TableCell>
-                        <TableCell align="right">{formatTableNumber(chargeRows.totals.balances)}</TableCell>
+                        <TableCell align="right">
+                          <MuiTooltip title={`PKR ${chargeRows.totals.invoiced.toLocaleString('en-PK')}`}>
+                            <span>{formatTableNumber(chargeRows.totals.invoiced)}</span>
+                          </MuiTooltip>
+                        </TableCell>
+                        <TableCell align="right">
+                          <MuiTooltip title={`PKR ${chargeRows.totals.arrears.toLocaleString('en-PK')}`}>
+                            <span>{formatTableNumber(chargeRows.totals.arrears)}</span>
+                          </MuiTooltip>
+                        </TableCell>
+                        <TableCell align="right">
+                          <MuiTooltip title={`PKR ${chargeRows.totals.total.toLocaleString('en-PK')}`}>
+                            <span>{formatTableNumber(chargeRows.totals.total)}</span>
+                          </MuiTooltip>
+                        </TableCell>
+                        <TableCell align="right">
+                          <MuiTooltip title={`PKR ${chargeRows.totals.paid.toLocaleString('en-PK')}`}>
+                            <span>{formatTableNumber(chargeRows.totals.paid)}</span>
+                          </MuiTooltip>
+                        </TableCell>
+                        <TableCell align="right">
+                          <MuiTooltip title={`PKR ${chargeRows.totals.balances.toLocaleString('en-PK')}`}>
+                            <span>{formatTableNumber(chargeRows.totals.balances)}</span>
+                          </MuiTooltip>
+                        </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
