@@ -18,7 +18,9 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Tooltip as MuiTooltip
+  Tooltip as MuiTooltip,
+  Tabs,
+  Tab
 } from '@mui/material';
 import { Refresh as RefreshIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -166,6 +168,10 @@ const Dashboard = () => {
     globalDepositSuspense: 0
   });
 
+  const [activeMonthTab, setActiveMonthTab] = useState(0);
+  const [monthlyChargeData, setMonthlyChargeData] = useState({});
+  const monthKeys = useMemo(() => Object.keys(monthlyChargeData).sort(), [monthlyChargeData]);
+
   const loadDashboard = useCallback(async () => {
     try {
       setLoading(true);
@@ -209,6 +215,53 @@ const Dashboard = () => {
 
       const allData = allReportRes.data?.data || {};
       const byMonthAll = allData.byMonth || [];
+
+      // Extract month-by-month breakdowns for each charge type
+      const extractMonthlyMap = (resData) => {
+        const list = resData?.byMonth || [];
+        const map = {};
+        for (const item of list) {
+          const key = item.month;
+          const invoiced = Number(item.invoiceAmount || 0);
+          const arrears = Number(item.arrears || 0);
+          const total = invoiced + arrears;
+          const paymentsReceived = Math.max(0, Number(item.paymentsReceived || 0));
+          const balances = Math.max(0, total - paymentsReceived);
+          map[key] = {
+            totalProperties: Number(item.invoiceCount || 0),
+            totalAmount: invoiced,
+            totalArrears: arrears,
+            paymentsReceived,
+            balances,
+            monthLabel: item.monthLabel || item.month
+          };
+        }
+        return map;
+      };
+
+      const camMonthly = extractMonthlyMap(camReportRes.data?.data);
+      const waterMonthly = extractMonthlyMap(waterReportRes.data?.data);
+      const elecMonthly = extractMonthlyMap(electricityReportRes.data?.data);
+      const rentMonthly = extractMonthlyMap(rentReportRes.data?.data);
+      const groundMonthly = extractMonthlyMap(groundReportRes.data?.data);
+      const otherMonthly = extractMonthlyMap(otherReportRes.data?.data);
+
+      // Build month-keyed dictionary of charge stats
+      const mDataDict = {};
+      for (const mObj of byMonthAll) {
+        const k = mObj.month;
+        mDataDict[k] = {
+          monthLabel: mObj.monthLabel || k,
+          cam: camMonthly[k] || { totalProperties: 0, totalAmount: 0, totalArrears: 0, paymentsReceived: 0, balances: 0 },
+          water: waterMonthly[k] || { totalProperties: 0, totalAmount: 0, totalArrears: 0, paymentsReceived: 0, balances: 0 },
+          electricity: elecMonthly[k] || { totalProperties: 0, totalAmount: 0, totalArrears: 0, paymentsReceived: 0, balances: 0 },
+          rentRollup: rentMonthly[k] || { totalProperties: 0, totalAmount: 0, totalArrears: 0, paymentsReceived: 0, balances: 0 },
+          groundRollup: groundMonthly[k] || { totalProperties: 0, totalAmount: 0, totalArrears: 0, paymentsReceived: 0, balances: 0 },
+          otherRollup: otherMonthly[k] || { totalProperties: 0, totalAmount: 0, totalArrears: 0, paymentsReceived: 0, balances: 0 }
+        };
+      }
+      setMonthlyChargeData(mDataDict);
+
       const gdsFromTotals = Number(allData.totals?.depositPlusSuspense);
       const globalDepositSuspense = Number.isFinite(gdsFromTotals)
         ? gdsFromTotals
@@ -310,7 +363,8 @@ const Dashboard = () => {
         groundRollup: groundFromReports,
         otherRollup: otherFromReports,
         reconciliationByMonth,
-        globalDepositSuspense
+        globalDepositSuspense,
+        byMonthBreakdown: byMonthAll
       });
     } catch (err) {
       console.error('Dashboard load error:', err);
@@ -324,17 +378,17 @@ const Dashboard = () => {
     loadDashboard();
   }, [loadDashboard]);
 
-  const chargeRows = useMemo(() => {
+  const monthlyChargeTables = useMemo(() => {
     const mk = (id, label, s) => {
-      const invoiced = Math.round(Number(s.totalAmountAllPages ?? s.totalAmount ?? 0));
-      const arrears = Math.round(Number(s.totalArrears ?? 0));
+      const invoiced = Math.round(Number(s?.totalAmountAllPages ?? s?.totalAmount ?? 0));
+      const arrears = Math.round(Number(s?.totalArrears ?? 0));
       const total = invoiced + arrears;
-      const paid = Math.round(Math.max(0, Number(s.paymentsReceived ?? 0)));
+      const paid = Math.round(Math.max(0, Number(s?.paymentsReceived ?? 0)));
       const balances = Math.max(0, total - paid);
       return {
         id,
         label,
-        no: s.totalProperties ?? 0,
+        no: s?.totalProperties ?? 0,
         invoiced,
         arrears,
         total,
@@ -343,46 +397,55 @@ const Dashboard = () => {
       };
     };
 
-    const rows = [
-      mk('ELECTRICITY', 'ELECTRICITY', stats.electricity),
-      mk('CAM', 'CAM', stats.cam),
-      mk('RENT', 'RENT', stats.rentRollup || {}),
-      mk('WATER', 'WATER', stats.water),
-      mk('GROUND', 'GROUND BOOKING', stats.groundRollup || {}),
-      mk('OTHER', 'OTHER', stats.otherRollup || {})
-    ];
+    return monthKeys.map((monthKey) => {
+      const mData = monthlyChargeData[monthKey] || {};
+      const rows = [
+        mk('ELECTRICITY', 'ELECTRICITY', mData.electricity),
+        mk('CAM', 'CAM', mData.cam),
+        mk('RENT', 'RENT', mData.rentRollup),
+        mk('WATER', 'WATER', mData.water),
+        mk('GROUND', 'GROUND BOOKING', mData.groundRollup),
+        mk('OTHER', 'OTHER', mData.otherRollup)
+      ];
 
-    const filtered =
-      chargeFilter.size === 0
-        ? rows
-        : rows.filter((r) => chargeFilter.has(r.id));
+      const filtered =
+        chargeFilter.size === 0
+          ? rows
+          : rows.filter((r) => chargeFilter.has(r.id));
 
-    const totals = filtered.reduce(
-      (acc, r) => ({
-        no: acc.no + r.no,
-        invoiced: acc.invoiced + r.invoiced,
-        arrears: acc.arrears + r.arrears,
-        total: acc.total + r.total,
-        paid: acc.paid + r.paid,
-        balances: acc.balances + r.balances
-      }),
-      { no: 0, invoiced: 0, arrears: 0, total: 0, paid: 0, balances: 0 }
-    );
+      const totals = filtered.reduce(
+        (acc, r) => ({
+          no: acc.no + r.no,
+          invoiced: acc.invoiced + r.invoiced,
+          arrears: acc.arrears + r.arrears,
+          total: acc.total + r.total,
+          paid: acc.paid + r.paid,
+          balances: acc.balances + r.balances
+        }),
+        { no: 0, invoiced: 0, arrears: 0, total: 0, paid: 0, balances: 0 }
+      );
 
-    const kpiTotals = rows.reduce(
-      (acc, r) => ({
-        no: acc.no + r.no,
-        invoiced: acc.invoiced + r.invoiced,
-        arrears: acc.arrears + r.arrears,
-        total: acc.total + r.total,
-        paid: acc.paid + r.paid,
-        balances: acc.balances + r.balances
-      }),
-      { no: 0, invoiced: 0, arrears: 0, total: 0, paid: 0, balances: 0 }
-    );
+      return {
+        monthKey,
+        monthLabel: mData.monthLabel || monthKey,
+        rows: filtered,
+        totals
+      };
+    });
+  }, [monthlyChargeData, monthKeys, chargeFilter]);
 
-    return { rows: filtered, totals, kpiTotals };
-  }, [stats, chargeFilter]);
+  const chargeRows = useMemo(() => {
+    if (monthlyChargeTables.length > 0) {
+      // Use latest month for top KPI metrics
+      const latest = monthlyChargeTables[monthlyChargeTables.length - 1];
+      return { rows: latest.rows, totals: latest.totals, kpiTotals: latest.totals };
+    }
+    return {
+      rows: [],
+      totals: { no: 0, invoiced: 0, arrears: 0, total: 0, paid: 0, balances: 0 },
+      kpiTotals: { no: 0, invoiced: 0, arrears: 0, total: 0, paid: 0, balances: 0 }
+    };
+  }, [monthlyChargeTables]);
 
   const kpis = useMemo(() => {
     const { kpiTotals } = chargeRows;
@@ -546,135 +609,138 @@ const Dashboard = () => {
           </Typography>
         </Paper>
 
-        {/* Middle: table + bar chart */}
+        {/* Middle: table per month + bar chart */}
         <Grid container spacing={2} sx={{ mb: 2 }}>
           <Grid item xs={12} lg={7}>
-            <Paper elevation={0} sx={{ border: BORDER, bgcolor: '#fff', height: '100%' }}>
-              <Box sx={{ px: 2, py: 1.5, borderBottom: BORDER, bgcolor: '#f5f5f5' }}>
-                <Typography fontWeight={700} color={PRIMARY_BLUE}>
-                  Charge summary
-                </Typography>
-              </Box>
-              <TableContainer>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Charge Types</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Invoices
-                      </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Invoiced
-                      </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Arrears
-                      </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Total
-                      </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Payments Received
-                      </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Balances
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {loading
-                      ? Array.from({ length: 6 }).map((_, i) => (
-                          <TableRow key={i}>
-                            {Array.from({ length: 7 }).map((__, j) => (
-                              <TableCell key={j}>
-                                <Skeleton />
+            <Stack spacing={2}>
+              {loading ? (
+                <Paper elevation={0} sx={{ border: BORDER, bgcolor: '#fff', p: 2 }}>
+                  <Skeleton variant="text" width="40%" height={32} sx={{ mb: 1 }} />
+                  <Skeleton variant="rectangular" height={200} />
+                </Paper>
+              ) : monthlyChargeTables.length === 0 ? (
+                <Paper elevation={0} sx={{ border: BORDER, bgcolor: '#fff', p: 3, textAlign: 'center' }}>
+                  <Typography color="text.secondary">No charge data found for selected month range.</Typography>
+                </Paper>
+              ) : (
+                monthlyChargeTables.map((mTable) => (
+                  <Paper key={mTable.monthKey} elevation={0} sx={{ border: BORDER, bgcolor: '#fff' }}>
+                    <Box sx={{ px: 2, py: 1.25, borderBottom: BORDER, bgcolor: '#f5f5f5' }}>
+                      <Typography fontWeight={700} color={PRIMARY_BLUE}>
+                        Charge Summary — {mTable.monthLabel}
+                      </Typography>
+                    </Box>
+                    <TableContainer>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700, bgcolor: '#fafafa' }}>Charge Types</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#fafafa' }}>
+                              Invoices
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#fafafa' }}>
+                              Invoiced
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#fafafa' }}>
+                              Arrears
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#fafafa' }}>
+                              Total
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#fafafa' }}>
+                              Payments Received
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#fafafa' }}>
+                              Balances
+                            </TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {mTable.rows.map((row, idx) => (
+                            <TableRow
+                              key={row.id}
+                              hover
+                              sx={{
+                                bgcolor: idx % 2 === 0 ? '#fff' : '#fafafa',
+                                cursor: 'pointer'
+                              }}
+                              onClick={() => {
+                                const routes = {
+                                  CAM: '/finance/taj-utilities-charges/cam-charges',
+                                  WATER: '/finance/taj-utilities-charges/water-bills',
+                                  ELECTRICITY: '/finance/taj-utilities-charges/electricity-bills',
+                                  RENT: '/finance/taj-utilities-charges/rental-management',
+                                  GROUND: '/finance/taj-utilities-charges/open-invoices',
+                                  OTHER: '/finance/taj-utilities-charges/open-invoices'
+                                };
+                                if (routes[row.id]) navigate(routes[row.id]);
+                              }}
+                            >
+                              <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
+                              <TableCell align="right">{formatTableNumber(row.no)}</TableCell>
+                              <TableCell align="right">
+                                <MuiTooltip title={`PKR ${row.invoiced.toLocaleString('en-PK')}`}>
+                                  <span>{formatTableNumber(row.invoiced)}</span>
+                                </MuiTooltip>
                               </TableCell>
-                            ))}
+                              <TableCell align="right">
+                                <MuiTooltip title={`PKR ${row.arrears.toLocaleString('en-PK')}`}>
+                                  <span>{formatTableNumber(row.arrears)}</span>
+                                </MuiTooltip>
+                              </TableCell>
+                              <TableCell align="right">
+                                <MuiTooltip title={`PKR ${row.total.toLocaleString('en-PK')}`}>
+                                  <span>{formatTableNumber(row.total)}</span>
+                                </MuiTooltip>
+                              </TableCell>
+                              <TableCell align="right">
+                                <MuiTooltip title={`PKR ${row.paid.toLocaleString('en-PK')}`}>
+                                  <span>{formatTableNumber(row.paid)}</span>
+                                </MuiTooltip>
+                              </TableCell>
+                              <TableCell align="right">
+                                <MuiTooltip title={`PKR ${row.balances.toLocaleString('en-PK')}`}>
+                                  <span>{formatTableNumber(row.balances)}</span>
+                                </MuiTooltip>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          <TableRow sx={{ bgcolor: '#eeeeee', '& td': { fontWeight: 700 } }}>
+                            <TableCell>Total ({mTable.monthLabel})</TableCell>
+                            <TableCell align="right">{formatTableNumber(mTable.totals.no)}</TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${mTable.totals.invoiced.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(mTable.totals.invoiced)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${mTable.totals.arrears.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(mTable.totals.arrears)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${mTable.totals.total.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(mTable.totals.total)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${mTable.totals.paid.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(mTable.totals.paid)}</span>
+                              </MuiTooltip>
+                            </TableCell>
+                            <TableCell align="right">
+                              <MuiTooltip title={`PKR ${mTable.totals.balances.toLocaleString('en-PK')}`}>
+                                <span>{formatTableNumber(mTable.totals.balances)}</span>
+                              </MuiTooltip>
+                            </TableCell>
                           </TableRow>
-                        ))
-                      : chargeRows.rows.map((row, idx) => (
-                          <TableRow
-                            key={row.id}
-                            hover
-                            sx={{
-                              bgcolor: idx % 2 === 0 ? '#fff' : '#fafafa',
-                              cursor: 'pointer'
-                            }}
-                            onClick={() => {
-                              const routes = {
-                                CAM: '/finance/taj-utilities-charges/cam-charges',
-                                WATER: '/finance/taj-utilities-charges/water-bills',
-                                ELECTRICITY: '/finance/taj-utilities-charges/electricity-bills',
-                                RENT: '/finance/taj-utilities-charges/rental-management',
-                                GROUND: '/finance/taj-utilities-charges/open-invoices',
-                                OTHER: '/finance/taj-utilities-charges/open-invoices'
-                              };
-                              if (routes[row.id]) navigate(routes[row.id]);
-                            }}
-                          >
-                            <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
-                            <TableCell align="right">{formatTableNumber(row.no)}</TableCell>
-                            <TableCell align="right">
-                              <MuiTooltip title={`PKR ${row.invoiced.toLocaleString('en-PK')}`}>
-                                <span>{formatTableNumber(row.invoiced)}</span>
-                              </MuiTooltip>
-                            </TableCell>
-                            <TableCell align="right">
-                              <MuiTooltip title={`PKR ${row.arrears.toLocaleString('en-PK')}`}>
-                                <span>{formatTableNumber(row.arrears)}</span>
-                              </MuiTooltip>
-                            </TableCell>
-                            <TableCell align="right">
-                              <MuiTooltip title={`PKR ${row.total.toLocaleString('en-PK')}`}>
-                                <span>{formatTableNumber(row.total)}</span>
-                              </MuiTooltip>
-                            </TableCell>
-                            <TableCell align="right">
-                              <MuiTooltip title={`PKR ${row.paid.toLocaleString('en-PK')}`}>
-                                <span>{formatTableNumber(row.paid)}</span>
-                              </MuiTooltip>
-                            </TableCell>
-                            <TableCell align="right">
-                              <MuiTooltip title={`PKR ${row.balances.toLocaleString('en-PK')}`}>
-                                <span>{formatTableNumber(row.balances)}</span>
-                              </MuiTooltip>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    {!loading && (
-                      <TableRow sx={{ bgcolor: '#eeeeee', '& td': { fontWeight: 700 } }}>
-                        <TableCell>Total</TableCell>
-                        <TableCell align="right">{formatTableNumber(chargeRows.totals.no)}</TableCell>
-                        <TableCell align="right">
-                          <MuiTooltip title={`PKR ${chargeRows.totals.invoiced.toLocaleString('en-PK')}`}>
-                            <span>{formatTableNumber(chargeRows.totals.invoiced)}</span>
-                          </MuiTooltip>
-                        </TableCell>
-                        <TableCell align="right">
-                          <MuiTooltip title={`PKR ${chargeRows.totals.arrears.toLocaleString('en-PK')}`}>
-                            <span>{formatTableNumber(chargeRows.totals.arrears)}</span>
-                          </MuiTooltip>
-                        </TableCell>
-                        <TableCell align="right">
-                          <MuiTooltip title={`PKR ${chargeRows.totals.total.toLocaleString('en-PK')}`}>
-                            <span>{formatTableNumber(chargeRows.totals.total)}</span>
-                          </MuiTooltip>
-                        </TableCell>
-                        <TableCell align="right">
-                          <MuiTooltip title={`PKR ${chargeRows.totals.paid.toLocaleString('en-PK')}`}>
-                            <span>{formatTableNumber(chargeRows.totals.paid)}</span>
-                          </MuiTooltip>
-                        </TableCell>
-                        <TableCell align="right">
-                          <MuiTooltip title={`PKR ${chargeRows.totals.balances.toLocaleString('en-PK')}`}>
-                            <span>{formatTableNumber(chargeRows.totals.balances)}</span>
-                          </MuiTooltip>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Paper>
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Paper>
+                ))
+              )}
+            </Stack>
           </Grid>
           <Grid item xs={12} lg={5}>
             <Paper elevation={0} sx={{ border: BORDER, bgcolor: '#fff', p: 2, height: 380 }}>
@@ -706,64 +772,53 @@ const Dashboard = () => {
             <Paper elevation={0} sx={{ border: BORDER, bgcolor: '#fff', height: 360, display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ px: 2, py: 1.5, borderBottom: BORDER, bgcolor: '#f5f5f5' }}>
                 <Typography fontWeight={700} color={PRIMARY_BLUE}>
-                  Resident balance
+                  Month-wise Invoice Summary
                 </Typography>
-                {chargeFilter.size > 0 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 400 }}>
-                    Outstanding for: {[...chargeFilter].sort().join(', ')}
-                  </Typography>
-                )}
               </Box>
               <TableContainer sx={{ flex: 1 }}>
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Resident ID</TableCell>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Owner</TableCell>
-                      <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Property</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>
-                        Balance
-                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Month</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Invoiced</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Received</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, bgcolor: '#f5f5f5' }}>Invoices</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {loading
-                      ? Array.from({ length: 5 }).map((_, i) => (
-                          <TableRow key={i}>
-                            {Array.from({ length: 4 }).map((__, j) => (
-                              <TableCell key={j}>
-                                <Skeleton />
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))
-                      : stats.topResidents.length === 0
-                        ? (
-                          <TableRow>
-                            <TableCell colSpan={4}>
-                              <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                                {chargeFilter.size > 0
-                                  ? 'No outstanding balance for the selected charge type(s) among residents with linked invoices.'
-                                  : 'No residents with positive balance in the sample.'}
-                              </Typography>
-                            </TableCell>
-                          </TableRow>
-                          )
-                        : stats.topResidents.map((r, idx) => (
-                            <TableRow key={r.id} sx={{ bgcolor: idx % 2 === 0 ? '#fff' : '#fafafa' }} hover>
-                              <TableCell>{r.residentId}</TableCell>
-                              <TableCell>{r.owner}</TableCell>
-                              <TableCell sx={{ maxWidth: 120, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {r.property}
-                              </TableCell>
-                              <TableCell align="right">{formatTableNumber(r.balance)}</TableCell>
-                            </TableRow>
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 4 }).map((__, j) => (
+                            <TableCell key={j}><Skeleton /></TableCell>
                           ))}
-                    {!loading && stats.topResidents.length > 0 && (
-                      <TableRow sx={{ bgcolor: '#eeeeee', '& td': { fontWeight: 700 } }}>
-                        <TableCell colSpan={3}>Total</TableCell>
-                        <TableCell align="right">{formatTableNumber(residentsTotalBalance)}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (stats.byMonthBreakdown || []).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4}>
+                          <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                            No data for selected period
+                          </Typography>
+                        </TableCell>
                       </TableRow>
+                    ) : (
+                      (stats.byMonthBreakdown || []).map((row, idx) => (
+                        <TableRow key={row.month} sx={{ bgcolor: idx % 2 === 0 ? '#fff' : '#fafafa' }} hover>
+                          <TableCell sx={{ fontWeight: 600 }}>{row.monthLabel || row.month}</TableCell>
+                          <TableCell align="right">
+                            <MuiTooltip title={`PKR ${Number(row.invoiceAmount || 0).toLocaleString('en-PK')}`}>
+                              <span>{formatTableNumber(row.invoiceAmount)}</span>
+                            </MuiTooltip>
+                          </TableCell>
+                          <TableCell align="right" sx={{ color: 'success.main', fontWeight: 600 }}>
+                            <MuiTooltip title={`PKR ${Number(row.paymentsReceived || 0).toLocaleString('en-PK')}`}>
+                              <span>{formatTableNumber(row.paymentsReceived)}</span>
+                            </MuiTooltip>
+                          </TableCell>
+                          <TableCell align="right">{row.invoiceCount || 0}</TableCell>
+                        </TableRow>
+                      ))
                     )}
                   </TableBody>
                 </Table>
