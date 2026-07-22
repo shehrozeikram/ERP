@@ -621,7 +621,7 @@ router.get('/property/:propertyId/latest-bill', authMiddleware, async (req, res)
 // Add payment to Electricity Bill by property ID (finds most recent bill)
 router.post('/property/:propertyId/payments', authMiddleware, paymentAttachmentUpload.single('attachment'), async (req, res) => {
   try {
-    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, bankName, reference, notes } = req.body;
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, bankName, reference, notes, meterNo: requestedMeterNo } = req.body;
 
     // Find property
     const property = await TajProperty.findById(req.params.propertyId);
@@ -629,15 +629,32 @@ router.post('/property/:propertyId/payments', authMiddleware, paymentAttachmentU
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    // Find most recent Electricity bill for this property
+    // Determine meterNo from request or invoice number suffix (e.g., INV-ELC-2026-06-1334-M2 => index 1)
+    let targetMeterNo = requestedMeterNo || '';
+    if (!targetMeterNo && invoiceNumber) {
+      const match = String(invoiceNumber).match(/-M(\d+)$/i);
+      if (match && property.meters && Array.isArray(property.meters)) {
+        const meterIdx = parseInt(match[1], 10) - 1;
+        if (property.meters[meterIdx]?.meterNo) {
+          targetMeterNo = property.meters[meterIdx].meterNo;
+        }
+      }
+    }
+
+    // Find most recent Electricity bill for this property (matching meterNo if multi-meter)
     const propertyKey = property.address || property.plotNumber || property.ownerName;
-    const bill = await Electricity.findOne({
+    const billFilter = {
       $or: [
         { address: propertyKey },
         { plotNo: property.plotNumber },
         { owner: property.ownerName }
       ]
-    }).sort({ toDate: -1, createdAt: -1 });
+    };
+    if (targetMeterNo) {
+      billFilter.meterNo = targetMeterNo;
+    }
+
+    const bill = await Electricity.findOne(billFilter).sort({ toDate: -1, createdAt: -1 });
 
     if (!bill) {
       cleanupAttachment(req.file);

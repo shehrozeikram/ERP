@@ -1153,11 +1153,16 @@ async function createPropertyInvoiceForProperty(req, res) {
             paymentStatus: { $in: ['unpaid', 'partial_paid'] },
             balance: { $gt: 0 }
           })
-          .select('charges grandTotal totalPaid balance')
+          .populate('electricityBill', 'meterNo')
+          .select('charges grandTotal totalPaid balance electricityBill')
           .sort({ invoiceDate: 1 })
           .lean();
           
+          const currentMeterNo = electricityBill?.meterNo || property.meterNumber || '';
           previousElectricityInvoices.forEach(inv => {
+            if (currentMeterNo && inv.electricityBill?.meterNo && String(inv.electricityBill.meterNo) !== String(currentMeterNo)) {
+              return; // Skip invoices belonging to other meters in multi-meter setups
+            }
             const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
             if (electricityCharges.length > 0) {
               const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
@@ -1204,11 +1209,16 @@ async function createPropertyInvoiceForProperty(req, res) {
             paymentStatus: { $in: ['unpaid', 'partial_paid'] },
             balance: { $gt: 0 }
           })
-          .select('charges grandTotal totalPaid balance')
+          .populate('electricityBill', 'meterNo')
+          .select('charges grandTotal totalPaid balance electricityBill')
           .sort({ invoiceDate: 1 })
           .lean();
           
+          const currentMeterNo = electricityBill.meterNo || '';
           previousElectricityInvoices.forEach(inv => {
+            if (currentMeterNo && inv.electricityBill?.meterNo && String(inv.electricityBill.meterNo) !== String(currentMeterNo)) {
+              return; // Skip invoices belonging to other meters in multi-meter setups
+            }
             const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
             if (electricityCharges.length > 0) {
               const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
