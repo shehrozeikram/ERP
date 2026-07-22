@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const { connectDB } = require('../config/database');
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
