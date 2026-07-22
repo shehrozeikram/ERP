@@ -21,43 +21,23 @@ import {
   Paper,
   Chip,
   Divider,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
   FormControlLabel,
   Checkbox,
   FormGroup,
-  InputAdornment,
-  IconButton,
-  Tooltip
+  IconButton
 } from '@mui/material';
 import {
-  Work,
-  Person,
-  Email,
-  Phone,
-  School,
-  Business,
-  Description,
   Upload,
   Send,
-  CheckCircle,
-  Warning,
-  Info,
-  LinkedIn,
-  GitHub,
-  Language,
   AttachFile,
   Delete
 } from '@mui/icons-material';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useTheme } from '@mui/material/styles';
 
 const JobApplication = () => {
   const theme = useTheme();
   const { affiliateCode } = useParams();
-  const navigate = useNavigate();
   
   const [jobPosting, setJobPosting] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,7 +45,6 @@ const JobApplication = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const [emailChecked, setEmailChecked] = useState(false);
   const [emailAlreadyApplied, setEmailAlreadyApplied] = useState(false);
   const [existingApplication, setExistingApplication] = useState(null);
   const [easyApplyMode, setEasyApplyMode] = useState(false);
