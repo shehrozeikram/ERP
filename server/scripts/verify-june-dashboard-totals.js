@@ -1,27 +1,21 @@
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../../.env.production') });
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+require('dotenv').config({ path: './server/.env' });
 require('dotenv').config();
 const mongoose = require('mongoose');
 const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 
 const connectDB = async () => {
-  // Use MONGODB_URI (production cloud/droplet URI)
-  const mongoURI = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL || 'mongodb://localhost:27017/sgc_erp';
-  const sanitizedUri = mongoURI.replace(/:([^@]+)@/, ':****@');
-  console.log('Connecting to DB:', sanitizedUri);
+  const mongoURI = process.env.MONGODB_URI_LOCAL || process.env.MONGODB_URI || 'mongodb://localhost:27017/sgc_erp';
+  console.log('Connecting to:', mongoURI);
   await mongoose.connect(mongoURI);
   console.log('✅ Connected to MongoDB');
 };
 
-const verifyProductionDashboardTotals = async () => {
+const verifyJune2026Totals = async () => {
   try {
     await connectDB();
 
     const count = await PropertyInvoice.countDocuments({ status: { $ne: 'Cancelled' } });
-    console.log(`\n==================================================`);
-    console.log(`🔍 PRODUCTION AUDIT: ${count} Total Non-Cancelled Invoices`);
-    console.log(`==================================================`);
+    console.log(`🔍 Total non-cancelled invoices in DB: ${count}`);
 
     const chargeTypes = ['CAM', 'ELECTRICITY', 'WATER', 'RENT'];
 
@@ -45,26 +39,19 @@ const verifyProductionDashboardTotals = async () => {
         sumPaid += Number(inv.totalPaid) || 0;
       }
 
-      const total = sumInvoiced + sumArrears;
-      const balance = Math.max(0, total - sumPaid);
-
-      console.log(`\n📌 ${type} (Invoices Count: ${invoices.length})`);
-      console.log(`   ├─ Invoiced: PKR ${Math.round(sumInvoiced).toLocaleString('en-PK')}`);
-      console.log(`   ├─ Arrears:  PKR ${Math.round(sumArrears).toLocaleString('en-PK')}`);
-      console.log(`   ├─ Total:    PKR ${Math.round(total).toLocaleString('en-PK')}`);
-      console.log(`   ├─ Paid:     PKR ${Math.round(sumPaid).toLocaleString('en-PK')}`);
-      console.log(`   └─ Balance:  PKR ${Math.round(balance).toLocaleString('en-PK')}`);
+      console.log(`\n📌 ${type} Invoices Count (${invoices.length}):`);
+      console.log(`   Invoiced: PKR ${Math.round(sumInvoiced).toLocaleString('en-PK')}`);
+      console.log(`   Arrears:  PKR ${Math.round(sumArrears).toLocaleString('en-PK')}`);
+      console.log(`   Total:    PKR ${Math.round(sumInvoiced + sumArrears).toLocaleString('en-PK')}`);
+      console.log(`   Paid:     PKR ${Math.round(sumPaid).toLocaleString('en-PK')}`);
+      console.log(`   Balance:  PKR ${Math.round((sumInvoiced + sumArrears) - sumPaid).toLocaleString('en-PK')}`);
     }
-
-    console.log(`\n==================================================`);
-    console.log(`✅ VERIFICATION COMPLETED - ALL FORMULAS BALANCED`);
-    console.log(`==================================================\n`);
 
     process.exit(0);
   } catch (err) {
-    console.error('❌ Error during production verification:', err);
+    console.error('Error during verification:', err);
     process.exit(1);
   }
 };
 
-verifyProductionDashboardTotals();
+verifyJune2026Totals();
