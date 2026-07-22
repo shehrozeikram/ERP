@@ -152,7 +152,6 @@ const JobApplication = () => {
       if (data.success) {
         setEmailAlreadyApplied(data.data.hasApplied);
         setExistingApplication(data.data);
-        setEmailChecked(true);
         
         if (data.data.hasApplied) {
           setSnackbar({
