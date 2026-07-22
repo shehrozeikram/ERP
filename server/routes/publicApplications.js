@@ -91,11 +91,21 @@ router.post('/submit', async (req, res) => {
 
     // Create application
     const application = new Application({
-      jobPosting: jobPostingId,
+      jobPosting: jobPosting._id,
       candidate: candidate._id,
-      resume,
-      coverLetter,
-      status: 'Applied',
+      affiliateCode: jobPosting.affiliateCode || affiliateCode,
+      applicationType: 'standard',
+      personalInfo: personalInfo || {
+        firstName: candidateName.split(' ')[0] || '',
+        lastName: candidateName.split(' ').slice(1).join(' ') || '',
+        email,
+        phone
+      },
+      professionalInfo: professionalInfo || {},
+      education: education || {},
+      skills: typeof skills === 'object' ? skills : { technicalSkills: String(skills || '') },
+      additionalInfo: req.body.additionalInfo || {},
+      status: 'applied',
       source: 'Public'
     });
 
@@ -111,10 +121,11 @@ router.post('/submit', async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Error submitting public application:', error);
     res.status(500).json({
       success: false,
-      message: 'Error submitting application',
-      error: error.message
+      message: error.message || 'Error submitting application',
+      error: error.stack || error.message
     });
   }
 });
