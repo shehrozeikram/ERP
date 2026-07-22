@@ -1,11 +1,12 @@
-require('dotenv').config({ path: '../.env' });
-require('dotenv').config({ path: './.env' });
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env.production') });
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 require('dotenv').config();
 const mongoose = require('mongoose');
 const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 
 const connectDB = async () => {
-  // Use MONGODB_URI (production cloud/droplet URI) first if NODE_ENV=production or MONGODB_URI exists
+  // Use MONGODB_URI (production cloud/droplet URI)
   const mongoURI = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL || 'mongodb://localhost:27017/sgc_erp';
   const sanitizedUri = mongoURI.replace(/:([^@]+)@/, ':****@');
   console.log('Connecting to DB:', sanitizedUri);
