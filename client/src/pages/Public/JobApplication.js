@@ -261,6 +261,10 @@ const JobApplication = () => {
         // Detailed Application - full data structure
         applicationData = {
           affiliateCode: affiliateCode,
+          jobPostingId: jobPosting?._id,
+          candidateName: `${formData.firstName || ''} ${formData.lastName || ''}`.trim(),
+          email: formData.email,
+          phone: formData.phone,
           applicationType: 'standard',
           personalInfo: {
             firstName: formData.firstName,

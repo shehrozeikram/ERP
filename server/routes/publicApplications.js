@@ -7,8 +7,9 @@ const JobPosting = require('../models/hr/JobPosting');
 // Submit a new job application (public)
 router.post('/submit', async (req, res) => {
   try {
-    const {
+    let {
       jobPostingId,
+      affiliateCode,
       candidateName,
       email,
       phone,
@@ -18,8 +19,25 @@ router.post('/submit', async (req, res) => {
       education,
       skills,
       expectedSalary,
-      availability
+      availability,
+      personalInfo,
+      professionalInfo,
+      documents
     } = req.body;
+
+    // Handle nested applicationData structure from frontend
+    if (personalInfo) {
+      if (!candidateName) {
+        candidateName = [personalInfo.firstName, personalInfo.lastName].filter(Boolean).join(' ');
+      }
+      if (!email) email = personalInfo.email;
+      if (!phone) phone = personalInfo.phone;
+    }
+
+    if (!jobPostingId && affiliateCode) {
+      const jp = await JobPosting.findOne({ affiliateCode, status: 'published', isActive: true });
+      if (jp) jobPostingId = jp._id;
+    }
 
     // Validate required fields
     if (!jobPostingId || !candidateName || !email || !phone) {
