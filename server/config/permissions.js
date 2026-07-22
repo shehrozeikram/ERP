@@ -501,19 +501,27 @@ const PERMISSION_MAPPINGS = {
   'hr.applications': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER]
 };
 
-// Helper Functions
 const hasPermission = (userRole, permission) => {
+  if (!userRole) return false;
+  const normalized = String(userRole).toLowerCase().replace(/\s+/g, '_');
+  
   // Super admin, higher management, and developer have all permissions
   if (
-    userRole === ROLES.SUPER_ADMIN ||
-    userRole === ROLES.HIGHER_MANAGEMENT ||
-    userRole === ROLES.DEVELOPER
+    normalized === ROLES.SUPER_ADMIN ||
+    normalized === ROLES.HIGHER_MANAGEMENT ||
+    normalized === ROLES.DEVELOPER
   ) {
     return true;
   }
   
   const allowedRoles = PERMISSION_MAPPINGS[permission];
-  return allowedRoles ? allowedRoles.includes(userRole) : false;
+  if (!allowedRoles) return false;
+
+  return allowedRoles.some((role) => {
+    if (!role) return false;
+    const normAllowed = String(role).toLowerCase().replace(/\s+/g, '_');
+    return normAllowed === normalized || role === userRole;
+  });
 };
 
 const hasModuleAccess = (userRole, module) => {

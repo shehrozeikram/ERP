@@ -1,7 +1,7 @@
 const { hasPermission, checkSubRoleAccess } = require('../config/permissions');
 
 const checkPermission = (permission) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     try {
       const user = req.user;
       
@@ -9,9 +9,24 @@ const checkPermission = (permission) => {
         return res.status(401).json({ message: 'Authentication required' });
       }
 
-      // Check permission using centralized config
-      if (hasPermission(user.role, permission)) {
+      // 1. Check primary role or roleTitle using centralized config
+      if (hasPermission(user.role, permission) || (user.roleTitle && hasPermission(user.roleTitle, permission))) {
         return next();
+      }
+
+      // 2. Fallback check for active sub-roles
+      try {
+        const UserSubRole = require('../models/UserSubRole');
+        const userSubRoles = await UserSubRole.findActiveByUser(user.id || user._id);
+        if (userSubRoles && userSubRoles.length > 0) {
+          for (const usr of userSubRoles) {
+            if (usr.subRole && (hasPermission(usr.subRole.name, permission) || hasPermission(usr.subRole.roleKey, permission))) {
+              return next();
+            }
+          }
+        }
+      } catch (subErr) {
+        console.error('Sub-role check error:', subErr);
       }
 
       return res.status(403).json({ 
