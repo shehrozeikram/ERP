@@ -434,6 +434,16 @@ const Dashboard = () => {
     });
   }, [monthlyChargeData, monthKeys, chargeFilter]);
 
+  const filteredByMonthSummary = useMemo(() => {
+    return monthlyChargeTables.map((mTable) => ({
+      month: mTable.monthKey,
+      monthLabel: mTable.monthLabel,
+      invoiceAmount: mTable.totals.invoiced,
+      paymentsReceived: mTable.totals.paid,
+      invoiceCount: mTable.totals.no
+    }));
+  }, [monthlyChargeTables]);
+
   const chargeRows = useMemo(() => {
     if (monthlyChargeTables.length > 0) {
       // Use latest month for top KPI metrics
@@ -794,7 +804,7 @@ const Dashboard = () => {
                           ))}
                         </TableRow>
                       ))
-                    ) : (stats.byMonthBreakdown || []).length === 0 ? (
+                    ) : filteredByMonthSummary.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={4}>
                           <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
@@ -803,7 +813,7 @@ const Dashboard = () => {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      (stats.byMonthBreakdown || []).map((row, idx) => (
+                      filteredByMonthSummary.map((row, idx) => (
                         <TableRow key={row.month} sx={{ bgcolor: idx % 2 === 0 ? '#fff' : '#fafafa' }} hover>
                           <TableCell sx={{ fontWeight: 600 }}>{row.monthLabel || row.month}</TableCell>
                           <TableCell align="right">
