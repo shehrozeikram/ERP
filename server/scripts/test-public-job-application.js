@@ -49,7 +49,8 @@ async function testPublicJobApplication() {
     };
 
     console.log('3. Sending POST request to public application submission endpoint...');
-    const baseUrl = process.env.TEST_API_URL || 'http://127.0.0.1:5001';
+    const port = process.env.PORT || 5001;
+    const baseUrl = process.env.TEST_API_URL || `http://127.0.0.1:${port}`;
     const res = await axios.post(`${baseUrl}/api/applications/public/submit`, payload);
 
     console.log('Response Status:', res.status);
