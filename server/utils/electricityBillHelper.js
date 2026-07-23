@@ -112,16 +112,9 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
  * Shared by getPreviousReading and getEffectiveArrearsForInvoice.
  */
 const getAdjustedBalanceForInvoice = (inv) => {
-  const GRACE_PERIOD_DAYS = 6;
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const dueStart = inv.dueDate ? new Date(inv.dueDate) : null;
-  if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const dueWithGrace = dueStart ? new Date(dueStart) : null;
-  if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
   const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
-  if (!isOverdue || !isUnpaid) return inv.balance || 0;
+  if (!isUnpaid) return 0;
+
   let chargesForMonth = inv.subtotal || 0;
   if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
     const totalChargesAmount = inv.charges.reduce((sum, c) => sum + (c.amount || 0), 0);
