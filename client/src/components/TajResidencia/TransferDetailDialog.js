@@ -26,6 +26,7 @@ import {
 } from '@mui/icons-material';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 import { formatAreaReadable } from '../../utils/landAreaUnits';
+import { resolveUploadFileHref } from '../../utils/uploadPaths';
 
 const formatDate = (value) => {
   if (!value) return '—';
@@ -234,9 +235,31 @@ const TransferDetailDialog = ({ open, onClose, transferId }) => {
                 </Grid>
                 <Grid item xs={6} sm={4} md={3}>
                   <DetailField label="Intiqal No." value={transfer.intiqalNo || '—'} />
+                  {transfer.inteqalAttachment && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="primary"
+                      sx={{ p: 0, minWidth: 0, mt: 0.5, fontSize: '0.75rem' }}
+                      onClick={() => window.open(resolveUploadFileHref(transfer.inteqalAttachment), '_blank')}
+                    >
+                      View Inteqal Attachment
+                    </Button>
+                  )}
                 </Grid>
                 <Grid item xs={6} sm={4} md={3}>
                   <DetailField label="Registry No." value={transfer.registryNo || '—'} />
+                  {transfer.registryAttachment && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="primary"
+                      sx={{ p: 0, minWidth: 0, mt: 0.5, fontSize: '0.75rem' }}
+                      onClick={() => window.open(resolveUploadFileHref(transfer.registryAttachment), '_blank')}
+                    >
+                      View Registry Attachment
+                    </Button>
+                  )}
                 </Grid>
               </Grid>
             </Paper>

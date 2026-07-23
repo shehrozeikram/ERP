@@ -18,7 +18,11 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { SwapHoriz as TransferIcon } from '@mui/icons-material';
+import {
+  SwapHoriz as TransferIcon,
+  CloudUpload as UploadIcon,
+  Visibility as ViewIcon
+} from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import landAcquisitionPurchaseService from '../../services/landAcquisitionPurchaseService';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
@@ -31,6 +35,7 @@ import {
   formatAreaReadable,
   parseAreaForm
 } from '../../utils/landAreaUnits';
+import { resolveUploadFileHref } from '../../utils/uploadPaths';
 import { formatKhasraSelectLabel, sortKhasraEntries } from '../../utils/landKhasraDisplay';
 import LandTransferPaymentsPanel, {
   defaultTransferPaymentRows,
@@ -78,6 +83,10 @@ const emptyForm = () => ({
   transferDate: new Date().toISOString().slice(0, 10),
   intiqalNo: '',
   registryNo: '',
+  inteqalAttachment: '',
+  registryAttachment: '',
+  inteqalFile: null,
+  registryFile: null,
   seller: null,
   purchaser: null,
   selectedKhasras: [],
@@ -165,23 +174,45 @@ export default function LandTransferDialog({
         const purchaseRow = purchaseRes.data;
         setPurchase(purchaseRow);
 
-        const mozaId = purchaseRow.moza?._id || purchaseRow.moza;
-        const khasraRes = await getMozaKhasras(mozaId);
-        const khasraOptions = sortKhasraEntries(khasraRes.data?.data || []);
-        setMozaKhasras(khasraOptions);
+        const mozaId = purchaseRow?.moza?._id || purchaseRow?.moza || transfer.moza?._id || transfer.moza;
+        let khasraOptions = [];
+        if (mozaId) {
+          try {
+            const khasraRes = await getMozaKhasras(mozaId);
+            khasraOptions = sortKhasraEntries(khasraRes.data?.data || []);
+          } catch (e) {
+            console.error('Error loading moza khasras:', e);
+          }
+        }
 
         const selectedKhasras = (transfer.lines || [])
           .map((line) => {
             const entryId = line.khasraEntry?._id || line.khasraEntry;
             if (entryId) {
-              return khasraOptions.find((k) => String(k._id) === String(entryId));
+              const match = khasraOptions.find((k) => String(k._id) === String(entryId));
+              if (match) return match;
             }
-            return khasraOptions.find((k) => 
-              k.khasraNo === line.khasraNo && 
-              (!line.khewatNo || k.khewatNo === line.khewatNo)
+            const matchByNo = khasraOptions.find((k) =>
+              String(k.khasraNo || '').trim() === String(line.khasraNo || '').trim() &&
+              (!line.khewatNo || String(k.khewatNo || '').trim() === String(line.khewatNo || '').trim())
             );
+            if (matchByNo) return matchByNo;
+
+            if (line.khasraNo || line.khewatNo || entryId) {
+              return {
+                _id: entryId || `khasra-${line.khasraNo}-${line.khewatNo}`,
+                khasraNo: line.khasraNo || '',
+                khewatNo: line.khewatNo || '',
+                landInKhasra: line.khasraArea || {}
+              };
+            }
+            return null;
           })
           .filter(Boolean);
+
+        const optionIds = new Set(khasraOptions.map((k) => String(k._id)));
+        const missingFromOptions = selectedKhasras.filter((k) => !optionIds.has(String(k._id)));
+        setMozaKhasras([...khasraOptions, ...missingFromOptions]);
 
         setForm({
           referenceNo: transfer.referenceNo || '',
@@ -191,6 +222,10 @@ export default function LandTransferDialog({
             : '',
           intiqalNo: transfer.intiqalNo || '',
           registryNo: transfer.registryNo || '',
+          inteqalAttachment: transfer.inteqalAttachment || '',
+          registryAttachment: transfer.registryAttachment || '',
+          inteqalFile: null,
+          registryFile: null,
           seller: transfer.seller || null,
           purchaser: transfer.purchaser || null,
           selectedKhasras,
@@ -373,12 +408,35 @@ export default function LandTransferDialog({
     setSaving(true);
     setError('');
     try {
-      const payload = buildPayload();
+      const payloadObj = buildPayload();
+      const formData = new FormData();
+
+      Object.keys(payloadObj).forEach((key) => {
+        const val = payloadObj[key];
+        if (typeof val === 'object' && val !== null) {
+          formData.append(key, JSON.stringify(val));
+        } else if (val !== undefined && val !== null) {
+          formData.append(key, val);
+        }
+      });
+
+      if (form.inteqalFile) {
+        formData.append('inteqalAttachment', form.inteqalFile);
+      } else if (form.inteqalAttachment) {
+        formData.append('inteqalAttachment', form.inteqalAttachment);
+      }
+
+      if (form.registryFile) {
+        formData.append('registryAttachment', form.registryFile);
+      } else if (form.registryAttachment) {
+        formData.append('registryAttachment', form.registryAttachment);
+      }
+
       if (isEdit) {
-        await landAcquisitionTransferService.updateTransfer(transferId, payload);
+        await landAcquisitionTransferService.updateTransfer(transferId, formData);
         toast.success('Land transfer updated');
       } else {
-        await landAcquisitionTransferService.createTransfer(payload);
+        await landAcquisitionTransferService.createTransfer(formData);
         toast.success('Land transfer created');
       }
       onSaved?.();
@@ -570,7 +628,7 @@ export default function LandTransferDialog({
                     InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
                     size="small"
@@ -578,8 +636,62 @@ export default function LandTransferDialog({
                     value={form.intiqalNo}
                     onChange={(e) => setForm((prev) => ({ ...prev, intiqalNo: e.target.value }))}
                   />
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">
+                      Inteqal Attachment
+                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                      <Button
+                        variant="outlined"
+                        component="label"
+                        size="small"
+                        startIcon={<UploadIcon />}
+                      >
+                        {form.inteqalFile ? 'Change File' : form.inteqalAttachment ? 'Replace File' : 'Upload Inteqal'}
+                        <input
+                          type="file"
+                          hidden
+                          accept="image/*,.pdf"
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                              const file = e.target.files[0];
+                              setForm((prev) => ({ ...prev, inteqalFile: file }));
+                            }
+                          }}
+                        />
+                      </Button>
+                      {form.inteqalFile && (
+                        <Chip
+                          label={form.inteqalFile.name}
+                          size="small"
+                          color="primary"
+                          onDelete={() => setForm((prev) => ({ ...prev, inteqalFile: null }))}
+                        />
+                      )}
+                      {!form.inteqalFile && form.inteqalAttachment && (
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="info"
+                            startIcon={<ViewIcon />}
+                            onClick={() => window.open(resolveUploadFileHref(form.inteqalAttachment), '_blank')}
+                          >
+                            View Doc
+                          </Button>
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => setForm((prev) => ({ ...prev, inteqalAttachment: '' }))}
+                          >
+                            Remove
+                          </Button>
+                        </Stack>
+                      )}
+                    </Stack>
+                  </Box>
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
                     size="small"
@@ -587,6 +699,60 @@ export default function LandTransferDialog({
                     value={form.registryNo}
                     onChange={(e) => setForm((prev) => ({ ...prev, registryNo: e.target.value }))}
                   />
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">
+                      Registry Attachment
+                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                      <Button
+                        variant="outlined"
+                        component="label"
+                        size="small"
+                        startIcon={<UploadIcon />}
+                      >
+                        {form.registryFile ? 'Change File' : form.registryAttachment ? 'Replace File' : 'Upload Registry'}
+                        <input
+                          type="file"
+                          hidden
+                          accept="image/*,.pdf"
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                              const file = e.target.files[0];
+                              setForm((prev) => ({ ...prev, registryFile: file }));
+                            }
+                          }}
+                        />
+                      </Button>
+                      {form.registryFile && (
+                        <Chip
+                          label={form.registryFile.name}
+                          size="small"
+                          color="primary"
+                          onDelete={() => setForm((prev) => ({ ...prev, registryFile: null }))}
+                        />
+                      )}
+                      {!form.registryFile && form.registryAttachment && (
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="info"
+                            startIcon={<ViewIcon />}
+                            onClick={() => window.open(resolveUploadFileHref(form.registryAttachment), '_blank')}
+                          >
+                            View Doc
+                          </Button>
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => setForm((prev) => ({ ...prev, registryAttachment: '' }))}
+                          >
+                            Remove
+                          </Button>
+                        </Stack>
+                      )}
+                    </Stack>
+                  </Box>
                 </Grid>
 
                 <Grid item xs={12}>

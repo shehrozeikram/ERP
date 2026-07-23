@@ -237,6 +237,87 @@ const mapRegistry = (doc) => {
   };
 };
 
+const LandTransfer = require('../models/tajResidencia/LandTransfer');
+
+async function attachTransferDocsToRegistries(mappedRegistries = []) {
+  if (!mappedRegistries.length) return mappedRegistries;
+
+  const transfers = await LandTransfer.find({
+    isActive: true,
+    $or: [
+      { inteqalAttachment: { $exists: true, $ne: '' } },
+      { registryAttachment: { $exists: true, $ne: '' } }
+    ]
+  }).lean();
+
+  if (!transfers.length) return mappedRegistries;
+
+  const transferByRegNo = new Map();
+  const transferByIntNo = new Map();
+  const transferByMozaSeller = new Map();
+
+  for (const t of transfers) {
+    if (t.registryNo && t.registryNo.trim()) {
+      transferByRegNo.set(t.registryNo.trim().toLowerCase(), t);
+    }
+    if (t.intiqalNo && t.intiqalNo.trim()) {
+      transferByIntNo.set(t.intiqalNo.trim().toLowerCase(), t);
+    }
+    const mozaId = String(t.moza?._id || t.moza || '');
+    const sellerId = String(t.seller?._id || t.seller || '');
+    if (mozaId && sellerId) {
+      transferByMozaSeller.set(`${mozaId}_${sellerId}`, t);
+    }
+  }
+
+  return mappedRegistries.map((reg) => {
+    const regNo = String(reg.registryNo || '').trim().toLowerCase();
+    const intNo = String(reg.inteqalNo || '').trim().toLowerCase();
+    const mozaId = String(reg.moza?._id || reg.moza || '');
+    const sellerId = String(reg.seller?._id || reg.seller || '');
+
+    let matched = null;
+    if (regNo && transferByRegNo.has(regNo)) {
+      matched = transferByRegNo.get(regNo);
+    } else if (intNo && transferByIntNo.has(intNo)) {
+      matched = transferByIntNo.get(intNo);
+    } else if (mozaId && sellerId && transferByMozaSeller.has(`${mozaId}_${sellerId}`)) {
+      matched = transferByMozaSeller.get(`${mozaId}_${sellerId}`);
+    }
+
+    if (!matched) return reg;
+
+    const registryDocs = [...(reg.registryDocAttachments || [])];
+    const inteqalDocs = [...(reg.inteqalDocAttachments || [])];
+
+    if (matched.registryAttachment && !registryDocs.some(d => d.path === matched.registryAttachment)) {
+      registryDocs.unshift({
+        _id: `transfer-reg-${matched._id}`,
+        originalName: 'Registry Doc (Land Transfer)',
+        filename: path.basename(matched.registryAttachment),
+        path: matched.registryAttachment,
+        uploadedAt: matched.updatedAt || matched.createdAt
+      });
+    }
+
+    if (matched.inteqalAttachment && !inteqalDocs.some(d => d.path === matched.inteqalAttachment)) {
+      inteqalDocs.unshift({
+        _id: `transfer-int-${matched._id}`,
+        originalName: 'Inteqal Doc (Land Transfer)',
+        filename: path.basename(matched.inteqalAttachment),
+        path: matched.inteqalAttachment,
+        uploadedAt: matched.updatedAt || matched.createdAt
+      });
+    }
+
+    return {
+      ...reg,
+      registryDocAttachments: registryDocs,
+      inteqalDocAttachments: inteqalDocs
+    };
+  });
+}
+
 // GET /api/taj-residencia/land-acquisition/registries
 router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   const { moza, search = '', page = 1, limit = 50 } = req.query;
@@ -294,10 +375,12 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   const grandMarla = Math.floor(rem1 / SARSAI_PER_MARLA);
   const grandSarsai = rem1 % SARSAI_PER_MARLA;
 
+  const mapped = await attachTransferDocsToRegistries(rows.map(mapRegistry));
+
   res.json({
     success: true,
     data: {
-      registries: rows.map(mapRegistry),
+      registries: mapped,
       pagination: { page: pageNum, limit: limitNum, total },
       grandTotal: { kanal: grandKanal, marla: grandMarla, sarsai: grandSarsai }
     }
@@ -332,7 +415,8 @@ router.get('/registries/:id', authMiddleware, asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Registry not found' });
   }
 
-  res.json({ success: true, data: mapRegistry(registry) });
+  const mapped = await attachTransferDocsToRegistries([mapRegistry(registry)]);
+  res.json({ success: true, data: mapped[0] });
 }));
 
 // POST /api/taj-residencia/land-acquisition/registries

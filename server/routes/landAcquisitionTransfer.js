@@ -1,5 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
@@ -20,6 +23,45 @@ const { co, acct, withCompany } = require('../utils/financePosting');
 
 const router = express.Router();
 
+const transferUploadDir = path.join(__dirname, '../uploads/land-acquisition-transfer');
+const transferUploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(transferUploadDir)) {
+      fs.mkdirSync(transferUploadDir, { recursive: true });
+    }
+    cb(null, transferUploadDir);
+  },
+  filename: (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `transfer-${file.fieldname}-${unique}${path.extname(file.originalname)}`);
+  }
+});
+
+const transferUpload = multer({
+  storage: transferUploadStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Attachments must be PDF or image files'), false);
+    }
+  }
+});
+
+const handleTransferUpload = (req, res, next) => {
+  transferUpload.fields([
+    { name: 'inteqalAttachment', maxCount: 1 },
+    { name: 'registryAttachment', maxCount: 1 }
+  ])(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ success: false, message: 'Attachment must be 15 MB or less' });
+    }
+    return res.status(400).json({ success: false, message: err.message || 'File upload error' });
+  });
+};
+
 const areaToDecimalKanal = (area) => {
   const a = normalizeArea(area);
   return a.kanal + (a.marla / MARLA_PER_KANAL) + (a.sarsai / SARSAIS_PER_KANAL);
@@ -27,9 +69,17 @@ const areaToDecimalKanal = (area) => {
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
+const parseJsonField = (val) => {
+  if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
+    try { return JSON.parse(val); } catch { return val; }
+  }
+  return val;
+};
+
 const parseLines = (lines = []) => {
-  if (!Array.isArray(lines)) return [];
-  return lines.map((line) => ({
+  const arr = parseJsonField(lines);
+  if (!Array.isArray(arr)) return [];
+  return arr.map((line) => ({
     khasraEntry: line.khasraEntry || undefined,
     khewatNo: String(line.khewatNo || '').trim(),
     khasraNo: String(line.khasraNo || '').trim(),
@@ -38,8 +88,9 @@ const parseLines = (lines = []) => {
 };
 
 const parseTransferPayments = (payments = []) => {
-  if (!Array.isArray(payments)) return [];
-  return payments
+  const arr = parseJsonField(payments);
+  if (!Array.isArray(arr)) return [];
+  return arr
     .map((row) => ({
       paymentType: String(row.paymentType || '').trim(),
       status: row.status === 'Paid' ? 'Paid' : 'Pending',
@@ -89,20 +140,35 @@ async function nextTransferNumbers() {
   };
 };
 
-const buildTransferPayload = (body, purchase) => {
-  const purchaseArea = parseAreaInput(body.purchaseArea);
-  const transferArea = parseAreaInput(body.transferArea);
+const buildTransferPayload = (req, purchase) => {
+  const body = req.body || {};
+  const files = req.files || {};
+
+  const purchaseArea = parseAreaInput(parseJsonField(body.purchaseArea));
+  const transferArea = parseAreaInput(parseJsonField(body.transferArea));
   const purchaseSizeInKanal = roundMoney(areaToDecimalKanal(purchaseArea));
   const transferSizeInKanal = roundMoney(areaToDecimalKanal(transferArea));
   const ratePerKanal = roundMoney(purchase?.ratePerKanal || body.ratePerKanal || 0);
   const transferPayments = parseTransferPayments(body.transferPayments);
   const totalTransferPayments = roundMoney(sumTransferPayments(transferPayments));
 
+  let inteqalAttachment = String(body.inteqalAttachment || '').trim();
+  if (files.inteqalAttachment?.[0]) {
+    inteqalAttachment = `/uploads/land-acquisition-transfer/${files.inteqalAttachment[0].filename}`;
+  }
+
+  let registryAttachment = String(body.registryAttachment || '').trim();
+  if (files.registryAttachment?.[0]) {
+    registryAttachment = `/uploads/land-acquisition-transfer/${files.registryAttachment[0].filename}`;
+  }
+
   return {
     referenceNo: String(body.referenceNo || '').trim(),
     transferDate: body.transferDate ? new Date(body.transferDate) : null,
     intiqalNo: String(body.intiqalNo || '').trim(),
     registryNo: String(body.registryNo || '').trim(),
+    inteqalAttachment,
+    registryAttachment,
     purchaser: body.purchaser || undefined,
     purchaserCnic: String(body.purchaserCnic || '').trim(),
     purchaserName: String(body.purchaserName || '').trim(),
@@ -203,7 +269,8 @@ const populateTransfer = (query) => query
   })
   .populate('seller', 'name cnic phoneNumber')
   .populate('purchaser', 'name cnic phoneNumber')
-  .populate('moza', 'name slug');
+  .populate('moza', 'name slug')
+  .populate('lines.khasraEntry');
 
 // GET /transfers/next-numbers
 router.get('/transfers/next-numbers', asyncHandler(async (req, res) => {
@@ -372,7 +439,7 @@ router.get('/transfers/:id', asyncHandler(async (req, res) => {
 }));
 
 // POST /transfers
-router.post('/transfers', asyncHandler(async (req, res) => {
+router.post('/transfers', handleTransferUpload, asyncHandler(async (req, res) => {
   const purchase = await LandPurchase.findOne({ _id: req.body.landPurchase, isActive: true })
     .populate('seller', 'name cnic')
     .populate('moza', 'name');
@@ -381,7 +448,7 @@ router.post('/transfers', asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Land purchase not found' });
   }
 
-  const payload = buildTransferPayload(req.body, purchase);
+  const payload = buildTransferPayload(req, purchase);
   await validateTransferPayload(payload, purchase, { isCreate: true });
 
   const numbers = await nextTransferNumbers();
@@ -407,7 +474,7 @@ router.post('/transfers', asyncHandler(async (req, res) => {
 }));
 
 // PUT /transfers/:id
-router.put('/transfers/:id', asyncHandler(async (req, res) => {
+router.put('/transfers/:id', handleTransferUpload, asyncHandler(async (req, res) => {
   const existing = await LandTransfer.findOne({ _id: req.params.id, isActive: true });
   if (!existing) {
     return res.status(404).json({ success: false, message: 'Land transfer not found' });
@@ -418,7 +485,7 @@ router.put('/transfers/:id', asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Linked land purchase not found' });
   }
 
-  const payload = buildTransferPayload(req.body, purchase);
+  const payload = buildTransferPayload(req, purchase);
   if (payload.referenceNo !== existing.referenceNo) {
     const duplicateRef = await LandTransfer.findOne({
       referenceNo: payload.referenceNo,

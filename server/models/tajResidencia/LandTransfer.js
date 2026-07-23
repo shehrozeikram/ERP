@@ -59,6 +59,8 @@ const landTransferSchema = new mongoose.Schema({
   transferDate: { type: Date, required: true },
   intiqalNo: { type: String, trim: true, default: '' },
   registryNo: { type: String, trim: true, default: '' },
+  inteqalAttachment: { type: String, trim: true, default: '' },
+  registryAttachment: { type: String, trim: true, default: '' },
   moza: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'LandMoza',

@@ -34,6 +34,7 @@ import toast from 'react-hot-toast';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 import { getMozas } from '../../services/landAcquisitionMozaService';
 import { formatAreaReadable } from '../../utils/landAreaUnits';
+import { resolveUploadFileHref } from '../../utils/uploadPaths';
 import LandTransferDialog from '../../components/TajResidencia/LandTransferDialog';
 import TransferPaymentDialog from '../../components/TajResidencia/TransferPaymentDialog';
 import TransferDetailDialog from '../../components/TajResidencia/TransferDetailDialog';
@@ -293,8 +294,36 @@ export default function LandTransferViewer() {
                   <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{row.intiqalNo || '—'}</TableCell>
                   <TableCell>{row.registryNo || '—'}</TableCell>
-                  <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
-                  <TableCell align="center" sx={{ color: 'error.main', fontWeight: 800 }}>✖</TableCell>
+                  <TableCell align="center">
+                    {row.inteqalAttachment ? (
+                      <Tooltip title="View Inteqal Attachment">
+                        <IconButton
+                          size="small"
+                          color="success"
+                          onClick={() => window.open(resolveUploadFileHref(row.inteqalAttachment), '_blank')}
+                        >
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    ) : (
+                      <Typography component="span" sx={{ color: 'error.main', fontWeight: 800 }}>✖</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell align="center">
+                    {row.registryAttachment ? (
+                      <Tooltip title="View Registry Attachment">
+                        <IconButton
+                          size="small"
+                          color="success"
+                          onClick={() => window.open(resolveUploadFileHref(row.registryAttachment), '_blank')}
+                        >
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    ) : (
+                      <Typography component="span" sx={{ color: 'error.main', fontWeight: 800 }}>✖</Typography>
+                    )}
+                  </TableCell>
                   <TableCell>{formatAreaReadable(row.transferArea)}</TableCell>
                   <TableCell align="right">{formatCurrency(row.totalTransferPayments)}</TableCell>
                   <TableCell align="right">

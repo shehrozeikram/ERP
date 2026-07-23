@@ -19,12 +19,24 @@ const landAcquisitionTransferService = {
   },
 
   createTransfer: async (payload) => {
-    const response = await api.post(`${BASE}/transfers`, payload);
+    let data = payload;
+    let config = {};
+    if (typeof FormData !== 'undefined' && payload instanceof FormData) {
+      data = payload;
+      config = { headers: { 'Content-Type': 'multipart/form-data' } };
+    }
+    const response = await api.post(`${BASE}/transfers`, data, config);
     return response.data;
   },
 
   updateTransfer: async (id, payload) => {
-    const response = await api.put(`${BASE}/transfers/${id}`, payload);
+    let data = payload;
+    let config = {};
+    if (typeof FormData !== 'undefined' && payload instanceof FormData) {
+      data = payload;
+      config = { headers: { 'Content-Type': 'multipart/form-data' } };
+    }
+    const response = await api.put(`${BASE}/transfers/${id}`, data, config);
     return response.data;
   },
 
