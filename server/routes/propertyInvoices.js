@@ -25,7 +25,6 @@ const {
   clearCached,
   CACHE_KEYS
 } = require('../utils/tajUtilitiesOptimizer');
-const { repairCamInvoiceChain } = require('../utils/camInvoiceArrears');
 
 /** Avoid SyntaxError from RegExp when sector names contain metacharacters (e.g. `[`, `(`). */
 const escapeRegExp = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1980,6 +1979,7 @@ router.post('/repair-cam-chain', authMiddleware, asyncHandler(async (req, res) =
     return res.status(400).json({ success: false, message: 'Provide propertyId, propertyIds, or srNo' });
   }
 
+  const { repairCamInvoiceChain } = require('../utils/camInvoiceArrears');
   const results = [];
   for (const id of ids) {
     const property = await TajProperty.findById(id).select('srNo ownerName').lean();
@@ -3352,26 +3352,6 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
       return normalizeWaterChargePayload(invoiceObj);
     });
 
-    // Add effectiveArrears for electricity invoices (adjusted balance from previous invoices, includes surcharge when overdue)
-    const electricityInvoices = invoicesWithBankInfo.filter(inv => inv.chargeTypes?.includes('ELECTRICITY'));
-    if (electricityInvoices.length > 0) {
-      const effectiveArrearsMap = await Promise.all(
-        electricityInvoices.map(async (inv) => {
-          const effective = await getEffectiveArrearsForInvoice(inv);
-          return [inv._id.toString(), effective];
-        })
-      );
-      const effectiveMap = new Map(effectiveArrearsMap);
-      invoicesWithBankInfo.forEach((inv) => {
-        if (inv.chargeTypes?.includes('ELECTRICITY')) {
-          const effective = effectiveMap.get(inv._id.toString());
-          if (effective !== null && effective !== undefined) {
-            inv.effectiveArrears = effective;
-          }
-        }
-      });
-    }
-
     const response = { success: true, data: invoicesWithBankInfo };
     
     // OPTIMIZATION: Cache the response
@@ -3543,15 +3523,6 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
     invoice.updatedAt = new Date();
 
     await invoice.save();
-
-    // Auto-cascade CAM arrears changes to proceeding invoices for this property
-    if (invoice.property && invoice.chargeTypes?.includes('CAM')) {
-      try {
-        await repairCamInvoiceChain(invoice.property, { fromInvoiceNumber: invoice.invoiceNumber });
-      } catch (err) {
-        console.error('⚠️ Error auto-repairing CAM invoice chain on update:', err);
-      }
-    }
 
     // OPTIMIZATION: Invalidate caches on invoice update
     clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
@@ -3885,15 +3856,6 @@ router.delete('/:invoiceId/payments/:paymentId', authMiddleware, asyncHandler(as
 
     await invoice.save();
 
-    // Auto-cascade CAM arrears changes to proceeding invoices for this property
-    if (invoice.property && invoice.chargeTypes?.includes('CAM')) {
-      try {
-        await repairCamInvoiceChain(invoice.property, { fromInvoiceNumber: invoice.invoiceNumber });
-      } catch (err) {
-        console.error('⚠️ Error auto-repairing CAM invoice chain on payment deletion:', err);
-      }
-    }
-
     // OPTIMIZATION: Invalidate caches on payment deletion
     clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
     if (invoice.property) {
@@ -4021,17 +3983,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
       clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW);
     }
     
-    const wasCamInvoice = invoice.chargeTypes?.includes('CAM');
     await PropertyInvoice.findByIdAndDelete(req.params.id);
-
-    // Auto-cascade CAM arrears recalculation to proceeding invoices for this property
-    if (propertyId && wasCamInvoice) {
-      try {
-        await repairCamInvoiceChain(propertyId);
-      } catch (err) {
-        console.error('⚠️ Error auto-repairing CAM invoice chain on invoice deletion:', err);
-      }
-    }
 
     // OPTIMIZATION: Invalidate caches on invoice deletion
     clearCached(CACHE_KEYS.INVOICES_OVERVIEW);

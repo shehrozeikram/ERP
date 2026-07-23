@@ -327,9 +327,8 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     const propertyEffectiveAmountsMap = new Map(); // propertyId -> { electricityAmount, electricityArrears }
     await Promise.all(electricityInvoices.map(async (invoice) => {
       const propId = invoice.property?.toString() || invoice.property;
-      if (!propId) return;
-      const effectiveArrears = await getEffectiveArrearsForInvoice(invoice);
-      const arrears = effectiveArrears ?? 0;
+      const effectiveArrears = invoice.totalArrears ?? 0;
+      const arrears = effectiveArrears;
       const displayAmount = getDisplayAmountForElectricityInvoice(invoice, arrears);
       const electricityCharges = invoice.charges?.filter(c => c.type === 'ELECTRICITY') || [];
       const chargesForMonth = electricityCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
