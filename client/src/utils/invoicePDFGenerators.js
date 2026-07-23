@@ -151,16 +151,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   // 2) invoice.totalArrears
   // 3) effectiveArrears (legacy/fallback)
   // 4) calcData.previousArrears
-  let arrears = 0;
-  if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
-    arrears = electricityCharge.arrears;
-  } else if (invoice.totalArrears !== undefined && invoice.totalArrears !== null) {
-    arrears = invoice.totalArrears;
-  } else if (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null) {
-    arrears = invoice.effectiveArrears;
-  } else if (calcData.previousArrears !== undefined && calcData.previousArrears !== null) {
-    arrears = calcData.previousArrears;
-  }
+  const arrears = invoice.totalArrears ?? electricityCharge?.arrears ?? invoice.effectiveArrears ?? calcData.previousArrears ?? 0;
 
   const amountReceived = electricityBill.receivedAmount || 0;
   const totalPaid = invoice.totalPaid || amountReceived || 0;
