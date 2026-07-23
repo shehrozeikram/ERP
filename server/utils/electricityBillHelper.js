@@ -289,6 +289,9 @@ const formatMonthString = (date) => {
  * @returns {Promise<Number|null>}
  */
 const getEffectiveArrearsForInvoice = async (invoice) => {
+  if (invoice?.totalArrears !== undefined && invoice?.totalArrears !== null) {
+    return invoice.totalArrears;
+  }
   if (!invoice?.property || !invoice.periodFrom) return null;
   const propertyId = invoice.property?._id || invoice.property;
   if (!propertyId) return null;

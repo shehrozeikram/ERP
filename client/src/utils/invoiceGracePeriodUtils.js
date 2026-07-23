@@ -41,9 +41,7 @@ export function getAdjustedGrandTotal(invoice) {
     }
     return c;
   })();
-  const arrears = (invoice.chargeTypes?.includes('ELECTRICITY') && invoice.effectiveArrears != null)
-    ? invoice.effectiveArrears
-    : (invoice.totalArrears || 0);
+  const arrears = invoice.totalArrears ?? invoice.effectiveArrears ?? 0;
   const baseAmount = chargesForMonth + arrears;
 
   // IMPORTANT: Business wants late-surcharge behaviour ONLY for Electricity invoices.
