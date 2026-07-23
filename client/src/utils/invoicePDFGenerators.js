@@ -10,7 +10,7 @@ const addLogoToPDF = async (pdf, x, y, width = 15, height = 15) => {
     // Load the logo image from public folder
     const logoPath = '/images/taj-logo.png';
     const img = new Image();
-    
+
     return new Promise((resolve) => {
       img.onload = () => {
         try {
@@ -45,15 +45,15 @@ const addLogoToPDF = async (pdf, x, y, width = 15, height = 15) => {
 // Shared helper function to ensure property has size data
 const ensurePropertyWithSize = async (property, invoice) => {
   if (!property) return null;
-  
+
   const hasAreaValue = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '') ||
-                       (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '');
+    (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '');
   const hasAreaUnit = (property.areaUnit !== undefined && property.areaUnit !== null && property.areaUnit !== '') ||
-                      (invoice?.property?.areaUnit !== undefined && invoice?.property?.areaUnit !== null && invoice?.property?.areaUnit !== '');
-  
+    (invoice?.property?.areaUnit !== undefined && invoice?.property?.areaUnit !== null && invoice?.property?.areaUnit !== '');
+
   const needsFetch = !hasAreaValue && !hasAreaUnit;
   const propertyId = property._id || property.id || (typeof property === 'string' ? property : null);
-  
+
   if (needsFetch && propertyId) {
     try {
       const propertyResponse = await fetchPropertyById(propertyId);
@@ -64,7 +64,7 @@ const ensurePropertyWithSize = async (property, invoice) => {
       // Silently fail - will use fallback values
     }
   }
-  
+
   return property;
 };
 
@@ -82,12 +82,12 @@ export const outputPDF = (pdf, filename, options = {}) => {
 // Generate Electricity Invoice PDF
 export const generateElectricityInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   let property = invoice?.property || propertyParam;
-  
+
   if (!property || !invoice) return;
-  
+
   property = await ensurePropertyWithSize(property, invoice);
   if (!property) return;
-  
+
   // Get electricity charge from invoice
   const electricityCharge = invoice.charges?.find(c => c.type === 'ELECTRICITY');
   const electricityBill = invoice.electricityBill || {};
@@ -122,8 +122,8 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const address = electricityBill.address || property.address || '—';
   const matchedMeter = property.meters?.find(m => String(m.meterNo) === String(meterNo) && m.isActive !== false);
   const floor = matchedMeter?.floor || property.floor || '—';
-  
-  const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '') 
+
+  const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '')
     ? property : (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '' ? invoice.property : property);
   let propertySize = '—';
   const areaValue = sourceProperty.areaValue;
@@ -139,10 +139,10 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const periodTo = formatDate(invoice.periodTo || electricityBill.toDate);
   const readingDate = formatFullDate(invoice.periodTo || electricityBill.toDate);
   const dueDate = formatFullDate(invoice.dueDate || electricityBill.dueDate);
-  
+
   const unitsConsumed = calcData.unitsConsumed !== undefined ? calcData.unitsConsumed : (electricityBill.unitsConsumed !== undefined ? electricityBill.unitsConsumed : 0);
   const totalBill = electricityCharge?.amount ?? electricityBill.totalBill ?? electricityBill.amount ?? 0;
-  
+
   // Arrears: prefer values that come from the invoice itself so both
   // Invoices page and Electricity Bills page behave the same.
   // For meter-specific electricity invoices, prefer the electricity charge line first.
@@ -161,7 +161,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   } else if (calcData.previousArrears !== undefined && calcData.previousArrears !== null) {
     arrears = calcData.previousArrears;
   }
-  
+
   const amountReceived = electricityBill.receivedAmount || 0;
   const totalPaid = invoice.totalPaid || amountReceived || 0;
   const _grandTotal = (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null)
@@ -171,10 +171,10 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   // Late payment surcharge is 10% of "Charges for the Month" (totalBill), then added to arrears
   const latePaymentSurcharge = Math.max(Math.round(totalBill * 0.1), 0);
   const payableAfterDueDate = totalBill + arrears + latePaymentSurcharge - amountReceived;
-  
+
   // Always use "Payable Within Due Date" (no surcharge applied) for the \"Payable\" row.
   const payableAmount = payableWithinDueDate;
-  
+
   // Remaining Balance in PDF should follow the same business rule as Invoices page:
   // if full base amount was paid within due date + grace, remaining balance must be 0,
   // otherwise include late surcharge when invoice is overdue.
@@ -275,14 +275,14 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
     pdf.setTextColor(178, 34, 34);
     pdf.text('Taj Residencia', startX + contentWidth / 2, cursorY, { align: 'center' }); // Center: Taj Residencia
     pdf.setTextColor(0, 0, 0);
-    
+
     // Add logo image on the right - bigger and better positioned
     const logoWidth = 20;
     const logoHeight = 20;
     const logoX = startX + contentWidth - logoWidth - 1; // Slight margin from edge
     const logoY = cursorY - 5; // Center vertically with text, accounting for larger size
     await addLogoToPDF(pdf, logoX, logoY, logoWidth, logoHeight);
-    
+
     cursorY += 7; // Increased spacing to accommodate larger logo
 
     pdf.setFont('helvetica', 'bold'); // Make invoice type bold
@@ -345,7 +345,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
       '3. Please deposit your bills before due date to avoid Late Payment Surcharge.',
       '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
     ];
-    
+
     pdf.setFont('helvetica', 'italic');
     pdf.setFontSize(5.2);
     let totalFooterHeight = 0;
@@ -353,7 +353,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
       const wrapped = pdf.splitTextToSize(line, panelWidth - 2 * marginX);
       totalFooterHeight += wrapped.length * 3.2;
     });
-    
+
     const footerStartY = Math.max(cursorY + 2, pageHeight - totalFooterHeight - 6);
     let noteY = footerStartY;
     panelFootnotes.forEach((line) => {
@@ -379,12 +379,12 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
 // Generate CAM Invoice PDF
 export const generateCAMInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   let property = invoice?.property || propertyParam;
-  
+
   if (!property || !invoice) return;
-  
+
   property = await ensurePropertyWithSize(property, invoice);
   if (!property) return;
-  
+
   const camCharge = invoice.charges?.find(c => c.type === 'CAM');
   const camAmount = camCharge?.amount || 0;
   const arrears = camCharge?.arrears || invoice.totalArrears || 0;
@@ -417,8 +417,8 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
   const residentId = property.resident?.residentId || property.residentId || '—';
   const propertyAddress = property.address || [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street].filter(Boolean).join(', ') || '—';
   const propertySector = property.sector || '—';
-  
-  const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '') 
+
+  const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '')
     ? property : (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '' ? invoice.property : property);
   let propertySize = '—';
   const areaValue = sourceProperty.areaValue;
@@ -434,10 +434,10 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
   // Late payment surcharge is 10% of "Charges for the Month" (camAmount), then added to arrears
   const lateSurcharge = Math.max(Math.round(camAmount * 0.1), 0);
   const payableAfterDue = camAmount + arrears + lateSurcharge - totalPaidCAM;
-  
+
   // Always use "Payable Within Due Date" (no surcharge applied)
   const payableAmount = payableWithinDue;
-  
+
   // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
   const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
@@ -527,14 +527,14 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
     pdf.setTextColor(178, 34, 34);
     pdf.text('Taj Residencia', startX + contentWidth / 2, cursorY, { align: 'center' }); // Center: Taj Residencia
     pdf.setTextColor(0, 0, 0);
-    
+
     // Add logo image on the right - bigger and better positioned
     const logoWidth = 20;
     const logoHeight = 20;
     const logoX = startX + contentWidth - logoWidth - 1; // Slight margin from edge
     const logoY = cursorY - 5; // Center vertically with text, accounting for larger size
     await addLogoToPDF(pdf, logoX, logoY, logoWidth, logoHeight);
-    
+
     cursorY += 7; // Increased spacing to accommodate larger logo
 
     pdf.setFont('helvetica', 'bold'); // Make invoice type bold
@@ -828,12 +828,12 @@ export const generateWaterInvoicePDF = async (invoice, propertyParam = null, opt
 // Generate Rent Invoice PDF
 export const generateRentInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   let property = invoice?.property || propertyParam;
-  
+
   if (!property || !invoice) return;
-  
+
   property = await ensurePropertyWithSize(property, invoice);
   if (!property) return;
-  
+
   const rentCharge = invoice.charges?.find(c => c.type === 'RENT');
   const rentAmount = rentCharge?.amount || 0;
   const arrears = rentCharge?.arrears || invoice.totalArrears || 0;
@@ -866,8 +866,8 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
   const residentId = property.resident?.residentId || property.residentId || '—';
   const propertyAddress = property.fullAddress || property.address || [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street].filter(Boolean).join(', ') || '—';
   const propertySector = property.sector || '—';
-  
-  const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '') 
+
+  const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '')
     ? property : (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '' ? invoice.property : property);
   let propertySize = '—';
   const areaValue = sourceProperty.areaValue;
@@ -882,10 +882,10 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
   const lateSurcharge = Math.max(Math.round(rentAmount * 0.1), 0);
   const payableWithinDue = (invoice?.grandTotal || (rentAmount + arrears)) - totalPaidRent;
   const payableAfterDue = rentAmount + arrears + lateSurcharge - totalPaidRent;
-  
+
   // Always use "Payable Within Due Date" (no surcharge applied)
   const payableAmount = payableWithinDue;
-  
+
   // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
   const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
@@ -975,14 +975,14 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
     pdf.setTextColor(178, 34, 34);
     pdf.text('Taj Residencia', startX + contentWidth / 2, cursorY, { align: 'center' }); // Center: Taj Residencia
     pdf.setTextColor(0, 0, 0);
-    
+
     // Add logo image on the right - bigger and better positioned
     const logoWidth = 20;
     const logoHeight = 20;
     const logoX = startX + contentWidth - logoWidth - 1; // Slight margin from edge
     const logoY = cursorY - 5; // Center vertically with text, accounting for larger size
     await addLogoToPDF(pdf, logoX, logoY, logoWidth, logoHeight);
-    
+
     cursorY += 7; // Increased spacing to accommodate larger logo
 
     pdf.setFont('helvetica', 'bold'); // Make invoice type bold
@@ -1055,7 +1055,7 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
 // Generate General Invoice PDF (for custom invoice types, with or without properties)
 export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   if (!invoice) return;
-  
+
   // Property is optional for open invoices
   let property = invoice?.property || propertyParam;
   if (property) {
@@ -1089,14 +1089,14 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
   const _ownerName = property?.ownerName || invoice?.customerName || '—';
   const propertyAddress = property?.fullAddress || property?.address || invoice?.customerAddress || [property?.plotNumber ? `Plot No ${property.plotNumber}` : '', property?.street].filter(Boolean).join(', ') || '—';
   const propertySector = isOpenInvoice ? (invoice?.sector || '—') : (property?.sector || '—');
-  
+
   // For open invoices, property may be null, so we need to handle that case
-  const sourceProperty = property 
-    ? ((property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '') 
-      ? property 
+  const sourceProperty = property
+    ? ((property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '')
+      ? property
       : (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '' ? invoice.property : property))
     : (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '' ? invoice.property : null);
-  
+
   let propertySize = '—';
   if (sourceProperty) {
     const areaValue = sourceProperty.areaValue;
@@ -1113,19 +1113,19 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
   const totalArrears = invoice.totalArrears || 0;
   const grandTotal = invoice.grandTotal || 0;
   const totalPaid = invoice.totalPaid || 0;
-  
+
   // Calculate total charges amount (Charges for the Month)
   const totalChargesAmount = charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
-  
+
   // Calculate payable amounts
   const payableWithinDue = grandTotal - totalPaid;
   // Late payment surcharge is 10% of "Charges for the Month" (totalChargesAmount), then added to arrears
   const lateSurcharge = Math.max(Math.round(totalChargesAmount * 0.1), 0);
   const payableAfterDue = totalChargesAmount + totalArrears + lateSurcharge - totalPaid;
-  
+
   // Always use "Payable Within Due Date" (no surcharge applied)
   const payableAmount = payableWithinDue;
-  
+
   // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
   const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
@@ -1226,14 +1226,14 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
     pdf.setTextColor(178, 34, 34);
     pdf.text('Taj Residencia', startX + contentWidth / 2, cursorY, { align: 'center' }); // Center: Taj Residencia
     pdf.setTextColor(0, 0, 0);
-    
+
     // Add logo image on the right - bigger and better positioned
     const logoWidth = 20;
     const logoHeight = 20;
     const logoX = startX + contentWidth - logoWidth - 1; // Slight margin from edge
     const logoY = cursorY - 5; // Center vertically with text, accounting for larger size
     await addLogoToPDF(pdf, logoX, logoY, logoWidth, logoHeight);
-    
+
     cursorY += 7; // Increased spacing to accommodate larger logo
 
     pdf.setFont('helvetica', 'bold'); // Make invoice type bold
@@ -1302,10 +1302,10 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
     await drawPanel(copy, index);
   }
 
-  const sanitizedName = property 
+  const sanitizedName = property
     ? (property.propertyName || property.plotNumber || property.srNo || 'invoice')
-        .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_')
+      .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_')
     : (invoice.customerName || 'invoice')
-        .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
+      .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
   outputPDF(pdf, `Invoice_${sanitizedName || invoice._id || 'invoice'}.pdf`, options);
 };

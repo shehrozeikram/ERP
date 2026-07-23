@@ -111,15 +111,15 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
  * Get adjusted balance for an invoice (balance + 10% surcharge if overdue and unpaid).
  * Shared by getPreviousReading and getEffectiveArrearsForInvoice.
  */
-const getAdjustedBalanceForInvoice = (inv) => {
+const getAdjustedBalanceForInvoice = (inv, asOfDate = new Date()) => {
   const GRACE_PERIOD_DAYS = 6;
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const compareDate = asOfDate ? new Date(asOfDate) : new Date();
+  compareDate.setHours(0, 0, 0, 0);
   const dueStart = inv.dueDate ? new Date(inv.dueDate) : null;
   if (dueStart) dueStart.setHours(0, 0, 0, 0);
   const dueWithGrace = dueStart ? new Date(dueStart) : null;
   if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
+  const isOverdue = dueWithGrace && compareDate > dueWithGrace;
   const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
   if (!isOverdue || !isUnpaid) return inv.balance || 0;
   let chargesForMonth = inv.subtotal || 0;
@@ -219,7 +219,8 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null, perio
         // For multi-meter strict mode:
         // - within due+grace: use previous "payable" (balance)
         // - after due+grace: use previous "payable after due date" (adjusted balance with surcharge)
-        const carryForwardBase = getAdjustedBalanceForInvoice(prevInv);
+        const asOf = periodFrom ? new Date(periodFrom) : new Date();
+        const carryForwardBase = getAdjustedBalanceForInvoice(prevInv, asOf);
         const hasOnlyElectricity = prevInv.chargeTypes?.length === 1 && prevInv.chargeTypes[0] === 'ELECTRICITY';
         if (hasOnlyElectricity) {
           previousArrears = carryForwardBase;
