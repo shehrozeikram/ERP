@@ -30,17 +30,9 @@ async function runDryRun() {
   const isApply = process.argv.includes('--apply');
   console.log(`=== RUNNING LAND INSTALLMENT & PAYEE IMPORT (${isApply ? 'APPLY MODE' : 'DRY RUN MODE'}) ===\n`);
 
-  let mongoUri = process.env.MONGODB_LOCAL_URI || 'mongodb://127.0.0.1:27017/sgc_erp';
-  if (process.env.MONGODB_URI && !process.env.USE_LOCAL_MONGO) {
-    mongoUri = process.env.MONGODB_URI;
-  }
-  try {
-    await mongoose.connect(mongoUri);
-    console.log('Connected to MongoDB:', mongoUri);
-  } catch (err) {
-    console.log('Could not connect to primary URI, falling back to local MongoDB mongodb://127.0.0.1:27017/sgc_erp');
-    await mongoose.connect('mongodb://127.0.0.1:27017/sgc_erp');
-  }
+  const { connectDB } = require('../config/database');
+  await connectDB();
+
 
   const wb = xlsx.readFile(excelPath);
   const sheet = wb.Sheets['Sheet1'];
