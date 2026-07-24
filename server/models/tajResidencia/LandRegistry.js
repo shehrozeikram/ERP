@@ -31,6 +31,7 @@ const registryLineSchema = new mongoose.Schema({
 }, { _id: true });
 
 const landRegistrySchema = new mongoose.Schema({
+  dealNo: { type: Number, index: true },
   registryDate: { type: Date, required: true },
   moza: {
     type: mongoose.Schema.Types.ObjectId,

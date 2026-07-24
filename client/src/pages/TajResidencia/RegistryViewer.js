@@ -281,6 +281,7 @@ const RegistryViewer = () => {
             <TableHead>
               <TableRow>
                 <TableCell><strong>Date</strong></TableCell>
+                <TableCell><strong>Deal No.</strong></TableCell>
                 <TableCell><strong>Moza</strong></TableCell>
                 <TableCell><strong>Khewat</strong></TableCell>
                 <TableCell><strong>Registry No.</strong></TableCell>
@@ -299,6 +300,7 @@ const RegistryViewer = () => {
               {registries.map((row) => (
                 <TableRow key={row._id} hover>
                   <TableCell>{formatDate(row.registryDate)}</TableCell>
+                  <TableCell><strong>{row.dealNo ? `#${row.dealNo}` : '—'}</strong></TableCell>
                   <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{row.khewatNo}</TableCell>
                   <TableCell>{row.registryNo}</TableCell>

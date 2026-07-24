@@ -25,6 +25,7 @@ import { Add, AttachFile, Delete } from '@mui/icons-material';
 import { getMozas, getMozaKhasras } from '../../services/landAcquisitionMozaService';
 import { getRegisteredTotals } from '../../services/landAcquisitionRegistryService';
 import landAcquisitionPartyService from '../../services/landAcquisitionPartyService';
+import landAcquisitionPurchaseService from '../../services/landAcquisitionPurchaseService';
 import {
   addAreas,
   areaToForm,
@@ -65,6 +66,7 @@ const emptyLine = () => ({
 });
 
 const registryToForm = (registry) => ({
+  dealNo: registry.dealNo || '',
   registryDate: registry.registryDate ? registry.registryDate.slice(0, 10) : '',
   moza: registry.moza?._id || registry.moza || '',
   totalArea: areaToForm(registry.totalArea),
@@ -108,6 +110,7 @@ const AreaInputs = ({ value, onChange, readOnly = false, size = 'small' }) => (
 
 const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
   const [form, setForm] = useState({
+    dealNo: '',
     registryDate: '',
     moza: '',
     totalArea: emptyArea(),
@@ -118,6 +121,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
     dealer: null,
     lines: []
   });
+  const [deals, setDeals] = useState([]);
   const [mozas, setMozas] = useState([]);
   const [dealers, setDealers] = useState([]);
   const [sellers, setSellers] = useState([]);
@@ -132,6 +136,9 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
   useEffect(() => {
     if (!open) return;
     getMozas().then((res) => setMozas(res.data?.data || [])).catch(() => setMozas([]));
+    landAcquisitionPurchaseService.getDeals()
+      .then((res) => setDeals(res.data || []))
+      .catch(() => setDeals([]));
     landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100000, page: 1 })
       .then((res) => setDealers(res.data || []))
       .catch(() => setDealers([]));
@@ -149,6 +156,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
       setForm(registryToForm(registry));
     } else {
       setForm({
+        dealNo: '',
         registryDate: new Date().toISOString().slice(0, 10),
         moza: '',
         totalArea: emptyArea(),
@@ -390,6 +398,22 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
       <DialogTitle>{registry ? 'Edit Registry' : 'Add Registry'}</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ mb: 2 }}>
+          <Grid item xs={12} sm={4} md={2}>
+            <TextField
+              fullWidth
+              select
+              label="Select Deal No."
+              value={form.dealNo}
+              onChange={(e) => setForm((prev) => ({ ...prev, dealNo: e.target.value }))}
+            >
+              <MenuItem value="">None</MenuItem>
+              {deals.map((d) => (
+                <MenuItem key={d._id || d.dealNo} value={d.dealNo}>
+                  Deal #{d.dealNo} {d.sellerName ? `(${d.sellerName})` : ''}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
           <Grid item xs={12} sm={4} md={2}>
             <TextField
               fullWidth

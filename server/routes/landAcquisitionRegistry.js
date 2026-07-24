@@ -198,6 +198,7 @@ const buildRegistryPayload = (body) => {
   }
 
   return {
+    dealNo: body.dealNo ? Number(body.dealNo) : undefined,
     registryDate: body.registryDate ? new Date(body.registryDate) : null,
     moza: body.moza,
     khewatNo: khewatNos.join(', '),
@@ -242,31 +243,42 @@ const LandTransfer = require('../models/tajResidencia/LandTransfer');
 async function attachTransferDocsToRegistries(mappedRegistries = []) {
   if (!mappedRegistries.length) return mappedRegistries;
 
+  // Fetch ALL active transfers to resolve dealNo by registryNo / intiqalNo
   const transfers = await LandTransfer.find({
-    isActive: true,
-    $or: [
-      { inteqalAttachment: { $exists: true, $ne: '' } },
-      { registryAttachment: { $exists: true, $ne: '' } }
-    ]
+    isActive: true
   }).lean();
 
   if (!transfers.length) return mappedRegistries;
 
-  // Group transfer docs strictly by dealNo
+  // Build lookup maps for matching
   const transferByDealNo = new Map();
+  const transferByRegNo = new Map();
+  const transferByIntNo = new Map();
 
   for (const t of transfers) {
     if (t.dealNo !== undefined && t.dealNo !== null) {
       transferByDealNo.set(Number(t.dealNo), t);
     }
+    if (t.registryNo && String(t.registryNo).trim()) {
+      transferByRegNo.set(String(t.registryNo).trim().toLowerCase(), t);
+    }
+    if (t.intiqalNo && String(t.intiqalNo).trim()) {
+      transferByIntNo.set(String(t.intiqalNo).trim().toLowerCase(), t);
+    }
   }
 
   return mappedRegistries.map((reg) => {
-    // Extract dealNo from registry (check reg.dealNo or parsed from linked purchase/fields)
-    const regDealNo = reg.dealNo !== undefined && reg.dealNo !== null ? Number(reg.dealNo) : null;
+    const regDealNo = reg.dealNo !== undefined && reg.dealNo !== null && reg.dealNo !== '' ? Number(reg.dealNo) : null;
+    const regNo = String(reg.registryNo || '').trim().toLowerCase();
+    const intNo = String(reg.inteqalNo || '').trim().toLowerCase();
 
+    // Priority order: 1) Direct dealNo, 2) Registry No match, 3) Inteqal No match
     let matched = null;
-    if (regDealNo !== null && transferByDealNo.has(regDealNo)) {
+    if (regNo && transferByRegNo.has(regNo)) {
+      matched = transferByRegNo.get(regNo);
+    } else if (intNo && transferByIntNo.has(intNo)) {
+      matched = transferByIntNo.get(intNo);
+    } else if (regDealNo !== null && transferByDealNo.has(regDealNo)) {
       matched = transferByDealNo.get(regDealNo);
     }
 
@@ -297,6 +309,8 @@ async function attachTransferDocsToRegistries(mappedRegistries = []) {
 
     return {
       ...reg,
+      // If reg has no dealNo set explicitly, inherit matched transfer's dealNo
+      dealNo: reg.dealNo || matched.dealNo,
       registryDocAttachments: registryDocs,
       inteqalDocAttachments: inteqalDocs
     };
