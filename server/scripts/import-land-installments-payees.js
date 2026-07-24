@@ -3,6 +3,7 @@ const xlsx = require('xlsx');
 const path = require('path');
 const dotenv = require('dotenv');
 
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const LandPurchase = require('../models/tajResidencia/LandPurchase');
