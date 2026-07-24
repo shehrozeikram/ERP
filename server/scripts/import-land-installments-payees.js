@@ -152,7 +152,12 @@ async function runDryRun() {
       query.moza = mozaId;
     }
 
-    const dbDeal = await LandPurchase.findOne(query).populate('seller moza');
+    let dbDeal = await LandPurchase.findOne(query);
+    if (!dbDeal) {
+      // Fallback: match strictly by dealNo if Moza name format differs slightly
+      dbDeal = await LandPurchase.findOne({ dealNo: deal.dealNo });
+    }
+
     if (dbDeal) {
       matchedCount++;
     } else {
@@ -178,7 +183,10 @@ async function runDryRun() {
       let query = { dealNo: deal.dealNo };
       if (mozaId) query.moza = mozaId;
 
-      const dbDeal = await LandPurchase.findOne(query);
+      let dbDeal = await LandPurchase.findOne(query);
+      if (!dbDeal) {
+        dbDeal = await LandPurchase.findOne({ dealNo: deal.dealNo });
+      }
       if (!dbDeal) continue;
 
       const formattedInstallments = deal.installments.map(inst => {
