@@ -337,24 +337,75 @@ export default function LandPurchaseDetailPage() {
               <th style={{ ...thStyle, textAlign: 'center' }}>Cheque No.</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>Date</th>
             </tr>
-            {purchase.installments?.filter(inst => inst.paidAmount > 0).map((inst, idx) => {
-              const payeeName = inst.drawnOn 
-                || (inst.paymentRemarks ? inst.paymentRemarks.replace(/^Payee:\s*/i, '') : '')
-                || (inst.paidBy ? `${inst.paidBy.firstName || ''} ${inst.paidBy.lastName || ''}`.trim() : '')
-                || (purchase.seller?.name || '');
-              const chequeNo = inst.refNo || '';
-              return (
+            {(() => {
+              const installments = purchase.installments || [];
+              const paidInsts = installments.filter(inst => inst.paidAmount > 0);
+              
+              if (!purchase.paymentRemarks) {
+                return paidInsts.map((inst, idx) => (
+                  <tr key={idx}>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{idx + 1}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.refNo || ''}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.description || ''}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(inst.paidAmount)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.drawnOn || (purchase.seller?.name || '')}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.refNo || ''}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(inst.paymentDate || inst.dueDate)}</td>
+                  </tr>
+                ));
+              }
+
+              // Parse paymentRemarks sequence to preserve exact Excel order (e.g. 1st, 4th, 8th, 12th...)
+              const remarkEntries = purchase.paymentRemarks.split(';').map(s => s.trim()).filter(Boolean);
+              const orderedList = [];
+
+              remarkEntries.forEach(entry => {
+                const parts = entry.split('|').map(p => p.trim());
+                const descPart = parts[0] || '';
+                const refPart = (parts.find(p => p.toLowerCase().startsWith('ref:')) || '').replace(/^ref:\s*/i, '');
+                const payeePart = (parts.find(p => p.toLowerCase().startsWith('payee:')) || '').replace(/^payee:\s*/i, '');
+                const chqPart = (parts.find(p => p.toLowerCase().startsWith('chq:')) || '').replace(/^chq:\s*/i, '');
+
+                const matchedInst = paidInsts.find(i => i.description && i.description.trim().toLowerCase() === descPart.toLowerCase()) 
+                  || paidInsts.find(i => i.refNo === refPart);
+
+                orderedList.push({
+                  refNo: refPart || matchedInst?.refNo || '',
+                  description: descPart || matchedInst?.description || '',
+                  amount: matchedInst ? matchedInst.paidAmount : 0,
+                  payee: payeePart || matchedInst?.drawnOn || purchase.seller?.name || '',
+                  chequeNo: chqPart || matchedInst?.narration || '',
+                  date: matchedInst?.paymentDate || matchedInst?.dueDate
+                });
+              });
+
+              // Also append any paid installments not captured in remarks
+              paidInsts.forEach(inst => {
+                const alreadyAdded = orderedList.some(item => item.description.toLowerCase() === (inst.description || '').toLowerCase());
+                if (!alreadyAdded) {
+                  orderedList.push({
+                    refNo: inst.refNo || '',
+                    description: inst.description || '',
+                    amount: inst.paidAmount,
+                    payee: inst.drawnOn || purchase.seller?.name || '',
+                    chequeNo: inst.narration || '',
+                    date: inst.paymentDate || inst.dueDate
+                  });
+                }
+              });
+
+              return orderedList.map((item, idx) => (
                 <tr key={idx}>
                   <td style={{ ...tdStyle, textAlign: 'center' }}>{idx + 1}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.refNo || ''}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.description || ''}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(inst.paidAmount)}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>{payeeName}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>{chequeNo}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(inst.paymentDate || inst.dueDate)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{item.refNo}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{item.description || ''}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(item.amount)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{item.payee}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{item.chequeNo}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(item.date)}</td>
                 </tr>
-              );
-            })}
+              ));
+            })()}
             <tr>
               <td colSpan={3} style={{ ...thStyle, textAlign: 'center', fontWeight: 'bold' }}>Received Amount (Approved, Unapproved)</td>
               <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 'bold' }}>{formatMoney(totalPaymentsReceived)}</td>

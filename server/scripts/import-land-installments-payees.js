@@ -197,7 +197,10 @@ async function runDryRun() {
           status = 'Partial';
         }
 
-        const linkedPay = deal.payments[idx] || deal.payments[0] || {};
+        // Find payment entry whose description matches installment description (e.g. "4th Payment", "8th Payment")
+        const linkedPay = deal.payments.find(p => p.description && p.description.trim().toLowerCase() === (inst.description || '').trim().toLowerCase()) 
+          || deal.payments[idx] 
+          || {};
 
         return {
           description: inst.description || 'Installment',
@@ -205,8 +208,9 @@ async function runDryRun() {
           paidAmount: inst.received,
           dueDate: inst.dueDate || new Date(),
           status: status,
-          refNo: linkedPay.chequeNo || linkedPay.refNo || '',
+          refNo: linkedPay.refNo || '',
           drawnOn: linkedPay.payeeName || '',
+          narration: linkedPay.chequeNo || '',
           paymentDate: linkedPay.chequeDate || inst.dueDate || new Date(),
           paymentRemarks: linkedPay.payeeName ? `Payee: ${linkedPay.payeeName}` : ''
         };
@@ -214,7 +218,7 @@ async function runDryRun() {
 
       // Also merge payment remarks/details if payments exist
       let narrationParts = deal.payments.map(p => 
-        [p.description, p.payeeName ? `Payee: ${p.payeeName}` : '', p.chequeNo ? `Chq: ${p.chequeNo}` : ''].filter(Boolean).join(' | ')
+        [p.description, p.refNo ? `Ref: ${p.refNo}` : '', p.payeeName ? `Payee: ${p.payeeName}` : '', p.chequeNo ? `Chq: ${p.chequeNo}` : ''].filter(Boolean).join(' | ')
       ).filter(Boolean);
 
       dbDeal.installments = formattedInstallments;
