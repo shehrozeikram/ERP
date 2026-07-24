@@ -337,17 +337,24 @@ export default function LandPurchaseDetailPage() {
               <th style={{ ...thStyle, textAlign: 'center' }}>Cheque No.</th>
               <th style={{ ...thStyle, textAlign: 'center' }}>Date</th>
             </tr>
-            {purchase.installments?.filter(inst => inst.paidAmount > 0).map((inst, idx) => (
-              <tr key={idx}>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{idx + 1}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.refNo || ''}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.description || ''}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(inst.paidAmount)}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.paidBy ? `${inst.paidBy.firstName || ''} ${inst.paidBy.lastName || ''}`.trim() : ''}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.drawnOn || ''}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(inst.paymentDate)}</td>
-              </tr>
-            ))}
+            {purchase.installments?.filter(inst => inst.paidAmount > 0).map((inst, idx) => {
+              const payeeName = inst.drawnOn 
+                || (inst.paymentRemarks ? inst.paymentRemarks.replace(/^Payee:\s*/i, '') : '')
+                || (inst.paidBy ? `${inst.paidBy.firstName || ''} ${inst.paidBy.lastName || ''}`.trim() : '')
+                || (purchase.seller?.name || '');
+              const chequeNo = inst.refNo || '';
+              return (
+                <tr key={idx}>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{idx + 1}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.refNo || ''}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{inst.description || ''}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{formatMoney(inst.paidAmount)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{payeeName}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{chequeNo}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{formatDate(inst.paymentDate || inst.dueDate)}</td>
+                </tr>
+              );
+            })}
             <tr>
               <td colSpan={3} style={{ ...thStyle, textAlign: 'center', fontWeight: 'bold' }}>Received Amount (Approved, Unapproved)</td>
               <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 'bold' }}>{formatMoney(totalPaymentsReceived)}</td>

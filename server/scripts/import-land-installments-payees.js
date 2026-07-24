@@ -189,7 +189,7 @@ async function runDryRun() {
       }
       if (!dbDeal) continue;
 
-      const formattedInstallments = deal.installments.map(inst => {
+      const formattedInstallments = deal.installments.map((inst, idx) => {
         let status = 'Pending';
         if (inst.received >= inst.amount && inst.amount > 0) {
           status = 'Paid';
@@ -197,12 +197,18 @@ async function runDryRun() {
           status = 'Partial';
         }
 
+        const linkedPay = deal.payments[idx] || deal.payments[0] || {};
+
         return {
           description: inst.description || 'Installment',
           amount: inst.amount,
           paidAmount: inst.received,
           dueDate: inst.dueDate || new Date(),
-          status: status
+          status: status,
+          refNo: linkedPay.chequeNo || linkedPay.refNo || '',
+          drawnOn: linkedPay.payeeName || '',
+          paymentDate: linkedPay.chequeDate || inst.dueDate || new Date(),
+          paymentRemarks: linkedPay.payeeName ? `Payee: ${linkedPay.payeeName}` : ''
         };
       });
 
