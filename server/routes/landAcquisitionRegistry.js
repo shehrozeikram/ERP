@@ -252,37 +252,22 @@ async function attachTransferDocsToRegistries(mappedRegistries = []) {
 
   if (!transfers.length) return mappedRegistries;
 
-  const transferByRegNo = new Map();
-  const transferByIntNo = new Map();
-  const transferByMozaSeller = new Map();
+  // Group transfer docs strictly by dealNo
+  const transferByDealNo = new Map();
 
   for (const t of transfers) {
-    if (t.registryNo && t.registryNo.trim()) {
-      transferByRegNo.set(t.registryNo.trim().toLowerCase(), t);
-    }
-    if (t.intiqalNo && t.intiqalNo.trim()) {
-      transferByIntNo.set(t.intiqalNo.trim().toLowerCase(), t);
-    }
-    const mozaId = String(t.moza?._id || t.moza || '');
-    const sellerId = String(t.seller?._id || t.seller || '');
-    if (mozaId && sellerId) {
-      transferByMozaSeller.set(`${mozaId}_${sellerId}`, t);
+    if (t.dealNo !== undefined && t.dealNo !== null) {
+      transferByDealNo.set(Number(t.dealNo), t);
     }
   }
 
   return mappedRegistries.map((reg) => {
-    const regNo = String(reg.registryNo || '').trim().toLowerCase();
-    const intNo = String(reg.inteqalNo || '').trim().toLowerCase();
-    const mozaId = String(reg.moza?._id || reg.moza || '');
-    const sellerId = String(reg.seller?._id || reg.seller || '');
+    // Extract dealNo from registry (check reg.dealNo or parsed from linked purchase/fields)
+    const regDealNo = reg.dealNo !== undefined && reg.dealNo !== null ? Number(reg.dealNo) : null;
 
     let matched = null;
-    if (regNo && transferByRegNo.has(regNo)) {
-      matched = transferByRegNo.get(regNo);
-    } else if (intNo && transferByIntNo.has(intNo)) {
-      matched = transferByIntNo.get(intNo);
-    } else if (mozaId && sellerId && transferByMozaSeller.has(`${mozaId}_${sellerId}`)) {
-      matched = transferByMozaSeller.get(`${mozaId}_${sellerId}`);
+    if (regDealNo !== null && transferByDealNo.has(regDealNo)) {
+      matched = transferByDealNo.get(regDealNo);
     }
 
     if (!matched) return reg;

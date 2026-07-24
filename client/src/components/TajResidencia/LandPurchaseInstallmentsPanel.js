@@ -569,6 +569,12 @@ export default function LandPurchaseInstallmentsPanel({
             />
             <TextField
               fullWidth
+              label="Payee"
+              value={payForm.drawnOn}
+              onChange={(e) => setPayForm((prev) => ({ ...prev, drawnOn: e.target.value }))}
+            />
+            <TextField
+              fullWidth
               multiline
               rows={2}
               label="Narration"
@@ -687,6 +693,13 @@ export default function LandPurchaseInstallmentsPanel({
                   label="Ref / Cheque #"
                   value={form.refNo}
                   onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], refNo: e.target.value } }))}
+                />
+                <TextField
+                  size="small"
+                  fullWidth
+                  label="Payee"
+                  value={form.drawnOn || ''}
+                  onChange={(e) => setBulkPayForms(p => ({ ...p, [form.installmentId]: { ...p[form.installmentId], drawnOn: e.target.value } }))}
                 />
                 <TextField
                   size="small"

@@ -36,6 +36,7 @@ const emptyMeta = () => ({
   bankAccountId: '',
   paymentDate: new Date().toISOString().split('T')[0],
   refNo: '',
+  payeeName: '',
   narration: ''
 });
 
@@ -152,6 +153,7 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
         bankAccountId: meta.bankAccountId || undefined,
         paymentDate: meta.paymentDate,
         refNo: meta.refNo,
+        payeeName: meta.payeeName,
         narration: meta.narration,
         whtRate: 0
       });
@@ -418,6 +420,17 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
                 label="Reference / Cheque # / TT #"
                 value={meta.refNo}
                 onChange={(e) => setMeta((prev) => ({ ...prev, refNo: e.target.value }))}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Payee"
+                value={meta.payeeName}
+                onChange={(e) => setMeta((prev) => ({ ...prev, payeeName: e.target.value }))}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>

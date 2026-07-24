@@ -817,6 +817,7 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
   const paymentDate = req.body.paymentDate ? new Date(req.body.paymentDate) : new Date();
   const paymentMode = String(req.body.paymentMode || '').trim();
   const refNo = String(req.body.refNo || '').trim();
+  const payeeName = String(req.body.payeeName || '').trim();
   const narration = String(req.body.narration || '').trim();
   const whtRate = Number(req.body.whtRate) || 0;
   const createdBy = req.user?._id || req.user?.id;
@@ -838,6 +839,7 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
       existingRow.bankAccountId = bankAccountId;
       existingRow.whtRate = whtRate;
       existingRow.refNo = refNo;
+      existingRow.payeeName = payeeName;
       existingRow.narration = narration;
     } else {
       existing.transferPayments.push({
@@ -850,6 +852,7 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
         bankAccountId,
         whtRate,
         refNo,
+        payeeName,
         narration
       });
     }
