@@ -566,7 +566,8 @@ class ZKBioTimeApiService {
         throw new Error('Authentication failed');
       }
 
-      const { startDateTime: startTime, endDateTime: endTime, dateString } = getPakistanDayRange();
+      const startTimeSpace = `${dateString} 00:00:00`;
+      const endTimeSpace = `${dateString} 23:59:59`;
 
       console.log('📊 Fetching fresh today\'s attendance from ZKBio Time...');
 
@@ -574,9 +575,11 @@ class ZKBioTimeApiService {
       const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
-          start_time: startTime,
-          end_time: endTime,
-          page_size: 100, // Increased from 30
+          start_time: startTimeSpace,
+          end_time: endTimeSpace,
+          punch_time__gte: startTimeSpace,
+          punch_time__lte: endTimeSpace,
+          page_size: 500,
           page: 1,
           ordering: '-punch_time'
         }
@@ -597,7 +600,7 @@ class ZKBioTimeApiService {
       const latestResponse = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
-          page_size: 100, // Increased from 30
+          page_size: 500,
           page: 1,
           ordering: '-punch_time'
         }
@@ -637,7 +640,7 @@ class ZKBioTimeApiService {
       const cachedData = this.getCachedData(cacheKey, 'attendance');
       const isCacheValid = this.isCacheValid(cacheKey, 'attendance');
       
-      if (isCacheValid && cachedData) {
+      if (isCacheValid && cachedData && cachedData.length > 0) {
         console.log(`📊 Returning cached attendance data for ${targetDate}`);
         return {
           success: true,
@@ -647,8 +650,8 @@ class ZKBioTimeApiService {
         };
       }
 
-      // Use stale cache if available
-      if (cachedData && Array.isArray(cachedData)) {
+      // Use stale cache if available and non-empty
+      if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
         console.log(`⚠️ Using stale cache for attendance ${targetDate} (API may be unavailable)`);
         return {
           success: true,
@@ -660,8 +663,7 @@ class ZKBioTimeApiService {
       }
 
       if (!(await this.ensureAuth())) {
-        // If auth fails but we have stale cache, return it
-        if (cachedData && Array.isArray(cachedData)) {
+        if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
           console.log('⚠️ Auth failed, using stale cache');
           return {
             success: true,
@@ -674,8 +676,9 @@ class ZKBioTimeApiService {
         throw new Error('Authentication failed');
       }
 
-      const startTime = `${targetDate}T00:00:00`;
-      const endTime = `${targetDate}T23:59:59`;
+      // ZKBio Time API filters work best with space-separated datetime strings and punch_time__gte/lte
+      const startTime = `${targetDate} 00:00:00`;
+      const endTime = `${targetDate} 23:59:59`;
 
       console.log(`📊 Fetching attendance for ${targetDate} from ZKBio Time...`);
 
@@ -683,22 +686,24 @@ class ZKBioTimeApiService {
       let allRecords = [];
       let page = 1;
       let hasMore = true;
-      const pageSize = 500; // Reasonable page size
-      const maxPages = 50; // Safety limit
+      const pageSize = 500;
+      const maxPages = 50;
 
       while (hasMore && page <= maxPages) {
         try {
           const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
-        headers: this.getAuthHeaders(),
-        params: {
-          start_time: startTime,
-          end_time: endTime,
+            headers: this.getAuthHeaders(),
+            params: {
+              start_time: startTime,
+              end_time: endTime,
+              punch_time__gte: startTime,
+              punch_time__lte: endTime,
               page_size: pageSize,
               page: page,
-          ordering: '-punch_time'
+              ordering: '-punch_time'
             },
-            timeout: 20000 // 20 second timeout
-      });
+            timeout: 20000
+          });
 
           if (response.data && response.data.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
             allRecords = allRecords.concat(response.data.data);
@@ -711,19 +716,17 @@ class ZKBioTimeApiService {
           }
         } catch (pageError) {
           console.error(`❌ Error fetching attendance page ${page} for ${targetDate}:`, pageError.message);
-          // If we have some data, return it (partial success)
           if (allRecords.length > 0) {
             console.log(`⚠️ Returning partial attendance data (${allRecords.length} records)`);
             this.setCachedData(allRecords, cacheKey, 'attendance');
-        return {
-          success: true,
+            return {
+              success: true,
               data: allRecords,
               count: allRecords.length,
               source: targetDate + ' (Partial)',
               warning: `Fetched ${allRecords.length} records before error occurred`
             };
           }
-          // If first page fails and we have retries, retry
           if (retryCount < maxRetries && page === 1) {
             console.log(`🔄 Retrying attendance fetch for ${targetDate} (${retryCount + 1}/${maxRetries})...`);
             await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
@@ -733,14 +736,39 @@ class ZKBioTimeApiService {
         }
       }
 
+      // If strict date query returned no records, attempt fallback query without strict date filter and filter in JS
+      if (allRecords.length === 0) {
+        console.log(`⚠️ No records returned with strict date filter for ${targetDate}. Attempting fallback fetch...`);
+        try {
+          const fallbackResponse = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+            headers: this.getAuthHeaders(),
+            params: {
+              page_size: 500,
+              page: 1,
+              ordering: '-punch_time'
+            },
+            timeout: 20000
+          });
+          if (fallbackResponse.data && Array.isArray(fallbackResponse.data.data)) {
+            const matched = fallbackResponse.data.data.filter((rec) => {
+              const pTime = String(rec?.punch_time || rec?.originalRecord?.punch_time || '').trim();
+              return pTime.startsWith(targetDate);
+            });
+            if (matched.length > 0) {
+              console.log(`✅ Fallback fetch found ${matched.length} records for ${targetDate}`);
+              allRecords = matched;
+            }
+          }
+        } catch (fallbackError) {
+          console.error('❌ Fallback attendance fetch error:', fallbackError.message);
+        }
+      }
+
       console.log(`✅ Fetched ${allRecords.length} attendance records for ${targetDate}`);
       
-      // Cache the result
+      // Cache non-empty result
       if (allRecords.length > 0) {
         this.setCachedData(allRecords, cacheKey, 'attendance');
-      } else {
-        // Cache empty result too (to avoid repeated API calls for dates with no data)
-        this.setCachedData([], cacheKey, 'attendance');
       }
       
       return {

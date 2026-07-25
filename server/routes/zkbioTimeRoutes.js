@@ -587,11 +587,13 @@ router.get('/zkbio/location-attendance-summary', authMiddleware, safeRouteHandle
   };
 
   if (!deviceSnFilter && !skipSummaryCache) {
-    locationSummaryCache = {
-      dateKey: dateStr,
-      payload: summaryPayload,
-      expiresAt: Date.now() + LOCATION_SUMMARY_CACHE_TTL_MS
-    };
+    if (presentSet.size > 0 || workforceTotal === 0) {
+      locationSummaryCache = {
+        dateKey: dateStr,
+        payload: summaryPayload,
+        expiresAt: Date.now() + LOCATION_SUMMARY_CACHE_TTL_MS
+      };
+    }
   }
 
   return res.json(summaryPayload);
