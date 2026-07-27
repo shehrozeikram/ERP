@@ -23,6 +23,14 @@ const indentSchema = new mongoose.Schema({
     maxlength: [1000, 'Description cannot exceed 1000 characters']
   },
   
+  // Company / Legal Entity
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    index: true,
+    default: null
+  },
+
   // Department and Requester
   department: {
     type: mongoose.Schema.Types.ObjectId,

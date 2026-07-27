@@ -1089,6 +1089,12 @@ router.post('/purchase-orders', [
       purchaseOrder.indent = quotationDoc.indent;
     }
   }
+  if (!purchaseOrder.companyId && purchaseOrder.indent) {
+    const indentDoc = await Indent.findById(purchaseOrder.indent).select('companyId').lean();
+    if (indentDoc && indentDoc.companyId) {
+      purchaseOrder.companyId = indentDoc.companyId;
+    }
+  }
   if (req.body.approvalAuthorities && typeof req.body.approvalAuthorities === 'object') {
     purchaseOrder.approvalAuthorities = {
       preparedBy: req.body.approvalAuthorities.preparedBy || preparedByName,
@@ -2415,6 +2421,7 @@ router.get('/store/pending-indents',
       isActive: true
     })
       .populate('department', 'name code')
+      .populate('companyId', 'name code symbol')
       .populate('requestedBy', 'firstName lastName email')
       .populate('approvedBy', 'firstName lastName email')
       .sort({ approvedDate: -1, createdAt: -1 })
@@ -4558,9 +4565,20 @@ router.post('/goods-issue',
       ? `${req.user.firstName} ${req.user.lastName}`.trim()
       : (req.user.email || '');
 
+    let issueCompanyId = req.body.companyId || undefined;
+    if (!issueCompanyId && referenceIndent) {
+      const indentDoc = await Indent.findById(referenceIndent).select('companyId').lean();
+      if (indentDoc && indentDoc.companyId) issueCompanyId = indentDoc.companyId;
+    }
+    if (!issueCompanyId && referencePurchaseOrder) {
+      const poDoc = await PurchaseOrder.findById(referencePurchaseOrder).select('companyId').lean();
+      if (poDoc && poDoc.companyId) issueCompanyId = poDoc.companyId;
+    }
+
     const issue = new GoodsIssue({
       issueDate: issueDate || new Date(),
       issuingLocation: issuingLocation || undefined,
+      companyId: issueCompanyId,
       store: docStoreId || undefined,
       storeSnapshot,
       project: project,

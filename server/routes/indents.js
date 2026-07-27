@@ -174,6 +174,7 @@ router.get('/',
     // Get indents
     const indents = await Indent.find(filter)
       .populate('department', 'name code')
+      .populate('companyId', 'name code symbol')
       .populate('requestedBy', 'firstName lastName email employeeId digitalSignature')
       .populate('approvedBy', 'firstName lastName email digitalSignature')
       .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
@@ -300,6 +301,25 @@ router.get('/departments',
     res.json({
       success: true,
       data: departments
+    });
+  })
+);
+
+// @route   GET /api/indents/companies
+// @desc    Get active placement companies for indent form dropdown
+// @access  Private
+router.get('/companies',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const PlacementCompany = require('../models/hr/Company');
+    const companies = await PlacementCompany.find({ isActive: true })
+      .select('name code symbol')
+      .sort({ name: 1 })
+      .lean();
+
+    res.json({
+      success: true,
+      data: companies
     });
   })
 );

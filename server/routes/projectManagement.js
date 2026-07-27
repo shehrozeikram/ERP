@@ -114,8 +114,20 @@ router.get('/projects/statistics', asyncHandler(async (req, res) => {
       planning: byStatus['Planning'] || 0,
       cancelled: byStatus['Cancelled'] || 0,
       totalBudget: fin.totalBudget,
-      totalSpent: fin.totalSpent
+      totalSpent: fin.totalSpent,
+      variance: fin.totalSpent - fin.totalBudget
     }
+  });
+}));
+
+// GET /api/project-management/projects/:id/rollup — Senior Management Upper-Level Consolidated Rollup
+router.get('/projects/:id/rollup', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
+  const ProjectRollupService = require('../services/projectRollupService');
+  const summary = await ProjectRollupService.getProjectRollupSummary(req.params.id);
+  res.json({
+    success: true,
+    data: summary
   });
 }));
 

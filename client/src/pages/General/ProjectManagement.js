@@ -10,7 +10,7 @@ import {
 import {
   Add as AddIcon, Cancel as CancelIcon, CheckCircle as CheckIcon,
   Construction as ConstructionIcon, Delete as DeleteIcon,
-  Edit as EditIcon, Refresh as RefreshIcon,
+  Edit as EditIcon, Refresh as RefreshIcon, AccountTree as StructureIcon,
   TrendingUp as TrendingIcon, Visibility as ViewIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
@@ -19,6 +19,7 @@ import TablePaginationWrapper from '../../components/TablePaginationWrapper';
 import {
   getProjects, getProjectStats, createProject, updateProject, cancelProject, updateBudgetStatus
 } from '../../services/projectManagementService';
+import MasterExecutiveControlTower from '../../components/ProjectManagement/MasterExecutiveControlTower';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BUDGET_CATEGORIES = [
@@ -41,7 +42,7 @@ const defaultBudgetCategories = () =>
 const defaultForm = {
   name: '', projectType: 'Villa', description: '', society: '', sector: '',
   plotNumber: '', address: '', clientName: '', clientContact: '',
-  contractValue: '',
+  contractValue: '', isMasterProject: false, parentProject: '',
   startDate: '', expectedEndDate: '', notes: '',
   budgetCategories: defaultBudgetCategories()
 };
@@ -61,7 +62,7 @@ const StatCard = ({ label, value, color = 'primary.main', subtitle }) => (
 );
 
 // ─── Create / Edit Dialog ────────────────────────────────────────────────────
-const ProjectFormDialog = ({ open, onClose, onSaved, editing }) => {
+const ProjectFormDialog = ({ open, onClose, onSaved, editing, masterProjects = [] }) => {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -72,6 +73,8 @@ const ProjectFormDialog = ({ open, onClose, onSaved, editing }) => {
         setForm({
           name: editing.name || '',
           projectType: editing.projectType || 'Villa',
+          isMasterProject: Boolean(editing.isMasterProject),
+          parentProject: editing.parentProject?._id || editing.parentProject || '',
           description: editing.description || '',
           society: editing.society || '',
           sector: editing.sector || '',
@@ -166,8 +169,42 @@ const ProjectFormDialog = ({ open, onClose, onSaved, editing }) => {
             </FormControl>
           </Grid>
 
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth>
+              <InputLabel>Is Master Portfolio Project?</InputLabel>
+              <Select
+                value={form.isMasterProject ? 'true' : 'false'}
+                label="Is Master Portfolio Project?"
+                onChange={(e) => setForm(prev => ({ ...prev, isMasterProject: e.target.value === 'true', parentProject: e.target.value === 'true' ? '' : prev.parentProject }))}
+              >
+                <MenuItem value="false">No (Standard Unit / Sub-Project)</MenuItem>
+                <MenuItem value="true">Yes (Master Portfolio Project)</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {!form.isMasterProject && (
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Parent Master Project</InputLabel>
+                <Select
+                  value={form.parentProject || ''}
+                  label="Parent Master Project"
+                  onChange={set('parentProject')}
+                >
+                  <MenuItem value="">None (Independent Project)</MenuItem>
+                  {masterProjects.map((mp) => (
+                    <MenuItem key={mp._id} value={mp._id}>
+                      🏢 {mp.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+          )}
+
           {editing && (
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <InputLabel>Status</InputLabel>
                 <Select value={form.status || 'Draft'} label="Status" onChange={set('status')}>
@@ -277,11 +314,11 @@ const ProjectManagement = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedMasterProjectId, setSelectedMasterProjectId] = useState(null);
 
   const pagination = usePagination({
     defaultRowsPerPage: 20,
@@ -349,6 +386,17 @@ const ProjectManagement = () => {
 
   const progressColor = (pct) => pct >= 80 ? 'success' : pct >= 40 ? 'warning' : 'error';
 
+  if (selectedMasterProjectId) {
+    return (
+      <Box sx={{ p: { xs: 1.5, sm: 3 }, bgcolor: 'grey.50', minHeight: '100%' }}>
+        <MasterExecutiveControlTower
+          masterProjectId={selectedMasterProjectId}
+          onClose={() => setSelectedMasterProjectId(null)}
+        />
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: { xs: 1.5, sm: 3 }, bgcolor: 'grey.50', minHeight: '100%' }}>
       {/* Header */}
@@ -374,6 +422,20 @@ const ProjectManagement = () => {
             </Box>
           </Stack>
           <Stack direction="row" gap={1}>
+            {projects.some(p => p.isMasterProject) && (
+              <Button
+                variant={selectedMasterProjectId ? "contained" : "outlined"}
+                color="secondary"
+                startIcon={<StructureIcon />}
+                onClick={() => {
+                  const firstMaster = projects.find(p => p.isMasterProject);
+                  if (firstMaster) setSelectedMasterProjectId(firstMaster._id);
+                }}
+                sx={{ textTransform: 'none', fontWeight: 700 }}
+              >
+                👑 CEO Executive Control Tower
+              </Button>
+            )}
             <Tooltip title="Refresh">
               <IconButton onClick={() => { loadProjects(); loadStats(); }} disabled={loading}>
                 <RefreshIcon />
@@ -495,125 +557,195 @@ const ProjectManagement = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  projects.map((project) => {
-                    const pct = project.overallProgress || 0;
-                    const budgetUsed = project.totalApprovedBudget
-                      ? Math.round((project.totalActualSpent / project.totalApprovedBudget) * 100)
-                      : 0;
+                  (() => {
+                    const masterMap = new Map();
+                    const standaloneProjects = [];
 
-                    return (
-                      <TableRow key={project._id} hover sx={{ '& td': { py: 1.1 } }}>
-                        <TableCell>
-                          <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-                            {project.projectNumber}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={600}>{project.name}</Typography>
-                          {project.clientName && (
-                            <Typography variant="caption" color="text.secondary">{project.clientName}</Typography>
-                          )}
-                          {project.sector && (
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              {project.society ? `${project.society} — ` : ''}{project.sector}
+                    projects.forEach((p) => {
+                      if (p.isMasterProject) {
+                        if (!masterMap.has(String(p._id))) {
+                          masterMap.set(String(p._id), { master: p, children: [] });
+                        }
+                      }
+                    });
+
+                    projects.forEach((p) => {
+                      if (!p.isMasterProject && p.parentProject) {
+                        const parentId = p.parentProject._id || p.parentProject;
+                        if (masterMap.has(String(parentId))) {
+                          masterMap.get(String(parentId)).children.push(p);
+                        } else {
+                          standaloneProjects.push(p);
+                        }
+                      } else if (!p.isMasterProject) {
+                        standaloneProjects.push(p);
+                      }
+                    });
+
+                    const renderRow = (project, isChild = false) => {
+                      const pct = project.overallProgress || 0;
+                      const budgetUsed = project.totalApprovedBudget
+                        ? Math.round((project.totalActualSpent / project.totalApprovedBudget) * 100)
+                        : 0;
+
+                      return (
+                        <TableRow
+                          key={project._id}
+                          hover
+                          sx={{
+                            '& td': { py: 1.1 },
+                            bgcolor: project.isMasterProject
+                              ? 'rgba(25, 118, 210, 0.04)'
+                              : isChild
+                              ? 'grey.50'
+                              : 'inherit'
+                          }}
+                        >
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                              {project.projectNumber}
                             </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">{project.projectType}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip label={project.status} size="small" color={STATUS_COLOR[project.status] || 'default'} />
-                        </TableCell>
-                        <TableCell sx={{ minWidth: 130 }}>
-                          <Stack spacing={0.5}>
-                            <Stack direction="row" justifyContent="space-between">
-                              <Typography variant="caption">{pct}%</Typography>
-                              {project.budgetStatus === 'Approved' && (
-                                <Tooltip title={`Budget ${budgetUsed}% used`}>
-                                  <Typography variant="caption" color={budgetUsed > 90 ? 'error.main' : 'text.secondary'}>
-                                    💰 {budgetUsed}%
-                                  </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Box sx={{ pl: isChild ? 3 : 0 }}>
+                              <Stack direction="row" alignItems="center" spacing={1}>
+                                {isChild && <Typography color="text.secondary" sx={{ fontSize: '0.8rem' }}>└─ 🏠</Typography>}
+                                {project.isMasterProject && <Typography sx={{ fontSize: '1rem' }}>🏢</Typography>}
+                                <Typography variant="body2" fontWeight={project.isMasterProject ? 700 : 600}>
+                                  {project.name}
+                                </Typography>
+                                {project.isMasterProject && (
+                                  <Chip label="Master Portfolio" size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem' }} />
+                                )}
+                              </Stack>
+                              {project.clientName && (
+                                <Typography variant="caption" color="text.secondary" sx={{ pl: isChild ? 3.5 : 0 }}>{project.clientName}</Typography>
+                              )}
+                              {project.sector && (
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ pl: isChild ? 3.5 : 0 }}>
+                                  {project.society ? `${project.society} — ` : ''}{project.sector}
+                                </Typography>
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{project.projectType}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={project.status} size="small" color={STATUS_COLOR[project.status] || 'default'} />
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 130 }}>
+                            <Stack spacing={0.5}>
+                              <Stack direction="row" justifyContent="space-between">
+                                <Typography variant="caption">{pct}%</Typography>
+                                {project.budgetStatus === 'Approved' && (
+                                  <Tooltip title={`Budget ${budgetUsed}% used`}>
+                                    <Typography variant="caption" color={budgetUsed > 90 ? 'error.main' : 'text.secondary'}>
+                                      💰 {budgetUsed}%
+                                    </Typography>
+                                  </Tooltip>
+                                )}
+                              </Stack>
+                              <LinearProgress
+                                variant="determinate"
+                                value={pct}
+                                color={progressColor(pct)}
+                                sx={{ height: 6, borderRadius: 3 }}
+                              />
+                            </Stack>
+                          </TableCell>
+                          <TableCell>
+                            <Stack>
+                              <Typography variant="body2">{fmt(project.totalApprovedBudget || project.totalEstimatedCost)}</Typography>
+                              <Chip
+                                size="small"
+                                label={project.budgetStatus}
+                                color={project.budgetStatus === 'Approved' ? 'success' : project.budgetStatus === 'Submitted' ? 'warning' : 'default'}
+                                sx={{ fontSize: '0.65rem', height: 18 }}
+                              />
+                            </Stack>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" color={budgetUsed > 100 ? 'error.main' : 'text.primary'}>
+                              {fmt(project.totalActualSpent)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 110 }}>
+                            {project.startDate && (
+                              <Typography variant="caption" display="block">
+                                Start: {dayjs(project.startDate).format('DD MMM YY')}
+                              </Typography>
+                            )}
+                            {project.expectedEndDate && (
+                              <Typography variant="caption" display="block" color={
+                                dayjs(project.expectedEndDate).isBefore(dayjs()) && project.status === 'Active'
+                                  ? 'error.main' : 'text.secondary'
+                              }>
+                                End: {dayjs(project.expectedEndDate).format('DD MMM YY')}
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                              {project.isMasterProject && (
+                                <Tooltip title="Senior Management Control Tower">
+                                  <Button
+                                    size="small" variant="contained" color="secondary"
+                                    sx={{ textTransform: 'none', px: 1, py: 0.2, fontSize: '0.72rem' }}
+                                    onClick={() => setSelectedMasterProjectId(project._id)}
+                                  >
+                                    Control Tower
+                                  </Button>
                                 </Tooltip>
                               )}
-                            </Stack>
-                            <LinearProgress
-                              variant="determinate"
-                              value={pct}
-                              color={progressColor(pct)}
-                              sx={{ height: 6, borderRadius: 3 }}
-                            />
-                          </Stack>
-                        </TableCell>
-                        <TableCell>
-                          <Stack>
-                            <Typography variant="body2">{fmt(project.totalApprovedBudget || project.totalEstimatedCost)}</Typography>
-                            <Chip
-                              size="small"
-                              label={project.budgetStatus}
-                              color={project.budgetStatus === 'Approved' ? 'success' : project.budgetStatus === 'Submitted' ? 'warning' : 'default'}
-                              sx={{ fontSize: '0.65rem', height: 18 }}
-                            />
-                          </Stack>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" color={budgetUsed > 100 ? 'error.main' : 'text.primary'}>
-                            {fmt(project.totalActualSpent)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={{ minWidth: 110 }}>
-                          {project.startDate && (
-                            <Typography variant="caption" display="block">
-                              Start: {dayjs(project.startDate).format('DD MMM YY')}
-                            </Typography>
-                          )}
-                          {project.expectedEndDate && (
-                            <Typography variant="caption" display="block" color={
-                              dayjs(project.expectedEndDate).isBefore(dayjs()) && project.status === 'Active'
-                                ? 'error.main' : 'text.secondary'
-                            }>
-                              End: {dayjs(project.expectedEndDate).format('DD MMM YY')}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                            <Tooltip title="View Detail">
-                              <IconButton size="small" color="primary"
-                                onClick={() => {
-                                  localStorage.setItem('pmLastProjectId', project._id);
-                                  navigate(`/general/project-management/${project._id}`);
-                                }}>
-                                <ViewIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Edit">
-                              <IconButton size="small"
-                                onClick={() => { setEditingProject(project); setDialogOpen(true); }}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            {project.budgetStatus === 'Submitted' && (
-                              <Tooltip title="Approve Budget">
-                                <IconButton size="small" color="success"
-                                  onClick={() => handleApproveBudget(project)}>
-                                  <CheckIcon fontSize="small" />
+                              <Tooltip title="View Detail">
+                                <IconButton size="small" color="primary"
+                                  onClick={() => {
+                                    localStorage.setItem('pmLastProjectId', project._id);
+                                    navigate(`/general/project-management/${project._id}`);
+                                  }}>
+                                  <ViewIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
-                            )}
-                            {project.status !== 'Cancelled' && (
+                              <Tooltip title="Edit">
+                                <IconButton size="small"
+                                  onClick={() => { setEditingProject(project); setDialogOpen(true); }}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              {project.budgetStatus === 'Submitted' && (
+                                <Tooltip title="Approve Budget">
+                                  <IconButton size="small" color="success"
+                                    onClick={() => handleApproveBudget(project)}>
+                                    <CheckIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
                               <Tooltip title="Cancel Project">
                                 <IconButton size="small" color="error"
                                   onClick={() => setDeleteConfirm(project)}>
-                                  <CancelIcon fontSize="small" />
+                                  <DeleteIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
-                            )}
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    };
+
+                    const rows = [];
+                    masterMap.forEach(({ master, children }) => {
+                      rows.push(renderRow(master, false));
+                      children.forEach((child) => {
+                        rows.push(renderRow(child, true));
+                      });
+                    });
+                    standaloneProjects.forEach((p) => {
+                      rows.push(renderRow(p, false));
+                    });
+
+                    return rows;
+                  })()
                 )}
               </TableBody>
             </Table>
@@ -638,6 +770,7 @@ const ProjectManagement = () => {
         onClose={() => setDialogOpen(false)}
         onSaved={() => { loadProjects(); loadStats(); setSuccess(editingProject ? 'Project updated' : 'Project created'); }}
         editing={editingProject}
+        masterProjects={projects.filter(p => p.isMasterProject)}
       />
 
       {/* Cancel Confirmation */}

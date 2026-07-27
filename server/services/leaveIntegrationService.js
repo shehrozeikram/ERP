@@ -25,9 +25,9 @@ class LeaveIntegrationService {
         throw new Error('Employee not found');
       }
 
-      const hireDate = employee.hireDate || employee.joiningDate;
+      let hireDate = employee.hireDate || employee.joiningDate;
       if (!hireDate) {
-        throw new Error('Employee does not have a hire date');
+        hireDate = employee.createdAt || new Date('2023-01-01');
       }
 
       // Calculate work year if not provided
@@ -36,25 +36,16 @@ class LeaveIntegrationService {
       
       if (targetWorkYear === null) {
         if (targetYear !== null) {
-          // Calculate work year from calendar year
-          // The calendar year represents the anniversary year (when the work year period ends)
-          // Work Year 0: Nov 01, 2023 - Nov 01, 2024 -> anniversary year = 2024
-          // Work Year 1: Nov 01, 2024 - Nov 01, 2025 -> anniversary year = 2025
-          // Formula: workYear = anniversaryYear - hireYear - 1
           const hireDateObj = new Date(hireDate);
           const hireYear = hireDateObj.getFullYear();
           targetWorkYear = targetYear - hireYear - 1;
-          
-          // Ensure workYear is not negative
           targetWorkYear = Math.max(0, targetWorkYear);
         } else {
-          // Default to current work year
           targetWorkYear = this.calculateWorkYear(hireDate);
           const hireDateObj = new Date(hireDate);
-          targetYear = hireDateObj.getFullYear() + targetWorkYear + 1; // Anniversary year
+          targetYear = hireDateObj.getFullYear() + targetWorkYear + 1;
         }
       } else {
-        // Work year provided, calculate the calendar year (anniversary year)
         const hireDateObj = new Date(hireDate);
         targetYear = hireDateObj.getFullYear() + targetWorkYear + 1;
       }
@@ -62,10 +53,9 @@ class LeaveIntegrationService {
       // Get or create leave balance for the work year
       const balance = await this.getWorkYearBalance(employeeId, targetWorkYear);
 
-      // Get leave requests for the work year (not calendar year)
+      // Get all leave requests for the employee (matching workYear, leaveYear, or all for employee)
       const leaveRequests = await LeaveRequest.find({
         employee: employeeId,
-        workYear: targetWorkYear,
         isActive: true
       })
         .populate('leaveType', 'name code color')
@@ -297,7 +287,8 @@ class LeaveIntegrationService {
           'ML': 'sick'
         };
 
-        const balanceType = typeMap[leaveRequest.leaveType.code.toUpperCase()] || 'casual';
+        const codeStr = leaveRequest.leaveType?.code || leaveRequest.leaveType?.name || '';
+        const balanceType = typeMap[codeStr.toUpperCase()] || 'casual';
         
         if (employee.leaveBalance[balanceType]) {
           employee.leaveBalance[balanceType].used += leaveRequest.totalDays;

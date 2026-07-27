@@ -161,10 +161,26 @@ const GoodsReceive = () => {
     serviceCharges: 0,
     packingCharges: 0,
     loadingCharges: 0,
-    items: [{ inventoryItem: '', productCode: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' }, poLineIndex: undefined }],
+    items: [{ inventoryItem: '', productCode: '', itemCode: '', itemName: '', unit: '', quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNumber: '', lotNumber: '', expiryDate: '', quantityOrdered: null, unitPrice: '', notes: '', selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' }, poLineIndex: undefined }],
     notes: '',
     deliveryChallan: ''
   });
+
+  const loadReceives = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params = { page: page + 1, limit: rowsPerPage, search };
+      const response = await api.get('/procurement/goods-receive', { params });
+      if (response.data.success) {
+        setReceives(response.data.data.receives);
+        setTotalItems(response.data.data.pagination.totalItems);
+      }
+    } catch (err) {
+      setError('Failed to load GRN records');
+    } finally {
+      setLoading(false);
+    }
+  }, [page, rowsPerPage, search]);
 
   useEffect(() => {
     loadReceives();
@@ -172,7 +188,7 @@ const GoodsReceive = () => {
     loadSuppliers();
     loadProjects();
     loadMainStores();
-  }, [page, rowsPerPage, search]);
+  }, [loadReceives, page, rowsPerPage, search]);
 
   useEffect(() => {
     if (!formDialog.open || !formData.purchaseOrder) {
@@ -200,22 +216,6 @@ const GoodsReceive = () => {
       setMainStores(res.data || []);
     } catch (_) { }
   };
-
-  const loadReceives = useCallback(async () => {
-    try {
-      setLoading(true);
-      const params = { page: page + 1, limit: rowsPerPage, search };
-      const response = await api.get('/procurement/goods-receive', { params });
-      if (response.data.success) {
-        setReceives(response.data.data.receives);
-        setTotalItems(response.data.data.pagination.totalItems);
-      }
-    } catch (err) {
-      setError('Failed to load GRN records');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, rowsPerPage, search]);
 
   const loadInventory = async () => {
     try {

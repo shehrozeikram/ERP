@@ -44,10 +44,13 @@ const dailyProgressReportSchema = new mongoose.Schema({
     reportedBy: { type: String, trim: true }
   }],
 
-  // Site photos
+  // Site photos (Geotagged & Timestamped Ground Verification)
   photos: [{
     url: { type: String, trim: true },
     caption: { type: String, trim: true },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    isVerifiedLocation: { type: Boolean, default: false },
     uploadedAt: { type: Date, default: Date.now }
   }],
 

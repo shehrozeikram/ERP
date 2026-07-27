@@ -29,6 +29,14 @@ const goodsReceiveSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'DeliveryChallan'
   },
+  inwardGatePass: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'InwardGatePass'
+  },
+  qualityInspection: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'QualityInspection'
+  },
   poNumber: {
     type: String,
     trim: true
@@ -119,6 +127,24 @@ const goodsReceiveSchema = new mongoose.Schema({
       required: true,
       min: 1
     },
+    acceptedQuantity: {
+      type: Number,
+      min: 0
+    },
+    rejectedQuantity: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    damagedQuantity: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    batchNumber: { type: String, trim: true },
+    lotNumber: { type: String, trim: true },
+    heatNumber: { type: String, trim: true },
+    expiryDate: { type: Date },
     unit: {
       type: String,
       required: true
@@ -233,6 +259,7 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
   const projectId = grnDoc.project._id || grnDoc.project;
   const Inventory = mongoose.model('Inventory');
   const StockTransaction = mongoose.model('StockTransaction');
+  const StockQuant = mongoose.model('StockQuant');
   const Store = mongoose.model('Store');
   const items = Array.isArray(grnDoc.items) ? grnDoc.items : [];
 
@@ -300,13 +327,17 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
           };
         }
         await inv.save();
+        const effectiveQty = item.acceptedQuantity != null ? Number(item.acceptedQuantity) : qty;
         await inv.addStock(
-          qty,
+          effectiveQty,
           receiveNumber,
           item.notes || `Received via GRN ${receiveNumber}`,
           grnDoc.receivedBy,
           Number(item.unitPrice) || 0
         );
+        if (txStoreId && projectId) {
+          await StockQuant.addStockAVCO(txStoreId, projectId, inv._id, effectiveQty, Number(item.unitPrice) || 0, item.location);
+        }
         if (qty > 0 && txStoreId) {
           const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inv._id);
           const balanceAfter = currentBalance + qty;

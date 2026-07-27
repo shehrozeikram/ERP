@@ -53,6 +53,23 @@ const inventoryCategorySchema = new mongoose.Schema(
       ref: 'Account'
     },
     // ────────────────────────────────────────────────────────────────────────
+    // Aliases / Standards
+    assetAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Account'
+    },
+    expenseAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Account'
+    },
+    grniAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Account'
+    },
+    adjustmentAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Account'
+    },
     isActive: {
       type: Boolean,
       default: true

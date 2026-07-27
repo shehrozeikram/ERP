@@ -11,6 +11,12 @@ const boqItemSchema = new mongoose.Schema({
   // Grouping
   phase: { type: String, trim: true, default: 'General' },
   category: { type: String, trim: true },
+  cbsCategory: {
+    type: String,
+    enum: ['Materials', 'Labor', 'Equipment', 'Subcontractor', 'Contingency', 'Other'],
+    default: 'Materials',
+    index: true
+  },
 
   // Item details
   itemCode: { type: String, trim: true },
@@ -74,7 +80,9 @@ const applyBoqComputedFields = (doc) => {
   doc.discountAmount = discountAmount;
   doc.estimatedTotalCost = grossEstimated;
   doc.netEstimatedCost = grossEstimated - discountAmount;
-  doc.actualTotalCost = usedQuantity * actualUnitPrice;
+  if (!doc.actualTotalCost || doc.actualTotalCost === 0) {
+    doc.actualTotalCost = usedQuantity * actualUnitPrice;
+  }
   doc.quantityVariance = usedQuantity - estimatedQuantity;
   doc.costVariance = doc.actualTotalCost - doc.netEstimatedCost;
 };

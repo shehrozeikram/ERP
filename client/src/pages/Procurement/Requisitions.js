@@ -569,6 +569,7 @@ const Requisitions = () => {
                 <TableCell><strong>Requisition #</strong></TableCell>
                 <TableCell><strong>Title</strong></TableCell>
                 <TableCell><strong>Department</strong></TableCell>
+                <TableCell><strong>Company</strong></TableCell>
                 <TableCell><strong>Requester</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
                 <TableCell><strong>Task Assignment</strong></TableCell>
@@ -580,13 +581,13 @@ const Requisitions = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={10} align="center">
                     <Typography>Loading...</Typography>
                   </TableCell>
                 </TableRow>
               ) : requisitions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={10} align="center">
                     <Typography color="text.secondary">No requisitions found</Typography>
                   </TableCell>
                 </TableRow>
@@ -596,6 +597,7 @@ const Requisitions = () => {
                     <TableCell>{req.indentNumber}</TableCell>
                     <TableCell>{req.title}</TableCell>
                     <TableCell>{req.department?.name || '-'}</TableCell>
+                    <TableCell>{req.companyId?.name || '-'}</TableCell>
                     <TableCell>
                       {req.requestedBy?.firstName} {req.requestedBy?.lastName}
                     </TableCell>
@@ -1218,6 +1220,12 @@ const Requisitions = () => {
                       <Typography component="span" fontWeight={600}>Department:</Typography>
                       <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
                         {viewDialog.data.department?.name || '___________'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: '200px' }}>
+                      <Typography component="span" fontWeight={600}>Company:</Typography>
+                      <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
+                        {viewDialog.data.companyId?.name || '___________'}
                       </Typography>
                     </Box>
                     <Box sx={{ minWidth: '200px' }}>

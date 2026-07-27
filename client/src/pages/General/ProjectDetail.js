@@ -610,6 +610,16 @@ const BOQTab = ({ projectId }) => {
                 </Select>
               </FormControl>
             </Grid>
+            <Grid item xs={6}>
+              <FormControl fullWidth>
+                <InputLabel>CBS Category</InputLabel>
+                <Select value={form.cbsCategory || 'Materials'} label="CBS Category" onChange={set('cbsCategory')}>
+                  {['Materials', 'Labor', 'Equipment', 'Subcontractor', 'Contingency', 'Other'].map(c => (
+                    <MenuItem key={c} value={c}>{c}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
             <Grid item xs={4}>
               <TextField fullWidth label="Unit" required value={form.unit} onChange={set('unit')} placeholder="Bags, Kg, Sq Ft…" />
             </Grid>

@@ -171,6 +171,9 @@ leaveRequestSchema.pre('save', function(next) {
     // Set leave year based on start date
     this.leaveYear = this.startDate.getFullYear();
   }
+  if (this.workYear === undefined || this.workYear === null) {
+    this.workYear = 0;
+  }
   next();
 });
 

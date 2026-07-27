@@ -35,7 +35,8 @@ import {
   ListItemText,
   ListItemAvatar,
   Badge,
-  Autocomplete
+  Autocomplete,
+  Pagination
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -83,9 +84,11 @@ const LeaveManagement = () => {
     casualLimit: 10
   });
   
-  // Search state
+  // Search & Pagination state
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [displayPage, setDisplayPage] = useState(1);
+  const ITEMS_PER_PAGE = 24;
   
   // Form states
   const [leaveForm, setLeaveForm] = useState({
@@ -173,23 +176,27 @@ const LeaveManagement = () => {
         setEmployees(employeesData);
         console.log(`✅ Loaded ${employeesData.length} employees`);
         
-        // Calculate quick stats
+        // Calculate quick stats including sick leave
         const totalEmployees = employeesData.length;
         const employeesOnLeave = employeesData.filter(emp => 
           emp.leaveBalance?.annual?.used > 0 || 
           emp.leaveBalance?.casual?.used > 0 || 
+          emp.leaveBalance?.sick?.used > 0 ||
           emp.leaveBalance?.medical?.used > 0
         ).length;
         
+        const totalLeaveDays = employeesData.reduce((sum, emp) => 
+          sum + (emp.leaveBalance?.annual?.used || 0) + 
+          (emp.leaveBalance?.casual?.used || 0) + 
+          (emp.leaveBalance?.sick?.used || 0) +
+          (emp.leaveBalance?.medical?.used || 0), 0
+        );
+
         setStats({
           totalEmployees,
           employeesOnLeave,
-          pendingRequests: 0, // Will be updated from stats API
-          totalLeaveDays: employeesData.reduce((sum, emp) => 
-            sum + (emp.leaveBalance?.annual?.used || 0) + 
-            (emp.leaveBalance?.casual?.used || 0) + 
-            (emp.leaveBalance?.medical?.used || 0), 0
-          )
+          pendingRequests: 0,
+          totalLeaveDays
         });
       } else {
         console.error('❌ Failed to load employees:', employeesResult.reason);
@@ -754,99 +761,110 @@ const LeaveManagement = () => {
             />
           </Box>
 
-          {/* Search Results */}
-          {searchTerm && (
-            <Box>
-              {searchResults.length > 0 ? (
-                <Grid container spacing={2}>
-                  {searchResults.map((employee) => (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={employee._id}>
-                      <Card 
-                        variant="outlined" 
-                        sx={{ 
-                          cursor: 'pointer',
-                          '&:hover': { 
-                            boxShadow: 2,
-                            backgroundColor: 'action.hover'
-                          }
-                        }}
-                        onClick={() => {
-                          setSelectedEmployee(employee);
-                          setAddDialogOpen(true);
-                        }}
-                      >
-                        <CardContent sx={{ p: 2 }}>
-                          <Box display="flex" alignItems="center" mb={1}>
-                            <Avatar sx={{ mr: 1, width: 32, height: 32, fontSize: '0.875rem' }}>
-                              {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
-                            </Avatar>
-                            <Box sx={{ minWidth: 0, flex: 1 }}>
-                              <Typography variant="subtitle2" noWrap>
-                                {employee.firstName} {employee.lastName}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {employee.employeeId}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          
-                          <Box sx={{ mt: 1 }}>
-                            <Box display="flex" justifyContent="space-between" mb={0.5}>
-                              <Typography variant="caption" color="text.secondary">
-                                Annual:
-                              </Typography>
-                              <Typography variant="caption" fontWeight="bold">
-                                {(employee.leaveBalance?.annual?.remaining || 0)}/{(employee.leaveBalance?.annual?.allocated || 14) + (employee.leaveBalance?.annual?.carriedForward || 0)}
-                              </Typography>
-                            </Box>
-                            <Box display="flex" justifyContent="space-between" mb={0.5}>
-                              <Typography variant="caption" color="text.secondary">
-                                Casual:
-                              </Typography>
-                              <Typography variant="caption" fontWeight="bold">
-                                {(employee.leaveBalance?.casual?.remaining || 0)}/{(employee.leaveBalance?.casual?.allocated || 10) + (employee.leaveBalance?.casual?.carriedForward || 0)}
-                              </Typography>
-                            </Box>
-                            <Box display="flex" justifyContent="space-between">
-                              <Typography variant="caption" color="text.secondary">
-                                Medical:
-                              </Typography>
-                              <Typography variant="caption" fontWeight="bold">
-                                {(employee.leaveBalance?.medical?.remaining || 0)}/{(employee.leaveBalance?.medical?.allocated || 8) + (employee.leaveBalance?.medical?.carriedForward || 0)}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              ) : (
+          {/* Employee Balances Cards Grid */}
+          {(() => {
+            const listToDisplay = searchTerm ? searchResults : employees;
+            const totalPages = Math.ceil(listToDisplay.length / ITEMS_PER_PAGE);
+            const paginatedList = searchTerm 
+              ? listToDisplay 
+              : listToDisplay.slice((displayPage - 1) * ITEMS_PER_PAGE, displayPage * ITEMS_PER_PAGE);
+
+            if (listToDisplay.length === 0) {
+              return (
                 <Box sx={{ textAlign: 'center', py: 4 }}>
                   <PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
                   <Typography variant="body1" color="text.secondary">
-                    No employees found matching "{searchTerm}"
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Try searching by name or employee ID
+                    {searchTerm ? `No employees found matching "${searchTerm}"` : 'No employee leave balance records found.'}
                   </Typography>
                 </Box>
-              )}
-            </Box>
-          )}
+              );
+            }
 
-          {/* No Search State */}
-          {!searchTerm && (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="body1" color="text.secondary">
-                Search for an employee to view their leave balance
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                You can search by name or employee ID
-              </Typography>
-            </Box>
-          )}
+            return (
+              <Box>
+                <Grid container spacing={2}>
+                  {paginatedList.map((employee) => {
+                    const sickBal = employee.leaveBalance?.sick || employee.leaveBalance?.medical;
+                    return (
+                      <Grid item xs={12} sm={6} md={4} lg={3} key={employee._id}>
+                        <Card 
+                          variant="outlined" 
+                          sx={{ 
+                            cursor: 'pointer',
+                            '&:hover': { 
+                              boxShadow: 2,
+                              backgroundColor: 'action.hover'
+                            }
+                          }}
+                          onClick={() => {
+                            setSelectedEmployee(employee);
+                            setAddDialogOpen(true);
+                          }}
+                        >
+                          <CardContent sx={{ p: 2 }}>
+                            <Box display="flex" alignItems="center" mb={1}>
+                              <Avatar sx={{ mr: 1, width: 32, height: 32, fontSize: '0.875rem' }}>
+                                {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
+                              </Avatar>
+                              <Box sx={{ minWidth: 0, flex: 1 }}>
+                                <Typography variant="subtitle2" noWrap>
+                                  {employee.firstName} {employee.lastName}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {employee.employeeId}
+                                </Typography>
+                              </Box>
+                            </Box>
+                            
+                            <Box sx={{ mt: 1 }}>
+                              <Box display="flex" justifyContent="space-between" mb={0.5}>
+                                <Typography variant="caption" color="text.secondary">
+                                  Annual:
+                                </Typography>
+                                <Typography variant="caption" fontWeight="bold">
+                                  {(employee.leaveBalance?.annual?.remaining ?? 0)}/{(employee.leaveBalance?.annual?.allocated || 14) + (employee.leaveBalance?.annual?.carriedForward || 0)}
+                                </Typography>
+                              </Box>
+                              <Box display="flex" justifyContent="space-between" mb={0.5}>
+                                <Typography variant="caption" color="text.secondary">
+                                  Casual:
+                                </Typography>
+                                <Typography variant="caption" fontWeight="bold">
+                                  {(employee.leaveBalance?.casual?.remaining ?? 0)}/{(employee.leaveBalance?.casual?.allocated || 10) + (employee.leaveBalance?.casual?.carriedForward || 0)}
+                                </Typography>
+                              </Box>
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography variant="caption" color="text.secondary">
+                                  Sick:
+                                </Typography>
+                                <Typography variant="caption" fontWeight="bold">
+                                  {(sickBal?.remaining ?? 0)}/{(sickBal?.allocated || 8) + (sickBal?.carriedForward || 0)}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+
+                {/* Pagination for empty search term */}
+                {!searchTerm && totalPages > 1 && (
+                  <Box display="flex" justifyContent="center" mt={3}>
+                    <Pagination 
+                      count={totalPages} 
+                      page={displayPage} 
+                      onChange={(e, value) => setDisplayPage(value)} 
+                      color="primary" 
+                      showFirstButton 
+                      showLastButton
+                    />
+                  </Box>
+                )}
+              </Box>
+            );
+          })()}
         </CardContent>
       </Card>
 

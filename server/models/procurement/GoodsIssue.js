@@ -22,6 +22,12 @@ const goodsIssueSchema = new mongoose.Schema({
     trim: true,
     default: 'Main Store'
   },
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    index: true,
+    default: null
+  },
   store: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Store'
@@ -233,6 +239,7 @@ goodsIssueSchema.post('save', async function(doc) {
     
     const Inventory = mongoose.model('Inventory');
     const StockTransaction = mongoose.model('StockTransaction');
+    const StockQuant = mongoose.model('StockQuant');
     const Store = mongoose.model('Store');
     // store is now an ObjectId; fall back to inventory row store (matches GRN / SIN validation)
     const storeId = doc.store?._id || doc.store;
@@ -265,7 +272,8 @@ goodsIssueSchema.post('save', async function(doc) {
               inventoryItem: inventory,
               sinDoc: doc,
               qty,
-              createdBy: doc.issuedBy
+              createdBy: doc.issuedBy,
+              companyId: doc.companyId
             });
           }
 
@@ -275,7 +283,13 @@ goodsIssueSchema.post('save', async function(doc) {
             const ds = await ensureDefaultStoreOut();
             txStoreId = ds ? ds._id : null;
           }
-          if (!txStoreId) continue;
+          if (txStoreId && projectId) {
+            try {
+              await StockQuant.deductStock(txStoreId, projectId, inventory._id, qty);
+            } catch (sqErr) {
+              console.error('StockQuant deductStock notice:', sqErr.message);
+            }
+          }
 
           const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inventory._id);
           const balanceAfter = currentBalance - qty;

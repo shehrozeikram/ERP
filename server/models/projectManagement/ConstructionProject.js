@@ -57,6 +57,19 @@ const constructionProjectSchema = new mongoose.Schema({
     default: 'Draft'
   },
 
+  // Project Hierarchy
+  isMasterProject: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  parentProject: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ConstructionProject',
+    default: null,
+    index: true
+  },
+
   // Location — optionally linked to existing Taj property
   linkedProperty: { type: mongoose.Schema.Types.ObjectId, ref: 'TajProperty', default: null },
   society: { type: String, trim: true },

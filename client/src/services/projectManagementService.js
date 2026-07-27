@@ -24,6 +24,9 @@ export const cancelProject = (id) =>
 export const updateBudgetStatus = (id, action, notes = '') =>
   api.put(`${BASE}/projects/${id}/budget-status`, { action, notes });
 
+export const getProjectRollup = (id) =>
+  api.get(`${BASE}/projects/${id}/rollup`);
+
 // ─── Milestones ───────────────────────────────────────────────────────────────
 export const addMilestone = (projectId, data) =>
   api.post(`${BASE}/projects/${projectId}/milestones`, data);

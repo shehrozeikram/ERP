@@ -323,6 +323,7 @@ const StoreDashboard = () => {
                   <TableCell><strong>Indent #</strong></TableCell>
                   <TableCell><strong>Title</strong></TableCell>
                   <TableCell><strong>Department</strong></TableCell>
+                  <TableCell><strong>Company</strong></TableCell>
                   <TableCell><strong>Approved Date</strong></TableCell>
                   <TableCell><strong>Items</strong></TableCell>
                   <TableCell><strong>Stock</strong></TableCell>
@@ -335,6 +336,7 @@ const StoreDashboard = () => {
                     <TableCell>{indent.indentNumber || 'N/A'}</TableCell>
                     <TableCell>{indent.title || 'N/A'}</TableCell>
                     <TableCell>{indent.department?.name || 'N/A'}</TableCell>
+                    <TableCell>{indent.companyId?.name || '-'}</TableCell>
                     <TableCell>{formatDate(indent.approvedDate)}</TableCell>
                     <TableCell>{indent.items?.length || 0} item(s)</TableCell>
                     <TableCell>

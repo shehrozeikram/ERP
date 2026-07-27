@@ -74,6 +74,8 @@ const IndentForm = () => {
   const [itemOptionsLoading, setItemOptionsLoading] = useState(false);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
   const [departmentOptions, setDepartmentOptions] = useState([]);
+  const [companyOptions, setCompanyOptions] = useState([]);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
   const [erpRefError, setErpRefError] = useState('');
   const [erpRefChecking, setErpRefChecking] = useState(false);
   const erpRefDebounceRef = useRef(null);
@@ -95,6 +97,7 @@ const IndentForm = () => {
     requiredDate: '',
     indentNumber: '',
     department: '',
+    companyId: '',
     originator: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : '',
     items: [],
     justification: '',
@@ -182,6 +185,29 @@ const IndentForm = () => {
     return out;
   }, []);
 
+  const loadCompaniesForIndent = useCallback(async () => {
+    setCompaniesLoading(true);
+    try {
+      let res = await api.get('/indents/companies');
+      let list = Array.isArray(res.data?.data) ? res.data.data : [];
+      if (list.length === 0) {
+        res = await api.get('/hr/companies');
+        list = Array.isArray(res.data?.data) ? res.data.data : [];
+      }
+      setCompanyOptions(list);
+    } catch (err) {
+      console.error('Failed to load companies:', err);
+      try {
+        const fallbackRes = await api.get('/hr/companies');
+        setCompanyOptions(Array.isArray(fallbackRes.data?.data) ? fallbackRes.data.data : []);
+      } catch (fallbackErr) {
+        console.error('Fallback company fetch failed:', fallbackErr);
+      }
+    } finally {
+      setCompaniesLoading(false);
+    }
+  }, []);
+
   // Load indent data if editing, or run next-number/next-erp-ref + departments once for create
   useEffect(() => {
     const loadData = async () => {
@@ -209,6 +235,7 @@ const IndentForm = () => {
             requiredDate: indent.requiredDate ? dayjs(indent.requiredDate).format('YYYY-MM-DD') : '',
             indentNumber: indent.indentNumber || '',
             department: indent.department?._id || '',
+            companyId: indent.companyId?._id || indent.companyId || '',
             originator: indent.requestedBy?.firstName && indent.requestedBy?.lastName 
               ? `${indent.requestedBy.firstName} ${indent.requestedBy.lastName}` 
               : '',
@@ -236,6 +263,7 @@ const IndentForm = () => {
         if (departmentsRef.current.length === 0) {
           await loadDepartmentsForIndent();
         }
+        await loadCompaniesForIndent();
         return;
       }
 
@@ -261,10 +289,11 @@ const IndentForm = () => {
       if (departmentsRef.current.length === 0) {
         await loadDepartmentsForIndent();
       }
+      await loadCompaniesForIndent();
     };
 
     loadData();
-  }, [id, isEdit, loadDepartmentsForIndent]);
+  }, [id, isEdit, loadDepartmentsForIndent, loadCompaniesForIndent]);
 
   useEffect(() => {
     if (Array.isArray(departments) && departments.length > 0) {
@@ -595,6 +624,7 @@ const IndentForm = () => {
         requestedDate: formData.date,
         requiredDate: formData.requiredDate,
         department: formData.department,
+        companyId: formData.companyId || undefined,
         priority: formData.priority,
         category: formData.category,
         categoryOtherDescription:
@@ -811,6 +841,30 @@ const IndentForm = () => {
                     No departments available
                   </MenuItem>
                 )}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Company</InputLabel>
+              <Select
+                value={formData.companyId}
+                label="Company"
+                onChange={(e) => handleChange('companyId', e.target.value)}
+              >
+                <MenuItem value="">
+                  <em>Select Company</em>
+                </MenuItem>
+                {companiesLoading && (
+                  <MenuItem value="" disabled>
+                    Loading companies...
+                  </MenuItem>
+                )}
+                {companyOptions.map((comp) => (
+                  <MenuItem key={comp._id} value={comp._id}>
+                    {comp.name} {comp.code ? `(${comp.code})` : ''}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
           </Grid>

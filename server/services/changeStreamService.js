@@ -4,6 +4,18 @@ class ChangeStreamService {
   constructor() {
     this.changeStreams = new Map();
     this.isRunning = false;
+    this.replicaSetWarned = false;
+  }
+
+  handleStreamError(name, error) {
+    if (error?.code === 40573 || error?.message?.includes('replica set')) {
+      if (!this.replicaSetWarned) {
+        console.log(`ℹ️  [ChangeStream] MongoDB running in standalone mode (replica set required for real-time change streams).`);
+        this.replicaSetWarned = true;
+      }
+      return;
+    }
+    console.error(`❌ ${name} change stream error:`, error);
   }
 
   async start() {
@@ -81,7 +93,7 @@ class ChangeStreamService {
       });
 
       changeStream.on('error', (error) => {
-        console.error('❌ Attendance change stream error:', error);
+        this.handleStreamError('Attendance', error);
       });
 
       this.changeStreams.set('attendance', changeStream);
@@ -117,7 +129,7 @@ class ChangeStreamService {
       });
 
       changeStream.on('error', (error) => {
-        console.error('❌ Employee change stream error:', error);
+        this.handleStreamError('Employee', error);
       });
 
       this.changeStreams.set('employee', changeStream);
@@ -154,7 +166,7 @@ class ChangeStreamService {
       });
 
       changeStream.on('error', (error) => {
-        console.error('❌ Payroll change stream error:', error);
+        this.handleStreamError('Payroll', error);
       });
 
       this.changeStreams.set('payroll', changeStream);

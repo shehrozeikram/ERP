@@ -321,10 +321,13 @@ leaveBalanceSchema.statics.updateBalanceForLeave = async function (employeeId, l
     'medical': 'sick'
   };
 
-  const balanceType = typeMap[leaveType] || typeMap[leaveType.toUpperCase()] || 'casual';
+  const codeStr = typeof leaveType === 'string' ? leaveType : (leaveType?.code || leaveType?.name || '');
+  const balanceType = typeMap[codeStr] || typeMap[codeStr.toUpperCase ? codeStr.toUpperCase() : ''] || 'casual';
 
-  // Update used days
-  balance[balanceType].used += days;
+  if (!balance[balanceType]) {
+    balance[balanceType] = { allocated: 0, used: 0, remaining: 0, carriedForward: 0, advance: 0 };
+  }
+  balance[balanceType].used = (balance[balanceType].used || 0) + (days || 0);
 
   await balance.save();
 

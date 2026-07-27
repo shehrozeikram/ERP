@@ -467,7 +467,7 @@ class LeaveManagementService {
         throw new Error('Leave request not found');
       }
 
-      if (leaveRequest.status !== 'pending') {
+      if (String(leaveRequest.status || '').toLowerCase() !== 'pending') {
         throw new Error('Leave request is not pending');
       }
 
@@ -478,21 +478,33 @@ class LeaveManagementService {
       leaveRequest.approvalComments = comments;
       leaveRequest.updatedBy = userId;
 
-      await leaveRequest.save();
+      await leaveRequest.save({ validateBeforeSave: false });
 
       // Update employee leave balance (backward compatibility)
-      await this.updateLeaveBalance(
-        leaveRequest.employee, 
-        leaveRequest.leaveType, 
-        leaveRequest.totalDays, 
-        leaveRequest.startDate.getFullYear()
-      );
+      try {
+        await this.updateLeaveBalance(
+          leaveRequest.employee, 
+          leaveRequest.leaveType, 
+          leaveRequest.totalDays, 
+          leaveRequest.startDate ? new Date(leaveRequest.startDate).getFullYear() : new Date().getFullYear()
+        );
+      } catch (balErr) {
+        console.error('⚠️ Warning updating legacy leave balance:', balErr.message);
+      }
 
       // Update leave balance using new integration service
-      await LeaveIntegrationService.updateBalanceOnApproval(leaveRequestId);
+      try {
+        await LeaveIntegrationService.updateBalanceOnApproval(leaveRequestId);
+      } catch (integErr) {
+        console.error('⚠️ Warning updating leave integration balance:', integErr.message);
+      }
 
       // Create attendance records for leave days
-      await this.createLeaveAttendanceRecords(leaveRequest);
+      try {
+        await this.createLeaveAttendanceRecords(leaveRequest);
+      } catch (attErr) {
+        console.error('⚠️ Warning creating leave attendance records:', attErr.message);
+      }
 
       return leaveRequest;
     } catch (error) {

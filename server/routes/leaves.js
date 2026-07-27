@@ -116,7 +116,7 @@ router.get('/employees/balances',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
-      const { year = new Date().getFullYear() } = req.query;
+      const year = req.query.year ? parseInt(req.query.year, 10) : new Date().getFullYear();
       
       console.log(`🚀 Loading employee balances for year ${year}...`);
       const startTime = Date.now();
@@ -143,8 +143,7 @@ router.get('/employees/balances',
       const employeeIds = employees.map(emp => emp._id);
       const leaveBalances = await LeaveBalance.find({
         employee: { $in: employeeIds },
-        year: year,
-        isActive: true
+        year: year
       }).lean();
 
       console.log(`📈 Found ${leaveBalances.length} leave balance records`);
@@ -213,44 +212,48 @@ router.get('/employees/balances',
         const sickLimit = config.sickLimit || 10;
         const casualLimit = config.casualLimit || 10;
         
-        // Calculate allocations based on work year
-        const annualAllocated = currentWorkYear >= 1 ? annualLimit : 0;
-        const sickAllocated = currentWorkYear >= 0 ? sickLimit : 0;
-        const casualAllocated = currentWorkYear >= 0 ? casualLimit : 0;
-        
-        // Calculate remaining and carry forward
-        const annualRemaining = Math.max(0, annualAllocated - usage.annual);
-        const sickRemaining = Math.max(0, sickAllocated - usage.sick);
-        const casualRemaining = Math.max(0, casualAllocated - usage.casual);
-        const medicalRemaining = Math.max(0, sickAllocated - usage.medical);
+        // Prefer saved balance from LeaveBalance collection or Employee model, fall back to calculation
+        const annualAllocated = balance?.annual?.allocated ?? (typeof employee.leaveBalance?.annual === 'object' ? employee.leaveBalance?.annual?.allocated : null) ?? annualLimit;
+        const casualAllocated = balance?.casual?.allocated ?? (typeof employee.leaveBalance?.casual === 'object' ? employee.leaveBalance?.casual?.allocated : null) ?? casualLimit;
+        const sickAllocated = balance?.sick?.allocated ?? (typeof employee.leaveBalance?.sick === 'object' ? employee.leaveBalance?.sick?.allocated : null) ?? sickLimit;
+
+        const annualUsed = balance?.annual?.used ?? usage.annual;
+        const casualUsed = balance?.casual?.used ?? usage.casual;
+        const sickUsed = balance?.sick?.used ?? usage.sick;
+        const medicalUsed = balance?.medical?.used ?? usage.medical;
+
+        const annualRemaining = Math.max(0, annualAllocated - annualUsed);
+        const casualRemaining = Math.max(0, casualAllocated - casualUsed);
+        const sickRemaining = Math.max(0, sickAllocated - sickUsed);
+        const medicalRemaining = Math.max(0, sickAllocated - medicalUsed);
         
         return {
           ...employee,
           leaveBalance: {
             annual: { 
               allocated: annualAllocated, 
-              used: usage.annual, 
+              used: annualUsed, 
               remaining: annualRemaining, 
-              carriedForward: 0, 
-              advance: 0 
+              carriedForward: balance?.annual?.carriedForward || 0, 
+              advance: balance?.annual?.advance || 0 
             },
             casual: { 
               allocated: casualAllocated, 
-              used: usage.casual, 
+              used: casualUsed, 
               remaining: casualRemaining, 
-              carriedForward: 0, 
-              advance: 0 
+              carriedForward: balance?.casual?.carriedForward || 0, 
+              advance: balance?.casual?.advance || 0 
             },
             sick: { 
               allocated: sickAllocated, 
-              used: usage.sick, 
+              used: sickUsed, 
               remaining: sickRemaining, 
-              carriedForward: 0, 
-              advance: 0 
+              carriedForward: balance?.sick?.carriedForward || 0, 
+              advance: balance?.sick?.advance || 0 
             },
             medical: { 
               allocated: sickAllocated, 
-              used: usage.medical, 
+              used: medicalUsed, 
               remaining: medicalRemaining, 
               carriedForward: 0, 
               advance: 0 
