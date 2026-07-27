@@ -574,7 +574,8 @@ indentSchema.statics.generateIndentNumber = async function() {
     const matches = ind.indentNumber.match(/(\d+)(?:\D*)$/);
     if (matches && matches[1]) {
       const num = parseInt(matches[1], 10);
-      if (!isNaN(num) && num > maxNum) {
+      // Ignore timestamp-like numbers (> 100000000) that were created previously
+      if (!isNaN(num) && num < 100000000 && num > maxNum) {
         maxNum = num;
       }
     } else {
@@ -582,7 +583,7 @@ indentSchema.statics.generateIndentNumber = async function() {
       const digitsOnly = ind.indentNumber.replace(/[^0-9]/g, '');
       if (digitsOnly) {
         const num = parseInt(digitsOnly, 10);
-        if (!isNaN(num) && num > maxNum) {
+        if (!isNaN(num) && num < 100000000 && num > maxNum) {
           maxNum = num;
         }
       }
