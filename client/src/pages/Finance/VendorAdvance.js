@@ -543,16 +543,15 @@ const VendorAdvance = () => {
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-                        <Tooltip title="View all related documents (Indent, PO, CS, Quotations, GRN, Attachments)">
-                          <IconButton
-                            size="small"
-                            color="info"
-                            aria-label="View all related documents"
-                            onClick={() => handleViewPoDetails(row)}
-                          >
-                            <VisibilityIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="info"
+                          startIcon={<VisibilityIcon />}
+                          onClick={() => handleViewPoDetails(row)}
+                        >
+                          View Docs
+                        </Button>
                         <Tooltip title="Show related advance in history below">
                           <IconButton
                             size="small"
@@ -582,15 +581,6 @@ const VendorAdvance = () => {
                             </Button>
                           </span>
                         </Tooltip>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="info"
-                          startIcon={<VisibilityIcon />}
-                          onClick={() => handleViewPoDetails(row)}
-                        >
-                          View Docs
-                        </Button>
                       </Box>
                     </TableCell>
                   </TableRow>
@@ -1385,6 +1375,92 @@ const VendorAdvance = () => {
                         )}
                       </Box>
                     </Box>
+
+                    <Divider sx={{ my: 3 }} />
+
+                    {/* Approval Authorities Table */}
+                    <Typography variant="subtitle1" fontWeight={700} mb={1.5} sx={{ textAlign: 'center' }}>
+                      APPROVAL AUTHORITIES
+                    </Typography>
+                    <TableContainer component={Box} sx={{ border: '1px solid #ccc', mb: 2 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Authority</TableCell>
+                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Name</TableCell>
+                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Digital Signature</TableCell>
+                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Date & Time</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {(() => {
+                            const poData = viewDialog.po;
+                            const authorityText = poData.approvalAuthorities || {};
+                            const indent = poData.indent && typeof poData.indent === 'object' ? poData.indent : {};
+                            const csa = indent.comparativeStatementApprovals || {};
+                            const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
+                              ? indent.comparativeApproval.approvers
+                              : [];
+                            const stepByUserId = new Map(
+                              approvalSteps.map((step) => [String(step?.approver?._id || step?.approver || ''), step])
+                            );
+                            const personName = (userObj, fallback = '') => (
+                              [userObj?.firstName, userObj?.lastName].filter(Boolean).join(' ').trim() ||
+                              userObj?.email ||
+                              fallback ||
+                              '—'
+                            );
+                            const authorityRows = [
+                              { key: 'preparedBy', label: 'Prepared By', user: csa.preparedByUser, fallback: authorityText.preparedBy || csa.preparedBy || '' },
+                              { key: 'verifiedBy', label: 'Verified By (Procurement Committee)', user: csa.verifiedByUser, fallback: authorityText.verifiedBy || csa.verifiedBy || '' },
+                              { key: 'authorisedRep', label: 'Authorised Rep.', user: csa.authorisedRepUser, fallback: authorityText.authorisedRep || csa.authorisedRep || '' },
+                              { key: 'financeRep', label: 'Finance Rep.', user: csa.financeRepUser, fallback: authorityText.financeRep || csa.financeRep || '' },
+                              { key: 'managerProcurement', label: 'Manager Procurement', user: csa.managerProcurementUser, fallback: authorityText.managerProcurement || csa.managerProcurement || '' },
+                              { key: 'preAuditInitial', label: 'Initial Pre-Audit', user: poData.preAuditInitialApprovedBy, fallback: '' },
+                              { key: 'auditDirectorApproval', label: 'Audit Director', user: poData.auditApprovedBy, fallback: '' }
+                            ];
+                            const authorityApprovalByKey = new Map(
+                              (Array.isArray(poData.authorityApprovals) ? poData.authorityApprovals : [])
+                                .filter((entry) => entry?.authorityKey)
+                                .map((entry) => [String(entry.authorityKey), entry])
+                            );
+
+                            return authorityRows.map((row) => {
+                              const uid = String(row?.user?._id || row?.user || '');
+                              const step = uid ? stepByUserId.get(uid) : null;
+                              const authorityApproval = authorityApprovalByKey.get(String(row.key));
+                              const authorityUser = authorityApproval?.approver && typeof authorityApproval.approver === 'object'
+                                ? authorityApproval.approver
+                                : step?.approver && typeof step.approver === 'object'
+                                  ? step.approver
+                                  : row.user;
+                              const actionDate = authorityApproval?.approvedAt
+                                || step?.actedAt
+                                || (row.key === 'preAuditInitial' ? poData.preAuditInitialApprovedAt : null)
+                                || (row.key === 'auditDirectorApproval' ? poData.auditApprovedAt : null)
+                                || null;
+
+                              return (
+                                <TableRow key={row.key}>
+                                  <TableCell sx={{ border: '1px solid #ccc', fontWeight: 600 }}>{row.label}</TableCell>
+                                  <TableCell sx={{ border: '1px solid #ccc' }}>{personName(authorityUser, row.fallback)}</TableCell>
+                                  <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center' }}>
+                                    {authorityUser?.digitalSignature ? (
+                                      <DigitalSignatureImage userOrPath={authorityUser} alt={`${row.label} signature`} />
+                                    ) : (
+                                      <Typography variant="caption" color="text.secondary">—</Typography>
+                                    )}
+                                  </TableCell>
+                                  <TableCell sx={{ border: '1px solid #ccc' }}>
+                                    {actionDate ? formatDateForPrint(actionDate) : '—'}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            });
+                          })()}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
                   </Paper>
                 </Box>
               )}
