@@ -76,9 +76,6 @@ const IndentForm = () => {
   const [departmentOptions, setDepartmentOptions] = useState([]);
   const [companyOptions, setCompanyOptions] = useState([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
-  const [erpRefError, setErpRefError] = useState('');
-  const [erpRefChecking, setErpRefChecking] = useState(false);
-  const erpRefDebounceRef = useRef(null);
   const [indentNoError, setIndentNoError] = useState('');
   const [indentNoChecking, setIndentNoChecking] = useState(false);
   const indentNoDebounceRef = useRef(null);
@@ -92,7 +89,6 @@ const IndentForm = () => {
 
   const [formData, setFormData] = useState({
     title: '',
-    erpRef: '',
     date: dayjs().format('YYYY-MM-DD'),
     requiredDate: '',
     indentNumber: '',
@@ -230,7 +226,6 @@ const IndentForm = () => {
 
           setFormData({
             title: indent.title || '',
-            erpRef: indent.erpRef || '',
             date: indent.requestedDate ? dayjs(indent.requestedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
             requiredDate: indent.requiredDate ? dayjs(indent.requiredDate).format('YYYY-MM-DD') : '',
             indentNumber: indent.indentNumber || '',
@@ -272,15 +267,9 @@ const IndentForm = () => {
       hasRunCreateLoad.current = true;
 
       try {
-        const [indentResponse, erpRefResponse] = await Promise.all([
-          indentService.getNextIndentNumber(),
-          indentService.getNextERPRef()
-        ]);
+        const indentResponse = await indentService.getNextIndentNumber();
         if (indentResponse.data?.nextIndentNumber) {
           setFormData(prev => ({ ...prev, indentNumber: indentResponse.data.nextIndentNumber }));
-        }
-        if (erpRefResponse.data?.nextERPRef) {
-          setFormData(prev => ({ ...prev, erpRef: erpRefResponse.data.nextERPRef }));
         }
       } catch (err) {
         // If API fails, backend will generate on save
@@ -319,30 +308,6 @@ const IndentForm = () => {
         ...prev,
         [field]: value
       }));
-    }
-
-    if (field === 'erpRef') {
-      setErpRefError('');
-      if (erpRefDebounceRef.current) clearTimeout(erpRefDebounceRef.current);
-      const trimmed = String(value || '').trim();
-      if (!trimmed) return;
-      setErpRefChecking(true);
-      erpRefDebounceRef.current = setTimeout(async () => {
-        try {
-          const params = { value: trimmed };
-          if (isEdit && id) params.excludeId = id;
-          const res = await api.get('/indents/check-erpref', { params });
-          if (res.data?.exists) {
-            setErpRefError(`Already used by indent ${res.data.usedBy || '(another indent)'}. Choose a different ERP Ref.`);
-          } else {
-            setErpRefError('');
-          }
-        } catch {
-          // silently ignore network errors for this check
-        } finally {
-          setErpRefChecking(false);
-        }
-      }, 500);
     }
 
     if (field === 'indentNumber') {
@@ -620,7 +585,6 @@ const IndentForm = () => {
 
       const indentData = {
         title: formData.title.trim(),
-        erpRef: formData.erpRef?.trim() || undefined,
         requestedDate: formData.date,
         requiredDate: formData.requiredDate,
         department: formData.department,
@@ -751,26 +715,6 @@ const IndentForm = () => {
 
         {/* Reference Information */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <TextField
-              fullWidth
-              label="ERP Ref"
-              value={formData.erpRef}
-              onChange={(e) => handleChange('erpRef', e.target.value)}
-              size="small"
-              error={!!erpRefError}
-              helperText={
-                erpRefChecking
-                  ? 'Checking availability…'
-                  : erpRefError || 'Editable – must be unique'
-              }
-              InputProps={{
-                endAdornment: erpRefChecking ? (
-                  <CircularProgress size={14} sx={{ mr: 0.5 }} />
-                ) : undefined
-              }}
-            />
-          </Grid>
           <Grid item xs={12} sm={6} md={3}>
             <TextField
               fullWidth
@@ -1268,8 +1212,8 @@ const IndentForm = () => {
             variant="contained"
             startIcon={<SaveIcon />}
             onClick={() => handleSubmit(false)}
-            disabled={loading || !!erpRefError || erpRefChecking || !!indentNoError || indentNoChecking}
-            title={indentNoError || erpRefError || ''}
+            disabled={loading || !!indentNoError || indentNoChecking}
+            title={indentNoError || ''}
           >
             {loading ? 'Saving...' : isEdit ? 'Update' : 'Save Draft'}
           </Button>
@@ -1280,8 +1224,6 @@ const IndentForm = () => {
             onClick={() => handleSubmit(true)}
             disabled={
               loading ||
-              !!erpRefError ||
-              erpRefChecking ||
               !!indentNoError ||
               indentNoChecking ||
               (isEdit && indentMeta.status && indentMeta.status !== 'Draft')
@@ -1289,7 +1231,7 @@ const IndentForm = () => {
             title={
               isEdit && indentMeta.status && indentMeta.status !== 'Draft'
                 ? 'Only draft indents can be submitted from this form'
-                : indentNoError || erpRefError || ''
+                : indentNoError || ''
             }
           >
             {loading ? 'Submitting...' : 'Submit for Approval'}

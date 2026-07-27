@@ -560,19 +560,32 @@ indentSchema.pre('save', async function(next) {
   next();
 });
 
-// Generate indent number (last indent + 1 to ensure uniqueness)
+// Generate indent number (last indent + 1 to ensure sequential ordering)
 indentSchema.statics.generateIndentNumber = async function() {
-  // Find the true max numeric value - don't use string sort (e.g. "9" > "10" as strings)
   const indents = await this.find({ indentNumber: { $exists: true, $ne: '' } })
     .select('indentNumber')
     .lean();
 
   let maxNum = 0;
   for (const ind of indents) {
-    const numericPart = (ind.indentNumber || '').replace(/[^0-9]/g, '');
-    if (numericPart) {
-      const num = parseInt(numericPart, 10);
-      if (!isNaN(num) && num > maxNum) maxNum = num;
+    if (!ind.indentNumber) continue;
+    // Extract numbers from formats like "IND-2026-0012", "IND-15", "15", "PR #15"
+    // Match the last group of numbers in the string
+    const matches = ind.indentNumber.match(/(\d+)(?:\D*)$/);
+    if (matches && matches[1]) {
+      const num = parseInt(matches[1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    } else {
+      // Fallback: extract all digits
+      const digitsOnly = ind.indentNumber.replace(/[^0-9]/g, '');
+      if (digitsOnly) {
+        const num = parseInt(digitsOnly, 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
     }
   }
   return (maxNum + 1).toString();
