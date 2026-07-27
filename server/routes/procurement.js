@@ -322,7 +322,7 @@ const canManageProcurementAssignments = (user) => {
 
 const canConfigureProcurementAssignmentManagers = (user) => {
   if (!user) return false;
-  if (['super_admin', 'admin'].includes(user.role)) return true;
+  if (['super_admin', 'admin', 'developer'].includes(user.role)) return true;
   if (userHasRoleName(user, PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES)) return true;
   return false;
 };
@@ -1213,7 +1213,7 @@ router.put('/purchase-orders/:id/approve',
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
       isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
-    const isAdmin = ['super_admin', 'admin'].includes(req.user.role);
+    const isAdmin = ['super_admin', 'admin', 'developer'].includes(req.user.role);
     if (!isAdmin && !assignedAuthorityAccess) {
       return res.status(403).json({
         success: false,
@@ -1320,7 +1320,7 @@ router.put('/purchase-orders/:id/reject',
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
       isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
-    const isAdmin = ['super_admin', 'admin'].includes(req.user.role);
+    const isAdmin = ['super_admin', 'admin', 'developer'].includes(req.user.role);
     if (!isAdmin && !assignedAuthorityAccess) {
       return res.status(403).json({ success: false, message: 'Only assigned authority can reject this purchase order' });
     }
