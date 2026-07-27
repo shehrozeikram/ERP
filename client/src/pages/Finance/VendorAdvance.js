@@ -28,13 +28,33 @@ import {
 import PaymentsIcon from '@mui/icons-material/Payments';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import PrintIcon from '@mui/icons-material/Print';
+import CloseIcon from '@mui/icons-material/Close';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import Stack from '@mui/material/Stack';
+import { useTheme } from '@mui/material/styles';
 import { Link as RouterLink } from 'react-router-dom';
 import api from '../../services/api';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import { formatPKR } from '../../utils/currency';
 import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
+import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
+import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
+import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import toast from 'react-hot-toast';
+
+const formatDateForPrint = (date) => {
+  if (!date) return '—';
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
 /** Issuance column: “Advance issued” only after the linked voucher’s signed document is recorded. */
 function getVoucherIssuanceChip(a) {
@@ -80,6 +100,78 @@ const VendorAdvance = () => {
   const advanceHistorySectionRef = useRef(null);
   const [highlightPoId, setHighlightPoId] = useState(null);
   const { selectedCompanyId } = useFinanceCompany();
+  const theme = useTheme();
+
+  const [viewDialog, setViewDialog] = useState({
+    open: false,
+    po: null,
+    poQuotations: [],
+    poGrns: [],
+    poLinkedDocs: [],
+    poAuditTab: 0,
+    loading: false
+  });
+
+  const handleViewPoDetails = async (poRow) => {
+    setViewDialog({
+      open: true,
+      po: poRow,
+      poQuotations: [],
+      poGrns: [],
+      poLinkedDocs: [],
+      poAuditTab: 0,
+      loading: true
+    });
+
+    try {
+      const r = await api.get(`/procurement/purchase-orders/${poRow._id}`);
+      const d = r.data?.data || poRow;
+
+      const [qRes, grnRes] = await Promise.all([
+        d?.indent?._id
+          ? api.get(`/procurement/quotations/by-indent/${d.indent._id}`).catch(() => ({ data: { data: [] } }))
+          : Promise.resolve({ data: { data: [] } }),
+        api.get('/procurement/goods-receive', { params: { purchaseOrder: d._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
+      ]);
+
+      const poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+      const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
+      const poLinkedDocs = [];
+
+      const pushDocs = (items = [], source = 'Attachment') => {
+        items.forEach((item, idx) => {
+          const url = item?.url || '';
+          const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+          if (!name && !url) return;
+          poLinkedDocs.push({
+            id: item?._id || `${source}-${idx}`,
+            source,
+            name,
+            url,
+            uploadedAt: item?.uploadedAt || null,
+            mimeType: item?.mimeType || ''
+          });
+        });
+      };
+
+      pushDocs(d?.attachments, 'PO Attachment');
+      pushDocs(d?.indent?.attachments, 'Indent Attachment');
+      poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
+
+      setViewDialog({
+        open: true,
+        po: d,
+        poQuotations,
+        poGrns,
+        poLinkedDocs,
+        poAuditTab: 0,
+        loading: false
+      });
+    } catch (e) {
+      console.error('Error loading PO details:', e);
+      setViewDialog((prev) => ({ ...prev, loading: false }));
+    }
+  };
 
   useEffect(() => {
     setSelectedVendor(null);
@@ -451,6 +543,16 @@ const VendorAdvance = () => {
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                        <Tooltip title="View all related documents (Indent, PO, CS, Quotations, GRN, Attachments)">
+                          <IconButton
+                            size="small"
+                            color="info"
+                            aria-label="View all related documents"
+                            onClick={() => handleViewPoDetails(row)}
+                          >
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Show related advance in history below">
                           <IconButton
                             size="small"
@@ -480,6 +582,15 @@ const VendorAdvance = () => {
                             </Button>
                           </span>
                         </Tooltip>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="info"
+                          startIcon={<VisibilityIcon />}
+                          onClick={() => handleViewPoDetails(row)}
+                        >
+                          View Docs
+                        </Button>
                       </Box>
                     </TableCell>
                   </TableRow>
@@ -789,6 +900,376 @@ const VendorAdvance = () => {
           </TableContainer>
         )}
       </Box>
+
+      {/* Related PO Documents Dialog (Reusing existing Indent, PO, CS, Quotation, GRN & Attachment components) */}
+      <Dialog
+        open={viewDialog.open}
+        onClose={() => setViewDialog((prev) => ({ ...prev, open: false }))}
+        maxWidth={false}
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 0,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+            background: '#ffffff',
+            width: '90%',
+            maxWidth: '210mm',
+            maxHeight: '95vh',
+            '@media print': {
+              boxShadow: 'none',
+              maxWidth: '100%',
+              margin: 0,
+              height: '100%',
+              width: '100%',
+              maxHeight: '100%'
+            }
+          }
+        }}
+      >
+        <DialogTitle sx={{ p: 0, m: 0, '@media print': { display: 'none' } }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: '1px solid #e0e0e0' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
+              Purchase Order Documents ({viewDialog.po?.orderNumber || ''})
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={() => window.print()}
+                size="small"
+                sx={{ '@media print': { display: 'none' } }}
+              >
+                Print
+              </Button>
+              <IconButton
+                size="small"
+                onClick={() => setViewDialog((prev) => ({ ...prev, open: false }))}
+                sx={{ color: '#666', '@media print': { display: 'none' } }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, background: '#ffffff', overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
+          {viewDialog.loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : viewDialog.po ? (
+            <Box sx={{ p: 0, background: '#ffffff', fontFamily: 'Arial, sans-serif' }} className="print-content">
+              <Tabs
+                value={viewDialog.poAuditTab ?? 0}
+                onChange={(_, v) => setViewDialog((prev) => ({ ...prev, poAuditTab: v }))}
+                sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                variant="scrollable"
+                scrollButtons="auto"
+              >
+                <Tab label="Indent" />
+                <Tab label="Purchase Order" />
+                <Tab label="Comparative Statement" />
+                <Tab label={`Quotations (${viewDialog.poQuotations?.length || 0})`} />
+                <Tab label={viewDialog.poGrns?.length > 0 ? `GRN(s) (${viewDialog.poGrns.length})` : 'GRN(s)'} />
+                <Tab label={`Attached Documents (${viewDialog.poLinkedDocs?.length || 0})`} />
+              </Tabs>
+
+              {/* Tab 0: Indent */}
+              {viewDialog.poAuditTab === 0 && (
+                <Box sx={{ p: 2, overflowX: 'auto' }}>
+                  {!viewDialog.po?.indent ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                      No indent linked with this PO.
+                    </Typography>
+                  ) : (
+                    <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                      <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                        Purchase Request Form
+                      </Typography>
+                      {viewDialog.po.indent.title && (
+                        <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>
+                          {viewDialog.po.indent.title}
+                        </Typography>
+                      )}
+                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                        <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                        <Typography component="span" sx={{ ml: 1 }}>
+                          {viewDialog.po.indent.erpRef || 'PR #' + (viewDialog.po.indent.indentNumber?.split('-').pop() || '')}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        <Box>
+                          <Typography component="span" fontWeight={600}>Date:</Typography>
+                          <Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.po.indent.requestedDate)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography component="span" fontWeight={600}>Required Date:</Typography>
+                          <Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.po.indent.requiredDate) || '—'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography component="span" fontWeight={600}>Indent No.:</Typography>
+                          <Typography component="span" sx={{ ml: 1 }}>{viewDialog.po.indent.indentNumber || '—'}</Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        <Box>
+                          <Typography component="span" fontWeight={600}>Department:</Typography>
+                          <Typography component="span" sx={{ ml: 1 }}>{viewDialog.po.indent.department?.name || viewDialog.po.indent.department || '—'}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography component="span" fontWeight={600}>Originator:</Typography>
+                          <Typography component="span" sx={{ ml: 1 }}>
+                            {viewDialog.po.indent.requestedBy?.firstName && viewDialog.po.indent.requestedBy?.lastName
+                              ? `${viewDialog.po.indent.requestedBy.firstName} ${viewDialog.po.indent.requestedBy.lastName}`
+                              : viewDialog.po.indent.requestedBy?.name || '—'}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ mb: 3 }}>
+                        <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'grey.100' }}>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S#</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Item Name</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="center">Qty</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Purpose</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Est. Cost</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {(viewDialog.po.indent.items || []).map((item, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity ?? '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.purpose || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </Box>
+                      {viewDialog.po.indent.justification && (
+                        <Box sx={{ mb: 2 }}>
+                          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                            {viewDialog.po.indent.justification}
+                          </Typography>
+                        </Box>
+                      )}
+                      {Array.isArray(viewDialog.po.indent.approvalChain) && viewDialog.po.indent.approvalChain.length > 0 && (
+                        <Box sx={{ mt: 3 }}>
+                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                            Indent approval progress
+                          </Typography>
+                          <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
+                                <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.po.indent.approvalChain.map((step, idx) => {
+                                const approver = step.approver;
+                                const name =
+                                  [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                                  approver?.email ||
+                                  `Approver ${idx + 1}`;
+                                const status = step.status || 'pending';
+                                const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                                const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                                return (
+                                  <TableRow key={`${name}-${idx}`}>
+                                    <TableCell>{name}</TableCell>
+                                    <TableCell>
+                                      <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} />
+                                    </TableCell>
+                                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{step?.actedAt ? formatDateForPrint(step.actedAt) : '—'}</TableCell>
+                                    <TableCell align="center">
+                                      {status === 'approved' && approver?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                                      ) : status === 'approved' ? (
+                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </Box>
+                      )}
+                    </Paper>
+                  )}
+                </Box>
+              )}
+
+              {/* Tab 1: Purchase Order */}
+              {viewDialog.poAuditTab === 1 && (
+                <Box sx={{ p: 2 }}>
+                  <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 2 }}>
+                      Purchase Order #{viewDialog.po.orderNumber}
+                    </Typography>
+                    <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between' }}>
+                      <Box>
+                        <Typography variant="subtitle2"><b>Vendor:</b> {viewDialog.po.vendor?.name || '—'}</Typography>
+                        <Typography variant="subtitle2"><b>Order Date:</b> {formatDateForPrint(viewDialog.po.orderDate)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="subtitle2"><b>Payment Terms:</b> {viewDialog.po.paymentTerms || '—'}</Typography>
+                        <Typography variant="subtitle2"><b>Total Amount:</b> {formatPKR(viewDialog.po.totalAmount || 0)}</Typography>
+                      </Box>
+                    </Box>
+                    <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', mb: 2 }}>
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: 'grey.100' }}>
+                          <TableCell sx={{ fontWeight: 'bold' }}>S#</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Item Name</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Qty</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }} align="right">Unit Price</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }} align="right">Total</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(viewDialog.po.items || []).map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{idx + 1}</TableCell>
+                            <TableCell>{item.itemName || '—'}</TableCell>
+                            <TableCell>{item.quantity || 0}</TableCell>
+                            <TableCell align="right">{formatPKR(item.unitPrice || 0)}</TableCell>
+                            <TableCell align="right">{formatPKR(item.totalPrice || 0)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Paper>
+                </Box>
+              )}
+
+              {/* Tab 2: Comparative Statement */}
+              {viewDialog.poAuditTab === 2 && (
+                <Box sx={{ p: 2, overflowX: 'auto' }}>
+                  <ComparativeStatementView
+                    requisition={viewDialog.po?.indent}
+                    quotations={viewDialog.poQuotations || []}
+                    approvalAuthority={viewDialog.po?.indent?.comparativeStatementApprovals || {}}
+                    note={viewDialog.po?.indent?.notes ?? ''}
+                    readOnly
+                    formatNumber={(n) => Number(n || 0).toLocaleString()}
+                    loadingQuotations={false}
+                    showPrintButton={false}
+                  />
+                </Box>
+              )}
+
+              {/* Tab 3: Quotations */}
+              {viewDialog.poAuditTab === 3 && (
+                <Box sx={{ p: 2 }}>
+                  {(!viewDialog.poQuotations || viewDialog.poQuotations.length === 0) ? (
+                    <Typography color="text.secondary">No quotations linked with this PO.</Typography>
+                  ) : (
+                    <Stack spacing={4}>
+                      {viewDialog.poQuotations.map((q) => (
+                        <QuotationDetailView
+                          key={q._id}
+                          quotation={q}
+                          formatNumber={(n) => Number(n || 0).toLocaleString()}
+                          formatDateForPrint={formatDateForPrint}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              )}
+
+              {/* Tab 4: GRNs */}
+              {viewDialog.poAuditTab === 4 && (
+                <Box sx={{ p: 2 }}>
+                  {(!viewDialog.poGrns || viewDialog.poGrns.length === 0) ? (
+                    <Typography color="text.secondary">No GRN attached to this PO.</Typography>
+                  ) : (
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>#</TableCell>
+                            <TableCell>GRN No</TableCell>
+                            <TableCell>Date</TableCell>
+                            <TableCell>Supplier</TableCell>
+                            <TableCell align="right">Net Amount</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {viewDialog.poGrns.map((grn, idx) => (
+                            <TableRow key={grn._id || idx}>
+                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell>{grn.receiveNumber || grn._id}</TableCell>
+                              <TableCell>{formatDateForPrint(grn.receiveDate)}</TableCell>
+                              <TableCell>{grn.supplierName || grn.supplier?.name || '—'}</TableCell>
+                              <TableCell align="right">{formatPKR(grn.netAmount || grn.total || 0)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
+              )}
+
+              {/* Tab 5: Attached Documents */}
+              {viewDialog.poAuditTab === 5 && (
+                <Box sx={{ p: 2 }}>
+                  {(!viewDialog.poLinkedDocs || viewDialog.poLinkedDocs.length === 0) ? (
+                    <Typography color="text.secondary">No attached documents found.</Typography>
+                  ) : (
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>#</TableCell>
+                            <TableCell>Source</TableCell>
+                            <TableCell>Document</TableCell>
+                            <TableCell>Date</TableCell>
+                            <TableCell align="right">Action</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {viewDialog.poLinkedDocs.map((doc, idx) => (
+                            <TableRow key={doc.id || idx}>
+                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell>{doc.source || 'Attachment'}</TableCell>
+                              <TableCell>{doc.name || 'Document'}</TableCell>
+                              <TableCell>{doc.uploadedAt ? formatDateForPrint(doc.uploadedAt) : '—'}</TableCell>
+                              <TableCell align="right">
+                                {doc.url ? (
+                                  <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
+                                    Open
+                                  </Button>
+                                ) : '—'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
+              )}
+            </Box>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 };
