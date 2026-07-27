@@ -496,26 +496,24 @@ const indentSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Generate ERP Ref number (PR #1, PR #2, etc.)
 indentSchema.statics.generateERPRef = async function() {
-  // Find the highest ERP Ref number
-  const lastIndent = await this.findOne({
-    erpRef: { $exists: true, $ne: '' }
-  }).sort({ erpRef: -1 });
-  
-  let sequence = 1;
-  if (lastIndent && lastIndent.erpRef) {
-    // Extract numeric part from "PR #12" format
-    const match = lastIndent.erpRef.match(/#?(\d+)/);
+  const indents = await this.find({ erpRef: { $exists: true, $ne: '' } })
+    .select('erpRef')
+    .lean();
+
+  let maxNum = 0;
+  for (const ind of indents) {
+    if (!ind.erpRef) continue;
+    const match = ind.erpRef.match(/#?(\d+)/);
     if (match && match[1]) {
-      const lastNum = parseInt(match[1]);
-      if (!isNaN(lastNum)) {
-        sequence = lastNum + 1;
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
       }
     }
   }
-  
-  return `PR #${sequence}`;
+
+  return `PR #${maxNum + 1}`;
 };
 
 // Pre-save middleware to calculate total estimated cost and generate ERP Ref and Indent Number
