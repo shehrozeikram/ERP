@@ -32,6 +32,19 @@ const {
 
 const router = express.Router();
 
+// Migration endpoint to bulk update active employees EOBI amount to 407
+router.post('/update-eobi-407', asyncHandler(async (req, res) => {
+  const result = await Employee.updateMany(
+    { 'eobi.isActive': true },
+    { $set: { 'eobi.amount': 407 } }
+  );
+  return res.json({
+    success: true,
+    message: 'Active employee EOBI amounts updated to 407',
+    result
+  });
+}));
+
 // Configure multer for image uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
