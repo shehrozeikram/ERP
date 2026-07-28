@@ -174,6 +174,11 @@ const journalEntrySchema = new mongoose.Schema({
     default: 'not_signed'
   },
   signedDocumentAt: Date,
+  signedBySignatory: {
+    type: String,
+    trim: true,
+    default: null
+  },
   clearedAt: Date,
   clearanceRemarks: {
     type: String,

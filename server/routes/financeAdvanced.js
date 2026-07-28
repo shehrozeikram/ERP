@@ -757,7 +757,7 @@ router.put('/journal-entries/:id/clearance',
 router.put('/journal-entries/:id/signed-document',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { signedDocumentStatus = 'not_signed', signedDocumentAt } = req.body || {};
+    const { signedDocumentStatus = 'not_signed', signedDocumentAt, signedBySignatory } = req.body || {};
     if (!['signed', 'not_signed'].includes(signedDocumentStatus)) {
       return res.status(400).json({ success: false, message: 'Invalid signed document status' });
     }
@@ -776,10 +776,14 @@ router.put('/journal-entries/:id/signed-document',
     }
 
     entry.signedDocumentStatus = signedDocumentStatus;
+    if (signedBySignatory !== undefined) {
+      entry.signedBySignatory = signedBySignatory || null;
+    }
     if (signedDocumentStatus === 'signed') {
-      entry.signedDocumentAt = signedDocumentAt ? new Date(signedDocumentAt) : new Date();
+      entry.signedDocumentAt = signedDocumentAt ? new Date(signedDocumentAt) : (entry.signedDocumentAt || new Date());
     } else {
       entry.signedDocumentAt = null;
+      entry.signedBySignatory = null;
       entry.clearanceStatus = 'pending';
       entry.clearedAt = null;
       entry.clearedBy = null;
