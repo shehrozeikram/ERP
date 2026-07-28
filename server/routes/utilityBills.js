@@ -853,8 +853,8 @@ router.post('/:id/submit', permissions.checkSubRolePermission('admin', 'utility_
       return res.status(404).json({ success: false, message: 'Utility bill not found' });
     }
 
-    if (!['Draft', 'Rejected'].includes(bill.approvalStatus)) {
-      return res.status(400).json({ success: false, message: 'Only draft or rejected bills can be submitted' });
+    if (!['Draft', 'Submitted', 'Rejected'].includes(bill.approvalStatus)) {
+      return res.status(400).json({ success: false, message: 'Only draft, submitted, or rejected bills can be submitted' });
     }
 
     const fromBody = normalizeApproverIds(req.body?.approverIds);
