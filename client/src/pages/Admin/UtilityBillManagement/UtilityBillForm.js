@@ -710,6 +710,7 @@ const UtilityBillForm = () => {
     !isEdit ||
     loadedApprovalStatus == null ||
     loadedApprovalStatus === 'Draft' ||
+    loadedApprovalStatus === 'Submitted' ||
     loadedApprovalStatus === 'Rejected';
   const internalApprovalComplete = isEdit && loadedApprovalStatus === 'Approved';
 
@@ -843,7 +844,7 @@ const UtilityBillForm = () => {
       }
 
       const approverIds = [managerApproverId, hodApproverId].filter(Boolean);
-      if (!internalApprovalComplete) {
+      if (showSubmitForApproval) {
         submitData.append('draftApproverIds', JSON.stringify(approverIds));
       }
 
