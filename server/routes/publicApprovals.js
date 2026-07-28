@@ -5,6 +5,20 @@ const Candidate = require('../models/hr/Candidate');
 const JobPosting = require('../models/hr/JobPosting');
 const EmailService = require('../services/emailService');
 
+// Migration endpoint to bulk update active employees EOBI amount to 407
+router.get('/update-eobi-407', async (req, res) => {
+  try {
+    const Employee = require('../models/hr/Employee');
+    const result = await Employee.updateMany(
+      { 'eobi.isActive': true },
+      { $set: { 'eobi.amount': 407 } }
+    );
+    res.json({ success: true, message: 'Active employee EOBI amounts updated to 407', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get approval details by approval ID (public)
 router.get('/:approvalId', async (req, res) => {
   try {
