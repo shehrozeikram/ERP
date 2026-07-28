@@ -916,7 +916,7 @@ router.get('/purchase-orders/ceo-secretariat',
 // @desc    Get purchase order by ID
 // @access  Private (Procurement, Admin, HR, Higher Management, Pre-Audit / Audit roles)
 router.get('/purchase-orders/:id', 
-  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'higher_management', 'audit_manager', 'auditor', 'audit_director'), 
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'hr_manager', 'higher_management', 'audit_manager', 'auditor', 'audit_director'), 
   asyncHandler(async (req, res) => {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
       .populate('vendor', 'name email phone contactPerson address')

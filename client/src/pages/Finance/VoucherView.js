@@ -381,7 +381,13 @@ const VoucherView = () => {
             {(entry.lines || []).map((line, idx) => (
               <TableRow key={idx}>
                 <TableCell>
-                  {line?.account?.name || '—'}
+                  {(() => {
+                    const accName = line?.account?.name || '—';
+                    if (vendorAdvanceDoc?.vendor?.name && accName.toLowerCase().includes('advance to supplier')) {
+                      return `Advance to Supplier — ${vendorAdvanceDoc.vendor.name}`;
+                    }
+                    return accName;
+                  })()}
                   {line?.account?.accountNumber ? <Typography variant="caption" display="block">({line.account.accountNumber})</Typography> : null}
                 </TableCell>
                 <TableCell>{line.description || entry.description || '—'}</TableCell>

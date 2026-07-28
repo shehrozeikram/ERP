@@ -803,6 +803,7 @@ const VendorAdvance = () => {
                   <TableCell><b>Applied to bills</b></TableCell>
                   <TableCell align="right"><b>Remaining</b></TableCell>
                   <TableCell><b>Status</b></TableCell>
+                  <TableCell><b>Actions</b></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -872,6 +873,21 @@ const VendorAdvance = () => {
                         size="small"
                         color={a.status === 'applied' ? 'success' : a.status === 'partially_applied' ? 'info' : 'warning'}
                       />
+                    </TableCell>
+                    <TableCell>
+                      {a.referenceType === 'purchase_order' && a.referenceId ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="info"
+                          startIcon={<VisibilityIcon />}
+                          onClick={() => handleViewPoDetails({ _id: a.referenceId, orderNumber: a.linkedPoNumber })}
+                        >
+                          View Docs
+                        </Button>
+                      ) : (
+                        '—'
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

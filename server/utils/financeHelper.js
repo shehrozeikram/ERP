@@ -1001,7 +1001,7 @@ const FinanceHelper = {
 
     const linePayload = [
       { account: advAccount._id, description: `Advance to ${vendorName || 'Vendor'}`, debit: amount_, department },
-      { account: bankAccount._id, description: `Advance payment (${advance.reference})`, credit: amount_, department }
+      { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${advance.reference})`, credit: amount_, department }
     ];
 
     const journalEntry = await FinanceHelper.createDraftJournalEntry(
