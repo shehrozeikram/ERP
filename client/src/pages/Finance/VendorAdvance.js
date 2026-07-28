@@ -60,12 +60,12 @@ const formatDateForPrint = (date) => {
 /** Issuance column: “Advance issued” only after the linked voucher’s signed document is recorded. */
 function getVoucherIssuanceChip(a) {
   const wf = a.voucherWorkflowStatus || 'immediate';
-  if (wf === 'pending_authority') return { label: 'Pending signatures', color: 'warning' };
+  if (wf === 'pending_authority') return { label: 'Pending Signatures', color: 'warning' };
   if (wf === 'rejected') return { label: 'Rejected', color: 'error' };
   const signedOk = a.voucherSignedDocumentStatus === 'signed' && Boolean(a.voucherSignedDocumentAt);
-  if (signedOk) return { label: 'Advance issued', color: 'success' };
+  if (signedOk) return { label: 'Advance Issued', color: 'success' };
   if (wf === 'fully_approved' || wf === 'immediate') {
-    return { label: 'Posted — sign voucher', color: 'info' };
+    return { label: 'Posted — Sign Voucher', color: 'info' };
   }
   return { label: 'Posted', color: 'success' };
 }
@@ -300,15 +300,11 @@ const VendorAdvance = () => {
   }, [selectedVendor, loadPosForVendor]);
 
   const loadAdvancesForVendor = useCallback(async (vendorId) => {
-    if (!vendorId) {
-      setAdvances([]);
-      return;
-    }
     setLoadingAdvances(true);
     try {
-      const res = await api.get('/finance/accounts-payable/vendor-advances', {
-        params: { vendorId, limit: 50, page: 1, companyId: selectedCompanyId }
-      });
+      const params = { limit: 100, page: 1, companyId: selectedCompanyId };
+      if (vendorId) params.vendorId = vendorId;
+      const res = await api.get('/finance/accounts-payable/vendor-advances', { params });
       const list = res.data?.data?.advances || [];
       setAdvances(Array.isArray(list) ? list : []);
     } catch (e) {
@@ -320,11 +316,7 @@ const VendorAdvance = () => {
   }, [selectedCompanyId]);
 
   useEffect(() => {
-    if (selectedVendor?._id) {
-      loadAdvancesForVendor(selectedVendor._id);
-    } else {
-      setAdvances([]);
-    }
+    loadAdvancesForVendor(selectedVendor?._id || null);
   }, [selectedVendor, loadAdvancesForVendor]);
 
   useEffect(() => {
@@ -785,18 +777,14 @@ const VendorAdvance = () => {
           Advance history (partial payments)
         </Typography>
 
-        {!selectedVendor?._id ? (
-          <Typography variant="body2" color="text.secondary">
-            Select a vendor to view advance records.
-          </Typography>
-        ) : loadingAdvances ? (
+        {loadingAdvances ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <CircularProgress size={18} />
             <Typography variant="body2" color="text.secondary">Loading advances…</Typography>
           </Box>
         ) : advances.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            No vendor advances found for this vendor.
+            {selectedVendor?._id ? 'No vendor advances found for this vendor.' : 'No vendor advances recorded yet.'}
           </Typography>
         ) : (
           <TableContainer component={Paper} variant="outlined">
@@ -804,6 +792,7 @@ const VendorAdvance = () => {
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell><b>Reference</b></TableCell>
+                  <TableCell><b>Vendor</b></TableCell>
                   <TableCell><b>Payment date</b></TableCell>
                   <TableCell><b>Pay from account</b></TableCell>
                   <TableCell><b>Linked PO</b></TableCell>
@@ -834,6 +823,7 @@ const VendorAdvance = () => {
                     }
                   >
                     <TableCell>{a.reference || a._id}</TableCell>
+                    <TableCell>{a.vendor?.name || '—'}</TableCell>
                     <TableCell>
                       {a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : '—'}
                     </TableCell>
@@ -878,7 +868,7 @@ const VendorAdvance = () => {
                     <TableCell align="right">{formatPKR(a.remainingAmount || 0)}</TableCell>
                     <TableCell>
                       <Chip
-                        label={String(a.status || 'open').replaceAll('_', ' ')}
+                        label={String(a.status || 'open').replaceAll('_', ' ').toUpperCase()}
                         size="small"
                         color={a.status === 'applied' ? 'success' : a.status === 'partially_applied' ? 'info' : 'warning'}
                       />

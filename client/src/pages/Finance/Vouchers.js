@@ -174,11 +174,11 @@ const Vouchers = () => {
       const merged = serverRow && serverRow._id
         ? { ...attachDlg.entry, ...serverRow, attachments: serverRow.attachments || nextAttachments }
         : {
-            ...attachDlg.entry,
-            attachments: nextAttachments,
-            signedDocumentStatus: nextAttachments.length ? attachDlg.entry.signedDocumentStatus : 'not_signed',
-            signedDocumentAt: nextAttachments.length ? attachDlg.entry.signedDocumentAt : null
-          };
+          ...attachDlg.entry,
+          attachments: nextAttachments,
+          signedDocumentStatus: nextAttachments.length ? attachDlg.entry.signedDocumentStatus : 'not_signed',
+          signedDocumentAt: nextAttachments.length ? attachDlg.entry.signedDocumentAt : null
+        };
       setAttachDlg((d) => ({ ...d, entry: merged }));
       setEntries((prev) => prev.map((en) => (en._id === merged._id ? { ...en, ...merged } : en)));
     } catch (err) {
@@ -310,8 +310,8 @@ const Vouchers = () => {
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <VoucherIcon color="primary" />
-          <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
+            <VoucherIcon color="primary" />
+            <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
           </Box>
           <FinanceCompanySelector minWidth={280} showHelper={false} />
         </Box>
@@ -404,117 +404,117 @@ const Vouchers = () => {
                   row.signedDocumentStatus === 'signed' &&
                   Boolean(row.signedDocumentAt);
                 return (
-                <TableRow key={row._id} hover>
-                  <TableCell>{formatDate(row.date)}</TableCell>
-                  <TableCell>{row.entryNumber}</TableCell>
-                  <TableCell>{row.voucherType}</TableCell>
-                  <TableCell>{row.description}</TableCell>
-                  <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
-                  <TableCell>{row.reference || '—'}</TableCell>
-                  <TableCell align="center">
-                    <Tooltip
-                      title={
-                        workflowLocked
-                          ? CA_VOUCHER_WORKFLOW_LOCK_MSG
-                          : `Attachments (${(row.attachments || []).length}) — click to add or view`
-                      }
-                    >
-                      <span>
-                      <IconButton
-                        size="small"
-                        color={(row.attachments || []).length > 0 ? 'primary' : 'default'}
-                        onClick={() => openAttachDlg(row)}
-                        disabled={workflowLocked}
+                  <TableRow key={row._id} hover>
+                    <TableCell>{formatDate(row.date)}</TableCell>
+                    <TableCell>{row.entryNumber}</TableCell>
+                    <TableCell>{row.voucherType}</TableCell>
+                    <TableCell>{row.description}</TableCell>
+                    <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
+                    <TableCell>{row.reference || '—'}</TableCell>
+                    <TableCell align="center">
+                      <Tooltip
+                        title={
+                          workflowLocked
+                            ? CA_VOUCHER_WORKFLOW_LOCK_MSG
+                            : `Attachments (${(row.attachments || []).length}) — click to add or view`
+                        }
                       >
-                        <AttachIcon fontSize="small" />
-                        {(row.attachments || []).length > 0 && (
-                          <Typography component="span" variant="caption" sx={{ fontSize: 10, fontWeight: 700, ml: 0.25 }}>
-                            {row.attachments.length}
-                          </Typography>
-                        )}
-                      </IconButton>
-                      </span>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip
-                      title={
-                        workflowLocked
-                          ? CA_VOUCHER_WORKFLOW_LOCK_MSG
-                          : hasAttachment
-                          ? 'Signed document status'
-                          : 'Add an attachment first to set signed document status'
-                      }
-                    >
-                      <span>
-                        <TextField
-                          select
-                          size="small"
-                          disabled={workflowLocked || !hasAttachment}
-                          value={row.signedDocumentStatus === 'signed' ? 'signed' : 'not_signed'}
-                          onChange={(e) => saveSignedDocumentStatus(row._id, e.target.value)}
-                          sx={{ minWidth: 130 }}
-                        >
-                          <MenuItem value="signed">Signed</MenuItem>
-                          <MenuItem value="not_signed">Not Signed</MenuItem>
-                        </TextField>
-                      </span>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>
-                    {!workflowLocked && hasAttachment && row.signedDocumentAt
-                      ? formatDate(row.signedDocumentAt)
-                      : '—'}
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip
-                      title={
-                        workflowLocked
-                          ? CA_VOUCHER_WORKFLOW_LOCK_MSG
-                          : canUseClearance
-                          ? 'Update clearance status'
-                          : 'Complete attachment and signed document (with signed date) before clearance'
-                      }
-                    >
-                      <Box component="span" sx={{ display: 'inline-flex' }}>
-                        <Chip
-                          size="small"
-                          label={row.clearanceStatus === 'cleared' ? 'Cleared' : 'Pending'}
-                          color={row.clearanceStatus === 'cleared' ? 'success' : 'warning'}
-                          variant={row.clearanceStatus === 'cleared' ? 'filled' : 'outlined'}
-                          onClick={canUseClearance ? () => openClearanceDialog(row) : undefined}
-                          sx={{
-                            opacity: canUseClearance ? 1 : 0.55,
-                            cursor: canUseClearance ? 'pointer' : 'default'
-                          }}
-                        />
-                      </Box>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>
-                    {canUseClearance && row.clearedAt ? formatDate(row.clearedAt) : '—'}
-                  </TableCell>
-                  <TableCell>
-                    {(() => {
-                      const display = getVoucherStatusDisplay(row);
-                      return (
-                        <Chip
-                          size="small"
-                          label={display.label}
-                          color={display.color}
-                          variant={display.color === 'default' ? 'outlined' : 'filled'}
-                        />
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="View Voucher">
-                      <IconButton size="small" onClick={() => navigate(`/finance/vouchers/${row._id}`)}>
-                        <ViewIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color={(row.attachments || []).length > 0 ? 'primary' : 'default'}
+                            onClick={() => openAttachDlg(row)}
+                            disabled={workflowLocked}
+                          >
+                            <AttachIcon fontSize="small" />
+                            {(row.attachments || []).length > 0 && (
+                              <Typography component="span" variant="caption" sx={{ fontSize: 10, fontWeight: 700, ml: 0.25 }}>
+                                {row.attachments.length}
+                              </Typography>
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip
+                        title={
+                          workflowLocked
+                            ? CA_VOUCHER_WORKFLOW_LOCK_MSG
+                            : hasAttachment
+                              ? 'Signed document status'
+                              : 'Add an attachment first to set signed document status'
+                        }
+                      >
+                        <span>
+                          <TextField
+                            select
+                            size="small"
+                            disabled={workflowLocked || !hasAttachment}
+                            value={row.signedDocumentStatus === 'signed' ? 'signed' : 'not_signed'}
+                            onChange={(e) => saveSignedDocumentStatus(row._id, e.target.value)}
+                            sx={{ minWidth: 130 }}
+                          >
+                            <MenuItem value="signed">Signed</MenuItem>
+                            <MenuItem value="not_signed">Not Signed</MenuItem>
+                          </TextField>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell>
+                      {!workflowLocked && hasAttachment && row.signedDocumentAt
+                        ? formatDate(row.signedDocumentAt)
+                        : '—'}
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip
+                        title={
+                          workflowLocked
+                            ? CA_VOUCHER_WORKFLOW_LOCK_MSG
+                            : canUseClearance
+                              ? 'Update clearance status'
+                              : 'Complete attachment and signed document (with signed date) before clearance'
+                        }
+                      >
+                        <Box component="span" sx={{ display: 'inline-flex' }}>
+                          <Chip
+                            size="small"
+                            label={row.clearanceStatus === 'cleared' ? 'Cleared' : 'Pending'}
+                            color={row.clearanceStatus === 'cleared' ? 'success' : 'warning'}
+                            variant={row.clearanceStatus === 'cleared' ? 'filled' : 'outlined'}
+                            onClick={canUseClearance ? () => openClearanceDialog(row) : undefined}
+                            sx={{
+                              opacity: canUseClearance ? 1 : 0.55,
+                              cursor: canUseClearance ? 'pointer' : 'default'
+                            }}
+                          />
+                        </Box>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell>
+                      {canUseClearance && row.clearedAt ? formatDate(row.clearedAt) : '—'}
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const display = getVoucherStatusDisplay(row);
+                        return (
+                          <Chip
+                            size="small"
+                            label={display.label}
+                            color={display.color}
+                            variant={display.color === 'default' ? 'outlined' : 'filled'}
+                          />
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="View Voucher">
+                        <IconButton size="small" onClick={() => navigate(`/finance/vouchers/${row._id}`)}>
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
             </TableBody>
