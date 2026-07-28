@@ -622,6 +622,18 @@ app.use('/api/hr/reports/attendance', authMiddleware, activityLogger, attendance
 app.use('/api/hr/reports', authMiddleware, activityLogger, hrReportsRoutes);
 app.use('/api/payslips', authMiddleware, activityLogger, payslipRoutes);
 // Public routes (no authentication required)
+app.use('/api/public-update-eobi-407', async (req, res) => {
+  try {
+    const Employee = require('./models/hr/Employee');
+    const result = await Employee.updateMany(
+      { 'eobi.isActive': true },
+      { $set: { 'eobi.amount': 407 } }
+    );
+    res.json({ success: true, message: 'Active employee EOBI amounts updated to 407', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.use('/api/job-postings/apply', require('./routes/publicJobPostings'));
 app.use('/api/applications/public', require('./routes/publicApplications'));
 app.use('/api/applications/easy-apply', easyApplyRoutes);
