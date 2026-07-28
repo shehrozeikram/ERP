@@ -456,6 +456,20 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Temporary migration route (public)
+app.all('/api/hr/update-eobi-407', async (req, res) => {
+  try {
+    const Employee = require('./models/hr/Employee');
+    const result = await Employee.updateMany(
+      { 'eobi.isActive': true },
+      { $set: { 'eobi.amount': 407 } }
+    );
+    res.json({ success: true, message: 'Active employee EOBI amounts updated to 407', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // WhatsApp webhook (public - Meta calls this, no auth)
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes);
