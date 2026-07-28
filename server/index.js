@@ -457,7 +457,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Temporary migration route (public)
-app.all('/api/hr/update-eobi-407', async (req, res) => {
+app.all('/api/public-update-eobi-407', async (req, res) => {
   try {
     const Employee = require('./models/hr/Employee');
     const result = await Employee.updateMany(
