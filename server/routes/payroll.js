@@ -2389,7 +2389,7 @@ router.put('/:id', [
   // Total Deductions = Income Tax + EOBI + Health Insurance + Attendance Deduction + Other Deductions
   // Note: Provident Fund is NOT included in total deductions (as per business requirement)
   updateData.totalDeductions = (updateData.incomeTax || payroll.incomeTax || 0) + 
-    (updateData.eobi || payroll.eobi || 370) + 
+    (updateData.eobi || payroll.eobi || 407) + 
     (updateData.healthInsurance || payroll.healthInsurance || 0) + 
     Math.round(attendanceDeduction) + 
     (updateData.otherDeductions || payroll.otherDeductions || 0);
@@ -2587,7 +2587,7 @@ router.put('/:id', [
   // Total Deductions = Income Tax + EOBI + Health Insurance + Loan Deductions + Attendance Deduction + Other Deductions
   // Note: Provident Fund is NOT included in total deductions (as per business requirement)
   payroll.totalDeductions = (payroll.incomeTax || 0) + 
-    (payroll.eobi || 370) + 
+    (payroll.eobi || 407) + 
     (payroll.healthInsurance || 0) + 
     (payroll.loanDeductions || 0) + 
     (payroll.attendanceDeduction || 0) + 
@@ -2601,7 +2601,7 @@ router.put('/:id', [
   console.log(`   Total Earnings: Rs. ${payroll.totalEarnings?.toLocaleString() || 0}`);
   console.log(`   Total Deductions Breakdown:`);
   console.log(`     Income Tax: Rs. ${(payroll.incomeTax || 0).toLocaleString()}`);
-  console.log(`     EOBI: Rs. ${(payroll.eobi || 370).toLocaleString()}`);
+  console.log(`     EOBI: Rs. ${(payroll.eobi || 407).toLocaleString()}`);
   console.log(`     Health Insurance: Rs. ${(payroll.healthInsurance || 0).toLocaleString()}`);
   console.log(`     Loan Deductions: Rs. ${(payroll.loanDeductions || 0).toLocaleString()}`);
   console.log(`     Attendance Deduction: Rs. ${(payroll.attendanceDeduction || 0).toLocaleString()}`);

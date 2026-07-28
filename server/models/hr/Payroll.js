@@ -584,8 +584,8 @@ payrollSchema.pre('save', function(next) {
     this.providentFund = Math.round((this.basicSalary * 8.34) / 100);
   }
   
-  // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
-  this.eobi = 370;
+  // EOBI is set to 407 PKR for employees with active EOBI (Pakistan EOBI fixed amount)
+  this.eobi = 407;
   
   // Auto-calculate core salary components if not provided
   if (!this.medicalAllowance && this.allowances?.medical?.isActive) {

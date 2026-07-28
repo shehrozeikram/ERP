@@ -281,7 +281,7 @@ const getEmployeeEobiDeduction = (employee) => {
   if (!employee?.eobi?.isActive) return 0;
   const amount = Number(employee.eobi.amount);
   if (Number.isFinite(amount) && amount > 0) return Math.round(amount);
-  return 370;
+  return 407;
 };
 
 /**

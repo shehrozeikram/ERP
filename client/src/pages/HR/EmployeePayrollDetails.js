@@ -125,8 +125,10 @@ const EmployeePayrollDetails = () => {
       .reduce((total, loan) => total + (loan.monthlyInstallment || 0), 0);
   };
 
-  // Helper function to calculate advance leave deduction
+  // Helper function to calculate advance leave deduction (DISABLED FOR NOW - RETURNS 0)
   const calculateAdvanceLeaveDeduction = () => {
+    return 0;
+    /*
     if (!leaveBalance || !leaveBalance.balance) return 0;
 
     const totalAdvanceLeaves = leaveBalance.balance.totalAdvanceLeaves || 0;
@@ -134,6 +136,7 @@ const EmployeePayrollDetails = () => {
 
     const dailyRate = currentPayroll.dailyRate || (employee?.salary?.basic ? employee.salary.basic / 26 : 0);
     return totalAdvanceLeaves * dailyRate;
+    */
   };
 
   // Helper function to calculate total deductions including loans and advance leaves

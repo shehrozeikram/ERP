@@ -1481,7 +1481,7 @@ employeeSchema.pre('save', async function (next) {
     if (!this.eobi?.isActive) {
       this.eobi.amount = 0;
     } else if (!this.eobi.amount || this.eobi.amount <= 0) {
-      this.eobi.amount = 370;
+      this.eobi.amount = 407;
       this.eobi.percentage = this.eobi.percentage || 1;
     }
 
@@ -1587,7 +1587,7 @@ employeeSchema.pre('save', async function (next) {
     if (!this.eobi?.isActive) {
       this.eobi.amount = 0;
     } else if (!this.eobi.amount || this.eobi.amount <= 0) {
-      this.eobi.amount = 370;
+      this.eobi.amount = 407;
       this.eobi.percentage = this.eobi.percentage || 1;
     }
   }

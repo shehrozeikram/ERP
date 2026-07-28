@@ -4120,7 +4120,7 @@ const EmployeeForm = () => {
                       checked={formik.values.eobi?.isActive || false}
                       onChange={(e) => {
                         formik.setFieldValue('eobi.isActive', e.target.checked);
-                        if (e.target.checked) formik.setFieldValue('eobi.amount', 370);
+                        if (e.target.checked) formik.setFieldValue('eobi.amount', 407);
                         else formik.setFieldValue('eobi.amount', 0);
                       }}
                       name="eobi.isActive"
@@ -4129,7 +4129,7 @@ const EmployeeForm = () => {
                   label="EOBI Active"
                 />
                 <FormHelperText>
-                  Employees' Old-Age Benefits Institution (6% of basic salary)
+                  Employees' Old-Age Benefits Institution
                 </FormHelperText>
               </FormControl>
             </Grid>
@@ -4140,13 +4140,13 @@ const EmployeeForm = () => {
                   name="eobi.amount"
                   label="EOBI Amount"
                   type="number"
-                  value={formik.values.eobi?.amount || 370}
+                  value={formik.values.eobi?.amount || 407}
                   onChange={formik.handleChange}
                   InputProps={{
                     readOnly: true,
                     startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                   }}
-                  helperText="Fixed amount: Rs 370 (1% of minimum wage)"
+                  helperText="Fixed amount: Rs 407 (1% of minimum wage)"
                 />
               </Grid>
             )}
@@ -4362,10 +4362,10 @@ const EmployeeForm = () => {
                     <>
                       <Divider sx={{ my: 1 }} />
                       <Typography variant="body2" color="error">
-                        <strong>EOBI Deduction:</strong> {formatPKR(formik.values.eobi?.amount || 370)}
+                        <strong>EOBI Deduction:</strong> {formatPKR(formik.values.eobi?.amount || 407)}
                       </Typography>
                       <Typography variant="body2" color="textSecondary">
-                        Fixed amount: Rs 370 (1% of minimum wage)
+                        Fixed amount: Rs 407 (1% of minimum wage)
                       </Typography>
                     </>
                   )}

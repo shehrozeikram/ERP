@@ -106,7 +106,7 @@ export const calculateTotalDeductions = (payroll, calculatedTax = 0) => {
   const totalDeductions = taxAmount + 
          (payroll.healthInsurance || 0) + 
          (payroll.loanDeductions || 0) +
-         (payroll.eobi || 370) + 
+         (payroll.eobi || 407) + 
          (payroll.attendanceDeduction || 0) + 
          (payroll.leaveDeductionAmount || 0) + // Include leave deduction amount
          (payroll.otherDeductions || 0);
@@ -115,7 +115,7 @@ export const calculateTotalDeductions = (payroll, calculatedTax = 0) => {
   console.log(`   Income Tax: Rs ${taxAmount}`);
   console.log(`   Health Insurance: Rs ${payroll.healthInsurance || 0}`);
   console.log(`   Loan Deductions: Rs ${payroll.loanDeductions || 0}`);
-  console.log(`   EOBI: Rs ${payroll.eobi || 370}`);
+  console.log(`   EOBI: Rs ${payroll.eobi || 407}`);
   console.log(`   Attendance Deduction: Rs ${payroll.attendanceDeduction || 0}`);
   console.log(`   Leave Deduction: Rs ${payroll.leaveDeductionAmount || 0}`);
   console.log(`   Other Deductions: Rs ${payroll.otherDeductions || 0}`);

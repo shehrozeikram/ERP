@@ -4134,30 +4134,146 @@ router.get('/reports/bank-reconciliation',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { accountId, asOfDate } = req.query;
-    const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    let asOf = new Date();
+    if (asOfDate) {
+      asOf = new Date(asOfDate);
+      asOf.setHours(23, 59, 59, 999);
+    }
     const { q, jeMatch } = await financeScope(req);
     const mongoose = require('mongoose');
 
+    // 1. Fetch Chart of Accounts Bank/Cash Accounts
+    let accountFilter;
+    if (accountId) {
+      accountFilter = { _id: accountId };
+    } else {
+      accountFilter = q({
+        $or: [
+          { type: 'Asset' },
+          { category: { $regex: /cash|bank/i } },
+          { detailType: { $regex: /cash|bank/i } },
+          { accountCode: 'BANK' },
+          { accountCode: 'CASH' }
+        ]
+      });
+    }
+
+    const coaBankAccounts = await Account.find(accountFilter).sort({ accountNumber: 1 });
+    const bankAccountIds = coaBankAccounts.map((a) => a._id);
+
+    // 2. Fetch General Ledger & Journal Entries for selected/all Bank accounts up to asOf date
     const glMatch = jeMatch({ date: { $lte: asOf } });
-    if (accountId) glMatch.account = new mongoose.Types.ObjectId(accountId);
+    if (accountId) {
+      glMatch.account = new mongoose.Types.ObjectId(accountId);
+    } else if (bankAccountIds.length > 0) {
+      glMatch.account = { $in: bankAccountIds };
+    }
 
-    const glRows = await GeneralLedger.aggregate([
-      { $match: glMatch },
-      { $group: { _id: '$account', totalDebit: { $sum: '$debit' }, totalCredit: { $sum: '$credit' } } }
-    ]);
-    const glBalance = glRows.reduce((s, r) => s + r.totalDebit - r.totalCredit, 0);
+    const glEntries = await GeneralLedger.find(glMatch)
+      .populate('account', 'name accountNumber category detailType')
+      .populate({
+        path: 'journalEntry',
+        select: 'status isReconciled reconciledAt signedDocumentStatus entryNumber reference'
+      })
+      .sort({ date: 1 })
+      .lean();
 
-    const filter = q({ date: { $lte: asOf } });
-    if (accountId) filter._id = accountId;
-    const bankTxns = await Banking.find(filter).sort({ date: 1 });
-    const bankBalance = bankTxns.reduce((s, t) => {
-      if (t.type === 'credit') return s + (t.amount || 0);
-      return s - (t.amount || 0);
-    }, 0);
+    const postedGlEntries = glEntries.filter((e) => e.status !== 'cancelled' && e.status !== 'reversed');
+    const glBalance = postedGlEntries.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
 
-    const unreconciled = bankTxns.filter(t => !t.isReconciled);
+    // Also fetch Journal Entries with line account matching bank accounts (includes pending/draft Vendor Advance vouchers)
+    const jeMatchFilter = jeMatch({
+      date: { $lte: asOf },
+      status: { $ne: 'cancelled' },
+      'lines.account': accountId ? new mongoose.Types.ObjectId(accountId) : { $in: bankAccountIds }
+    });
+    const journalEntries = await JournalEntry.find(jeMatchFilter)
+      .populate('lines.account', 'name accountNumber category detailType')
+      .sort({ date: 1 })
+      .lean();
+
+    // 3. Check Banking collection transactions
+    const bankingFilter = q({});
+    if (accountId) bankingFilter._id = accountId;
+    const bankingDocs = await Banking.find(bankingFilter).sort({ accountName: 1 });
+
+    let allTxns = [];
+
+    if (bankingDocs.length > 0) {
+      bankingDocs.forEach((acc) => {
+        const txns = Array.isArray(acc.transactions) ? acc.transactions : [];
+        txns.forEach((t) => {
+          const tDate = t.transactionDate || t.date;
+          if (tDate && new Date(tDate) <= asOf) {
+            allTxns.push({
+              _id: t._id,
+              date: tDate,
+              description: t.description || acc.accountName,
+              reference: t.reference || acc.accountNumber,
+              type: t.transactionType || 'debit',
+              amount: t.amount || 0,
+              isReconciled: Boolean(t.isReconciled),
+              accountName: acc.accountName,
+              bankName: acc.bankName
+            });
+          }
+        });
+      });
+    }
+
+    // Fallback: Map General Ledger & Journal Entry bank lines if Banking model has no standalone rows
+    if (allTxns.length === 0) {
+      const seenJeIds = new Set();
+      postedGlEntries.forEach((gle) => {
+        const isCredit = (Number(gle.credit) || 0) > 0;
+        const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
+        const je = gle.journalEntry || {};
+        if (je._id) seenJeIds.add(String(je._id));
+        allTxns.push({
+          _id: gle._id,
+          date: gle.date,
+          description: gle.description || gle.account?.name || 'Bank Transaction',
+          reference: gle.reference || gle.entryNumber || '—',
+          type: isCredit ? 'credit' : 'debit',
+          amount: amt,
+          isReconciled: Boolean(je.isReconciled || gle.isReconciled),
+          accountName: gle.account?.name || 'Bank Account',
+          bankName: gle.account?.accountNumber || 'GL'
+        });
+      });
+
+      // Include draft/pending vendor advance BPV journal entries if not yet in GL
+      journalEntries.forEach((je) => {
+        if (seenJeIds.has(String(je._id))) return;
+        (je.lines || []).forEach((line) => {
+          const accId = String(line.account?._id || line.account || '');
+          const isTargetBank = accountId ? accId === String(accountId) : bankAccountIds.some((bId) => String(bId) === accId);
+          if (isTargetBank) {
+            const isCredit = (Number(line.credit) || 0) > 0;
+            const amt = isCredit ? Number(line.credit) : Number(line.debit);
+            allTxns.push({
+              _id: `${je._id}-${accId}`,
+              date: je.date,
+              description: line.description || je.description || 'Vendor Advance / Bank Voucher',
+              reference: je.reference || je.entryNumber || '—',
+              type: isCredit ? 'credit' : 'debit',
+              amount: amt,
+              isReconciled: Boolean(je.isReconciled),
+              accountName: line.account?.name || 'Bank Account',
+              bankName: line.account?.accountNumber || 'BPV'
+            });
+          }
+        });
+      });
+    }
+
+    const bankStatementBalance = bankingDocs.length > 0
+      ? bankingDocs.reduce((s, acc) => s + (acc.currentBalance || 0), 0)
+      : glBalance;
+
+    const unreconciled = allTxns.filter((t) => !t.isReconciled);
     const unreconciledTotal = unreconciled.reduce((s, t) => {
-      if (t.type === 'credit') return s + (t.amount || 0);
+      if (t.type === 'deposit' || t.type === 'transfer_in' || t.type === 'credit') return s + (t.amount || 0);
       return s - (t.amount || 0);
     }, 0);
 
@@ -4165,12 +4281,18 @@ router.get('/reports/bank-reconciliation',
       success: true,
       data: {
         asOfDate: asOf,
-        glBalance:          Math.round(glBalance * 100) / 100,
-        bankStatementBalance: Math.round(bankBalance * 100) / 100,
-        difference:         Math.round((glBalance - bankBalance) * 100) / 100,
-        unreconciledCount:  unreconciled.length,
-        unreconciledTotal:  Math.round(unreconciledTotal * 100) / 100,
-        transactions:       bankTxns
+        glBalance: Math.round(glBalance * 100) / 100,
+        bankStatementBalance: Math.round(bankStatementBalance * 100) / 100,
+        difference: Math.round((glBalance - bankStatementBalance) * 100) / 100,
+        unreconciledCount: unreconciled.length,
+        unreconciledTotal: Math.round(unreconciledTotal * 100) / 100,
+        transactions: allTxns,
+        bankAccounts: coaBankAccounts.map((a) => ({
+          _id: a._id,
+          accountName: a.name,
+          accountNumber: a.accountNumber,
+          bankName: a.category || a.detailType || 'Bank'
+        }))
       }
     });
   })
@@ -4181,11 +4303,23 @@ router.post('/reports/bank-reconciliation/reconcile',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { transactionIds } = req.body;
-    await Banking.updateMany(
-      { _id: { $in: transactionIds } },
-      { $set: { isReconciled: true, reconciledAt: new Date(), reconciledBy: req.user.id } }
-    );
-    res.json({ success: true, message: `${transactionIds.length} transactions reconciled` });
+    if (Array.isArray(transactionIds) && transactionIds.length > 0) {
+      await Banking.updateMany(
+        { 'transactions._id': { $in: transactionIds } },
+        {
+          $set: {
+            'transactions.$[elem].isReconciled': true,
+            'transactions.$[elem].reconciledDate': new Date()
+          }
+        },
+        { arrayFilters: [{ 'elem._id': { $in: transactionIds } }] }
+      );
+      await Banking.updateMany(
+        { _id: { $in: transactionIds } },
+        { $set: { isReconciled: true, reconciledAt: new Date(), reconciledBy: req.user.id } }
+      );
+    }
+    res.json({ success: true, message: `${transactionIds?.length || 0} transactions reconciled` });
   })
 );
 

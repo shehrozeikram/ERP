@@ -313,10 +313,11 @@ class PayrollService {
         unpaidLeaveDeduction = unpaidLeaveDays * dailyRate;
       }
 
-      // Get advance leave deduction from leave integration service
+      // Get advance leave deduction from leave integration service (DISABLED FOR NOW - SET TO 0)
       let advanceLeaveDeduction = 0;
       let advanceLeaveDetails = null;
       
+      /*
       try {
         advanceLeaveDetails = await LeaveIntegrationService.calculateAdvanceLeaveDeduction(
           employeeId,
@@ -329,6 +330,7 @@ class PayrollService {
         console.error('Error calculating advance leave deduction:', error);
         // Continue without advance deduction if there's an error
       }
+      */
 
       // Total leave deduction = unpaid leaves + advance leaves
       const totalLeaveDeduction = unpaidLeaveDeduction + advanceLeaveDeduction;
