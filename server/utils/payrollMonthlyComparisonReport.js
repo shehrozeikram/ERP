@@ -310,7 +310,8 @@ const formatComparisonDocResponse = (doc) => ({
 const getPayrollMonthlyComparisonReport = async (month, year, { regenerate = false } = {}) => {
   if (!regenerate) {
     const existing = await PayrollMonthlyComparisonReport.findOne({ month, year }).lean();
-    if (existing?.report) {
+    // Only return cached report if it has been locked with final approval
+    if (existing?.report && LOCKED_STATUSES.includes(existing.status)) {
       return formatComparisonDocResponse(existing);
     }
   }
