@@ -123,7 +123,7 @@ const getStepIndex = (status) => {
 };
 
 const EMPTY_FORM = {
-  vendor: '', approvalDate: new Date().toISOString().split('T')[0],
+  companyId: '', vendor: '', approvalDate: new Date().toISOString().split('T')[0],
   expectedPurchaseDate: '', deliveryAddress: '', priority: 'Urgent',
   items: [emptyCashApprovalLine()],
   shippingCost: 0, notes: ''
@@ -291,6 +291,8 @@ const CashApprovalsPage = () => {
     loadStatistics();
   }, [loadCashApprovals, loadStatistics]);
 
+  const [companies, setCompanies] = useState([]);
+
   const loadVendors = useCallback(async () => {
     try {
       const res = await procurementService.getVendors({ limit: 500 });
@@ -301,9 +303,24 @@ const CashApprovalsPage = () => {
     }
   }, []);
 
+  const loadCompanies = useCallback(async () => {
+    try {
+      let res = await api.get('/indents/companies');
+      let list = Array.isArray(res?.data?.data) ? res.data.data : Array.isArray(res?.data) ? res.data : [];
+      if (!list.length) {
+        res = await api.get('/hr/companies');
+        list = Array.isArray(res?.data?.data) ? res.data.data : Array.isArray(res?.data) ? res.data : [];
+      }
+      setCompanies(list);
+    } catch {
+      setCompanies([]);
+    }
+  }, []);
+
   useEffect(() => { loadCashApprovals(); }, [loadCashApprovals]);
   useEffect(() => { loadStatistics(); }, [loadStatistics]);
   useEffect(() => { loadVendors(); }, [loadVendors]);
+  useEffect(() => { loadCompanies(); }, [loadCompanies]);
 
   // Pre-fill from quotation (when navigated from Quotations page)
   useEffect(() => {
@@ -364,6 +381,7 @@ const CashApprovalsPage = () => {
     } else if (formDialog.open && ['edit', 'finance-edit'].includes(formDialog.mode) && formDialog.data) {
       const ca = formDialog.data;
       setFormData({
+        companyId: ca.companyId?._id || ca.companyId || '',
         vendor: ca.vendor?._id || ca.vendor || '',
         approvalDate: ca.approvalDate ? new Date(ca.approvalDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         expectedPurchaseDate: ca.expectedPurchaseDate ? new Date(ca.expectedPurchaseDate).toISOString().split('T')[0] : '',
@@ -711,6 +729,7 @@ const CashApprovalsPage = () => {
 
   const buildCashApprovalFormData = () => {
     const fd = new FormData();
+    if (formData.companyId) fd.append('companyId', formData.companyId);
     fd.append('vendor', formData.vendor);
     fd.append('approvalDate', formData.approvalDate);
     fd.append('expectedPurchaseDate', formData.expectedPurchaseDate);
@@ -1533,6 +1552,20 @@ const CashApprovalsPage = () => {
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                select
+                label="Company"
+                value={formData.companyId || ''}
+                onChange={(e) => setFormData({ ...formData, companyId: e.target.value })}
+              >
+                <MenuItem value=""><em>None / Default</em></MenuItem>
+                {companies.map((c) => (
+                  <MenuItem key={c._id} value={c._id}>{c.name || c.companyName}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth

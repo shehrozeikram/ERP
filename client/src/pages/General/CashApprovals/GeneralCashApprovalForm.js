@@ -33,6 +33,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
+import api from '../../../services/api';
 import generalCashApprovalService from '../../../services/generalCashApprovalService';
 import {
   approverSearchOnInputChange,
@@ -103,8 +104,11 @@ const GeneralCashApprovalForm = () => {
   const [error, setError] = useState('');
   const [departmentOptions, setDepartmentOptions] = useState([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [companyOptions, setCompanyOptions] = useState([]);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
   const [lines, setLines] = useState([emptyLine()]);
   const [header, setHeader] = useState({
+    companyId: '',
     purpose: '',
     notes: '',
     requestingDepartment: user?.department || '',
@@ -184,8 +188,26 @@ const GeneralCashApprovalForm = () => {
     }
   };
 
+  const loadCompanies = async () => {
+    setCompaniesLoading(true);
+    try {
+      let res = await api.get('/indents/companies');
+      let list = Array.isArray(res?.data?.data) ? res.data.data : Array.isArray(res?.data) ? res.data : [];
+      if (!list.length) {
+        res = await api.get('/hr/companies');
+        list = Array.isArray(res?.data?.data) ? res.data.data : Array.isArray(res?.data) ? res.data : [];
+      }
+      setCompanyOptions(list);
+    } catch {
+      setCompanyOptions([]);
+    } finally {
+      setCompaniesLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadDepartments();
+    loadCompanies();
     loadApproverOptions('');
     loadAdvanceEmployees('');
   }, []);
@@ -207,6 +229,7 @@ const GeneralCashApprovalForm = () => {
         setLoadedCa(ca);
         setLoadedStatus(ca.status || 'Draft');
         setHeader({
+          companyId: ca.companyId?._id || ca.companyId || '',
           purpose: ca.purpose || '',
           notes: ca.notes || '',
           requestingDepartment: ca.requestingDepartment || '',
@@ -301,6 +324,7 @@ const GeneralCashApprovalForm = () => {
     const fd = new FormData();
     fd.append('generalModule', 'true');
     fd.append('originatingModule', 'general');
+    if (header.companyId) fd.append('companyId', header.companyId);
     fd.append('purpose', header.purpose.trim());
     fd.append('notes', header.notes || '');
     fd.append('requestingDepartment', header.requestingDepartment || user?.department || '');
@@ -459,6 +483,26 @@ const GeneralCashApprovalForm = () => {
 
       <Paper sx={{ p: 3 }}>
         <Grid container spacing={2}>
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Company</InputLabel>
+              <Select
+                label="Company"
+                value={header.companyId || ''}
+                onChange={(e) => setHeader({ ...header, companyId: e.target.value })}
+                disabled={companiesLoading}
+              >
+                <MenuItem value="">
+                  <em>{companiesLoading ? 'Loading companies...' : 'Select company (optional)'}</em>
+                </MenuItem>
+                {companyOptions.map((c) => (
+                  <MenuItem key={c._id} value={c._id}>
+                    {c.name || c.companyName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
           <Grid item xs={12} md={6}>
             <FormControl fullWidth size="small" required>
               <InputLabel>Department</InputLabel>

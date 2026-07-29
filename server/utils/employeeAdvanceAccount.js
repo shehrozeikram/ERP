@@ -91,7 +91,7 @@ const ensureEmployeeAdvanceAccount = async (employee, createdBy, companyId = nul
   const accountNumber = `1120-${empCode}`.slice(0, 24);
   const name = `Advance to ${employeeDisplayName(employee)}`;
 
-  let acc = await Account.findOne({ parentAccount: parentId, accountNumber, ...(cid ? { companyId: cid } : {}) });
+  let acc = await Account.findOne({ parentAccount: parent._id, accountNumber, ...(cid ? { companyId: cid } : {}) });
   if (!acc) {
     acc = await Account.create({
       accountNumber,
