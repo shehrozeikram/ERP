@@ -10,7 +10,7 @@ import {
 import {
   LocalShipping as ReceiveIcon, Add as AddIcon, Visibility as ViewIcon,
   Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon,
-  Inventory as InventoryIcon, QrCode as QrCodeIcon, Receipt as BillIcon
+  Inventory as InventoryIcon, QrCode as QrCodeIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import storeService from '../../services/storeService';
@@ -682,28 +682,6 @@ const GoodsReceive = () => {
                         }}>
                           <InventoryIcon fontSize="small" />
                         </IconButton>
-                      </Tooltip>
-                      <Tooltip title={receive.billingStatus === 'fully_billed' ? 'Already billed' : 'Create Vendor Bill'}>
-                        <span>
-                          <IconButton
-                            size="small"
-                            color="success"
-                            disabled={receive.billingStatus === 'fully_billed'}
-                            onClick={async () => {
-                              const invoiceNo = window.prompt(`Vendor Invoice # (optional) for GRN ${receive.receiveNumber}:`);
-                              if (invoiceNo === null) return;
-                              try {
-                                const res = await api.post(`/finance/grn/${receive._id}/create-bill`, { vendorInvoiceNumber: invoiceNo });
-                                setSuccess(`✓ ${res.data.message}`);
-                                loadReceives();
-                              } catch (err) {
-                                setError(err.response?.data?.message || 'Bill creation failed');
-                              }
-                            }}
-                          >
-                            <BillIcon fontSize="small" />
-                          </IconButton>
-                        </span>
                       </Tooltip>
                     </TableCell>
                   </TableRow>
