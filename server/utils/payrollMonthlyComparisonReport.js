@@ -205,16 +205,13 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       && updatedAt >= start
       && updatedAt <= end;
 
-    // Only include in reinstated table if the reinstatement actually occurred in THIS month:
-    // 1) Newly returned to payroll this month (was not on previous month payroll)
-    // 2) OR employee status was updated to Reinstated during this month date window
-    if (!returnedToPayroll && !statusUpdatedThisMonth) return;
+    // Only include in reinstated table if the employee newly RETURNED to payroll this month
+    // (i.e. was on current month payroll but NOT on previous month payroll)
+    if (!returnedToPayroll) return;
 
     reinstatedSeen.add(id);
     reinstatedEmployees.push(mapEmployeeRow(emp, {
-      note: returnedToPayroll
-        ? 'Employee reinstated on payroll this month'
-        : 'Employee status set to Reinstated this month',
+      note: emp.reinstatedReason || 'Employee reinstated on payroll this month',
       employmentStatus: 'Reinstated'
     }));
   });
