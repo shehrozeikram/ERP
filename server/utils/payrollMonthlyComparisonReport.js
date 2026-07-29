@@ -216,6 +216,15 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
     }));
   });
 
+  const hiringMap = new Map();
+  hirings.forEach((emp) => hiringMap.set(String(emp._id), mapEmployeeRow(emp)));
+  addedEmployees.forEach((emp) => {
+    const id = String(emp._id);
+    if (!hiringMap.has(id)) {
+      hiringMap.set(id, mapEmployeeRow(emp, { note: 'Added to payroll this month' }));
+    }
+  });
+
   return {
     month,
     year,
@@ -252,7 +261,7 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
         totalAmount: previousAdvances.reduce((sum, a) => sum + (a.amount || 0), 0)
       }
     },
-    hirings: hirings.map((emp) => mapEmployeeRow(emp)),
+    hirings: [...hiringMap.values()],
     separations: [...separationMap.values()],
     salaryIncrements: salaryIncrements.map((row) => mapIncrementRow(row)),
     reinstatedEmployees,
