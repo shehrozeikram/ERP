@@ -35,7 +35,8 @@ const { createAndEmitNotification } = require('../services/realtimeNotificationS
 const { MONTH_NAMES: PAYROLL_MONTH_NAMES } = require('../utils/financePayrollQueue');
 const {
   savePayrollMonthlyComparisonReport,
-  getPayrollMonthlyComparisonReport
+  getPayrollMonthlyComparisonReport,
+  clearLateEntryFlags
 } = require('../utils/payrollMonthlyComparisonReport');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Attendance = require('../models/hr/Attendance');
@@ -1173,6 +1174,8 @@ router.post('/monthly-comparison/:month/:year/generate',
       });
     }
     const saved = await savePayrollMonthlyComparisonReport(month, year, req.user.id);
+    // Clear late-entry/late-termination flags so they don't bleed into next month's report
+    await clearLateEntryFlags(month, year);
     const approvalDoc = await populateMonthlyApproval(
       PayrollMonthlyApproval.findOne({ month, year })
     );
@@ -2096,6 +2099,8 @@ router.post('/', [
     try {
       await savePayrollMonthlyComparisonReport(month, year, req.user.id);
       console.log(`📋 Monthly comparison report saved for ${month}/${year}`);
+      // Clear late-entry/late-termination flags so they don't bleed into next month's report
+      await clearLateEntryFlags(month, year);
     } catch (comparisonErr) {
       console.error('⚠️ Failed to save monthly comparison report:', comparisonErr.message);
     }

@@ -18,6 +18,7 @@ const DeliveryChallan = require('../models/procurement/DeliveryChallan');
 const { isFullAdvancePaymentTerm, requiresDeliveryChallanFlow, getGrnDcEligibility } = require('../utils/fullAdvancePoGate');
 const GoodsIssue = require('../models/procurement/GoodsIssue');
 const StockTransaction = require('../models/procurement/StockTransaction');
+const StockQuant = require('../models/procurement/StockQuant');
 const CostCenter = require('../models/procurement/CostCenter');
 const Quotation = require('../models/procurement/Quotation');
 const QuotationInvitation = require('../models/procurement/QuotationInvitation');
@@ -3837,14 +3838,15 @@ router.get('/vendor-bills/billable-grns',
   authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { vendorId } = req.query;
-    if (!vendorId) return res.status(400).json({ success: false, message: 'vendorId is required' });
-
-    const grns = await GoodsReceive.find({
-      supplier: vendorId,
+    const query = {
       status: { $in: ['Received', 'Complete', 'Partial'] },
       billingStatus: { $ne: 'fully_billed' }
-    })
+    };
+    if (vendorId) query.supplier = vendorId;
+
+    const grns = await GoodsReceive.find(query)
       .populate('purchaseOrder', 'orderNumber')
+      .populate('supplier', 'name')
       .sort({ receiveDate: -1, createdAt: -1 })
       .lean();
 
@@ -3856,6 +3858,8 @@ router.get('/vendor-bills/billable-grns',
         _id: g._id,
         receiveNumber: g.receiveNumber,
         receiveDate: g.receiveDate,
+        vendorId: g.supplier?._id || g.supplier || null,
+        vendorName: g.supplier?.name || g.supplierName || '—',
         poId: g.purchaseOrder?._id || g.purchaseOrder || null,
         poNumber: g.purchaseOrder?.orderNumber || g.poNumber || '',
         amount: totalAmount,
@@ -3966,13 +3970,16 @@ router.post('/vendor-bills',
     const effectiveBillDate = billDate ? new Date(billDate) : new Date();
     const dueDate = computeDueDateFromTerms(effectiveBillDate, paymentTerms);
     const billNumber = buildBillNumber('VBILL');
+    const resolvedVendorInvoiceNumber = (vendorInvoiceNumber && String(vendorInvoiceNumber).trim())
+      ? String(vendorInvoiceNumber).trim()
+      : billNumber;
 
     const apBill = await FinanceHelper.createAPFromBill({
       vendorName: vendor.name || 'Unknown Vendor',
       vendorEmail: vendor.email || '',
       vendorId: vendor._id,
       billNumber,
-      vendorInvoiceNumber: vendorInvoiceNumber || '',
+      vendorInvoiceNumber: resolvedVendorInvoiceNumber,
       billDate: effectiveBillDate,
       dueDate,
       paymentTerms,

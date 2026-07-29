@@ -261,17 +261,21 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
   };
 };
 
+const LOCKED_STATUSES = ['Approved', 'Approved by AVP'];
+
 const savePayrollMonthlyComparisonReport = async (month, year, actorId) => {
   const existingDoc = await PayrollMonthlyComparisonReport.findOne({ month, year });
-  if (existingDoc && existingDoc.report) {
-    console.log(`🔒 Returning existing locked Monthly Comparison Report for ${month}/${year}`);
+  // Only lock if the report has reached a FINAL approval status
+  if (existingDoc && existingDoc.report && LOCKED_STATUSES.includes(existingDoc.status)) {
+    console.log(`🔒 Returning locked Monthly Comparison Report for ${month}/${year} (status: ${existingDoc.status})`);
     return {
       report: existingDoc.report,
       savedAt: existingDoc.generatedAt,
-      status: existingDoc.status || 'Draft',
+      status: existingDoc.status,
       _id: existingDoc._id
     };
   }
+  // Draft or intermediate-approval reports regenerate with fresh data
   const report = await buildPayrollMonthlyComparisonReport(month, year);
   const doc = await PayrollMonthlyComparisonReport.findOneAndUpdate(
     { month, year },
@@ -320,9 +324,41 @@ const getPayrollMonthlyComparisonReport = async (month, year, { regenerate = fal
   return { report: built, status: 'Draft', fromCache: false };
 };
 
+/**
+ * After a comparison report is saved for a month, clear the late-entry / late-termination
+ * flags on employees so they don't bleed into future months' comparison reports.
+ *
+ * Only clears flags for employees who appear on the current month's payroll (late entries)
+ * or who were captured in the separations section (late terminations).
+ */
+const clearLateEntryFlags = async (month, year) => {
+  // Clear late-entry flag for employees who are on this month's payroll
+  const payrollEmployeeIds = await Payroll.distinct('employee', { month, year });
+  if (payrollEmployeeIds.length > 0) {
+    const lateEntryResult = await Employee.updateMany(
+      { _id: { $in: payrollEmployeeIds }, isLateEntryForPayroll: true },
+      { $set: { isLateEntryForPayroll: false } }
+    );
+    if (lateEntryResult.modifiedCount > 0) {
+      console.log(`🧹 Cleared isLateEntryForPayroll for ${lateEntryResult.modifiedCount} employees (payroll ${month}/${year})`);
+    }
+  }
+
+  // Clear late-termination flag for ALL employees with the flag set
+  // (they've now been captured in the current month's comparison report)
+  const lateTermResult = await Employee.updateMany(
+    { isLateTerminationEntryForPayroll: true },
+    { $set: { isLateTerminationEntryForPayroll: false } }
+  );
+  if (lateTermResult.modifiedCount > 0) {
+    console.log(`🧹 Cleared isLateTerminationEntryForPayroll for ${lateTermResult.modifiedCount} employees (payroll ${month}/${year})`);
+  }
+};
+
 module.exports = {
   MONTH_NAMES,
   buildPayrollMonthlyComparisonReport,
   savePayrollMonthlyComparisonReport,
-  getPayrollMonthlyComparisonReport
+  getPayrollMonthlyComparisonReport,
+  clearLateEntryFlags
 };

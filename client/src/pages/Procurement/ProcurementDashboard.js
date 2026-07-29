@@ -594,7 +594,7 @@ const ProcurementDashboard = () => {
               Purchase Orders
             </Button>
             <Button variant="outlined" startIcon={<LocalShipping />} onClick={() => navigate('/procurement/vendor-bills')}>
-              Vendor Bills
+              GRN's & Bills
             </Button>
           </Stack>
         </CardContent>

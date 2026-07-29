@@ -828,7 +828,7 @@ export const MODULES = {
           { name: 'Approved vendor list', path: '/procurement/vendors' }
         ]
       },
-      { name: 'Vendor Bills', path: '/procurement/vendor-bills' },
+      { name: "GRN's & Bills", path: '/procurement/vendor-bills' },
       { name: 'Reports', path: '/procurement/reports' },
       {
         name: 'Store',

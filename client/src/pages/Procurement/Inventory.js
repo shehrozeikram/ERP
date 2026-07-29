@@ -269,8 +269,14 @@ const Inventory = () => {
     await loadFinanceDropdowns();
   };
 
-  const handleView = (item) => {
+  const handleView = async (item) => {
     setViewDialog({ open: true, data: item, tab: 0 });
+    try {
+      const res = await api.get(`/procurement/inventory/${item._id}`);
+      if (res.data?.success && res.data?.data) {
+        setViewDialog({ open: true, data: res.data.data, tab: 0 });
+      }
+    } catch (_) { /* use list data fallback */ }
   };
 
   const handleDelete = (item) => {
@@ -1204,17 +1210,44 @@ const Inventory = () => {
               {viewDialog.tab === 1 && (
                 <List>
                   {viewDialog.data.transactions && viewDialog.data.transactions.length > 0 ? (
-                    viewDialog.data.transactions.slice(0, 10).reverse().map((trans, index) => (
-                      <ListItem key={index}>
-                        <ListItemText
-                          primary={`${trans.type}: ${trans.quantity} ${viewDialog.data.unit}`}
-                          secondary={`${formatDate(trans.date)} - ${trans.notes || trans.reference || 'No notes'}`}
-                        />
-                      </ListItem>
-                    ))
+                    [...viewDialog.data.transactions].reverse().map((trans, index) => {
+                      const isAddition = trans.type === 'In' || trans.type === 'Addition';
+                      const perfUser = trans.performedBy ? (trans.performedBy.firstName ? `${trans.performedBy.firstName} ${trans.performedBy.lastName || ''}` : trans.performedBy) : '';
+                      return (
+                        <ListItem key={index} divider sx={{ py: 1.5 }}>
+                          <Box sx={{ mr: 2 }}>
+                            <Chip
+                              label={trans.type}
+                              size="small"
+                              color={isAddition ? 'success' : 'warning'}
+                              variant="filled"
+                              sx={{ fontWeight: 'bold', minWidth: 70 }}
+                            />
+                          </Box>
+                          <ListItemText
+                            primary={
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Typography variant="subtitle2" fontWeight="bold">
+                                  {isAddition ? '+' : '-'}{trans.quantity} {viewDialog.data.unit}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {formatDate(trans.date)}
+                                </Typography>
+                              </Box>
+                            }
+                            secondary={
+                              <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>
+                                {trans.notes || trans.reference || 'No notes'}
+                                {perfUser && ` • Performed by: ${perfUser}`}
+                              </Typography>
+                            }
+                          />
+                        </ListItem>
+                      );
+                    })
                   ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-                      No transactions yet
+                    <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
+                      No transactions recorded yet
                     </Typography>
                   )}
                 </List>

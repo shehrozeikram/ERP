@@ -1,15 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Box, Paper, Typography, Grid, TextField, MenuItem, Button, Alert,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Checkbox
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Checkbox,
+  Tabs, Tab, Chip, CircularProgress
 } from '@mui/material';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import { formatDate } from '../../utils/dateUtils';
 
 const VendorBills = () => {
+  const [tabIndex, setTabIndex] = useState(0);
   const [vendors, setVendors] = useState([]);
   const [vendorId, setVendorId] = useState('');
   const [grns, setGrns] = useState([]);
+  const [createdBills, setCreatedBills] = useState([]);
+  const [billsLoading, setBillsLoading] = useState(false);
   const [selected, setSelected] = useState({});
   const [allocations, setAllocations] = useState({});
   const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0]);
@@ -20,6 +25,33 @@ const VendorBills = () => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const loadGrns = useCallback(async (vId) => {
+    try {
+      const params = {};
+      if (vId) params.vendorId = vId;
+      const res = await api.get('/procurement/vendor-bills/billable-grns', { params });
+      setGrns(res.data?.data?.grns || []);
+      setSelected({});
+      setAllocations({});
+    } catch (e) {
+      setError(e.response?.data?.message || 'Failed to load billable GRNs');
+    }
+  }, []);
+
+  const loadCreatedBills = useCallback(async (vId) => {
+    try {
+      setBillsLoading(true);
+      const params = { limit: 100 };
+      if (vId) params.vendorId = vId;
+      const res = await api.get('/finance/accounts-payable', { params });
+      setCreatedBills(res.data?.data?.bills || res.data?.data || []);
+    } catch (e) {
+      setError('Failed to load created vendor bills');
+    } finally {
+      setBillsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -29,26 +61,14 @@ const VendorBills = () => {
         setError('Failed to load vendors');
       }
     })();
-  }, []);
+    loadGrns('');
+    loadCreatedBills('');
+  }, [loadGrns, loadCreatedBills]);
 
   useEffect(() => {
-    if (!vendorId) {
-      setGrns([]);
-      setSelected({});
-      setAllocations({});
-      return;
-    }
-    (async () => {
-      try {
-        const res = await api.get('/procurement/vendor-bills/billable-grns', { params: { vendorId } });
-        setGrns(res.data?.data?.grns || []);
-        setSelected({});
-        setAllocations({});
-      } catch (e) {
-        setError(e.response?.data?.message || 'Failed to load billable GRNs');
-      }
-    })();
-  }, [vendorId]);
+    loadGrns(vendorId);
+    loadCreatedBills(vendorId);
+  }, [vendorId, loadGrns, loadCreatedBills]);
 
   const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
   const total = useMemo(() => grns.filter((g) => selected[g._id]).reduce((s, g) => s + (Number(allocations[g._id]) || 0), 0), [grns, selected, allocations]);
@@ -70,11 +90,15 @@ const VendorBills = () => {
         vendorInvoiceNumber,
         notes
       });
-      setSuccess(`Bill created: ${res.data?.data?.billNumber || 'success'}`);
+      const newBillNo = res.data?.data?.billNumber || 'success';
+      setSuccess(`✓ Bill created successfully: ${newBillNo}`);
       setSelected({});
       setAllocations({});
-      const refresh = await api.get('/procurement/vendor-bills/billable-grns', { params: { vendorId } });
-      setGrns(refresh.data?.data?.grns || []);
+      setVendorInvoiceNumber('');
+      setNotes('');
+      // Refresh both unbilled GRNs and created bills list, and switch to Created Bills tab
+      await Promise.all([loadGrns(vendorId), loadCreatedBills(vendorId)]);
+      setTabIndex(1);
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to create vendor bill');
     } finally {
@@ -82,16 +106,25 @@ const VendorBills = () => {
     }
   };
 
+  const getBillStatusColor = (status) => {
+    const s = String(status || '').toLowerCase();
+    if (s.includes('paid')) return 'success';
+    if (s.includes('partial')) return 'warning';
+    if (s.includes('posted') || s.includes('approved')) return 'info';
+    if (s.includes('cancel')) return 'error';
+    return 'default';
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3, mb: 2 }}>
-        <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>Procurement Vendor Bill</Typography>
+        <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>Procurement GRN's & Bills</Typography>
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
         {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
         <Grid container spacing={2}>
           <Grid item xs={12} md={4}>
             <TextField fullWidth select label="Supplier/Vendor" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-              <MenuItem value="">Select vendor</MenuItem>
+              <MenuItem value="">Select vendor (All)</MenuItem>
               {vendors.map((v) => <MenuItem key={v._id} value={v._id}>{v.name}</MenuItem>)}
             </TextField>
           </Grid>
@@ -108,11 +141,18 @@ const VendorBills = () => {
             </TextField>
           </Grid>
           <Grid item xs={12} md={2}>
-            <TextField fullWidth label="Vendor Bill No." value={vendorInvoiceNumber} onChange={(e) => setVendorInvoiceNumber(e.target.value)} />
+            <TextField
+              fullWidth
+              label="Vendor Bill No."
+              value={vendorInvoiceNumber}
+              onChange={(e) => setVendorInvoiceNumber(e.target.value)}
+              placeholder="Auto-generated if blank"
+              helperText="Optional (Auto-generated)"
+            />
           </Grid>
           <Grid item xs={12} md={2}>
             <Button fullWidth variant="contained" disabled={loading || !vendorId || selectedIds.length === 0} onClick={onCreate}>
-              Create Bill
+              {loading ? <CircularProgress size={24} /> : 'Create Bill'}
             </Button>
           </Grid>
           <Grid item xs={12}>
@@ -122,66 +162,134 @@ const VendorBills = () => {
       </Paper>
 
       <Paper sx={{ p: 2 }}>
-        <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-          Billable GRNs (Bill -> GRN -> PO) | Selected Total: {formatPKR(total)}
-        </Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell />
-                <TableCell>GRN</TableCell>
-                <TableCell>PO</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Billing</TableCell>
-                <TableCell align="right">Total</TableCell>
-                <TableCell align="right">Billed</TableCell>
-                <TableCell align="right">Remaining</TableCell>
-                <TableCell align="right">Amount</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {grns.map((g) => (
-                <TableRow key={g._id}>
-                  <TableCell padding="checkbox">
-                    <Checkbox
-                      checked={!!selected[g._id]}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setSelected((p) => ({ ...p, [g._id]: checked }));
-                        if (checked) {
-                          setAllocations((p) => ({ ...p, [g._id]: Number(g.remainingAmount) || 0 }));
-                        }
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell>{g.receiveNumber}</TableCell>
-                  <TableCell>{g.poNumber || '-'}</TableCell>
-                  <TableCell>{g.status}</TableCell>
-                  <TableCell>{g.billingStatus}</TableCell>
-                  <TableCell align="right">{formatPKR(g.amount || 0)}</TableCell>
-                  <TableCell align="right">{formatPKR(g.billedAmount || 0)}</TableCell>
-                  <TableCell align="right">{formatPKR(g.remainingAmount || 0)}</TableCell>
-                  <TableCell align="right" sx={{ width: 180 }}>
-                    <TextField
-                      size="small"
-                      type="number"
-                      value={allocations[g._id] ?? (selected[g._id] ? (Number(g.remainingAmount) || 0) : 0)}
-                      onChange={(e) => {
-                        const v = Number(e.target.value) || 0;
-                        setAllocations((p) => ({ ...p, [g._id]: v }));
-                      }}
-                      inputProps={{ min: 0, max: Number(g.remainingAmount) || 0, step: 0.01 }}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
-              {grns.length === 0 && (
-                <TableRow><TableCell colSpan={9} align="center">No billable GRNs for selected vendor</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+          <Tab label={`Unbilled GRNs (${grns.length})`} />
+          <Tab label={`Created Vendor Bills (${createdBills.length})`} />
+        </Tabs>
+
+        {tabIndex === 0 && (
+          <Box>
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+              Billable GRNs (Bill → GRN → PO) | Selected Total: {formatPKR(total)}
+            </Typography>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell />
+                    <TableCell>GRN</TableCell>
+                    <TableCell>Supplier / Vendor</TableCell>
+                    <TableCell>PO</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Billing</TableCell>
+                    <TableCell align="right">Total</TableCell>
+                    <TableCell align="right">Billed</TableCell>
+                    <TableCell align="right">Remaining</TableCell>
+                    <TableCell align="right">Amount</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {grns.map((g) => (
+                    <TableRow key={g._id}>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={!!selected[g._id]}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            if (checked && !vendorId && g.vendorId) {
+                              setVendorId(String(g.vendorId));
+                            }
+                            setSelected((p) => ({ ...p, [g._id]: checked }));
+                            if (checked) {
+                              setAllocations((p) => ({ ...p, [g._id]: Number(g.remainingAmount) || 0 }));
+                            }
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>{g.receiveNumber}</TableCell>
+                      <TableCell>{g.vendorName || '—'}</TableCell>
+                      <TableCell>{g.poNumber || '-'}</TableCell>
+                      <TableCell>{g.status}</TableCell>
+                      <TableCell>{g.billingStatus}</TableCell>
+                      <TableCell align="right">{formatPKR(g.amount || 0)}</TableCell>
+                      <TableCell align="right">{formatPKR(g.billedAmount || 0)}</TableCell>
+                      <TableCell align="right">{formatPKR(g.remainingAmount || 0)}</TableCell>
+                      <TableCell align="right" sx={{ width: 180 }}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={allocations[g._id] ?? (selected[g._id] ? (Number(g.remainingAmount) || 0) : 0)}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0;
+                            setAllocations((p) => ({ ...p, [g._id]: v }));
+                          }}
+                          inputProps={{ min: 0, max: Number(g.remainingAmount) || 0, step: 0.01 }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {grns.length === 0 && (
+                    <TableRow><TableCell colSpan={10} align="center">No billable GRNs found</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+        )}
+
+        {tabIndex === 1 && (
+          <Box>
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
+              Created Vendor Bills & Payment Status
+            </Typography>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Bill #</TableCell>
+                    <TableCell>Vendor Invoice #</TableCell>
+                    <TableCell>Supplier / Vendor</TableCell>
+                    <TableCell>Bill Date</TableCell>
+                    <TableCell>Due Date</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="right">Total Amount</TableCell>
+                    <TableCell align="right">Balance Due</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {billsLoading ? (
+                    <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                  ) : createdBills.length === 0 ? (
+                    <TableRow><TableCell colSpan={8} align="center">No vendor bills created yet</TableCell></TableRow>
+                  ) : (
+                    createdBills.map((b) => (
+                      <TableRow key={b._id} hover>
+                        <TableCell><Typography variant="body2" fontWeight="bold">{b.billNumber}</Typography></TableCell>
+                        <TableCell>{b.vendorInvoiceNumber || '—'}</TableCell>
+                        <TableCell>{b.vendorName || b.supplierName || '—'}</TableCell>
+                        <TableCell>{formatDate(b.billDate)}</TableCell>
+                        <TableCell>{formatDate(b.dueDate)}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={b.status || 'Draft'}
+                            size="small"
+                            color={getBillStatusColor(b.status)}
+                          />
+                        </TableCell>
+                        <TableCell align="right"><Typography variant="body2" fontWeight="bold">{formatPKR(b.totalAmount || b.amount || 0)}</Typography></TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" color={b.balanceDue > 0 ? 'error.main' : 'success.main'} fontWeight="bold">
+                            {formatPKR(b.balanceDue != null ? b.balanceDue : (b.totalAmount || 0))}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+        )}
       </Paper>
     </Box>
   );

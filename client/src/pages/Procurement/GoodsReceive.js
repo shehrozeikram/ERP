@@ -28,15 +28,25 @@ const makeEmptyItem = () => ({
 });
 
 /** GRN table rows from PO lines (remaining qty). */
-const buildItemsFromPurchaseOrder = (po) => {
+const buildItemsFromPurchaseOrder = (po, invList = []) => {
   if (!po?.items?.length) return [makeEmptyItem()];
+  const list = Array.isArray(invList) ? invList : [];
   return po.items.map((it, j) => {
     const orderedQty = Number(it.quantity) || 0;
     const alreadyReceived = Number(it.receivedQuantity) || 0;
     const remainingQty = Math.max(0, Math.round((orderedQty - alreadyReceived) * 100) / 100);
+    const code = String(it.productCode || it.itemCode || '').trim();
+    const desc = String(it.description || '').trim();
+    let matchedInv = null;
+    if (code) {
+      matchedInv = list.find((x) => String(x.itemCode || '').trim() === code || String(x.productCode || '').trim() === code);
+    }
+    if (!matchedInv && desc) {
+      matchedInv = list.find((x) => String(x.name || '').trim().toLowerCase() === desc.toLowerCase());
+    }
     return {
       poLineIndex: j,
-      inventoryItem: '',
+      inventoryItem: matchedInv?._id || it.inventoryItem || '',
       productCode: it.productCode || '',
       itemCode: it.productCode || '',
       itemName: it.description || '',
@@ -294,7 +304,7 @@ const GoodsReceive = () => {
       serviceCharges: 0,
       packingCharges: 0,
       loadingCharges: 0,
-      items: buildItemsFromPurchaseOrder(po),
+      items: buildItemsFromPurchaseOrder(po, inventory),
       project: '',
       notes: '',
       deliveryChallan: ''
@@ -794,7 +804,7 @@ const GoodsReceive = () => {
                           if (poId) {
                             try {
                               const res = await api.get(`/procurement/purchase-orders/${poId}`);
-                              if (res.data?.data) nextItems = buildItemsFromPurchaseOrder(res.data.data);
+                              if (res.data?.data) nextItems = buildItemsFromPurchaseOrder(res.data.data, inventory);
                             } catch (_) { /* keep rows */ }
                           }
                         } else {

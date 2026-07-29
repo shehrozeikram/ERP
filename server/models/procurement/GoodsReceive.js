@@ -1,4 +1,8 @@
 const mongoose = require('mongoose');
+require('./StockQuant');
+require('./StockTransaction');
+require('./Store');
+require('./Inventory');
 
 const goodsReceiveSchema = new mongoose.Schema({
   receiveNumber: {
@@ -257,10 +261,11 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
   const storeId = grnDoc.store?._id || grnDoc.store;
   const storeSnapshot = grnDoc.storeSnapshot || 'Main Store';
   const projectId = grnDoc.project._id || grnDoc.project;
-  const Inventory = mongoose.model('Inventory');
-  const StockTransaction = mongoose.model('StockTransaction');
-  const StockQuant = mongoose.model('StockQuant');
-  const Store = mongoose.model('Store');
+  const db = this.db || mongoose;
+  const Inventory = db.model('Inventory');
+  const StockTransaction = db.model('StockTransaction');
+  const StockQuant = db.model('StockQuant');
+  const Store = db.model('Store');
   const items = Array.isArray(grnDoc.items) ? grnDoc.items : [];
 
   // Pre-fetch store names for snapshots to avoid repeated DB calls
