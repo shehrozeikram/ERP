@@ -342,27 +342,8 @@ const getPayrollMonthlyComparisonReport = async (month, year, { regenerate = fal
  * or who were captured in the separations section (late terminations).
  */
 const clearLateEntryFlags = async (month, year) => {
-  // Clear late-entry flag for employees who are on this month's payroll
-  const payrollEmployeeIds = await Payroll.distinct('employee', { month, year });
-  if (payrollEmployeeIds.length > 0) {
-    const lateEntryResult = await Employee.updateMany(
-      { _id: { $in: payrollEmployeeIds }, isLateEntryForPayroll: true },
-      { $set: { isLateEntryForPayroll: false } }
-    );
-    if (lateEntryResult.modifiedCount > 0) {
-      console.log(`🧹 Cleared isLateEntryForPayroll for ${lateEntryResult.modifiedCount} employees (payroll ${month}/${year})`);
-    }
-  }
-
-  // Clear late-termination flag for ALL employees with the flag set
-  // (they've now been captured in the current month's comparison report)
-  const lateTermResult = await Employee.updateMany(
-    { isLateTerminationEntryForPayroll: true },
-    { $set: { isLateTerminationEntryForPayroll: false } }
-  );
-  if (lateTermResult.modifiedCount > 0) {
-    console.log(`🧹 Cleared isLateTerminationEntryForPayroll for ${lateTermResult.modifiedCount} employees (payroll ${month}/${year})`);
-  }
+  // Do NOT clear late entry / late termination flags automatically.
+  // Flags are preserved as set by HR / Admin.
 };
 
 module.exports = {
