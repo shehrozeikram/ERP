@@ -205,7 +205,8 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       && updatedAt >= start
       && updatedAt <= end;
 
-    if (!returnedToPayroll && !statusUpdatedThisMonth) return;
+    // Only include in reinstated table if the reinstatement actually happened in THIS month (returned to payroll or status changed in current month date window)
+    if (!statusUpdatedThisMonth && !returnedToPayroll) return;
 
     reinstatedSeen.add(id);
     reinstatedEmployees.push(mapEmployeeRow(emp, {
