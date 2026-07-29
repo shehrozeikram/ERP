@@ -159,65 +159,10 @@ const mergePayrollAllowances = (payrollDataAllowances, employeeAllowances = {}) 
  */
 const syncDraftPayrollsAllowancesFromEmployee = async (employee) => {
   if (!employee?._id) return { updated: 0 };
-
-  const Payroll = require('../models/hr/Payroll');
-  const { calculatePayrollTaxWithSettings, loadPayrollTaxSettings } = require('./allowanceTaxCalculator');
-
-  const [payrolls, taxSettings] = await Promise.all([
-    Payroll.find({ employee: employee._id, status: { $in: ['Draft', 'Approved'] } }),
-    loadPayrollTaxSettings()
-  ]);
-
-  let updated = 0;
-
-  for (const payroll of payrolls) {
-    payroll.allowances = payrollAllowancesFromEmployee(employee.allowances);
-    payroll.conveyanceAllowance = activeAmount(payroll.allowances.conveyance);
-    payroll.foodAllowance = activeAmount(payroll.allowances.food);
-    payroll.vehicleAllowance = vehicleAllowanceAmount(payroll.allowances);
-    payroll.fuelAllowance = fuelAllowanceAmount(payroll.allowances);
-    payroll.vehicleFuelAllowance = vehicleFuelTotal(payroll.allowances);
-
-    const grossBase =
-      (payroll.basicSalary || 0) +
-      (payroll.houseRentAllowance || 0) +
-      (payroll.medicalAllowance || 0);
-    const addl = additionalAllowancesTotal(payroll.allowances);
-    const arrears = payroll.arrears || 0;
-
-    payroll.totalEarnings =
-      grossBase +
-      addl +
-      (payroll.overtimeAmount || 0) +
-      (payroll.performanceBonus || 0) +
-      (payroll.otherBonus || 0) +
-      arrears;
-
-    const taxCalculation = calculatePayrollTaxWithSettings({
-      grossSalary: grossBase,
-      allowances: payroll.allowances,
-      arrears,
-      employeeId: employee._id,
-      settings: taxSettings
-    });
-    payroll.incomeTax = Math.round(taxCalculation.totalTax);
-    payroll.eobi = getEmployeeEobiDeduction(employee);
-
-    payroll.totalDeductions =
-      (payroll.incomeTax || 0) +
-      (payroll.healthInsurance || 0) +
-      (payroll.loanDeductions || 0) +
-      (payroll.eobi || 0) +
-      (payroll.attendanceDeduction || 0) +
-      (payroll.leaveDeduction || 0) +
-      (payroll.otherDeductions || 0);
-
-    payroll.netSalary = payroll.totalEarnings - payroll.totalDeductions;
-    await payroll.save();
-    updated += 1;
-  }
-
-  return { updated };
+  // 🔒 CREATED MONTHLY PAYROLL LOCK:
+  // Existing generated payroll records must remain locked and unchanged by employee master updates.
+  console.log(`🔒 Preserving existing generated payroll lock for employee ${employee._id}.`);
+  return { updated: 0 };
 };
 
 /**

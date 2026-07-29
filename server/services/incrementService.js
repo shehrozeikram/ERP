@@ -172,73 +172,11 @@ class IncrementService {
    */
   async updateFuturePayrolls(employeeId, newSalary) {
     try {
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth() + 1;
-      const currentYear = currentDate.getFullYear();
-
-      const [futurePayrolls, taxSettings] = await Promise.all([
-        Payroll.find({
-          employee: employeeId,
-          $or: [
-            { year: { $gt: currentYear } },
-            { year: currentYear, month: { $gte: currentMonth } }
-          ]
-        }),
-        loadPayrollTaxSettings()
-      ]);
-
-      const basicSalary = Math.round(newSalary * 0.6666);
-      const medicalAllowance = Math.round(newSalary * 0.10);
-      const houseRentAllowance = Math.round(newSalary * 0.2334);
-
-      for (const payroll of futurePayrolls) {
-        payroll.basicSalary = basicSalary;
-        payroll.medicalAllowance = medicalAllowance;
-        payroll.houseRentAllowance = houseRentAllowance;
-        payroll.grossSalary = basicSalary + medicalAllowance + houseRentAllowance;
-
-        const additionalAllowances =
-          (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
-          (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0) +
-          vehicleAllowanceAmount(payroll.allowances) +
-          fuelAllowanceAmount(payroll.allowances) +
-          (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0) +
-          (payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
-
-        const arrears = payroll.arrears || 0;
-
-        payroll.totalEarnings =
-          payroll.grossSalary +
-          additionalAllowances +
-          (payroll.overtimeAmount || 0) +
-          (payroll.performanceBonus || 0) +
-          (payroll.otherBonus || 0) +
-          arrears;
-
-        const taxCalculation = calculatePayrollTaxWithSettings({
-          grossSalary: payroll.grossSalary,
-          allowances: payroll.allowances,
-          arrears,
-          employeeId,
-          settings: taxSettings
-        });
-
-        payroll.incomeTax = Math.round(taxCalculation.totalTax);
-
-        payroll.totalDeductions =
-          (payroll.incomeTax || 0) +
-          (payroll.eobi || 370) +
-          (payroll.healthInsurance || 0) +
-          (payroll.attendanceDeduction || 0) +
-          (payroll.otherDeductions || 0);
-
-        payroll.netSalary = payroll.totalEarnings - payroll.totalDeductions;
-
-        await payroll.save();
-      }
-
-      console.log(`✅ Updated ${futurePayrolls.length} future payrolls for employee ${employeeId}`);
-
+      // 🔒 CREATED MONTHLY PAYROLL LOCK:
+      // Existing created payroll records must remain locked and unchanged by future salary increments.
+      // Dynamic live preview (current-overview) calculates new figures directly from Employee/Increment model.
+      console.log(`🔒 Skipping updateFuturePayrolls for employee ${employeeId} to preserve existing generated payroll lock.`);
+      return;
     } catch (error) {
       console.error('Error updating future payrolls:', error);
       throw error;

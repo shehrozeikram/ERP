@@ -51,37 +51,10 @@ class PayrollUpdateService {
       });
       
       if (payroll) {
-        // Update existing payroll
-        console.log(`🔄 Updating existing payroll for ${month + 1}/${year}`);
-        
-        // Update attendance fields
-        // Note: Only update if payroll hasn't been manually modified recently
-        // This prevents overriding manual attendance updates
-        const lastManualUpdate = payroll.updatedAt || payroll.createdAt;
-        const hoursSinceLastUpdate = (Date.now() - lastManualUpdate.getTime()) / (1000 * 60 * 60);
-        
-        // Only auto-update if more than 1 hour has passed since last manual update
-        if (hoursSinceLastUpdate > 1) {
-          console.log(`🔄 Auto-updating attendance from individual records (last manual update: ${hoursSinceLastUpdate.toFixed(1)} hours ago)`);
-          payroll.presentDays = attendanceSummary.presentDays;
-          payroll.absentDays = attendanceSummary.absentDays;
-          payroll.leaveDays = attendanceSummary.leaveDays;
-          payroll.totalWorkingDays = attendanceSummary.totalWorkingDays;
-        } else {
-          console.log(`⏸️  Skipping auto-update (last manual update: ${hoursSinceLastUpdate.toFixed(1)} hours ago)`);
-          console.log(`📊 Keeping manual values: ${payroll.presentDays} present, ${payroll.absentDays} absent`);
-        }
-        
-        // 🔧 Force 26-day system recalculation
-        // Clear daily rate and attendance deduction to force recalculation
-        payroll.dailyRate = undefined;
-        payroll.attendanceDeduction = undefined;
-        
-        // Trigger 26-day system recalculation via pre-save middleware
-        await payroll.save();
-        
-        console.log(`✅ Payroll updated successfully`);
-        
+        // 🔒 CREATED MONTHLY PAYROLL LOCK:
+        // Do not alter an existing generated monthly payroll record on attendance changes.
+        console.log(`🔒 Preserving existing generated payroll lock for ${month + 1}/${year} (Employee: ${employeeId})`);
+        return payroll;
       } else {
         // Create new payroll
         console.log(`🆕 Creating new payroll for ${month + 1}/${year}`);

@@ -262,6 +262,16 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
 };
 
 const savePayrollMonthlyComparisonReport = async (month, year, actorId) => {
+  const existingDoc = await PayrollMonthlyComparisonReport.findOne({ month, year });
+  if (existingDoc && existingDoc.report) {
+    console.log(`🔒 Returning existing locked Monthly Comparison Report for ${month}/${year}`);
+    return {
+      report: existingDoc.report,
+      savedAt: existingDoc.generatedAt,
+      status: existingDoc.status || 'Draft',
+      _id: existingDoc._id
+    };
+  }
   const report = await buildPayrollMonthlyComparisonReport(month, year);
   const doc = await PayrollMonthlyComparisonReport.findOneAndUpdate(
     { month, year },
