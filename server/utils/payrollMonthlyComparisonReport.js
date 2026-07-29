@@ -217,9 +217,14 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
   });
 
   const hiringMap = new Map();
-  hirings.forEach((emp) => hiringMap.set(String(emp._id), mapEmployeeRow(emp)));
+  hirings.forEach((emp) => {
+    const id = String(emp._id);
+    if (emp?.employmentStatus === 'Reinstated' || reinstatedSeen.has(id)) return;
+    hiringMap.set(id, mapEmployeeRow(emp));
+  });
   addedEmployees.forEach((emp) => {
     const id = String(emp._id);
+    if (emp?.employmentStatus === 'Reinstated' || reinstatedSeen.has(id)) return;
     if (!hiringMap.has(id)) {
       hiringMap.set(id, mapEmployeeRow(emp, { note: 'Added to payroll this month' }));
     }
