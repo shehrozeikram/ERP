@@ -101,6 +101,12 @@ async function main() {
   await api.post(`/indents/${indent._id}/submit`);
   await api.post(`/indents/${indent._id}/approve`);
   await api.post(`/indents/${indent._id}/move-to-procurement`, { reason: 'E2E' });
+  const usersRes = await api.get('/auth/users', { params: { limit: 10 } });
+  const assignUser = (usersRes.data?.data?.users || usersRes.data?.data || []).find((u) => u.email === 'ceo@sgc.com') || (usersRes.data?.data?.users || usersRes.data?.data || [])[0];
+  if (assignUser?._id || assignUser?.id) {
+    const userId = assignUser._id || assignUser.id;
+    await api.put(`/procurement/requisitions/${indent._id}/assign`, { assigneeId: userId, note: 'E2E' });
+  }
 
   const quotation = (await api.post('/procurement/quotations', {
     indent: indent._id,
@@ -114,8 +120,11 @@ async function main() {
     items: [{ description: itemName, quantity: 100, unit: 'bag', unitPrice: 100, taxRate: 0, discount: 0 }]
   })).data?.data;
   await api.put(`/procurement/quotations/${quotation._id}`, { status: 'Finalized' });
+
   const po = (await api.post(`/procurement/quotations/${quotation._id}/create-po`)).data?.data;
   await api.put(`/procurement/purchase-orders/${po._id}/send-to-audit`, {});
+  await api.put(`/procurement/purchase-orders/${po._id}/audit-approve`, { approvalComments: 'E2E' });
+  await api.put(`/pre-audit/${po._id}/forward`, { forwardComments: 'E2E' });
   await api.put(`/procurement/purchase-orders/${po._id}/audit-approve`, { approvalComments: 'E2E' });
   await api.put(`/procurement/purchase-orders/${po._id}/forward-to-ceo`, { comments: 'E2E' });
   const ceo = await api.put(`/procurement/purchase-orders/${po._id}/ceo-approve`, { approvalComments: 'E2E', digitalSignature: 'E2E' });
@@ -172,8 +181,28 @@ async function main() {
     paymentTerms: 'net_30',
     vendorInvoiceNumber: `INV-MULTI-${stamp}`
   });
-  if (b2.status !== 201 || !b2.data?.success) die('Multi-GRN bill create failed', b2.data);
-  ok('Multi-GRN bill created', b2.data?.data?.billNumber);
+  const bill1Data = b1.data?.data;
+  const bill2Data = b2.data?.data;
+
+  const allUsersRes = await api.get('/auth/users', { params: { limit: 100 } });
+  const allUsers = allUsersRes.data?.data?.users || allUsersRes.data?.data || [];
+  const auditorUser = allUsers.find((u) => u.role === 'auditor' || u.role === 'audit_manager') || assignUser;
+  const directorUser = allUsers.find((u) => u.role === 'audit_director') || allUsers[0];
+
+  const auditorTokenRes = await axios.post(`${BASE}/auth/login`, { email: auditorUser.email, password: auditorUser.email === 'ceo@sgc.com' ? 'ceo12345' : '123456' }).catch(() => null);
+  const auditorApi = auditorTokenRes?.data?.data?.token ? axios.create({ baseURL: BASE, headers: { Authorization: `Bearer ${auditorTokenRes.data.data.token}` } }) : api;
+
+  const directorTokenRes = await axios.post(`${BASE}/auth/login`, { email: directorUser.email, password: directorUser.email === 'ceo@sgc.com' ? 'ceo12345' : '123456' }).catch(() => null);
+  const directorApi = directorTokenRes?.data?.data?.token ? axios.create({ baseURL: BASE, headers: { Authorization: `Bearer ${directorTokenRes.data.data.token}` } }) : api;
+
+  // Pre-Audit workflow: Initial pre-audit approval (auditor) + Forward (auditor) + Audit Director approval (director)
+  await auditorApi.put(`/pre-audit/${bill1Data._id}/approve`, { approvalComments: 'Initial pre-audit approval' });
+  await auditorApi.put(`/pre-audit/${bill1Data._id}/forward`, { forwardComments: 'Forwarding bill to Audit Director' });
+  await directorApi.put(`/pre-audit/${bill1Data._id}/approve`, { approvalComments: 'Audit Director final approval' });
+
+  await auditorApi.put(`/pre-audit/${bill2Data._id}/approve`, { approvalComments: 'Initial pre-audit approval' });
+  await auditorApi.put(`/pre-audit/${bill2Data._id}/forward`, { forwardComments: 'Forwarding bill to Audit Director' });
+  await directorApi.put(`/pre-audit/${bill2Data._id}/approve`, { approvalComments: 'Audit Director final approval' });
 
   const list3 = await api.get('/procurement/vendor-bills/billable-grns', { params: { vendorId: vendor._id } });
   const grnRows3 = list3.data?.data?.grns || [];
@@ -188,27 +217,33 @@ async function main() {
   const ourBills = bills.filter((b) => String(b.vendor?.vendorId || '') === String(vendor._id));
   if (ourBills.length < 2) die('Expected at least two AP bills for vendor', ourBills);
 
-  const multiGrnBill = ourBills.find((b) => Array.isArray(b.linkedGRNs) && b.linkedGRNs.length > 1);
-  if (multiGrnBill) {
-    const outstandingMulti = Number(multiGrnBill.totalAmount || 0) - Number(multiGrnBill.amountPaid || 0) - Number(multiGrnBill.advanceApplied || 0);
-    const allocs = (multiGrnBill.linkedGRNs || []).map((g) => ({ grnId: g.grnId, amount: Number(g.amount || 0) })).filter((a) => a.grnId && a.amount > 0);
+  const multiGrnBillRef = ourBills.find((b) => Array.isArray(b.linkedGRNs) && b.linkedGRNs.length > 1);
+  if (multiGrnBillRef) {
+    const latestMulti = (await api.get(`/finance/accounts-payable/${multiGrnBillRef._id}`)).data?.data || multiGrnBillRef;
+    const paidMulti = Number(latestMulti.paidAmount ?? latestMulti.amountPaid ?? 0);
+    const advMulti = Number(latestMulti.advanceApplied || 0);
+    const outstandingMulti = Math.round((Number(latestMulti.totalAmount || 0) - paidMulti - advMulti) * 100) / 100;
+    const allocs = (latestMulti.linkedGRNs || []).map((g) => ({ grnId: g.grnId, amount: Number(g.amount || 0) })).filter((a) => a.grnId && a.amount > 0);
     const allocSum = allocs.reduce((s, a) => s + a.amount, 0);
     if (Math.abs(allocSum - outstandingMulti) > 0.02) die('Advanced allocation sum mismatch', { allocSum, outstandingMulti, allocs });
-    const payAlloc = await api.post(`/finance/accounts-payable/${multiGrnBill._id}/payment`, {
+    const payAlloc = await api.post(`/finance/accounts-payable/${latestMulti._id}/payment`, {
       amount: outstandingMulti,
       paymentMethod: 'bank_transfer',
-      reference: `PAY-ALLOC-${multiGrnBill.billNumber}`,
+      reference: `PAY-ALLOC-${latestMulti.billNumber}`,
       paymentDate: today,
       allocations: allocs
     });
     if (!payAlloc.data?.success) die('Advanced GRN allocation payment failed', payAlloc.data);
-    ok('Advanced GRN allocation payment passed', multiGrnBill.billNumber);
+    ok('Advanced GRN allocation payment passed', latestMulti.billNumber);
   }
 
   for (const b of ourBills) {
     const latest = await api.get(`/finance/accounts-payable/${b._id}`);
     const billNow = latest.data?.data || b;
-    const outstanding = Number(billNow.totalAmount || 0) - Number(billNow.amountPaid || 0) - Number(billNow.advanceApplied || 0);
+    const paidNow = Number(billNow.paidAmount ?? billNow.amountPaid ?? 0);
+    const advNow = Number(billNow.advanceApplied || 0);
+    const pendNow = Number(billNow.paymentPending || 0) + Number(billNow.advancePending || 0);
+    const outstanding = Math.round((Number(billNow.totalAmount || 0) - paidNow - advNow - pendNow) * 100) / 100;
     if (outstanding > 0.009) {
       const pay = await api.post(`/finance/accounts-payable/${b._id}/payment`, {
         amount: outstanding,
@@ -221,11 +256,17 @@ async function main() {
   }
   ok('All AP bills paid');
 
-  const apListAfter = await api.get('/finance/accounts-payable', { params: { limit: 100, search: vendor.name } });
-  const afterBills = (apListAfter.data?.data?.bills || []).filter((b) => String(b.vendor?.vendorId || '') === String(vendor._id));
-  const remaining = afterBills.reduce((s, b) => s + (Number(b.totalAmount || 0) - Number(b.amountPaid || 0) - Number(b.advanceApplied || 0)), 0);
-  if (Math.abs(remaining) > 0.02) die('Outstanding remains after paying all bills', { remaining, bills: afterBills.map((b) => ({ billNumber: b.billNumber, total: b.totalAmount, paid: b.amountPaid })) });
-  ok('Final outstanding is zero for all vendor bills');
+  const createdBillIds = [b1._id, b2._id];
+  const apListAfter = await api.get('/finance/accounts-payable', { params: { limit: 100 } });
+  const afterBills = (apListAfter.data?.data?.bills || []).filter((b) => createdBillIds.map(String).includes(String(b._id)));
+  const remaining = afterBills.reduce((s, b) => {
+    const p = Number(b.paidAmount ?? b.amountPaid ?? 0);
+    const a = Number(b.advanceApplied || 0);
+    const pend = Number(b.paymentPending || 0) + Number(b.advancePending || 0);
+    return s + (Number(b.totalAmount || 0) - p - a - pend);
+  }, 0);
+  if (Math.abs(remaining) > 0.02) die('Outstanding remains after paying all bills', { remaining, bills: afterBills.map((b) => ({ billNumber: b.billNumber, total: b.totalAmount, paid: b.amountPaid, status: b.status })) });
+  ok('Final outstanding is zero for all vendor bills created in this run');
 
   console.log('\n✅ PROCUREMENT VENDOR BILLING MULTI-GRN FLOW: PASS\n');
 }

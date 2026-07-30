@@ -2287,7 +2287,12 @@ router.get('/accounts-payable',
     const company = await resolveCompanyForFinanceRoute(req);
     const baseFilters = {};
 
-    if (status) baseFilters.status = status;
+    if (status) {
+      baseFilters.status = status;
+    } else {
+      // By default in Finance AP, hide bills that are pending pre-audit / audit director approval
+      baseFilters.status = { $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
+    }
     if (vendorId) baseFilters['vendor.vendorId'] = vendorId;
     if (search) {
       baseFilters.$or = [

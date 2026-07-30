@@ -2476,6 +2476,14 @@ const PreAudit = () => {
                                                     variant="outlined"
                                                   />
                                                 )}
+                                                {doc.isVendorBill && (
+                                                  <Chip
+                                                    label="Vendor Bill"
+                                                    size="small"
+                                                    color="secondary"
+                                                    variant="outlined"
+                                                  />
+                                                )}
                                               </Box>
                                               {doc.description && (
                                                 <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200, display: 'block' }}>
@@ -2694,6 +2702,29 @@ const PreAudit = () => {
                                                             fullDocument: doc.originalDocument || null, 
                                                             loading: false 
                                                           });
+                                                        } else if (doc.isVendorBill) {
+                                                          try {
+                                                            const response = await api.get(`/pre-audit/finance-vendors/bills/${doc._id}`);
+                                                            const billData = response.data?.success ? response.data.data : doc.originalDocument;
+                                                            setViewDialog({
+                                                              open: true,
+                                                              document: { ...doc, isVendorBill: true },
+                                                              fullDocument: billData,
+                                                              quotations: billData?.poDetail?.quotations || [],
+                                                              grns: billData?.poDetail?.grns || [],
+                                                              loading: false
+                                                            });
+                                                          } catch (error) {
+                                                            console.error('Error fetching vendor bill:', error);
+                                                            setViewDialog({
+                                                              open: true,
+                                                              document: { ...doc, isVendorBill: true },
+                                                              fullDocument: doc.originalDocument || null,
+                                                              quotations: [],
+                                                              grns: [],
+                                                              loading: false
+                                                            });
+                                                          }
                                                         } else {
                                                           setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
                                                         }
@@ -2880,15 +2911,17 @@ const PreAudit = () => {
             borderBottom: '1px solid #e0e0e0'
           }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
-              {viewDialog.document?.isCashApproval
-                ? `${isCashApprovalBillDoc(viewDialog.document) ? 'Cash Approval Bill' : 'Cash Approval'} Details`
-                : (viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder))
-                  ? 'Purchase Order Details'
-                  : viewDialog.document?.workflowSubmodule === 'utility_bills_management'
-                    ? (viewDialog.fullDocument?.utilityType?.toUpperCase() || 'UTILITY BILL')
-                    : viewDialog.document?.workflowSubmodule === 'rental_management'
-                      ? 'RENTAL MANAGEMENT'
-                      : 'PAYMENT SETTLEMENT'}
+              {viewDialog.document?.isVendorBill
+                ? 'Vendor Bill & Supporting Documents'
+                : viewDialog.document?.isCashApproval
+                  ? `${isCashApprovalBillDoc(viewDialog.document) ? 'Cash Approval Bill' : 'Cash Approval'} Details`
+                  : (viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder))
+                    ? 'Purchase Order Details'
+                    : viewDialog.document?.workflowSubmodule === 'utility_bills_management'
+                      ? (viewDialog.fullDocument?.utilityType?.toUpperCase() || 'UTILITY BILL')
+                      : viewDialog.document?.workflowSubmodule === 'rental_management'
+                        ? 'RENTAL MANAGEMENT'
+                        : 'PAYMENT SETTLEMENT'}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               {(viewDialog.document?.isPurchaseOrder || viewDialog.document?.isCashApproval || (viewDialog.document?.isWorkflowDocument && (viewDialog.fullDocument?.isPurchaseOrder || viewDialog.document?.workflowSubmodule === 'utility_bills_management' || viewDialog.document?.workflowSubmodule === 'payment_settlement' || viewDialog.document?.workflowSubmodule === 'rental_management'))) && (
@@ -3152,6 +3185,294 @@ const PreAudit = () => {
                               </Box>
                               <Box sx={{ width: 120, height: 40, border: '2px dashed', borderColor: 'divider' }} />
                             </Box>
+                          </Paper>
+                        ))
+                      )}
+                    </Box>
+                  )}
+                </>
+              ) : (viewDialog.document.isVendorBill && viewDialog.fullDocument) ? (
+                <>
+                  <Tabs
+                    value={viewDialog.poAuditTab ?? 0}
+                    onChange={(_, v) => setViewDialog(prev => ({ ...prev, poAuditTab: v }))}
+                    sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                    variant="scrollable"
+                    scrollButtons="auto"
+                  >
+                    <Tab label="Vendor Bill" />
+                    <Tab label={viewDialog.fullDocument?.poDetail?.po ? 'Purchase Order' : 'PO'} />
+                    <Tab label={viewDialog.fullDocument?.poDetail?.indent ? 'Indent' : 'Indent'} />
+                    <Tab label="Comparative Statement" />
+                    <Tab label={`Quotations (${viewDialog.fullDocument?.poDetail?.quotations?.length || viewDialog.quotations?.length || 0})`} />
+                    <Tab label={(viewDialog.fullDocument?.poDetail?.grns?.length || viewDialog.grns?.length) > 0 ? `GRN(s) (${viewDialog.fullDocument?.poDetail?.grns?.length || viewDialog.grns?.length})` : 'GRN(s)'} />
+                  </Tabs>
+
+                  {/* Tab 0: Vendor Bill Details */}
+                  {(viewDialog.poAuditTab ?? 0) === 0 && (
+                    <Box sx={{ p: 3 }}>
+                      <CentralizedStoreBillInvoiceBody
+                        bill={{
+                          ...viewDialog.fullDocument,
+                          billId: viewDialog.fullDocument.billNumber,
+                          billDate: viewDialog.fullDocument.billDate,
+                          createdAt: viewDialog.fullDocument.createdAt || viewDialog.fullDocument.billDate,
+                          provider: viewDialog.fullDocument.vendorName || viewDialog.fullDocument.vendor?.name,
+                          location: viewDialog.fullDocument.vendor?.address?.city || viewDialog.fullDocument.department || 'N/A',
+                          notes: viewDialog.fullDocument.notes || viewDialog.fullDocument.internalNotes,
+                          billLines: (viewDialog.fullDocument.lineItems || []).map((line, idx) => ({
+                            ...line,
+                            itemName: line.description,
+                            itemCode: line.itemCode || 'N/A',
+                            amount: line.amount || (line.quantity * line.unitPrice)
+                          }))
+                        }}
+                        showChargesSummary={true}
+                      />
+
+                      {/* Approval Authority Table */}
+                      <Typography variant="subtitle1" fontWeight={700} sx={{ mt: 4, mb: 1, color: '#333' }}>
+                        Approval Authorities
+                      </Typography>
+                      {(() => {
+                        const bill = viewDialog.fullDocument;
+                        const chain = bill?.approvalChain || [];
+                        const workflowHistory = bill?.workflowHistory || [];
+                        const normalize = (value) => String(value || '').trim().toLowerCase();
+                        const history = Array.isArray(workflowHistory) ? [...workflowHistory].reverse() : [];
+                        
+                        const findLatestAuditEntry = (keywords = []) => history.find((entry) => {
+                          const toStatus = normalize(entry?.toStatus);
+                          const fromStatus = normalize(entry?.fromStatus);
+                          return keywords.some((keyword) => toStatus.includes(keyword) || fromStatus.includes(keyword));
+                        });
+                        const findLatestByToStatus = (accepted = []) => history.find((entry) => {
+                          const toStatus = normalize(entry?.toStatus);
+                          return accepted.some((status) => (
+                            toStatus === status || toStatus.startsWith(status)
+                          ));
+                        });
+
+                        const preAuditActorEntry = findLatestByToStatus([
+                          'forwarded to audit director',
+                          'initial audit approval'
+                        ]) || findLatestAuditEntry([
+                          'forwarded to audit director',
+                          'initial audit approval'
+                        ]);
+                        const directorApproval = findLatestByToStatus([
+                          'approved (from forwarded to audit director)',
+                          'approved (from send to audit)'
+                        ]) || findLatestAuditEntry([
+                          'approved (from forwarded to audit director)',
+                          'approved (from send to audit)'
+                        ]);
+
+                        const rows = [
+                          {
+                            authority: 'Sig of Requester',
+                            name: userDisplayName(bill?.createdBy),
+                            signatureUser: bill?.createdBy,
+                            dateTime: bill?.createdAt ? formatDateTime(bill.createdAt) : '-'
+                          },
+                          {
+                            authority: 'Pre-Audit Authority',
+                            name: userDisplayName(preAuditActorEntry?.changedBy),
+                            signatureUser: preAuditActorEntry?.changedBy || null,
+                            dateTime: preAuditActorEntry?.changedAt ? formatDateTime(preAuditActorEntry.changedAt) : '-'
+                          },
+                          {
+                            authority: 'Audit Director',
+                            name: userDisplayName(directorApproval?.changedBy),
+                            signatureUser: directorApproval?.changedBy || null,
+                            signaturePath: directorApproval?.stampUsed && directorApproval?.stampImage
+                              ? directorApproval.stampImage
+                              : directorApproval?.changedBy?.digitalSignature || '',
+                            dateTime: directorApproval?.changedAt ? formatDateTime(directorApproval.changedAt) : '-'
+                          }
+                        ];
+
+                        const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
+
+                        return (
+                          <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 800 }}>Authority</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Digital Signature</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Date &amp; Time</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {rows.map((row) => (
+                                  <TableRow key={row.authority}>
+                                    <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                                    <TableCell>{row.name || '-'}</TableCell>
+                                    <TableCell>
+                                      {getSignatureSource(row) ? (
+                                        <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                                      ) : (
+                                        '-'
+                                      )}
+                                    </TableCell>
+                                    <TableCell>{row.dateTime || '-'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        );
+                      })()}
+                    </Box>
+                  )}
+
+                  {/* Tab 1: Purchase Order */}
+                  {viewDialog.poAuditTab === 1 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!viewDialog.fullDocument?.poDetail?.po ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Purchase Order linked to this Vendor Bill.</Typography>
+                      ) : (
+                        <PurchaseOrderView poData={viewDialog.fullDocument.poDetail.po} />
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Tab 2: Indent */}
+                  {viewDialog.poAuditTab === 2 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!viewDialog.fullDocument?.poDetail?.indent ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Indent linked to this Vendor Bill.</Typography>
+                      ) : (
+                        <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                            Purchase Request Form
+                          </Typography>
+                          <Typography variant="subtitle2" align="center" color="text.secondary" sx={{ mb: 3 }}>
+                            Requisition #{viewDialog.fullDocument.poDetail.indent.indentNumber || '—'}
+                          </Typography>
+                          <Grid container spacing={2} sx={{ mb: 3 }}>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary" display="block">Title</Typography><Typography variant="body2">{viewDialog.fullDocument.poDetail.indent.title || '—'}</Typography></Grid>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary" display="block">Department</Typography><Typography variant="body2">{viewDialog.fullDocument.poDetail.indent.department?.name || '—'}</Typography></Grid>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary" display="block">Requested By</Typography><Typography variant="body2">{[viewDialog.fullDocument.poDetail.indent.requestedBy?.firstName, viewDialog.fullDocument.poDetail.indent.requestedBy?.lastName].filter(Boolean).join(' ') || '—'}</Typography></Grid>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary" display="block">Required Date</Typography><Typography variant="body2">{formatDate(viewDialog.fullDocument.poDetail.indent.requiredDate)}</Typography></Grid>
+                          </Grid>
+                          {viewDialog.fullDocument.poDetail.indent.justification && (
+                            <Box sx={{ mb: 3 }}>
+                              <Typography variant="subtitle2" fontWeight={600} mb={0.5}>Justification</Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>{viewDialog.fullDocument.poDetail.indent.justification}</Typography>
+                            </Box>
+                          )}
+                          {renderIndentApprovalProgress(viewDialog.fullDocument.poDetail.indent, { title: 'Indent approval progress' })}
+                        </Paper>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Tab 3: Comparative Statement */}
+                  {viewDialog.poAuditTab === 3 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!viewDialog.fullDocument?.poDetail?.indent ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Comparative Statement available.</Typography>
+                      ) : (
+                        <ComparativeStatementView
+                          requisition={viewDialog.fullDocument.poDetail.indent}
+                          quotations={viewDialog.fullDocument.poDetail.quotations || viewDialog.quotations || []}
+                          approvalAuthority={viewDialog.fullDocument.poDetail.indent?.comparativeStatementApprovals || {}}
+                          note={viewDialog.fullDocument.poDetail.indent?.notes ?? ''}
+                          readOnly
+                          formatNumber={formatNumber}
+                          loadingQuotations={false}
+                          showPrintButton={false}
+                        />
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Tab 4: Quotations */}
+                  {viewDialog.poAuditTab === 4 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!(viewDialog.fullDocument?.poDetail?.quotations?.length || viewDialog.quotations?.length) ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Quotations found.</Typography>
+                      ) : (
+                        (viewDialog.fullDocument?.poDetail?.quotations || viewDialog.quotations || []).map((q, idx) => (
+                          <Paper key={q._id || idx} sx={{ p: 3, mb: 3, maxWidth: '210mm', mx: 'auto', border: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+                              Quotation: {q.vendor?.name || 'Vendor'} {q.quotationNumber ? `(${q.quotationNumber})` : ''}
+                            </Typography>
+                            <Grid container spacing={2} sx={{ mb: 2 }}>
+                              <Grid item xs={4}><Typography variant="caption" color="text.secondary" display="block">Quotation Date</Typography><Typography variant="body2">{formatDate(q.quotationDate)}</Typography></Grid>
+                              <Grid item xs={4}><Typography variant="caption" color="text.secondary" display="block">Delivery Time</Typography><Typography variant="body2">{q.deliveryTime || '—'}</Typography></Grid>
+                              <Grid item xs={4}><Typography variant="caption" color="text.secondary" display="block">Payment Terms</Typography><Typography variant="body2">{q.paymentTerms || '—'}</Typography></Grid>
+                            </Grid>
+                            <TableContainer>
+                              <Table size="small">
+                                <TableHead>
+                                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                    <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>Qty</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>Unit Price</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>Total</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {(q.items || []).map((item, i) => (
+                                    <TableRow key={i}>
+                                      <TableCell>{item.description}</TableCell>
+                                      <TableCell align="right">{item.quantity} {item.unit}</TableCell>
+                                      <TableCell align="right">{formatNumber(item.unitPrice)}</TableCell>
+                                      <TableCell align="right">{formatNumber((item.quantity || 0) * (item.unitPrice || 0))}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                          </Paper>
+                        ))
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Tab 5: Goods Receive Notes (GRNs) */}
+                  {viewDialog.poAuditTab === 5 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!(viewDialog.fullDocument?.poDetail?.grns?.length || viewDialog.grns?.length) ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Goods Receive Notes linked.</Typography>
+                      ) : (
+                        (viewDialog.fullDocument?.poDetail?.grns || viewDialog.grns || []).map((grn, gIdx) => (
+                          <Paper key={grn._id || gIdx} sx={{ p: 3, mb: 3, maxWidth: '210mm', mx: 'auto', border: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="h6" fontWeight={700} align="center" sx={{ mb: 2 }}>
+                              GOODS RECEIVE NOTE #{grn.receiveNumber || '—'}
+                            </Typography>
+                            <Grid container spacing={2} sx={{ mb: 2 }}>
+                              <Grid item xs={6}><Typography variant="caption" color="text.secondary" display="block">Supplier</Typography><Typography variant="body2">{grn.supplierName || grn.supplier?.name || '—'}</Typography></Grid>
+                              <Grid item xs={6}><Typography variant="caption" color="text.secondary" display="block">Receive Date</Typography><Typography variant="body2">{formatDate(grn.receiveDate)}</Typography></Grid>
+                            </Grid>
+                            <TableContainer sx={{ mb: 2 }}>
+                              <Table size="small">
+                                <TableHead>
+                                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                    <TableCell sx={{ fontWeight: 'bold' }}>Product Code</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>Qty</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>Rate</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>Total Value</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {(grn.items || []).map((item, idx) => (
+                                    <TableRow key={idx}>
+                                      <TableCell>{item.itemCode || '—'}</TableCell>
+                                      <TableCell>{item.itemName || '—'}</TableCell>
+                                      <TableCell align="right">{formatNumber(item.quantity)} {item.unit || ''}</TableCell>
+                                      <TableCell align="right">{formatNumber(item.unitPrice)}</TableCell>
+                                      <TableCell align="right">{formatNumber((item.quantity || 0) * (item.unitPrice || 0))}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
                           </Paper>
                         ))
                       )}
@@ -4322,12 +4643,12 @@ const PreAudit = () => {
             )}
           </Box>
           <Box>
-            {(viewDialog.document?.isWorkflowDocument || viewDialog.document?.isCashApproval) && viewDialog.fullDocument && (
+            {(viewDialog.document?.isWorkflowDocument || viewDialog.document?.isCashApproval || viewDialog.document?.isVendorBill) && viewDialog.fullDocument && (
               <Button
                 variant="outlined"
                 startIcon={<HistoryIcon />}
                 onClick={() => setWorkflowHistoryDialog({ open: true, document: viewDialog.fullDocument })}
-                sx={{ minWidth: 150, mr: 1 }}
+                sx={{ minWidth: 150, mr: 1, '@media print': { display: 'none' } }}
               >
                 See Workflow History
               </Button>

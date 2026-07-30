@@ -110,6 +110,9 @@ const VendorBills = () => {
     const s = String(status || '').toLowerCase();
     if (s.includes('paid')) return 'success';
     if (s.includes('partial')) return 'warning';
+    if (s.includes('pending audit')) return 'warning';
+    if (s.includes('forwarded')) return 'info';
+    if (s.includes('returned')) return 'error';
     if (s.includes('posted') || s.includes('approved')) return 'info';
     if (s.includes('cancel')) return 'error';
     return 'default';

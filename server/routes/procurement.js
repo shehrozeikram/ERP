@@ -3994,6 +3994,19 @@ router.post('/vendor-bills',
       createdBy: req.user.id
     });
 
+    // Workflow transition: newly created bill starts in 'Pending Audit' status for Pre-Audit review
+    apBill.status = 'Pending Audit';
+    apBill.workflowHistory = Array.isArray(apBill.workflowHistory) ? apBill.workflowHistory : [];
+    apBill.workflowHistory.push({
+      fromStatus: 'Draft',
+      toStatus: 'Pending Audit',
+      changedBy: req.user.id,
+      changedAt: new Date(),
+      comments: notes || `Vendor bill created from ${grns.length} GRN(s) and routed to Pre-Audit`,
+      module: 'Procurement'
+    });
+    await apBill.save();
+
     for (const u of grnUpdates) {
       const remaining = Math.round((u.total - u.nextBilledAmount) * 100) / 100;
       await GoodsReceive.updateOne(
@@ -6725,7 +6738,8 @@ router.post('/quotations/:id/create-po',
       });
     }
 
-    if (quotation.indent && !comparativeApprovalIsFullyApproved(quotation.indent)) {
+    const quotationCountForIndent = await Quotation.countDocuments({ indent: quotation.indent });
+    if (quotation.indent && quotationCountForIndent > 1 && !comparativeApprovalIsFullyApproved(quotation.indent)) {
       return res.status(400).json({
         success: false,
         message: 'Comparative Statement must be fully approved before creating PO.'

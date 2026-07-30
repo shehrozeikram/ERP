@@ -100,7 +100,12 @@ async function getAuditFinanceVendorDetail(supplierId, { billStatus = '' } = {})
   if (billStatus) billQuery.status = billStatus;
 
   const [bills, advances] = await Promise.all([
-    AccountsPayable.find(billQuery).sort({ billDate: -1 }).limit(200).lean(),
+    AccountsPayable.find(billQuery)
+      .populate('createdBy', 'firstName lastName email digitalSignature')
+      .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+      .sort({ billDate: -1 })
+      .limit(200)
+      .lean(),
     VendorAdvance.find({ 'vendor.vendorId': vendorObjectId }).sort({ paymentDate: -1 }).limit(50).lean()
   ]);
 
@@ -146,7 +151,9 @@ async function getAuditFinanceVendorDetail(supplierId, { billStatus = '' } = {})
       balanceDue: b.balanceDue ?? Math.round((b.totalAmount - (b.amountPaid || 0) - (b.advanceApplied || 0)) * 100) / 100,
       status: b.status,
       referenceType: b.referenceType,
-      department: b.department
+      department: b.department,
+      createdBy: b.createdBy,
+      workflowHistory: b.workflowHistory
     })),
     advances: advances.map((a) => ({
       _id: a._id,

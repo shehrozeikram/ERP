@@ -459,63 +459,37 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
                     });
                   };
 
-                  const rows = [];
+                  const rows = [
+                    {
+                      authority: 'Sig of Requester',
+                      name: [selectedBill?.createdBy?.firstName, selectedBill?.createdBy?.lastName].filter(Boolean).join(' ') || selectedBill?.createdBy?.name || '-',
+                      signatureUser: selectedBill?.createdBy,
+                      dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
+                    }
+                  ];
 
-                  // If linked to a Cash Approval, show its workflow history
-                  if (selectedBill?.cashApproval?.workflowHistory?.length > 0) {
-                    const history = [...selectedBill.cashApproval.workflowHistory].reverse();
-                    history.forEach(entry => {
-                      let actionDesc = entry.toStatus;
-                      if (entry.comments) {
-                        actionDesc += ` (${entry.comments})`;
-                      }
-                      rows.push({
-                        authority: actionDesc,
-                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
-                        signatureUser: entry.changedBy,
-                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
-                      });
-                    });
-                    return rows;
-                  }
+                  const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
+                  const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
+                  const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
 
-                  // If linked to a Purchase Order, show its workflow history
-                  if (selectedBill?.poDetail?.po?.workflowHistory?.length > 0) {
-                    const history = [...selectedBill.poDetail.po.workflowHistory].reverse();
-                    history.forEach(entry => {
-                      let actionDesc = entry.toStatus;
-                      if (entry.comments) {
-                        actionDesc += ` (${entry.comments})`;
-                      }
-                      rows.push({
-                        authority: actionDesc,
-                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
-                        signatureUser: entry.changedBy,
-                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
-                      });
-                    });
-                    return rows;
-                  }
-
-                  // Fallback for bills without workflow history
                   rows.push({
-                    authority: 'Preparer',
-                    name: [selectedBill?.createdBy?.firstName, selectedBill?.createdBy?.lastName].filter(Boolean).join(' ') || selectedBill?.createdBy?.name || '-',
-                    signatureUser: selectedBill?.createdBy,
-                    dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
+                    authority: 'Pre-Audit Authority',
+                    name: [preAuditEntry?.changedBy?.firstName, preAuditEntry?.changedBy?.lastName].filter(Boolean).join(' ') || preAuditEntry?.changedBy?.name || '-',
+                    signatureUser: preAuditEntry?.changedBy || null,
+                    dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
                   });
 
-                  if (selectedBill?.approval?.approvedBy) {
-                    rows.push({
-                      authority: 'Approver',
-                      name: [selectedBill.approval.approvedBy?.firstName, selectedBill.approval.approvedBy?.lastName].filter(Boolean).join(' ') || selectedBill.approval.approvedBy?.name || '-',
-                      signatureUser: selectedBill.approval.approvedBy,
-                      dateTime: selectedBill.approval.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
-                    });
-                  }
+                  rows.push({
+                    authority: 'Audit Director',
+                    name: [directorEntry?.changedBy?.firstName, directorEntry?.changedBy?.lastName].filter(Boolean).join(' ') || directorEntry?.changedBy?.name || '-',
+                    signatureUser: directorEntry?.changedBy || null,
+                    signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : directorEntry?.changedBy?.digitalSignature || '',
+                    dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+                  });
+
                   return rows;
                 };
-                const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
+                const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
                 return (
                   <Table
                     size="small"
@@ -569,7 +543,8 @@ export default function FinanceVendorsAuditPanel({ open = true, embedded = false
                   </Table>
                 );
               })()}
-            </>
+
+              </>
           )}
         </DialogContent>
       </Dialog>

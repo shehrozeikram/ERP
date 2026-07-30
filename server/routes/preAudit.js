@@ -448,6 +448,72 @@ router.get('/',
       console.error('Error fetching cash approvals for pre-audit:', caErr);
     }
 
+    // Vendor Bills in audit queue (Pending Audit, Forwarded to Audit Director, Returned from Audit, Approved)
+    try {
+      const AccountsPayableModel = require('../models/finance/AccountsPayable');
+      const vbAuditStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit', 'approved'];
+      const vbQuery = { status: { $in: vbAuditStatuses } };
+      if (search) {
+        vbQuery.$and = [
+          { status: { $in: vbAuditStatuses } },
+          {
+            $or: [
+              { billNumber: { $regex: search, $options: 'i' } },
+              { vendorInvoiceNumber: { $regex: search, $options: 'i' } },
+              { 'vendor.name': { $regex: search, $options: 'i' } },
+              { notes: { $regex: search, $options: 'i' } }
+            ]
+          }
+        ];
+        delete vbQuery.status;
+      }
+      const vbDocs = await AccountsPayableModel.find(vbQuery)
+        .populate('vendor.vendorId', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('observations.addedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+        .sort({ createdAt: -1 })
+        .lean();
+      for (const doc of vbDocs) {
+        let preAuditStatus = 'pending';
+        if (doc.status === 'approved' || doc.status === 'paid' || doc.status === 'partial') preAuditStatus = 'approved';
+        else if (doc.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        else if (doc.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
+        else if (doc.status === 'Pending Audit' && doc.preAuditInitialApprovedAt) preAuditStatus = 'under_review';
+
+        workflowDocs.push({
+          _id: doc._id,
+          documentNumber: doc.billNumber || doc._id.toString(),
+          title: `Vendor Bill: ${doc.billNumber || 'Bill'} (${doc.vendor?.name || 'Vendor'})`,
+          description: doc.notes || (doc.vendor?.name ? `Vendor Bill for ${doc.vendor.name}` : 'Vendor Bill'),
+          sourceModule: 'procurement',
+          sourceDepartmentName: 'Procurement',
+          sourceDepartment: null,
+          documentType: 'Vendor Bill',
+          documentDate: doc.billDate || doc.createdAt,
+          amount: doc.totalAmount || 0,
+          referenceNumber: doc.billNumber || '',
+          status: preAuditStatus,
+          workflowStatus: doc.status,
+          priority: 'medium',
+          isWorkflowDocument: false,
+          isPurchaseOrder: false,
+          isCashApproval: false,
+          isVendorBill: true,
+          originalDocument: doc,
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt,
+          createdBy: doc.createdBy,
+          workflowHistory: doc.workflowHistory || [],
+          observations: doc.observations || [],
+          preAuditInitialApprovedAt: doc.preAuditInitialApprovedAt || null,
+          initialAuditApproved: Boolean(doc.preAuditInitialApprovedAt)
+        });
+      }
+    } catch (vbErr) {
+      console.error('Error fetching vendor bills for pre-audit:', vbErr);
+    }
+
     // Combine Pre Audit and workflow documents
     const allDocuments = [
       ...preAuditDocs.map(doc => ({ ...doc, isWorkflowDocument: false })), 
@@ -586,20 +652,43 @@ router.get('/finance-vendors/bills/:id',
     const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 
     const bill = await AccountsPayable.findById(req.params.id)
+      .populate('createdBy', 'firstName lastName email digitalSignature')
       .populate('payeeEmployee', 'firstName lastName employeeId')
+      .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+      .populate('observations.addedBy', 'firstName lastName email')
       .lean();
     if (!bill) {
       return res.status(404).json({ success: false, message: 'Bill not found' });
     }
 
+
+
     let poDetail = null;
+    let targetPoId = null;
     if (bill.referenceType === 'purchase_order' && bill.referenceId) {
+      targetPoId = bill.referenceId;
+    } else if (bill.referenceType === 'grn' || (Array.isArray(bill.linkedGRNs) && bill.linkedGRNs.length > 0)) {
+      const GoodsReceive = require('../models/procurement/GoodsReceive');
+      const sampleGrnId = bill.referenceId || bill.linkedGRNs?.[0]?.grnId;
+      if (sampleGrnId) {
+        const grnDoc = await GoodsReceive.findById(sampleGrnId).lean();
+        if (grnDoc?.purchaseOrder) targetPoId = grnDoc.purchaseOrder;
+      }
+    }
+
+    if (targetPoId) {
       const Quotation = require('../models/procurement/Quotation');
       const Indent = require('../models/general/Indent');
-      const po = await PurchaseOrder.findById(bill.referenceId)
+      const GoodsReceive = require('../models/procurement/GoodsReceive');
+
+      const po = await PurchaseOrder.findById(targetPoId)
         .populate('vendor', 'name email phone address')
         .populate('indent')
+        .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
+        .populate('auditReturnedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .lean();
+
       if (po) {
         const indentId = po.indent?._id || po.indent;
         let quotations = [];
@@ -608,11 +697,22 @@ router.get('/finance-vendors/bills/:id',
           indent = await Indent.findById(indentId)
             .populate('requestedBy', 'firstName lastName name email digitalSignature')
             .populate('department', 'name code')
+            .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+            .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
+            .populate('comparativeStatementApprovals.preparedByUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.verifiedByUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.authorisedRepUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.financeRepUser', 'firstName lastName email employeeId digitalSignature')
+            .populate('comparativeStatementApprovals.managerProcurementUser', 'firstName lastName email employeeId digitalSignature')
             .lean();
           quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
         }
-        const GoodsReceive = require('../models/procurement/GoodsReceive');
-        const grns = await GoodsReceive.find({ purchaseOrder: po._id }).populate('supplier', 'name').lean();
+        const grnIds = (bill.linkedGRNs && bill.linkedGRNs.length > 0)
+          ? bill.linkedGRNs.map(g => g.grnId).filter(Boolean)
+          : [];
+        const grnQuery = grnIds.length > 0 ? { _id: { $in: grnIds } } : { purchaseOrder: po._id };
+        const grns = await GoodsReceive.find(grnQuery).populate('supplier', 'name').populate('receivedBy', 'firstName lastName email').lean();
         poDetail = { po, indent, quotations, grns };
       }
     }
@@ -740,6 +840,47 @@ router.get('/:id',
             preAuditInitialApprovedAt: ca.preAuditInitialApprovedAt || null,
             initialAuditApproved: Boolean(ca.preAuditInitialApprovedAt),
             auditApprovedAt: ca.auditApprovedAt || null
+          }
+        });
+      }
+      const AccountsPayableModel = require('../models/finance/AccountsPayable');
+      const vb = await AccountsPayableModel.findById(req.params.id)
+        .populate('vendor.vendorId', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('observations.addedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+        .lean();
+      const vbAuditStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit', 'approved'];
+      if (vb && vbAuditStatuses.includes(vb.status)) {
+        let preAuditStatus = 'pending';
+        if (vb.status === 'approved' || vb.status === 'paid' || vb.status === 'partial') preAuditStatus = 'approved';
+        else if (vb.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        else if (vb.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
+        else if (vb.status === 'Pending Audit' && vb.preAuditInitialApprovedAt) preAuditStatus = 'under_review';
+
+        return res.json({
+          success: true,
+          data: {
+            _id: vb._id,
+            documentNumber: vb.billNumber,
+            title: `Vendor Bill: ${vb.billNumber || 'Bill'} (${vb.vendor?.name || 'Vendor'})`,
+            description: vb.notes || (vb.vendor?.name ? `Vendor Bill for ${vb.vendor.name}` : 'Vendor Bill'),
+            sourceModule: 'procurement',
+            sourceDepartmentName: 'Procurement',
+            documentType: 'Vendor Bill',
+            documentDate: vb.billDate,
+            amount: vb.totalAmount,
+            referenceNumber: vb.billNumber,
+            status: preAuditStatus,
+            workflowStatus: vb.status,
+            isWorkflowDocument: false,
+            isPurchaseOrder: false,
+            isCashApproval: false,
+            isVendorBill: true,
+            originalDocument: vb,
+            observations: vb.observations || [],
+            preAuditInitialApprovedAt: vb.preAuditInitialApprovedAt || null,
+            initialAuditApproved: Boolean(vb.preAuditInitialApprovedAt)
           }
         });
       }
@@ -1066,6 +1207,57 @@ router.put('/:id/forward',
           }
         });
       }
+
+      const AccountsPayableForward = require('../models/finance/AccountsPayable');
+      const vbFwd = await AccountsPayableForward.findById(req.params.id);
+      if (vbFwd && ['Pending Audit', 'Forwarded to Audit Director'].includes(vbFwd.status)) {
+        if (vbFwd.status === 'Forwarded to Audit Director') {
+          return res.status(400).json({
+            success: false,
+            message: 'Document is already forwarded to Audit Director'
+          });
+        }
+        if (!vbFwd.preAuditInitialApprovedAt) {
+          return res.status(400).json({
+            success: false,
+            message: 'Initial pre-audit approval is required before forwarding to Audit Director.'
+          });
+        }
+        vbFwd.workflowHistory = vbFwd.workflowHistory || [];
+        vbFwd.workflowHistory.push({
+          fromStatus: 'Pending Audit',
+          toStatus: 'Forwarded to Audit Director',
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: forwardComments || 'Forwarded to Audit Director for approval',
+          module: 'Pre-Audit'
+        });
+        vbFwd.status = 'Forwarded to Audit Director';
+        vbFwd.updatedBy = req.user.id;
+        await vbFwd.save();
+        const updatedVb = await AccountsPayableForward.findById(vbFwd._id)
+          .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp');
+
+        await notifyAuditDirectorQueue({
+          actorId: req.user.id,
+          title: 'Document forwarded to Audit Director',
+          message: `Vendor Bill ${vbFwd.billNumber || ''} is waiting for your approval.`,
+          entityId: vbFwd._id,
+          entityType: 'AccountsPayable'
+        });
+
+        return res.json({
+          success: true,
+          message: 'Document forwarded to Audit Director successfully',
+          data: {
+            _id: vbFwd._id,
+            isWorkflowDocument: false,
+            isVendorBill: true,
+            status: 'Forwarded to Audit Director',
+            workflowStatus: updatedVb.status
+          }
+        });
+      }
     }
 
     if (isWorkflowDocument) {
@@ -1374,6 +1566,95 @@ router.put('/:id/approve',
       });
     }
 
+    // Handle Vendor Bill pre-audit approval (Pending Audit -> initial approval, Forwarded to Audit Director -> final approval -> approved)
+    const AccountsPayableApprove = require('../models/finance/AccountsPayable');
+    const vbApprove = await AccountsPayableApprove.findById(req.params.id);
+    if (vbApprove && ['Pending Audit', 'Forwarded to Audit Director'].includes(vbApprove.status)) {
+      if (vbApprove.status === 'Pending Audit') {
+        if (!canPerformInitialPreAuditActions(req.user)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Initial pre-audit approval must be completed by General Audit / pre-audit staff before director approval.'
+          });
+        }
+        vbApprove.preAuditInitialApprovedBy = req.user.id;
+        vbApprove.preAuditInitialApprovedAt = new Date();
+        vbApprove.workflowHistory = vbApprove.workflowHistory || [];
+        vbApprove.workflowHistory.push({
+          fromStatus: 'Pending Audit',
+          toStatus: 'Initial Pre-Audit Approved',
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: approvalComments || 'Initial pre-audit approval recorded',
+          module: 'Pre-Audit',
+          ...stampMeta
+        });
+        vbApprove.updatedBy = req.user.id;
+        await vbApprove.save();
+        await notifyAuditDirectorQueue({
+          actorId: req.user.id,
+          title: 'Initial pre-audit approval recorded',
+          message: `Vendor Bill ${vbApprove.billNumber || ''} has initial audit approval and is ready for director forwarding.`,
+          entityId: vbApprove._id,
+          entityType: 'AccountsPayable',
+          metadata: { queueStage: 'initial_audit_approved', targetTab: 'under_review' }
+        });
+        return res.json({
+          success: true,
+          message: 'Initial pre-audit approval recorded. Forward to Audit Director for final approval.',
+          data: {
+            _id: vbApprove._id,
+            isVendorBill: true,
+            status: 'initial_approved',
+            workflowStatus: vbApprove.status
+          }
+        });
+      }
+
+      if (vbApprove.status === 'Forwarded to Audit Director') {
+        if (!canActAsAuditDirector(req.user)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Only Audit Director can approve documents forwarded to them'
+          });
+        }
+      }
+
+      vbApprove.workflowHistory = vbApprove.workflowHistory || [];
+      vbApprove.workflowHistory.push({
+        fromStatus: vbApprove.status,
+        toStatus: 'approved',
+        changedBy: req.user.id,
+        changedAt: new Date(),
+        comments: approvalComments || 'Vendor Bill approved by Audit Director',
+        module: 'Pre-Audit',
+        ...stampMeta
+      });
+      vbApprove.status = 'approved';
+      vbApprove.updatedBy = req.user.id;
+      await vbApprove.save();
+
+      await notifyPreAuditStakeholders({
+        actorId: req.user.id,
+        title: 'Audit Director final approval completed',
+        message: `Vendor Bill ${vbApprove.billNumber || ''} has been finally approved by Audit Director and is active in Finance.`,
+        entityId: vbApprove._id,
+        recipientIds: [vbApprove.createdBy],
+        metadata: { queueStage: 'final_director_approved', targetTab: 'approved' }
+      });
+
+      return res.json({
+        success: true,
+        message: 'Vendor bill approved successfully by Audit Director and activated in Finance.',
+        data: {
+          _id: vbApprove._id,
+          isVendorBill: true,
+          status: 'approved',
+          workflowStatus: 'approved'
+        }
+      });
+    }
+
     // Handle regular Pre Audit documents
     const document = await PreAudit.findById(req.params.id);
     if (!document) {
@@ -1596,6 +1877,29 @@ router.put('/:id/add-observation',
       });
     }
 
+    const AccountsPayableObs = require('../models/finance/AccountsPayable');
+    const vbObs = await AccountsPayableObs.findById(req.params.id);
+    if (vbObs && ['Pending Audit', 'Forwarded to Audit Director'].includes(vbObs.status)) {
+      vbObs.observations = vbObs.observations || [];
+      vbObs.observations.push({
+        observation,
+        severity: (severity || 'medium').toLowerCase(),
+        addedBy: req.user.id,
+        addedAt: new Date()
+      });
+      vbObs.updatedBy = req.user.id;
+      await vbObs.save();
+      return res.json({
+        success: true,
+        message: 'Observation added successfully',
+        data: {
+          _id: vbObs._id,
+          isVendorBill: true,
+          observation: { observation, severity: severity || 'medium', addedBy: req.user, addedAt: new Date() }
+        }
+      });
+    }
+
     // Handle regular Pre Audit documents
     const document = await PreAudit.findById(req.params.id);
     if (!document) {
@@ -1800,6 +2104,44 @@ router.put('/:id/return',
         success: true,
         message: 'Cash approval returned to procurement successfully. They can correct and resend to Pre Audit.',
         data: { _id: caForReturn._id, isCashApproval: true, status: 'Returned from Audit' }
+      });
+    }
+
+    const AccountsPayableReturn = require('../models/finance/AccountsPayable');
+    const vbForReturn = await AccountsPayableReturn.findById(req.params.id);
+    if (vbForReturn && ['Pending Audit', 'Forwarded to Audit Director'].includes(vbForReturn.status)) {
+      const fromVbStatus = vbForReturn.status;
+      vbForReturn.workflowHistory = vbForReturn.workflowHistory || [];
+      vbForReturn.workflowHistory.push({
+        fromStatus: fromVbStatus,
+        toStatus: 'Returned from Audit',
+        changedBy: req.user.id,
+        changedAt: new Date(),
+        comments: returnComments || 'Returned from Pre-Audit with observations',
+        module: 'Pre-Audit'
+      });
+      vbForReturn.status = 'Returned from Audit';
+      vbForReturn.auditReturnedBy = req.user.id;
+      vbForReturn.auditReturnedAt = new Date();
+      vbForReturn.auditReturnComments = returnComments || '';
+      if (observations && Array.isArray(observations) && observations.length > 0) {
+        vbForReturn.observations = vbForReturn.observations || [];
+        observations.forEach((obs) => {
+          vbForReturn.observations.push({
+            observation: obs.observation || obs.text || obs,
+            severity: (obs.severity || 'medium').toLowerCase(),
+            addedBy: req.user.id,
+            addedAt: new Date(),
+            resolved: false
+          });
+        });
+      }
+      vbForReturn.updatedBy = req.user.id;
+      await vbForReturn.save();
+      return res.json({
+        success: true,
+        message: 'Vendor bill returned to procurement successfully.',
+        data: { _id: vbForReturn._id, isVendorBill: true, status: 'Returned from Audit' }
       });
     }
 

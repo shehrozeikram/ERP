@@ -36,7 +36,7 @@ const accountsPayableSchema = new mongoose.Schema({
     },
     vendorId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Vendor' // If you have a separate Vendor model
+      ref: 'Supplier' // References Supplier model in server/models/hr/Supplier.js
     }
   },
   /** Employee payee when bill settles a cash approval advance */
@@ -183,7 +183,7 @@ const accountsPayableSchema = new mongoose.Schema({
   // Status tracking
   status: {
     type: String,
-    enum: ['draft', 'received', 'approved', 'partial', 'paid', 'overdue', 'cancelled'],
+    enum: ['draft', 'received', 'approved', 'partial', 'paid', 'overdue', 'cancelled', 'Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'],
     default: 'draft'
   },
   // Department integration
@@ -206,6 +206,8 @@ const accountsPayableSchema = new mongoose.Schema({
     enum: ['purchase_order', 'grn', 'sin', 'receipt', 'service', 'product', 'bill', 'manual', 'utility_bill'],
     default: 'manual'
   },
+  preAuditInitialApprovedAt: { type: Date },
+  preAuditInitialApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   // Line items
   lineItems: [{
     description: {
@@ -420,7 +422,6 @@ const accountsPayableSchema = new mongoose.Schema({
       ref: 'User'
     }
   }],
-  // Audit trail
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -429,7 +430,25 @@ const accountsPayableSchema = new mongoose.Schema({
   lastModifiedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
-  }
+  },
+  workflowHistory: [{
+    fromStatus: String,
+    toStatus: String,
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedAt: { type: Date, default: Date.now },
+    comments: String,
+    module: String,
+    approvalStamp: String,
+    digitalSignature: String,
+    stampPosition: String
+  }],
+  observations: [{
+    observation: String,
+    severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    addedAt: { type: Date, default: Date.now },
+    resolved: { type: Boolean, default: false }
+  }]
 }, {
   timestamps: true
 });

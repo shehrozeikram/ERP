@@ -108,6 +108,7 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
   // Sort by changedAt so full flow is in chronological order (backend may not always send sorted)
   const workflowHistory = [...rawHistory].sort((a, b) => new Date(a.changedAt || 0) - new Date(b.changedAt || 0));
   const referenceNumber =
+    document?.billNumber ||
     document?.referenceNumber ||
     document?.caNumber ||
     document?.documentNumber ||
@@ -117,6 +118,7 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
   const title = documentType === 'settlement' ? 'Payment Settlement' : 
                documentType === 'preAudit' ? 'Pre Audit Document' : 
                documentType === 'indent' ? 'Indent' :
+               document?.billNumber ? 'Vendor Bill' :
                 document?.orderNumber ? 'Purchase Order' : 'Document';
   const currentStatus = String(
     document?.workflowStatus ||
