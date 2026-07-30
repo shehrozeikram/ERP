@@ -1979,7 +1979,10 @@ router.get('/accounts-payable/:id',
   asyncHandler(async (req, res) => {
     const { q, companyId } = await financeScope(req);
     const bill = await AccountsPayable.findOne(q({ _id: req.params.id }))
+      .populate('createdBy', 'firstName lastName email digitalSignature')
       .populate('payeeEmployee', 'firstName lastName employeeId')
+      .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
+      .populate('observations.addedBy', 'firstName lastName email')
       .lean();
     if (!bill) {
       return res.status(404).json({
@@ -1988,13 +1991,28 @@ router.get('/accounts-payable/:id',
       });
     }
     assertDocCompany(bill, companyId, 'Bill');
+
     let poDetail = null;
+    let targetPoId = null;
     if (bill.referenceType === 'purchase_order' && bill.referenceId) {
+      targetPoId = bill.referenceId;
+    } else if (bill.referenceType === 'grn' || (Array.isArray(bill.linkedGRNs) && bill.linkedGRNs.length > 0)) {
+      const sampleGrnId = bill.referenceId || bill.linkedGRNs?.[0]?.grnId;
+      if (sampleGrnId) {
+        const grnDoc = await GoodsReceive.findById(sampleGrnId).lean();
+        if (grnDoc?.purchaseOrder) targetPoId = grnDoc.purchaseOrder;
+      }
+    }
+
+    if (targetPoId) {
       const Quotation = require('../models/procurement/Quotation');
       const Indent = require('../models/general/Indent');
-      const po = await PurchaseOrder.findById(bill.referenceId)
+      const po = await PurchaseOrder.findById(targetPoId)
         .populate('vendor', 'name email phone address')
         .populate('indent')
+        .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
+        .populate('auditReturnedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .lean();
       if (po) {
         const indentId = po.indent?._id || po.indent;
@@ -2015,7 +2033,11 @@ router.get('/accounts-payable/:id',
             .lean();
           quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
         }
-        const grns = await GoodsReceive.find({ purchaseOrder: po._id }).populate('supplier', 'name').lean();
+        const grnIds = (bill.linkedGRNs && bill.linkedGRNs.length > 0)
+          ? bill.linkedGRNs.map(g => g.grnId).filter(Boolean)
+          : [];
+        const grnQuery = grnIds.length > 0 ? { _id: { $in: grnIds } } : { purchaseOrder: po._id };
+        const grns = await GoodsReceive.find(grnQuery).populate('supplier', 'name').populate('receivedBy', 'firstName lastName email').lean();
         poDetail = { po, indent, quotations, grns };
       }
     }
@@ -4213,11 +4235,14 @@ router.get('/reports/bank-reconciliation',
             allTxns.push({
               _id: t._id,
               date: tDate,
+              voucherNo: t.voucherNo || t.entryNumber || t.reference || '—',
               description: t.description || acc.accountName,
               reference: t.reference || acc.accountNumber,
               type: t.transactionType || 'debit',
               amount: t.amount || 0,
               isReconciled: Boolean(t.isReconciled),
+              clearanceStatus: t.clearanceStatus || (t.isReconciled ? 'cleared' : 'pending'),
+              clearedAt: t.clearedAt || t.reconciledDate || null,
               accountName: acc.accountName,
               bankName: acc.bankName
             });
@@ -4236,12 +4261,16 @@ router.get('/reports/bank-reconciliation',
         if (je._id) seenJeIds.add(String(je._id));
         allTxns.push({
           _id: gle._id,
+          journalEntryId: je._id || null,
           date: gle.date,
+          voucherNo: gle.entryNumber || je.entryNumber || gle.reference || '—',
           description: gle.description || gle.account?.name || 'Bank Transaction',
           reference: gle.reference || gle.entryNumber || '—',
           type: isCredit ? 'credit' : 'debit',
           amount: amt,
-          isReconciled: Boolean(je.isReconciled || gle.isReconciled),
+          isReconciled: Boolean(je.isReconciled || gle.isReconciled || gle.clearanceStatus === 'cleared'),
+          clearanceStatus: je.clearanceStatus || gle.clearanceStatus || (je.isReconciled || gle.isReconciled ? 'cleared' : 'pending'),
+          clearedAt: je.clearedAt || gle.clearedAt || je.reconciledAt || null,
           accountName: gle.account?.name || 'Bank Account',
           bankName: gle.account?.accountNumber || 'GL'
         });
@@ -4259,11 +4288,14 @@ router.get('/reports/bank-reconciliation',
             allTxns.push({
               _id: `${je._id}-${accId}`,
               date: je.date,
+              voucherNo: je.entryNumber || je.reference || '—',
               description: line.description || je.description || 'Vendor Advance / Bank Voucher',
               reference: je.reference || je.entryNumber || '—',
               type: isCredit ? 'credit' : 'debit',
               amount: amt,
               isReconciled: Boolean(je.isReconciled),
+              clearanceStatus: je.clearanceStatus || (je.isReconciled ? 'cleared' : 'pending'),
+              clearedAt: je.clearedAt || je.reconciledAt || null,
               accountName: line.account?.name || 'Bank Account',
               bankName: line.account?.accountNumber || 'BPV'
             });
@@ -4307,24 +4339,80 @@ router.get('/reports/bank-reconciliation',
 router.post('/reports/bank-reconciliation/reconcile',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { transactionIds } = req.body;
+    const { transactionIds, clearanceStatus, clearedAt } = req.body;
+    const isCleared = clearanceStatus === 'cleared' || !clearanceStatus;
+    const clearDate = clearedAt ? new Date(clearedAt) : new Date();
+
     if (Array.isArray(transactionIds) && transactionIds.length > 0) {
       await Banking.updateMany(
         { 'transactions._id': { $in: transactionIds } },
         {
           $set: {
-            'transactions.$[elem].isReconciled': true,
-            'transactions.$[elem].reconciledDate': new Date()
+            'transactions.$[elem].isReconciled': isCleared,
+            'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
+            'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+            'transactions.$[elem].clearedAt': isCleared ? clearDate : null
           }
         },
         { arrayFilters: [{ 'elem._id': { $in: transactionIds } }] }
       );
       await Banking.updateMany(
         { _id: { $in: transactionIds } },
-        { $set: { isReconciled: true, reconciledAt: new Date(), reconciledBy: req.user.id } }
+        {
+          $set: {
+            isReconciled: isCleared,
+            reconciledAt: isCleared ? clearDate : null,
+            reconciledBy: req.user.id,
+            clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+            clearedAt: isCleared ? clearDate : null
+          }
+        }
       );
+
+      // Update GeneralLedger documents
+      const GeneralLedger = require('../models/finance/GeneralLedger');
+      const JournalEntry = require('../models/finance/JournalEntry');
+      const validObjIds = transactionIds.filter(id => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id));
+      
+      if (validObjIds.length > 0) {
+        await GeneralLedger.updateMany(
+          { _id: { $in: validObjIds } },
+          {
+            $set: {
+              isReconciled: isCleared,
+              reconciledAt: isCleared ? clearDate : null,
+              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+              clearedAt: isCleared ? clearDate : null
+            }
+          }
+        );
+        // Also update any GeneralLedger rows pointing to these JournalEntries
+        await GeneralLedger.updateMany(
+          { journalEntry: { $in: validObjIds } },
+          {
+            $set: {
+              isReconciled: isCleared,
+              reconciledAt: isCleared ? clearDate : null,
+              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+              clearedAt: isCleared ? clearDate : null
+            }
+          }
+        );
+        // Update JournalEntries
+        await JournalEntry.updateMany(
+          { _id: { $in: validObjIds } },
+          {
+            $set: {
+              isReconciled: isCleared,
+              reconciledAt: isCleared ? clearDate : null,
+              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+              clearedAt: isCleared ? clearDate : null
+            }
+          }
+        );
+      }
     }
-    res.json({ success: true, message: `${transactionIds?.length || 0} transactions reconciled` });
+    res.json({ success: true, message: `${transactionIds?.length || 0} transactions updated` });
   })
 );
 

@@ -100,6 +100,24 @@ const generalLedgerSchema = new mongoose.Schema({
     enum: ['posted', 'reversed', 'cancelled'],
     default: 'posted'
   },
+  // Clearance and Bank Reconciliation status
+  clearanceStatus: {
+    type: String,
+    enum: ['pending', 'cleared'],
+    default: 'pending'
+  },
+  clearedAt: {
+    type: Date,
+    default: null
+  },
+  isReconciled: {
+    type: Boolean,
+    default: false
+  },
+  reconciledAt: {
+    type: Date,
+    default: null
+  },
   // Audit trail
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

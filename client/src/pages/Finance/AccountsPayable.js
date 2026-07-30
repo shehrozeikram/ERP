@@ -78,6 +78,7 @@ import {
 } from '../../services/financeApprovalAuthorityService';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
+import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 
 const getBillPayeeEmployeeId = (bill) => {
   const pe = bill?.payeeEmployee;
@@ -229,6 +230,7 @@ const AccountsPayable = () => {
   const [error, setError] = useState('');
   const [selectedBill, setSelectedBill] = useState(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editData, setEditData] = useState({
@@ -1371,164 +1373,148 @@ const AccountsPayable = () => {
         <DialogContent dividers>
           {selectedBill && (
             <>
-              <CentralizedStoreBillInvoiceBody 
-                bill={{
-                  ...selectedBill,
-                  billId: selectedBill.billNumber,
-                  billDate: selectedBill.billDate,
-                  createdAt: selectedBill.createdAt || selectedBill.billDate,
-                  provider: selectedBill.vendorName || selectedBill.vendor?.name,
-                  location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
-                  notes: selectedBill.notes || selectedBill.internalNotes,
-                  billLines: (selectedBill.lineItems || []).map((line, idx) => ({
-                    ...line,
-                    itemName: line.description,
-                    itemCode: line.itemCode || 'N/A',
-                    amount: line.amount || (line.quantity * line.unitPrice),
-                    attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
-                  }))
-                }}
-                showChargesSummary={true}
-              />
+              <Tabs
+                value={billViewTab}
+                onChange={(_, v) => setBillViewTab(v)}
+                sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', mb: 2 }}
+                variant="scrollable"
+                scrollButtons="auto"
+              >
+                <Tab label="Vendor Bill" />
+                <Tab label={selectedBill?.poDetail?.indent ? 'Indent' : 'Indent'} />
+                <Tab label={`Quotations (${selectedBill?.poDetail?.quotations?.length || 0})`} />
+                <Tab label="Comparative Statement" />
+                <Tab label={selectedBill?.poDetail?.po ? 'Purchase Order' : 'PO'} />
+                <Tab label={(selectedBill?.poDetail?.grns?.length || 0) > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />
+                <Tab label="Payment History" />
+              </Tabs>
 
-              {(() => {
-                const getApprovalRows = () => {
-                  const formatDateTime = (date) => {
-                    if (!date) return '-';
-                    return new Date(date).toLocaleString('en-PK', {
-                      day: '2-digit', month: 'short', year: 'numeric',
-                      hour: '2-digit', minute: '2-digit'
-                    });
-                  };
-
-                  const rows = [];
-                  
-                  // If linked to a Cash Approval, show its workflow history
-                  if (selectedBill?.cashApproval?.workflowHistory?.length > 0) {
-                    const history = [...selectedBill.cashApproval.workflowHistory].reverse();
-                    history.forEach(entry => {
-                      let actionDesc = entry.toStatus;
-                      if (entry.comments) {
-                        actionDesc += ` (${entry.comments})`;
-                      }
-                      rows.push({
-                        authority: actionDesc,
-                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
-                        signatureUser: entry.changedBy,
-                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
-                      });
-                    });
-                    return rows;
-                  }
-
-                  // If linked to a Purchase Order, show its workflow history
-                  if (selectedBill?.poDetail?.po?.workflowHistory?.length > 0) {
-                    const history = [...selectedBill.poDetail.po.workflowHistory].reverse();
-                    history.forEach(entry => {
-                      let actionDesc = entry.toStatus;
-                      if (entry.comments) {
-                        actionDesc += ` (${entry.comments})`;
-                      }
-                      rows.push({
-                        authority: actionDesc,
-                        name: [entry.changedBy?.firstName, entry.changedBy?.lastName].filter(Boolean).join(' ') || entry.changedBy?.name || 'System',
-                        signatureUser: entry.changedBy,
-                        dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
-                      });
-                    });
-                    return rows;
-                  }
-
-                  // Fallback for bills without workflow history
-                  rows.push({
-                    authority: 'Preparer',
-                    name: [selectedBill?.createdBy?.firstName, selectedBill?.createdBy?.lastName].filter(Boolean).join(' ') || selectedBill?.createdBy?.name || '-',
-                    signatureUser: selectedBill?.createdBy,
-                    dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
-                  });
-
-                  if (selectedBill?.approval?.approvedBy) {
-                    rows.push({
-                      authority: 'Approver',
-                      name: [selectedBill.approval.approvedBy.firstName, selectedBill.approval.approvedBy.lastName].filter(Boolean).join(' ') || selectedBill.approval.approvedBy.name || '-',
-                      signatureUser: selectedBill.approval.approvedBy,
-                      dateTime: selectedBill.approval.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
-                    });
-                  }
-                  return rows;
-                };
-                const getSignatureSource = (row) => row?.signatureUser?.digitalSignature || '';
-                return (
-                  <Table
-                    size="small"
-                    sx={{
-                      mt: 4,
-                      mb: 2,
-                      border: '1px solid',
-                      borderColor: 'grey.300',
-                      '& th': {
-                        bgcolor: 'grey.100',
-                        fontWeight: 800,
-                        fontSize: 14,
-                        borderBottom: '1px solid',
-                        borderColor: 'grey.300'
-                      },
-                      '& td': {
-                        fontSize: 14,
-                        borderBottom: '1px solid',
-                        borderColor: 'grey.200',
-                        py: 1.4
-                      },
-                      '& tr:last-child td': {
-                        borderBottom: 0
-                      }
+              {/* Tab 0: Vendor Bill & Approval Authorities */}
+              {billViewTab === 0 && (
+                <Box sx={{ p: 2 }}>
+                  <CentralizedStoreBillInvoiceBody 
+                    bill={{
+                      ...selectedBill,
+                      billId: selectedBill.billNumber,
+                      billDate: selectedBill.billDate,
+                      createdAt: selectedBill.createdAt || selectedBill.billDate,
+                      provider: selectedBill.vendorName || selectedBill.vendor?.name,
+                      location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
+                      notes: selectedBill.notes || selectedBill.internalNotes,
+                      billLines: (selectedBill.lineItems || []).map((line, idx) => ({
+                        ...line,
+                        itemName: line.description,
+                        itemCode: line.itemCode || 'N/A',
+                        amount: line.amount || (line.quantity * line.unitPrice),
+                        attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
+                      }))
                     }}
-                  >
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Authority</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell>Digital Signature</TableCell>
-                        <TableCell>Date &amp; Time</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {getApprovalRows().map((row) => (
-                        <TableRow key={row.authority}>
-                          <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
-                          <TableCell>{row.name}</TableCell>
-                          <TableCell>
-                            {getSignatureSource(row) ? (
-                              <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
-                            ) : (
-                              row.signature || '-'
-                            )}
-                          </TableCell>
-                          <TableCell>{row.dateTime}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                );
-              })()}
+                    showChargesSummary={true}
+                  />
 
-              {/* PO-linked documents tabs */}
-              {selectedBill.referenceType === 'purchase_order' && selectedBill.poDetail && (
-                <>
-                  <Tabs
-                    value={billViewTab}
-                    onChange={(_, v) => setBillViewTab(v)}
-                    sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
-                  >
-                    <Tab label="Indent" />
-                    <Tab label={`Quotations (${selectedBill.poDetail.quotations?.length || 0})`} />
-                    <Tab label="Comparative Statement" />
-                    <Tab label="Purchase Order" />
-                    <Tab label={selectedBill.poDetail.grns?.length > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />
-                    <Tab label="Payment History" />
-                  </Tabs>
-                  {billViewTab === 0 && selectedBill.poDetail.indent && (
-                    <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                  {(() => {
+                    const getApprovalRows = () => {
+                      const formatDateTime = (date) => {
+                        if (!date) return '-';
+                        return new Date(date).toLocaleString('en-PK', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit'
+                        });
+                      };
+
+                      const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
+
+                      const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
+                      const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
+                      const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+
+                      const rows = [
+                        {
+                          authority: 'Sig of Requester',
+                          name: userDisplayName(selectedBill?.createdBy),
+                          signatureUser: selectedBill?.createdBy,
+                          dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
+                        },
+                        {
+                          authority: 'Pre-Audit Authority',
+                          name: userDisplayName(preAuditEntry?.changedBy),
+                          signatureUser: preAuditEntry?.changedBy || null,
+                          dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
+                        },
+                        {
+                          authority: 'Audit Director',
+                          name: userDisplayName(directorEntry?.changedBy),
+                          signatureUser: directorEntry?.changedBy || null,
+                          signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : directorEntry?.changedBy?.digitalSignature || '',
+                          dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+                        }
+                      ];
+
+                      return rows;
+                    };
+                    const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
+                    return (
+                      <Table
+                        size="small"
+                        sx={{
+                          mt: 4,
+                          mb: 2,
+                          border: '1px solid',
+                          borderColor: 'grey.300',
+                          '& th': {
+                            bgcolor: 'grey.100',
+                            fontWeight: 800,
+                            fontSize: 14,
+                            borderBottom: '1px solid',
+                            borderColor: 'grey.300'
+                          },
+                          '& td': {
+                            fontSize: 14,
+                            borderBottom: '1px solid',
+                            borderColor: 'grey.200',
+                            py: 1.4
+                          },
+                          '& tr:last-child td': {
+                            borderBottom: 0
+                          }
+                        }}
+                      >
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Authority</TableCell>
+                            <TableCell>Name</TableCell>
+                            <TableCell>Digital Signature</TableCell>
+                            <TableCell>Date &amp; Time</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {getApprovalRows().map((row) => (
+                            <TableRow key={row.authority}>
+                              <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                              <TableCell>{row.name || '-'}</TableCell>
+                              <TableCell>
+                                {getSignatureSource(row) ? (
+                                  <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                                ) : (
+                                  '-'
+                                )}
+                              </TableCell>
+                              <TableCell>{row.dateTime || '-'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    );
+                  })()}
+                </Box>
+              )}
+
+              {/* Tab 1: Indent */}
+              {billViewTab === 1 && (
+                <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                  {!selectedBill?.poDetail?.indent ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Indent linked to this Vendor Bill.</Typography>
+                  ) : (
                       <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none' }}>
                         <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
                           Purchase Request Form
@@ -1585,43 +1571,112 @@ const AccountsPayable = () => {
                             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>{selectedBill.poDetail.indent.justification}</Typography>
                           </Box>
                         )}
+                        {/* Approval Authorities for Indent */}
+                        <Box sx={{ mt: 3 }}>
+                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                            Approval Authorities (Indent)
+                          </Typography>
+                          <TableContainer component={Paper} variant="outlined">
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 800 }}>Authority</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Status</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Date &amp; Time</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }} align="center">Digital Signature</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(() => {
+                                  const ind = selectedBill.poDetail.indent;
+                                  const formatDt = (d) => d ? new Date(d).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+                                  const userNm = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
+                                  const reqUser = ind.requestedBy;
+                                  const compApprovals = ind.comparativeStatementApprovals || {};
+
+                                  const rows = [
+                                    { authority: 'Requester / Originator', name: userNm(reqUser), status: 'Submitted', dateTime: formatDt(ind.requestedDate || ind.createdAt), user: reqUser },
+                                    { authority: 'Prepared By', name: userNm(compApprovals.preparedByUser), status: compApprovals.preparedByUser ? 'Approved' : 'Pending', dateTime: formatDt(compApprovals.preparedAt), user: compApprovals.preparedByUser },
+                                    { authority: 'Verified By', name: userNm(compApprovals.verifiedByUser), status: compApprovals.verifiedByUser ? 'Approved' : 'Pending', dateTime: formatDt(compApprovals.verifiedAt), user: compApprovals.verifiedByUser },
+                                    { authority: 'Authorised Rep', name: userNm(compApprovals.authorisedRepUser), status: compApprovals.authorisedRepUser ? 'Approved' : 'Pending', dateTime: formatDt(compApprovals.authorisedRepAt), user: compApprovals.authorisedRepUser },
+                                    { authority: 'Finance Rep', name: userNm(compApprovals.financeRepUser), status: compApprovals.financeRepUser ? 'Approved' : 'Pending', dateTime: formatDt(compApprovals.financeRepAt), user: compApprovals.financeRepUser },
+                                    { authority: 'Manager Procurement', name: userNm(compApprovals.managerProcurementUser), status: compApprovals.managerProcurementUser ? 'Approved' : 'Pending', dateTime: formatDt(compApprovals.managerProcurementAt), user: compApprovals.managerProcurementUser }
+                                  ];
+
+                                  return rows.map((r, i) => (
+                                    <TableRow key={i}>
+                                      <TableCell sx={{ fontWeight: 700 }}>{r.authority}</TableCell>
+                                      <TableCell>{r.name}</TableCell>
+                                      <TableCell>
+                                        <Chip size="small" label={r.status} color={r.status === 'Approved' || r.status === 'Submitted' ? 'success' : 'default'} variant="outlined" />
+                                      </TableCell>
+                                      <TableCell>{r.dateTime}</TableCell>
+                                      <TableCell align="center">
+                                        {r.user?.digitalSignature ? (
+                                          <DigitalSignatureImage userOrPath={r.user} alt={`${r.authority} signature`} />
+                                        ) : (
+                                          '-'
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  ));
+                                })()}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Box>
                       </Paper>
-                    </Box>
                   )}
-                  {billViewTab === 1 && (
-                    <Box sx={{ p: 2, maxHeight: 400, overflow: 'auto' }}>
-                      {(!selectedBill.poDetail.quotations || selectedBill.poDetail.quotations.length === 0) ? (
-                        <Typography color="textSecondary">No quotations.</Typography>
-                      ) : (
-                        <Stack spacing={4}>
-                          {selectedBill.poDetail.quotations.map((q) => (
-                            <QuotationDetailView
-                              key={q._id}
-                              quotation={{ ...q, indent: selectedBill.poDetail.indent || q.indent }}
-                              formatNumber={(n) => formatPKR(n)}
-                              formatDateForPrint={(d) => formatDate(d)}
-                            />
-                          ))}
-                        </Stack>
-                      )}
-                    </Box>
+                </Box>
+              )}
+
+              {/* Tab 2: Quotations */}
+              {billViewTab === 2 && (
+                <Box sx={{ p: 2, maxHeight: 400, overflow: 'auto' }}>
+                  {(!selectedBill?.poDetail?.quotations || selectedBill.poDetail.quotations.length === 0) ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Quotations found.</Typography>
+                  ) : (
+                    <Stack spacing={4}>
+                      {selectedBill.poDetail.quotations.map((q) => (
+                        <QuotationDetailView
+                          key={q._id}
+                          quotation={{ ...q, indent: selectedBill.poDetail.indent || q.indent }}
+                          formatNumber={(n) => formatPKR(n)}
+                          formatDateForPrint={(d) => formatDate(d)}
+                        />
+                      ))}
+                    </Stack>
                   )}
-                  {billViewTab === 2 && selectedBill.poDetail.indent && (
-                    <Box sx={{ p: 2, overflowX: 'auto' }}>
-                      <ComparativeStatementView
-                        requisition={selectedBill.poDetail.indent}
-                        quotations={selectedBill.poDetail.quotations || []}
-                        approvalAuthority={selectedBill.poDetail.indent?.comparativeStatementApprovals || {}}
-                        note={selectedBill.poDetail.indent?.notes ?? ''}
-                        readOnly
-                        formatNumber={(n) => formatPKR(n)}
-                        loadingQuotations={false}
-                        showPrintButton={false}
-                      />
-                    </Box>
+                </Box>
+              )}
+
+              {/* Tab 3: Comparative Statement */}
+              {billViewTab === 3 && (
+                <Box sx={{ p: 2, overflowX: 'auto' }}>
+                  {!selectedBill?.poDetail?.indent ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Comparative Statement available.</Typography>
+                  ) : (
+                    <ComparativeStatementView
+                      requisition={selectedBill.poDetail.indent}
+                      quotations={selectedBill.poDetail.quotations || []}
+                      approvalAuthority={selectedBill.poDetail.indent?.comparativeStatementApprovals || {}}
+                      note={selectedBill.poDetail.indent?.notes ?? ''}
+                      readOnly
+                      formatNumber={(n) => formatPKR(n)}
+                      loadingQuotations={false}
+                      showPrintButton={false}
+                    />
                   )}
-                  {billViewTab === 3 && selectedBill.poDetail.po && (
-                    <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                </Box>
+              )}
+
+              {/* Tab 4: Purchase Order */}
+              {billViewTab === 4 && (
+                <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                  {!selectedBill?.poDetail?.po ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Purchase Order linked to this Vendor Bill.</Typography>
+                  ) : (
                       <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', fontFamily: 'Arial, sans-serif' }}>
                         <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 3 }}>Purchase Order</Typography>
                         <Box sx={{ mb: 2.5 }}>
@@ -1685,12 +1740,68 @@ const AccountsPayable = () => {
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
                           <Typography variant="body1" fontWeight="bold">Total: {formatPKR(selectedBill.poDetail.po.totalAmount)}</Typography>
                         </Box>
+                        {/* Approval Authorities for PO */}
+                        <Box sx={{ mt: 3 }}>
+                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                            Approval Authorities (Purchase Order)
+                          </Typography>
+                          <TableContainer component={Paper} variant="outlined">
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 800 }}>Authority</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Status</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>Date &amp; Time</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }} align="center">Digital Signature</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(() => {
+                                  const po = selectedBill.poDetail.po;
+                                  const history = Array.isArray(po.workflowHistory) ? [...po.workflowHistory].reverse() : [];
+                                  const formatDt = (d) => d ? new Date(d).toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+                                  const userNm = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
+
+                                  const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
+                                  const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+
+                                  const rows = [
+                                    { authority: 'Prepared By (Procurement)', name: userNm(po.createdBy), status: 'Created', dateTime: formatDt(po.createdAt || po.orderDate), user: po.createdBy },
+                                    { authority: 'Pre-Audit Authority', name: userNm(preAuditEntry?.changedBy), status: preAuditEntry ? 'Approved' : 'Pending', dateTime: formatDt(preAuditEntry?.changedAt), user: preAuditEntry?.changedBy },
+                                    { authority: 'Audit Director', name: userNm(po.auditApprovedBy || directorEntry?.changedBy), status: (po.auditApprovedBy || directorEntry) ? 'Approved' : 'Pending', dateTime: formatDt(po.auditApprovedAt || directorEntry?.changedAt), user: po.auditApprovedBy || directorEntry?.changedBy, stampPath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : '' }
+                                  ];
+
+                                  return rows.map((r, i) => (
+                                    <TableRow key={i}>
+                                      <TableCell sx={{ fontWeight: 700 }}>{r.authority}</TableCell>
+                                      <TableCell>{r.name}</TableCell>
+                                      <TableCell>
+                                        <Chip size="small" label={r.status} color={r.status === 'Approved' || r.status === 'Created' ? 'success' : 'default'} variant="outlined" />
+                                      </TableCell>
+                                      <TableCell>{r.dateTime}</TableCell>
+                                      <TableCell align="center">
+                                        {(r.stampPath || r.user?.digitalSignature) ? (
+                                          <DigitalSignatureImage userOrPath={r.stampPath || r.user} alt={`${r.authority} signature`} />
+                                        ) : (
+                                          '-'
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  ));
+                                })()}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Box>
                       </Paper>
-                    </Box>
                   )}
-                  {billViewTab === 4 && (
+                </Box>
+              )}
+                  {/* Tab 5: GRNs */}
+                  {billViewTab === 5 && (
                     <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
-                      {(!selectedBill.poDetail.grns || selectedBill.poDetail.grns.length === 0) ? (
+                      {(!selectedBill?.poDetail?.grns || selectedBill.poDetail.grns.length === 0) ? (
                         <Typography color="textSecondary" sx={{ py: 4, textAlign: 'center' }}>No GRN(s) attached to this Purchase Order.</Typography>
                       ) : (
                         selectedBill.poDetail.grns.map((grn) => (
@@ -1782,7 +1893,9 @@ const AccountsPayable = () => {
                       )}
                     </Box>
                   )}
-                  {billViewTab === 5 && (
+
+                  {/* Tab 6: Payment History */}
+                  {billViewTab === 6 && (
                     <Box sx={{ p: 2 }}>
                       <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                         <HistoryIcon /> Payment History
@@ -1850,16 +1963,31 @@ const AccountsPayable = () => {
                       )}
                     </Box>
                   )}
-                  <Divider sx={{ my: 2 }} />
-                </>
-              )}
             </>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+        <DialogActions sx={{ justifyContent: 'space-between', px: 3, py: 2 }}>
+          <Box>
+            {selectedBill?.workflowHistory && selectedBill.workflowHistory.length > 0 && (
+              <Button
+                variant="outlined"
+                startIcon={<HistoryIcon />}
+                onClick={() => setWorkflowHistoryDialog({ open: true, document: selectedBill })}
+              >
+                See Workflow History
+              </Button>
+            )}
+          </Box>
+          <Button onClick={() => setViewDialogOpen(false)} variant="outlined">Close</Button>
         </DialogActions>
       </Dialog>
+
+      <WorkflowHistoryDialog
+        open={workflowHistoryDialog.open}
+        onClose={() => setWorkflowHistoryDialog({ open: false, document: null })}
+        document={workflowHistoryDialog.document}
+        documentType="preAudit"
+      />
 
       {/* Create Bill from PO Dialog */}
       <Dialog open={createFromPoDialog.open} onClose={() => setCreateFromPoDialog({ open: false, po: null, billNumber: '', creating: false })} maxWidth="sm" fullWidth>

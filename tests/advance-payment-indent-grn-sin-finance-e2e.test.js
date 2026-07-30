@@ -89,10 +89,16 @@ async function run() {
   api.defaults.headers.Authorization = `Bearer ${login.data.data.token}`;
   const userId = login.data.data.user?._id || login.data.data.user?.id;
 
-  const ensure = await api.post('/finance/accounts/ensure-defaults');
-  if (!ensure.data?.success) fail('ensure-defaults failed', ensure.data);
-  const acc = ensure.data.data || [];
-  const has = (n) => acc.find((a) => a.accountNumber === n)?._id;
+  const placementCompaniesRes = await api.get('/placement-companies');
+  const company = (placementCompaniesRes.data?.data?.companies || placementCompaniesRes.data?.data || [])[0];
+  const companyId = company?._id || company?.id;
+  if (companyId) {
+    api.defaults.headers['x-company-id'] = companyId;
+  }
+
+  const accRes = await api.get('/finance/accounts', { params: { limit: 5000 } });
+  const accs = accRes.data?.data?.accounts || accRes.data?.data || [];
+  const has = (n) => accs.find((a) => a.accountNumber === n)?._id;
   ['1100', '2001', '2100', '5000'].forEach((n) => { if (!has(n)) fail(`Missing account ${n}`); });
   ok('Accounts available: 1100/2001/2100/5000');
 
@@ -102,17 +108,14 @@ async function run() {
   const grnQty = 100; const sinQty = 10;
 
   const dep = (await api.get('/indents/departments')).data?.data?.[0];
-  const venList = (await api.get('/procurement/vendors', { params: { limit: 20 } })).data?.data?.vendors || [];
-  let ven = venList[0];
-  if (!ven?._id) {
-    const venCreate = await api.post('/procurement/vendors', {
-      name: `E2E Vendor ${stamp}`,
-      email: `e2e-vendor-${stamp}@example.com`,
-      phone: '03001234567',
-      address: 'E2E Address'
-    });
-    if (venCreate.data?.success) ven = venCreate.data.data;
-  }
+  const venCreate = await api.post('/procurement/vendors', {
+    name: `E2E ADV Vendor ${stamp}`,
+    contactPerson: 'Contact Person E2E',
+    email: `e2e-adv-vendor-${stamp}@example.com`,
+    phone: '03001234567',
+    address: 'E2E Address'
+  });
+  const ven = venCreate.data?.data?.vendor || venCreate.data?.data || venCreate.data;
   let projects = (await api.get('/hr/projects', { params: { limit: 20, status: 'Active' } })).data?.data?.projects || [];
   if (!projects.length) projects = (await api.get('/hr/projects', { params: { limit: 20 } })).data?.data?.projects || [];
   let prj = projects[0];
@@ -143,6 +146,7 @@ async function run() {
   const indentId = indent.data.data._id;
   await api.post(`/indents/${indentId}/submit`); await api.post(`/indents/${indentId}/approve`);
   await api.post(`/indents/${indentId}/move-to-procurement`, { reason: 'no stock' });
+  await api.put(`/procurement/requisitions/${indentId}/assign`, { assigneeId: userId, note: 'E2E' });
 
   const quote = await api.post('/procurement/quotations', {
     indent: indentId, vendor: ven._id, quotationDate: today, expiryDate: nextMonth, status: 'Received',
@@ -157,6 +161,8 @@ async function run() {
   const poId = po.data.data._id;
   const poNo = po.data.data.orderNumber;
   await api.put(`/procurement/purchase-orders/${poId}/send-to-audit`, {});
+  await api.put(`/procurement/purchase-orders/${poId}/audit-approve`, { approvalComments: 'ok' });
+  await api.put(`/pre-audit/${poId}/forward`, { forwardComments: 'ok' });
   await api.put(`/procurement/purchase-orders/${poId}/audit-approve`, { approvalComments: 'ok' });
   await api.put(`/procurement/purchase-orders/${poId}/forward-to-ceo`, { comments: 'ok' });
   const ceoApprove = await api.put(`/procurement/purchase-orders/${poId}/ceo-approve`, { approvalComments: 'ok', digitalSignature: 'CEO' });
@@ -232,7 +238,19 @@ async function run() {
   const bill = billCreate.data.data;
   if (!bill?._id) fail('Vendor bill response missing id', billCreate.data);
 
-  const apply = await api.post(`/finance/accounts-payable/${bill._id}/apply-advance`, { amount: advanceAmt });
+  // Pre-audit approve bill to move status from 'Pending Audit' to 'Approved'
+  await api.put(`/pre-audit/${bill._id}/approve`, { approvalComments: 'Pre-audit approve' });
+  await api.put(`/pre-audit/${bill._id}/forward`, { forwardComments: 'Forwarding to director' });
+  await api.put(`/pre-audit/${bill._id}/approve`, { approvalComments: 'Director approve' });
+
+  const apply = await api.post(`/finance/accounts-payable/${bill._id}/apply-advance`, {
+    amount: advanceAmt,
+    source: 'vendor',
+    financeApprovalAuthorities: {
+      accountsManagerUser: userId,
+      financeControllerUser: userId
+    }
+  });
   if (!apply.data?.success) fail('Apply advance failed', apply.data);
   ok('Advance apply submitted (pending voucher approval)', apply.data.data);
 
