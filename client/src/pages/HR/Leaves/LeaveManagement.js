@@ -822,7 +822,7 @@ const LeaveManagement = () => {
                                   Annual:
                                 </Typography>
                                 <Typography variant="caption" fontWeight="bold">
-                                  {(employee.leaveBalance?.annual?.remaining ?? 0)}/{(employee.leaveBalance?.annual?.allocated || 14) + (employee.leaveBalance?.annual?.carriedForward || 0)}
+                                  {(employee.leaveBalance?.annual?.used ?? 0)}/{(employee.leaveBalance?.annual?.allocated || 14) + (employee.leaveBalance?.annual?.carriedForward || 0)}
                                 </Typography>
                               </Box>
                               <Box display="flex" justifyContent="space-between" mb={0.5}>
@@ -830,7 +830,7 @@ const LeaveManagement = () => {
                                   Casual:
                                 </Typography>
                                 <Typography variant="caption" fontWeight="bold">
-                                  {(employee.leaveBalance?.casual?.remaining ?? 0)}/{(employee.leaveBalance?.casual?.allocated || 10) + (employee.leaveBalance?.casual?.carriedForward || 0)}
+                                  {(employee.leaveBalance?.casual?.used ?? 0)}/10
                                 </Typography>
                               </Box>
                               <Box display="flex" justifyContent="space-between">
@@ -838,7 +838,7 @@ const LeaveManagement = () => {
                                   Sick:
                                 </Typography>
                                 <Typography variant="caption" fontWeight="bold">
-                                  {(sickBal?.remaining ?? 0)}/{(sickBal?.allocated || 8) + (sickBal?.carriedForward || 0)}
+                                  {(sickBal?.used ?? 0)}/10
                                 </Typography>
                               </Box>
                             </Box>

@@ -302,7 +302,7 @@ const EmployeeLeaveHistory = () => {
                 Annual Leave
               </Typography>
               <Typography variant="h4" color="primary.main">
-                {balance.annual.remaining} / {balance.annual.allocated + balance.annual.carriedForward}
+                {balance.annual.used} / {balance.annual.allocated + balance.annual.carriedForward}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 Used: {balance.annual.used}
@@ -334,7 +334,7 @@ const EmployeeLeaveHistory = () => {
                 Sick Leave
               </Typography>
               <Typography variant="h4" color="success.main">
-                {balance.sick.remaining} / {balance.sick.allocated + balance.sick.carriedForward}
+                {balance.sick.used} / 10
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 Used: {balance.sick.used}
@@ -366,7 +366,7 @@ const EmployeeLeaveHistory = () => {
                 Casual Leave
               </Typography>
               <Typography variant="h4" color="info.main">
-                {balance.casual.remaining} / {balance.casual.allocated + balance.casual.carriedForward}
+                {balance.casual.used} / 10
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 Used: {balance.casual.used}

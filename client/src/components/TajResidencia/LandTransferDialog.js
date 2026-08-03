@@ -185,7 +185,7 @@ export default function LandTransferDialog({
           }
         }
 
-        const selectedKhasras = (transfer.lines || [])
+        let selectedKhasras = (transfer.lines || [])
           .map((line) => {
             const entryId = line.khasraEntry?._id || line.khasraEntry;
             if (entryId) {
@@ -210,6 +210,21 @@ export default function LandTransferDialog({
           })
           .filter(Boolean);
 
+        if (selectedKhasras.length === 0 && purchaseRow) {
+          const purchaseIds = new Set((purchaseRow.lines || []).map((line) => String(line.khasraEntry?._id || line.khasraEntry)).filter(Boolean));
+          selectedKhasras = khasraOptions.filter((entry) => {
+            if (purchaseIds.has(String(entry._id))) return true;
+            return (purchaseRow.lines || []).some((l) => {
+              if (l.khasraEntry) return false;
+              // Support comma-separated khasra numbers (e.g., "306,295,330")
+              const khasraNos = String(l.khasraNo || '').split(',').map((no) => no.trim());
+              const matchKhasra = khasraNos.includes(String(entry.khasraNo).trim());
+              const matchKhewat = !l.khewatNo || String(l.khewatNo).trim() === String(entry.khewatNo).trim();
+              return matchKhasra && matchKhewat;
+            });
+          });
+        }
+
         const optionIds = new Set(khasraOptions.map((k) => String(k._id)));
         const missingFromOptions = selectedKhasras.filter((k) => !optionIds.has(String(k._id)));
         setMozaKhasras([...khasraOptions, ...missingFromOptions]);
@@ -229,7 +244,7 @@ export default function LandTransferDialog({
           seller: transfer.seller || null,
           purchaser: transfer.purchaser || null,
           selectedKhasras,
-          purchaseArea: areaToForm(transfer.purchaseArea),
+          purchaseArea: areaToForm(purchaseRow?.totalArea || transfer.purchaseArea || {}),
           transferArea: areaToForm(transfer.transferArea)
         });
         const paymentRows = mapTransferPaymentsFromApi(transfer.transferPayments);
@@ -265,10 +280,16 @@ export default function LandTransferDialog({
       setMozaKhasras(khasraOptions);
 
       const purchaseIds = new Set((purchaseRow.lines || []).map((line) => String(line.khasraEntry?._id || line.khasraEntry)).filter(Boolean));
-      const defaultKhasras = khasraOptions.filter((entry) => 
-        purchaseIds.has(String(entry._id)) || 
-        (purchaseRow.lines || []).some(l => l.khasraNo === entry.khasraNo && (!l.khewatNo || l.khewatNo === entry.khewatNo) && !l.khasraEntry)
-      );
+      const defaultKhasras = khasraOptions.filter((entry) => {
+        if (purchaseIds.has(String(entry._id))) return true;
+        return (purchaseRow.lines || []).some((l) => {
+          if (l.khasraEntry) return false;
+          const khasraNos = String(l.khasraNo || '').split(',').map((no) => no.trim());
+          const matchKhasra = khasraNos.includes(String(entry.khasraNo).trim());
+          const matchKhewat = !l.khewatNo || String(l.khewatNo).trim() === String(entry.khewatNo).trim();
+          return matchKhasra && matchKhewat;
+        });
+      });
       // Use the deal's recorded totalArea directly
       const purchaseArea = purchaseRow.totalArea || { kanal: 0, marla: 0, sarsai: 0 };
 

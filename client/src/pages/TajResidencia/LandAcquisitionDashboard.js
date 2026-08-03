@@ -418,7 +418,7 @@ export default function LandAcquisitionDashboard() {
                       <IconButton 
                         size="small" 
                         color="primary"
-                        onClick={() => navigate(row.ownerName === 'In Progress' ? '/taj-residencia/land-transfers' : `/taj-residencia/land-transfers?search=${encodeURIComponent(row.ownerName)}`)}
+                        onClick={() => navigate(row.ownerName === 'In Progress' ? '/taj-residencia/land-transfers?purchaser=In%20Progress' : `/taj-residencia/land-transfers?purchaser=${encodeURIComponent(row.ownerName)}`)}
                       >
                         <ViewIcon fontSize="small" />
                       </IconButton>

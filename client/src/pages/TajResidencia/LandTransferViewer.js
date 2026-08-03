@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   IconButton,
   InputAdornment,
@@ -67,6 +69,9 @@ export default function LandTransferViewer() {
   const [paymentDialog, setPaymentDialog] = useState({ open: false, transferId: null });
   const [detailDialog, setDetailDialog] = useState({ open: false, transferId: null });
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const purchaserParam = searchParams.get('purchaser');
+
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 300);
     return () => clearTimeout(t);
@@ -74,7 +79,7 @@ export default function LandTransferViewer() {
 
   useEffect(() => {
     setPage(0);
-  }, [searchDebounced, mozaFilter]);
+  }, [searchDebounced, mozaFilter, purchaserParam]);
 
   useEffect(() => {
     getMozas().then((res) => setMozas(res.data?.data || [])).catch(() => setMozas([]));
@@ -88,7 +93,8 @@ export default function LandTransferViewer() {
         page: page + 1,
         limit: rowsPerPage,
         ...(searchDebounced && { search: searchDebounced }),
-        ...(mozaFilter && { moza: mozaFilter })
+        ...(mozaFilter && { moza: mozaFilter }),
+        ...(purchaserParam && { purchaser: purchaserParam })
       });
       const payload = res.data;
       setRows(payload?.transfers || []);
@@ -98,7 +104,7 @@ export default function LandTransferViewer() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, searchDebounced, mozaFilter]);
+  }, [page, rowsPerPage, searchDebounced, mozaFilter, purchaserParam]);
 
   useEffect(() => {
     load();
@@ -204,35 +210,55 @@ export default function LandTransferViewer() {
       </Stack>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-          <TextField
-            size="small"
-            label="Search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Reference, transfer no, purchase, moza..."
-            sx={{ minWidth: 280 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              )
-            }}
-          />
-          <TextField
-            size="small"
-            select
-            label="Moza"
-            value={mozaFilter}
-            onChange={(e) => setMozaFilter(e.target.value)}
-            sx={{ minWidth: 180 }}
-          >
-            <MenuItem value="">All mozas</MenuItem>
-            {mozas.map((m) => (
-              <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
-            ))}
-          </TextField>
+        <Stack direction="column" spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              size="small"
+              label="Search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Reference, transfer no, purchase, moza..."
+              sx={{ minWidth: 280 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                )
+              }}
+            />
+            <TextField
+              size="small"
+              select
+              label="Moza"
+              value={mozaFilter}
+              onChange={(e) => setMozaFilter(e.target.value)}
+              sx={{ minWidth: 180 }}
+            >
+              <MenuItem value="">All mozas</MenuItem>
+              {mozas.map((m) => (
+                <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+          {purchaserParam && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                Filtered by Purchaser:
+              </Typography>
+              <Chip
+                label={purchaserParam}
+                onDelete={() => {
+                  const newParams = new URLSearchParams(searchParams);
+                  newParams.delete('purchaser');
+                  setSearchParams(newParams);
+                }}
+                color="primary"
+                size="small"
+                variant="outlined"
+              />
+            </Stack>
+          )}
         </Stack>
       </Paper>
 

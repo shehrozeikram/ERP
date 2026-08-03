@@ -380,6 +380,7 @@ router.get('/transfers', asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const purchase = String(req.query.purchase || '').trim();
   const moza = String(req.query.moza || '').trim();
+  const purchaser = String(req.query.purchaser || '').trim();
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = req.query.limit === 'all' ? 999999 : Math.min(100, Math.max(1, Number(req.query.limit) || 25));
   const skip = (page - 1) * limit;
@@ -411,6 +412,14 @@ router.get('/transfers', asyncHandler(async (req, res) => {
       || String(row.sellerName || '').toLowerCase().includes(q)
       || String(row.purchaserName || '').toLowerCase().includes(q)
     );
+  }
+
+  if (purchaser) {
+    const p = purchaser.toLowerCase();
+    transfers = transfers.filter((row) => {
+      const name = row.purchaser?.name || row.purchaserName || 'In Progress';
+      return name.toLowerCase() === p;
+    });
   }
 
   const total = transfers.length;
@@ -500,6 +509,7 @@ router.put('/transfers/:id', handleTransferUpload, asyncHandler(async (req, res)
   await validateTransferPayload(payload, purchase);
 
   Object.assign(existing, payload);
+  existing.moza = purchase.moza?._id || purchase.moza;
   existing.updatedBy = req.user?._id || req.user?.id;
   await existing.save();
 

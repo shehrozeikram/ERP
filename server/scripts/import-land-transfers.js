@@ -119,7 +119,7 @@ const run = async () => {
     const transferDate = excelDateToJSDate(row['Transfer Date']) || new Date();
     const transferArea = parseArea(row['Land']);
     
-    let purchase = await LandPurchase.findOne({ dealNo: Number(dealNo) });
+    let purchase = await LandPurchase.findOne({ dealNo: Number(dealNo), moza: mozaId });
     if (!purchase && !isDryRun) {
       purchase = await LandPurchase.create({
         purchaseNo: `DUMMY-PURCHASE-${dealNo}-${Date.now().toString().slice(-4)}`,

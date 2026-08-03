@@ -362,6 +362,8 @@ export default function LandPurchaseDetailPage() {
               remarkEntries.forEach(entry => {
                 const parts = entry.split('|').map(p => p.trim());
                 const descPart = parts[0] || '';
+                if (descPart.toLowerCase() === 'total') return;
+
                 const refPart = (parts.find(p => p.toLowerCase().startsWith('ref:')) || '').replace(/^ref:\s*/i, '');
                 const payeePart = (parts.find(p => p.toLowerCase().startsWith('payee:')) || '').replace(/^payee:\s*/i, '');
                 const chqPart = (parts.find(p => p.toLowerCase().startsWith('chq:')) || '').replace(/^chq:\s*/i, '');
@@ -394,7 +396,13 @@ export default function LandPurchaseDetailPage() {
                 }
               });
 
-              return orderedList.map((item, idx) => (
+              const filteredList = orderedList.filter(item => {
+                const desc = String(item.description || '').trim().toLowerCase();
+                const ref = String(item.refNo || '').trim().toLowerCase();
+                return desc !== 'total' && ref !== 'total';
+              });
+
+              return filteredList.map((item, idx) => (
                 <tr key={idx}>
                   <td style={{ ...tdStyle, textAlign: 'center' }}>{idx + 1}</td>
                   <td style={{ ...tdStyle, textAlign: 'center' }}>{item.refNo}</td>

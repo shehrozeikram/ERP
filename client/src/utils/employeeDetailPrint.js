@@ -578,9 +578,9 @@ export const buildEmployeeDetailPrintHtml = ({
   const leaveBody = leaveSummary?.balance ? metricStrip((() => {
     const b = leaveSummary.balance;
     return [
-      { label: 'Annual Leave', value: `${b.annual?.remaining ?? 0} / ${(b.annual?.allocated || 0) + (b.annual?.carriedForward || 0)}`, highlight: true },
-      { label: 'Sick Leave', value: `${b.sick?.remaining ?? 0} / ${(b.sick?.allocated || 0) + (b.sick?.carriedForward || 0)}` },
-      { label: 'Casual Leave', value: `${b.casual?.remaining ?? 0} / ${(b.casual?.allocated || 0) + (b.casual?.carriedForward || 0)}` },
+      { label: 'Annual Leave', value: `${b.annual?.used ?? 0} / ${(b.annual?.allocated || 0) + (b.annual?.carriedForward || 0)}`, highlight: true },
+      { label: 'Sick Leave', value: `${b.sick?.used ?? 0} / 10` },
+      { label: 'Casual Leave', value: `${b.casual?.used ?? 0} / 10` },
       { label: 'Approved', value: `${leaveSummary.statistics?.approved ?? 0} / ${leaveSummary.statistics?.totalRequests ?? 0}` }
     ];
   })()) : '';

@@ -1343,7 +1343,7 @@ const EmployeeView = () => {
                         Annual Leave
                       </Typography>
                       <Typography variant="h5" sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
-                        {leaveSummary.balance.annual.remaining} / {leaveSummary.balance.annual.allocated + leaveSummary.balance.annual.carriedForward}
+                        {leaveSummary.balance.annual.used} / {leaveSummary.balance.annual.allocated + leaveSummary.balance.annual.carriedForward}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                         <Typography variant="caption" sx={{ color: 'primary.contrastText' }}>
@@ -1374,7 +1374,7 @@ const EmployeeView = () => {
                       Sick Leave
                     </Typography>
                     <Typography variant="h6" fontWeight="bold">
-                      {leaveSummary.balance.sick.remaining} / {leaveSummary.balance.sick.allocated + leaveSummary.balance.sick.carriedForward}
+                      {leaveSummary.balance.sick.used} / 10
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                       <Typography variant="caption" color="textSecondary">
@@ -1397,7 +1397,7 @@ const EmployeeView = () => {
                       Casual Leave
                     </Typography>
                     <Typography variant="h6" fontWeight="bold">
-                      {leaveSummary.balance.casual.remaining} / {leaveSummary.balance.casual.allocated + leaveSummary.balance.casual.carriedForward}
+                      {leaveSummary.balance.casual.used} / 10
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                       <Typography variant="caption" color="textSecondary">
