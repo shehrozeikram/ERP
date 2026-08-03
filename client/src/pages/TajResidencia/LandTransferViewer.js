@@ -71,6 +71,7 @@ export default function LandTransferViewer() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const purchaserParam = searchParams.get('purchaser');
+  const missingParam = searchParams.get('missing');
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 300);
@@ -79,7 +80,7 @@ export default function LandTransferViewer() {
 
   useEffect(() => {
     setPage(0);
-  }, [searchDebounced, mozaFilter, purchaserParam]);
+  }, [searchDebounced, mozaFilter, purchaserParam, missingParam]);
 
   useEffect(() => {
     getMozas().then((res) => setMozas(res.data?.data || [])).catch(() => setMozas([]));
@@ -94,7 +95,8 @@ export default function LandTransferViewer() {
         limit: rowsPerPage,
         ...(searchDebounced && { search: searchDebounced }),
         ...(mozaFilter && { moza: mozaFilter }),
-        ...(purchaserParam && { purchaser: purchaserParam })
+        ...(purchaserParam && { purchaser: purchaserParam }),
+        ...(missingParam && { missing: missingParam })
       });
       const payload = res.data;
       setRows(payload?.transfers || []);
@@ -104,7 +106,7 @@ export default function LandTransferViewer() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, searchDebounced, mozaFilter, purchaserParam]);
+  }, [page, rowsPerPage, searchDebounced, mozaFilter, purchaserParam, missingParam]);
 
   useEffect(() => {
     load();
@@ -254,6 +256,24 @@ export default function LandTransferViewer() {
                   setSearchParams(newParams);
                 }}
                 color="primary"
+                size="small"
+                variant="outlined"
+              />
+            </Stack>
+          )}
+          {missingParam && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                Filter:
+              </Typography>
+              <Chip
+                label={missingParam === 'registry' ? 'Un-Available Registries' : 'Un-Available Inteqal'}
+                onDelete={() => {
+                  const newParams = new URLSearchParams(searchParams);
+                  newParams.delete('missing');
+                  setSearchParams(newParams);
+                }}
+                color="warning"
                 size="small"
                 variant="outlined"
               />

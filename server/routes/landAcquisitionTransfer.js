@@ -381,6 +381,7 @@ router.get('/transfers', asyncHandler(async (req, res) => {
   const purchase = String(req.query.purchase || '').trim();
   const moza = String(req.query.moza || '').trim();
   const purchaser = String(req.query.purchaser || '').trim();
+  const missing = String(req.query.missing || '').trim();
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = req.query.limit === 'all' ? 999999 : Math.min(100, Math.max(1, Number(req.query.limit) || 25));
   const skip = (page - 1) * limit;
@@ -419,6 +420,17 @@ router.get('/transfers', asyncHandler(async (req, res) => {
     transfers = transfers.filter((row) => {
       const name = row.purchaser?.name || row.purchaserName || 'In Progress';
       return name.toLowerCase() === p;
+    });
+  }
+
+  if (missing === 'registry') {
+    transfers = transfers.filter(row => row.registryNo && row.registryNo.trim() !== '' && (!row.registryAttachment || row.registryAttachment.trim() === ''));
+  } else if (missing === 'intiqal') {
+    transfers = transfers.filter(row => {
+      const hasIntiqalNo = row.intiqalNo && row.intiqalNo.trim() !== '';
+      const hasInteqalDoc = row.inteqalAttachment && row.inteqalAttachment.trim() !== '';
+      const hasRegistryDoc = row.registryAttachment && row.registryAttachment.trim() !== '';
+      return (hasIntiqalNo && !hasInteqalDoc) || (!hasIntiqalNo && !hasInteqalDoc && hasRegistryDoc);
     });
   }
 
@@ -652,11 +664,19 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
     if (!purchaserMap[name]) purchaserMap[name] = { ownerName: name, totalSarsais: 0 };
     purchaserMap[name].totalSarsais += sarsais;
 
-    // Deals in Progress (Applies to ALL transfers missing docs)
-    if (!t.registryNo || t.registryNo.trim() === '') {
+    // Deals in Progress
+    // Un-Available Registries: Registry No exists but Registry Doc/Attachment does not
+    if (t.registryNo && t.registryNo.trim() !== '' && (!t.registryAttachment || t.registryAttachment.trim() === '')) {
       noRegistrySarsais += sarsais;
     }
-    if (!t.intiqalNo || t.intiqalNo.trim() === '') {
+    
+    // Un-Available Inteqal:
+    // 1) Inteqal No exists but Inteqal Doc is missing
+    // 2) Inteqal No is missing, Inteqal Doc is missing, but Registry Doc is present
+    const hasIntiqalNo = t.intiqalNo && t.intiqalNo.trim() !== '';
+    const hasInteqalDoc = t.inteqalAttachment && t.inteqalAttachment.trim() !== '';
+    const hasRegistryDoc = t.registryAttachment && t.registryAttachment.trim() !== '';
+    if ((hasIntiqalNo && !hasInteqalDoc) || (!hasIntiqalNo && !hasInteqalDoc && hasRegistryDoc)) {
       noInteqalSarsais += sarsais;
     }
   }
