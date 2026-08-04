@@ -47,12 +47,61 @@ const syncProjectActuals = async (projectId) => {
   await ConstructionProject.findByIdAndUpdate(projectId, { totalActualSpent: total });
 };
 
+// Recalculate parent project's progress based on its child projects
+const syncParentProjectProgress = async (parentProjectId) => {
+  if (!parentProjectId) return;
+  const children = await ConstructionProject.find({ parentProject: parentProjectId, status: { $ne: 'Cancelled' } }).select('overallProgress');
+  if (!children.length) {
+    await ConstructionProject.findByIdAndUpdate(parentProjectId, { overallProgress: 0 });
+    return;
+  }
+  const avg = Math.round(children.reduce((s, c) => s + (c.overallProgress || 0), 0) / children.length);
+  await ConstructionProject.findByIdAndUpdate(parentProjectId, { overallProgress: avg });
+
+  // Recursively update if the parent itself has a parent
+  const parent = await ConstructionProject.findById(parentProjectId).select('parentProject');
+  if (parent && parent.parentProject) {
+    await syncParentProjectProgress(parent.parentProject);
+  }
+};
+
 // Recalculate project.overallProgress from task average
 const syncProjectProgress = async (projectId) => {
   const tasks = await ProjectTask.find({ project: projectId, level: { $gt: 0 } }).select('progressPercent');
   if (!tasks.length) return;
   const avg = Math.round(tasks.reduce((s, t) => s + (t.progressPercent || 0), 0) / tasks.length);
-  await ConstructionProject.findByIdAndUpdate(projectId, { overallProgress: avg });
+  const project = await ConstructionProject.findByIdAndUpdate(projectId, { overallProgress: avg }, { new: true });
+  if (project && project.parentProject) {
+    await syncParentProjectProgress(project.parentProject);
+  }
+};
+
+// Recalculate project budget from BOQ items total
+const syncProjectBOQBudget = async (projectId) => {
+  if (!projectId) return;
+  const boqAgg = await BOQItem.aggregate([
+    { $match: { project: new mongoose.Types.ObjectId(projectId) } },
+    {
+      $group: {
+        _id: null,
+        totalEstimated: { $sum: { $ifNull: ['$netEstimatedCost', { $ifNull: ['$estimatedTotalCost', 0] }] } }
+      }
+    }
+  ]);
+
+  const totalEstimated = boqAgg[0]?.totalEstimated || 0;
+  const project = await ConstructionProject.findById(projectId);
+  if (!project) return;
+
+  const update = { totalEstimatedCost: totalEstimated };
+  if (project.budgetStatus === 'Approved') {
+    update.totalApprovedBudget = totalEstimated;
+  } else {
+    update.totalApprovedBudget = 0;
+  }
+
+  // Use findByIdAndUpdate to trigger parent rollup hooks automatically
+  await ConstructionProject.findByIdAndUpdate(projectId, { $set: update }, { new: true });
 };
 
 // ─── PROJECTS ────────────────────────────────────────────────────────────────
@@ -149,7 +198,7 @@ router.get('/projects/:id', asyncHandler(async (req, res) => {
 router.post('/projects', asyncHandler(async (req, res) => {
   const { name, projectType, description, society, sector, plotNumber, address,
     clientName, clientContact, projectManager, startDate, expectedEndDate,
-    budgetCategories, notes, tags } = req.body;
+    budgetCategories, notes, tags, isMasterProject, parentProject, contractValue, linkedProperty } = req.body;
 
   if (!name || !name.trim()) return badRequest(res, 'Project name is required');
 
@@ -161,11 +210,19 @@ router.post('/projects', asyncHandler(async (req, res) => {
     startDate: startDate ? new Date(startDate) : undefined,
     expectedEndDate: expectedEndDate ? new Date(expectedEndDate) : undefined,
     budgetCategories: budgetCategories?.length ? budgetCategories : undefined,
+    isMasterProject: Boolean(isMasterProject),
+    parentProject: parentProject || null,
+    contractValue: Number(contractValue) || 0,
+    linkedProperty: linkedProperty || null,
     createdBy: req.user?._id,
     updatedBy: req.user?._id
   });
 
   await project.save();
+
+  if (project.parentProject) {
+    await syncParentProjectProgress(project.parentProject);
+  }
 
   const populated = await ConstructionProject.findById(project._id)
     .populate('projectManager', 'firstName lastName email').lean();
@@ -181,12 +238,22 @@ router.put('/projects/:id', asyncHandler(async (req, res) => {
     'name', 'projectType', 'description', 'status', 'society', 'sector',
     'plotNumber', 'address', 'clientName', 'clientContact', 'projectManager',
     'startDate', 'expectedEndDate', 'actualEndDate', 'budgetCategories',
-    'notes', 'tags', 'overallProgress', 'linkedProperty'
+    'notes', 'tags', 'overallProgress', 'linkedProperty', 'isMasterProject',
+    'parentProject', 'contractValue'
   ];
 
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
   updates.updatedBy = req.user?._id;
+
+  // Convert empty string refs to null to avoid CastError
+  ['parentProject', 'linkedProperty', 'projectManager'].forEach(k => {
+    if (updates[k] === '') {
+      updates[k] = null;
+    }
+  });
+
+  const oldProject = await ConstructionProject.findById(req.params.id).select('parentProject overallProgress').lean();
 
   const project = await ConstructionProject.findByIdAndUpdate(
     req.params.id,
@@ -195,6 +262,15 @@ router.put('/projects/:id', asyncHandler(async (req, res) => {
   ).populate('projectManager', 'firstName lastName email').lean();
 
   if (!project) return notFound(res, 'Project');
+
+  // Trigger sync of parent project progress
+  if (project.parentProject) {
+    await syncParentProjectProgress(project.parentProject);
+  }
+  if (oldProject && oldProject.parentProject && String(oldProject.parentProject) !== String(project.parentProject)) {
+    await syncParentProjectProgress(oldProject.parentProject);
+  }
+
   res.json({ success: true, message: 'Project updated successfully', data: project });
 }));
 
@@ -203,28 +279,45 @@ router.put('/projects/:id/budget-status', asyncHandler(async (req, res) => {
   if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
   const { action, notes } = req.body; // action: 'submit' | 'approve' | 'reset'
 
-  const update = { updatedBy: req.user?._id };
+  const project = await ConstructionProject.findById(req.params.id);
+  if (!project) return notFound(res, 'Project');
+
+  project.updatedBy = req.user?._id;
+
   if (action === 'submit') {
-    update.budgetStatus = 'Submitted';
-    update.budgetSubmittedAt = new Date();
+    project.budgetStatus = 'Submitted';
+    project.budgetSubmittedAt = new Date();
   } else if (action === 'approve') {
-    update.budgetStatus = 'Approved';
-    update.budgetApprovedBy = req.user?._id;
-    update.budgetApprovedAt = new Date();
-    update.budgetNotes = notes || '';
+    project.budgetStatus = 'Approved';
+    project.budgetApprovedBy = req.user?._id;
+    project.budgetApprovedAt = new Date();
+    project.budgetNotes = notes || '';
+    
+    // Copy estimatedAmount to approvedAmount upon approval
+    if (project.budgetCategories && project.budgetCategories.length) {
+      project.budgetCategories.forEach(cat => {
+        cat.approvedAmount = cat.estimatedAmount;
+      });
+    }
   } else if (action === 'reset') {
-    update.budgetStatus = 'Draft';
-    update.budgetApprovedBy = null;
-    update.budgetApprovedAt = null;
+    project.budgetStatus = 'Draft';
+    project.budgetApprovedBy = null;
+    project.budgetApprovedAt = null;
+    if (project.budgetCategories && project.budgetCategories.length) {
+      project.budgetCategories.forEach(cat => {
+        cat.approvedAmount = 0;
+      });
+    }
   } else {
     return badRequest(res, 'Invalid action. Use submit, approve or reset');
   }
 
-  const project = await ConstructionProject.findByIdAndUpdate(req.params.id, { $set: update }, { new: true })
+  await project.save();
+
+  const populated = await ConstructionProject.findById(project._id)
     .populate('projectManager', 'firstName lastName email').lean();
 
-  if (!project) return notFound(res, 'Project');
-  res.json({ success: true, message: `Budget ${action}d successfully`, data: project });
+  res.json({ success: true, message: `Budget ${action}d successfully`, data: populated });
 }));
 
 // PUT /api/project-management/projects/:id/milestones/:milestoneId — update milestone
@@ -285,6 +378,10 @@ router.delete('/projects/:id', asyncHandler(async (req, res) => {
     { new: true }
   );
   if (!project) return notFound(res, 'Project');
+
+  if (project.parentProject) {
+    await syncParentProjectProgress(project.parentProject);
+  }
 
   res.json({ success: true, message: 'Project cancelled successfully' });
 }));
@@ -424,6 +521,8 @@ router.post('/projects/:id/boq', asyncHandler(async (req, res) => {
     createdBy: req.user?._id
   });
 
+  await syncProjectBOQBudget(req.params.id);
+
   res.status(201).json({ success: true, message: 'BOQ item added', data: item });
 }));
 
@@ -452,6 +551,7 @@ router.post('/projects/:id/boq/bulk', asyncHandler(async (req, res) => {
   }));
 
   const inserted = await BOQItem.insertMany(docs);
+  await syncProjectBOQBudget(req.params.id);
   res.status(201).json({ success: true, message: `${inserted.length} BOQ items added`, data: inserted });
 }));
 
@@ -478,6 +578,8 @@ router.put('/projects/:id/boq/:itemId', asyncHandler(async (req, res) => {
   );
   if (!item) return notFound(res, 'BOQ item');
 
+  await syncProjectBOQBudget(req.params.id);
+
   res.json({ success: true, message: 'BOQ item updated', data: item });
 }));
 
@@ -487,6 +589,8 @@ router.delete('/projects/:id/boq/:itemId', asyncHandler(async (req, res) => {
 
   const item = await BOQItem.findOneAndDelete({ _id: req.params.itemId, project: req.params.id });
   if (!item) return notFound(res, 'BOQ item');
+
+  await syncProjectBOQBudget(req.params.id);
 
   res.json({ success: true, message: 'BOQ item deleted' });
 }));
@@ -558,7 +662,8 @@ router.put('/projects/:id/tasks/:taskId', asyncHandler(async (req, res) => {
 
   const allowed = ['title', 'description', 'status', 'progressPercent', 'plannedStartDate',
     'plannedEndDate', 'actualStartDate', 'actualEndDate', 'assignedTo',
-    'estimatedLaborCost', 'actualLaborCost', 'notes', 'orderIndex', 'dependencies'];
+    'estimatedLaborCost', 'actualLaborCost', 'notes', 'orderIndex', 'dependencies',
+    'isPhysicallyVerified', 'verifiedAt', 'verifiedBy', 'verificationNotes', 'verificationPhotoUrl'];
 
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
@@ -925,7 +1030,7 @@ router.post('/projects/:id/invoices', asyncHandler(async (req, res) => {
   if (!project) return notFound(res, 'Project');
 
   const { invoiceAmount, description, issueDate, dueDate, billingPercentage,
-    milestoneId, milestoneName, notes, clientName, clientContact, clientAddress } = req.body;
+    milestoneId, milestoneName, notes, clientName, clientContact, clientAddress, boqItemId } = req.body;
 
   if (!invoiceAmount || Number(invoiceAmount) <= 0)
     return badRequest(res, 'Invoice amount is required');
@@ -934,6 +1039,7 @@ router.post('/projects/:id/invoices', asyncHandler(async (req, res) => {
     project: req.params.id,
     milestoneId: milestoneId || null,
     milestoneName: milestoneName || '',
+    boqItemId: boqItemId || null,
     clientName: clientName || project.clientName || '',
     clientContact: clientContact || project.clientContact || '',
     clientAddress: clientAddress || project.address || '',
@@ -1008,7 +1114,7 @@ router.put('/projects/:id/invoices/:invoiceId', asyncHandler(async (req, res) =>
 
   const allowed = ['status', 'invoiceAmount', 'description', 'issueDate', 'dueDate',
     'paidAmount', 'paidDate', 'paymentMethod', 'paymentReference', 'notes',
-    'clientName', 'clientContact', 'clientAddress', 'billingPercentage'];
+    'clientName', 'clientContact', 'clientAddress', 'billingPercentage', 'boqItemId'];
 
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });

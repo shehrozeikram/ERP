@@ -11,7 +11,10 @@ import {
   Add as AddIcon, Cancel as CancelIcon, CheckCircle as CheckIcon,
   Construction as ConstructionIcon, Delete as DeleteIcon,
   Edit as EditIcon, Refresh as RefreshIcon, AccountTree as StructureIcon,
-  TrendingUp as TrendingIcon, Visibility as ViewIcon
+  TrendingUp as TrendingIcon, Visibility as ViewIcon,
+  Publish as SubmitIcon, Undo as ResetIcon,
+  FolderSpecial as FolderIcon, PlayCircleFilled as ActiveIcon,
+  AssignmentTurnedIn as CompleteIcon, AttachMoney as MoneyIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { usePagination } from '../../hooks/usePagination';
@@ -51,12 +54,37 @@ const defaultForm = {
 const fmt = (v) =>
   new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(Number(v || 0));
 
-const StatCard = ({ label, value, color = 'primary.main', subtitle }) => (
-  <Card variant="outlined" sx={{ height: '100%', borderRadius: 2 }}>
-    <CardContent>
-      <Typography variant="body2" color="text.secondary" gutterBottom>{label}</Typography>
-      <Typography variant="h5" fontWeight={700} color={color}>{value}</Typography>
-      {subtitle && <Typography variant="caption" color="text.secondary">{subtitle}</Typography>}
+const StatCard = ({ label, value, color = 'primary.main', subtitle, icon }) => (
+  <Card variant="outlined" sx={{ 
+    height: '100%', 
+    borderRadius: 2, 
+    borderColor: 'divider',
+    transition: 'all 0.2s',
+    '&:hover': { boxShadow: 2, borderColor: color }
+  }}>
+    <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+        <Box>
+          <Typography variant="body2" color="text.secondary" fontWeight={500} sx={{ mb: 0.5 }}>{label}</Typography>
+          <Typography variant="h4" fontWeight={700} color={color}>{value}</Typography>
+        </Box>
+        <Box sx={{ 
+          p: 1.2, 
+          borderRadius: 1.5, 
+          bgcolor: 'rgba(25, 118, 210, 0.04)', 
+          color: color, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center' 
+        }}>
+          {icon}
+        </Box>
+      </Stack>
+      {subtitle && (
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
+          {subtitle}
+        </Typography>
+      )}
     </CardContent>
   </Card>
 );
@@ -384,6 +412,26 @@ const ProjectManagement = () => {
     }
   };
 
+  const handleSubmitBudget = async (project) => {
+    try {
+      await updateBudgetStatus(project._id, 'submit');
+      setSuccess('Budget submitted successfully');
+      loadProjects();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to submit budget');
+    }
+  };
+
+  const handleResetBudget = async (project) => {
+    try {
+      await updateBudgetStatus(project._id, 'reset');
+      setSuccess('Budget reset to Draft');
+      loadProjects();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reset budget');
+    }
+  };
+
   const progressColor = (pct) => pct >= 80 ? 'success' : pct >= 40 ? 'warning' : 'error';
 
   if (selectedMasterProjectId) {
@@ -404,44 +452,53 @@ const ProjectManagement = () => {
         elevation={0}
         sx={{
           mb: 3,
-          p: { xs: 1.5, sm: 2 },
+          p: 2.5,
           borderRadius: 2,
           border: '1px solid',
           borderColor: 'divider',
-          background: 'linear-gradient(135deg, rgba(25,118,210,0.08) 0%, rgba(25,118,210,0.02) 100%)'
+          bgcolor: 'background.paper',
+          borderLeft: '5px solid',
+          borderLeftColor: 'primary.main'
         }}
       >
-        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1.5}>
-          <Stack direction="row" alignItems="center" gap={1.5}>
-            <ConstructionIcon sx={{ fontSize: 36, color: 'primary.main' }} />
+        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
+          <Stack direction="row" alignItems="center" gap={2}>
+            <Box sx={{ p: 1.5, bgcolor: 'rgba(25, 118, 210, 0.04)', borderRadius: 2, color: 'primary.main', display: 'flex', alignItems: 'center' }}>
+              <ConstructionIcon sx={{ fontSize: 32 }} />
+            </Box>
             <Box>
-              <Typography variant="h4" fontWeight={700}>Project Management</Typography>
+              <Typography variant="h5" fontWeight={700} sx={{ color: 'text.primary' }}>Project Registry</Typography>
               <Typography variant="body2" color="text.secondary">
-                Plan, track and manage construction projects end-to-end
+                Plan, track, and consolidate structural lifecycle milestones and portfolio budgets.
               </Typography>
             </Box>
           </Stack>
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" gap={1.5} alignItems="center">
             {projects.some(p => p.isMasterProject) && (
               <Button
                 variant={selectedMasterProjectId ? "contained" : "outlined"}
-                color="secondary"
+                color="primary"
                 startIcon={<StructureIcon />}
                 onClick={() => {
                   const firstMaster = projects.find(p => p.isMasterProject);
                   if (firstMaster) setSelectedMasterProjectId(firstMaster._id);
                 }}
-                sx={{ textTransform: 'none', fontWeight: 700 }}
+                sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 1.5 }}
               >
-                👑 CEO Executive Control Tower
+                Executive Control Tower
               </Button>
             )}
-            <Tooltip title="Refresh">
+            <Tooltip title="Refresh Registry">
               <IconButton onClick={() => { loadProjects(); loadStats(); }} disabled={loading}>
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingProject(null); setDialogOpen(true); }}>
+            <Button 
+              variant="contained" 
+              startIcon={<AddIcon />} 
+              onClick={() => { setEditingProject(null); setDialogOpen(true); }}
+              sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 1.5 }}
+            >
               New Project
             </Button>
           </Stack>
@@ -463,20 +520,40 @@ const ProjectManagement = () => {
         ) : stats && (
           <>
             <Grid item xs={12} sm={6} md={3}>
-              <StatCard label="Total Projects" value={stats.totalProjects} color="primary.main"
-                subtitle={`${stats.planning || 0} planning`} />
+              <StatCard 
+                label="Total Projects" 
+                value={stats.totalProjects} 
+                color="primary.main"
+                icon={<FolderIcon />}
+                subtitle={`${stats.planning || 0} planning`} 
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <StatCard label="Active Projects" value={stats.active || 0} color="success.main"
-                subtitle={`${stats.onHold || 0} on hold`} />
+              <StatCard 
+                label="Active Projects" 
+                value={stats.active || 0} 
+                color="success.main"
+                icon={<ActiveIcon />}
+                subtitle={`${stats.onHold || 0} on hold`} 
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <StatCard label="Completed" value={stats.completed || 0} color="info.main"
-                subtitle={`${stats.draft || 0} in draft`} />
+              <StatCard 
+                label="Completed" 
+                value={stats.completed || 0} 
+                color="info.main"
+                icon={<CompleteIcon />}
+                subtitle={`${stats.draft || 0} in draft`} 
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <StatCard label="Total Budget" value={fmt(stats.totalBudget)}
-                subtitle={`Spent: ${fmt(stats.totalSpent)}`} color="warning.main" />
+              <StatCard 
+                label="Total Budget" 
+                value={fmt(stats.totalBudget)}
+                color="warning.main" 
+                icon={<MoneyIcon />}
+                subtitle={`Spent: ${fmt(stats.totalSpent)}`} 
+              />
             </Grid>
           </>
         )}
@@ -524,16 +601,16 @@ const ProjectManagement = () => {
           <TableContainer sx={{ borderRadius: 2 }}>
             <Table size="small" stickyHeader>
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell><strong>#</strong></TableCell>
-                  <TableCell><strong>Project</strong></TableCell>
-                  <TableCell><strong>Type</strong></TableCell>
-                  <TableCell><strong>Status</strong></TableCell>
-                  <TableCell><strong>Progress</strong></TableCell>
-                  <TableCell><strong>Budget</strong></TableCell>
-                  <TableCell><strong>Spent</strong></TableCell>
-                  <TableCell><strong>Timeline</strong></TableCell>
-                  <TableCell align="right"><strong>Actions</strong></TableCell>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>#</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Project Directory</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Type</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Status</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Progress</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Overall Budget</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Actual Spent</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Expected Timeline</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600, color: 'text.secondary', bgcolor: 'grey.50', py: 1.5 }}>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -593,36 +670,44 @@ const ProjectManagement = () => {
                           key={project._id}
                           hover
                           sx={{
-                            '& td': { py: 1.1 },
+                            '& td': { py: 1.3 },
+                            borderLeft: project.isMasterProject ? '4px solid #1976d2' : 'none',
                             bgcolor: project.isMasterProject
-                              ? 'rgba(25, 118, 210, 0.04)'
+                              ? 'rgba(25, 118, 210, 0.02)'
                               : isChild
-                              ? 'grey.50'
+                              ? 'rgba(0, 0, 0, 0.01)'
                               : 'inherit'
                           }}
                         >
                           <TableCell>
-                            <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                            <Typography variant="caption" color="text.secondary" fontFamily="monospace" fontWeight={500}>
                               {project.projectNumber}
                             </Typography>
                           </TableCell>
                           <TableCell>
-                            <Box sx={{ pl: isChild ? 3 : 0 }}>
+                            <Box sx={{ pl: isChild ? 2.5 : 0 }}>
                               <Stack direction="row" alignItems="center" spacing={1}>
-                                {isChild && <Typography color="text.secondary" sx={{ fontSize: '0.8rem' }}>└─ 🏠</Typography>}
-                                {project.isMasterProject && <Typography sx={{ fontSize: '1rem' }}>🏢</Typography>}
-                                <Typography variant="body2" fontWeight={project.isMasterProject ? 700 : 600}>
-                                  {project.name}
-                                </Typography>
+                                {isChild && <Typography color="text.disabled" sx={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700 }}>└─</Typography>}
+                                {project.isMasterProject ? (
+                                  <Typography variant="body2" fontWeight={700} color="primary.main">
+                                    {project.name}
+                                  </Typography>
+                                ) : (
+                                  <Typography variant="body2" fontWeight={500} color="text.primary">
+                                    {project.name}
+                                  </Typography>
+                                )}
                                 {project.isMasterProject && (
-                                  <Chip label="Master Portfolio" size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem' }} />
+                                  <Chip label="Master Portfolio" size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600, borderRadius: 1 }} />
                                 )}
                               </Stack>
                               {project.clientName && (
-                                <Typography variant="caption" color="text.secondary" sx={{ pl: isChild ? 3.5 : 0 }}>{project.clientName}</Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ pl: isChild ? 2.5 : 0, display: 'block', mt: 0.2 }}>
+                                  Client: {project.clientName}
+                                </Typography>
                               )}
                               {project.sector && (
-                                <Typography variant="caption" color="text.secondary" display="block" sx={{ pl: isChild ? 3.5 : 0 }}>
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ pl: isChild ? 2.5 : 0 }}>
                                   {project.society ? `${project.society} — ` : ''}{project.sector}
                                 </Typography>
                               )}
@@ -713,11 +798,27 @@ const ProjectManagement = () => {
                                   <EditIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
+                              {project.budgetStatus === 'Draft' && (
+                                <Tooltip title="Submit Budget">
+                                  <IconButton size="small" color="warning"
+                                    onClick={() => handleSubmitBudget(project)}>
+                                    <SubmitIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
                               {project.budgetStatus === 'Submitted' && (
                                 <Tooltip title="Approve Budget">
                                   <IconButton size="small" color="success"
                                     onClick={() => handleApproveBudget(project)}>
                                     <CheckIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                              {project.budgetStatus === 'Approved' && (
+                                <Tooltip title="Reset Budget to Draft">
+                                  <IconButton size="small" color="default"
+                                    onClick={() => handleResetBudget(project)}>
+                                    <ResetIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
                               )}

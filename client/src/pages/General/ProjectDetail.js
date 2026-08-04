@@ -101,13 +101,14 @@ const EmptyState = ({ icon: Icon, text, action }) => (
 );
 
 // ─── BOQ Tab ─────────────────────────────────────────────────────────────────
-const BOQTab = ({ projectId }) => {
+const BOQTab = ({ projectId, project }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
+  const [viewItem, setViewItem] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     title: '', description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '', discountAmount: '',
@@ -457,6 +458,7 @@ const BOQTab = ({ projectId }) => {
                 <TableCell align="right"><strong>Ordered</strong></TableCell>
                 <TableCell align="right"><strong>Used</strong></TableCell>
                 <TableCell align="right"><strong>Variance</strong></TableCell>
+                <TableCell align="center"><strong>Fulfillment %</strong></TableCell>
                 <TableCell align="right"><strong>Actions</strong></TableCell>
               </TableRow>
             </TableHead>
@@ -519,8 +521,30 @@ const BOQTab = ({ projectId }) => {
                       ) : '—';
                     })()}
                   </TableCell>
+                  <TableCell align="center">
+                    {(() => {
+                      const estQty = Number(item.estimatedQuantity) || 1;
+                      const fulfillmentPct = Math.min(100, Math.round(((item.usedQuantity || 0) / estQty) * 100));
+                      return (
+                        <Stack spacing={0.5} alignItems="center">
+                          <Typography variant="caption" fontWeight={600}>{fulfillmentPct}%</Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={fulfillmentPct}
+                            color={fulfillmentPct >= 90 ? 'success' : fulfillmentPct >= 40 ? 'info' : 'warning'}
+                            sx={{ width: 65, height: 4, borderRadius: 2 }}
+                          />
+                        </Stack>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                      <Tooltip title="View Details">
+                        <IconButton size="small" onClick={() => setViewItem(item)}>
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <IconButton size="small" onClick={() => openEdit(item)}><EditIcon fontSize="small" /></IconButton>
                       <IconButton size="small" color="error" onClick={() => handleDelete(item._id)}><DeleteIcon fontSize="small" /></IconButton>
                     </Stack>
@@ -775,6 +799,123 @@ const BOQTab = ({ projectId }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* View BOQ Item Details Dialog */}
+      <Dialog open={Boolean(viewItem)} onClose={() => setViewItem(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1.5 }}>
+          <Stack direction="row" alignItems="center" gap={1}>
+            <ViewIcon color="primary" />
+            <Typography variant="h6" fontWeight={600}>BOQ Item Detailed Specification</Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {viewItem && (
+            <Stack spacing={2.5}>
+              {project && (
+                <Grid container spacing={2} sx={{ bgcolor: 'rgba(25, 118, 210, 0.04)', p: 1.5, borderRadius: 1.5, mt: 0, ml: 0, width: '100%' }}>
+                  <Grid item xs={6} sx={{ pt: '0px !important', pl: '0px !important' }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Parent Portfolio</Typography>
+                    <Typography variant="body2" fontWeight={700} color="text.primary">
+                      {project.parentProject?.name || (project.isMasterProject ? 'This is Master Portfolio' : 'Independent Project')}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6} sx={{ pt: '0px !important' }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Sub-Project Unit</Typography>
+                    <Typography variant="body2" fontWeight={700} color="primary.main">
+                      {project.name}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              )}
+
+              <Box>
+                <Typography variant="caption" color="text.secondary">Item Title</Typography>
+                <Typography variant="body1" fontWeight={600} color="primary.main">
+                  {viewItem.title || '—'} {viewItem.itemCode ? `(${viewItem.itemCode})` : ''}
+                </Typography>
+              </Box>
+              
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Phase</Typography>
+                  <Typography variant="body2" fontWeight={500}>{viewItem.phase || 'General'}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Category</Typography>
+                  <Typography variant="body2" fontWeight={500}>{viewItem.category || '—'}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">CBS Classification</Typography>
+                  <Typography variant="body2" fontWeight={500} color="secondary.main">{viewItem.cbsCategory || 'Materials'}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Unit of Measure</Typography>
+                  <Typography variant="body2" fontWeight={500}>{viewItem.unit || '—'}</Typography>
+                </Grid>
+              </Grid>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="caption" color="text.secondary">Scope Description</Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-line', bgcolor: 'grey.50', p: 1.5, borderRadius: 1 }}>
+                  {viewItem.description}
+                </Typography>
+              </Box>
+
+              {viewItem.specification && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Technical Specification</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-line', bgcolor: 'grey.50', p: 1.5, borderRadius: 1 }}>
+                    {viewItem.specification}
+                  </Typography>
+                </Box>
+              )}
+
+              <Divider />
+
+              <Typography variant="subtitle2" fontWeight={700}>Financials & Quantity Track</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={4}>
+                  <Typography variant="caption" color="text.secondary">Est. Quantity</Typography>
+                  <Typography variant="body2" fontWeight={600}>{viewItem.estimatedQuantity?.toLocaleString()}</Typography>
+                </Grid>
+                <Grid item xs={4}>
+                  <Typography variant="caption" color="text.secondary">Est. Unit Price</Typography>
+                  <Typography variant="body2" fontWeight={600}>{fmt(viewItem.estimatedUnitPrice)}</Typography>
+                </Grid>
+                <Grid item xs={4}>
+                  <Typography variant="caption" color="text.secondary">Net Est. Cost</Typography>
+                  <Typography variant="body2" fontWeight={600} color="primary.main">{fmt(viewItem.netEstimatedCost)}</Typography>
+                </Grid>
+
+                <Grid item xs={4}>
+                  <Typography variant="caption" color="text.secondary">Ordered Qty</Typography>
+                  <Typography variant="body2" fontWeight={600} color="info.main">{viewItem.orderedQuantity?.toLocaleString() || '0'}</Typography>
+                </Grid>
+                <Grid item xs={4}>
+                  <Typography variant="caption" color="text.secondary">Physically Used</Typography>
+                  <Typography variant="body2" fontWeight={600} color="success.main">{viewItem.usedQuantity?.toLocaleString() || '0'}</Typography>
+                </Grid>
+                <Grid item xs={4}>
+                  <Typography variant="caption" color="text.secondary">Actual Total Cost</Typography>
+                  <Typography variant="body2" fontWeight={600}>{fmt(viewItem.actualTotalCost)}</Typography>
+                </Grid>
+              </Grid>
+
+              {viewItem.notes && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Notes</Typography>
+                  <Typography variant="body2" sx={{ fontStyle: 'italic' }}>{viewItem.notes}</Typography>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid', borderColor: 'divider', px: 3, py: 1.5 }}>
+          <Button variant="contained" onClick={() => setViewItem(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
@@ -791,6 +932,16 @@ const TasksTab = ({ projectId }) => {
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState({});
   const [form, setForm] = useState({ title: '', description: '', plannedStartDate: '', plannedEndDate: '', assignedTo: '', estimatedLaborCost: '', level: 0, notes: '' });
+  
+  const [viewTask, setViewTask] = useState(null);
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+  const [verifyTaskItem, setVerifyTaskItem] = useState(null);
+  const [verificationForm, setVerificationForm] = useState({
+    isPhysicallyVerified: false,
+    verifiedBy: '',
+    verificationNotes: '',
+    verificationPhotoUrl: ''
+  });
 
   const load = useCallback(async () => {
     try {
@@ -862,6 +1013,38 @@ const TasksTab = ({ projectId }) => {
     } catch { /* silent */ }
   };
 
+  const openVerifyDialog = (task) => {
+    setVerifyTaskItem(task);
+    setVerificationForm({
+      isPhysicallyVerified: Boolean(task.isPhysicallyVerified),
+      verifiedBy: task.verifiedBy || '',
+      verificationNotes: task.verificationNotes || '',
+      verificationPhotoUrl: task.verificationPhotoUrl || ''
+    });
+    setVerifyDialogOpen(true);
+  };
+
+  const handleSaveVerification = async () => {
+    if (!verifyTaskItem) return;
+    setSaving(true);
+    try {
+      await updateTask(projectId, verifyTaskItem._id, {
+        isPhysicallyVerified: verificationForm.isPhysicallyVerified,
+        verifiedBy: verificationForm.verifiedBy,
+        verificationNotes: verificationForm.verificationNotes,
+        verificationPhotoUrl: verificationForm.verificationPhotoUrl,
+        verifiedAt: verificationForm.isPhysicallyVerified ? new Date() : null
+      });
+      setSuccess('Physical verification updated successfully');
+      setVerifyDialogOpen(false);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update physical verification');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDelete = async (taskId) => {
     if (!window.confirm('Delete this task and all subtasks?')) return;
     try {
@@ -911,6 +1094,11 @@ const TasksTab = ({ projectId }) => {
                   <Chip label={phase.status} size="small" color={TASK_STATUS_COLOR[phase.status] || 'default'} />
                 </Stack>
                 <Stack direction="row" gap={0.5}>
+                  <Tooltip title="View Details">
+                    <IconButton size="small" onClick={() => setViewTask(phase)}>
+                      <ViewIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                   <Button size="small" startIcon={<AddIcon />} onClick={() => openAddTask(phase)}>Add Task</Button>
                   <IconButton size="small" onClick={() => openEdit(phase)}><EditIcon fontSize="small" /></IconButton>
                   <IconButton size="small" color="error" onClick={() => handleDelete(phase._id)}><DeleteIcon fontSize="small" /></IconButton>
@@ -937,7 +1125,8 @@ const TasksTab = ({ projectId }) => {
                           <TableCell><strong>Assigned To</strong></TableCell>
                           <TableCell><strong>Planned Dates</strong></TableCell>
                           <TableCell><strong>Status</strong></TableCell>
-                          <TableCell sx={{ width: 160 }}><strong>Progress</strong></TableCell>
+                          <TableCell sx={{ width: 140 }}><strong>Progress</strong></TableCell>
+                          <TableCell sx={{ width: 140 }}><strong>Physical Verification</strong></TableCell>
                           <TableCell align="right"><strong>Actions</strong></TableCell>
                         </TableRow>
                       </TableHead>
@@ -989,8 +1178,36 @@ const TasksTab = ({ projectId }) => {
                                 />
                               </Stack>
                             </TableCell>
+                            <TableCell>
+                              {task.isPhysicallyVerified ? (
+                                <Tooltip title={`Verified by ${task.verifiedBy || 'QC'} on ${dayjs(task.verifiedAt).format('DD MMM YY')}${task.verificationNotes ? ': ' + task.verificationNotes : ''}`}>
+                                  <Chip
+                                    label="Verified"
+                                    size="small"
+                                    color="success"
+                                    icon={<CheckIcon sx={{ fontSize: '0.8rem !important' }} />}
+                                    onClick={() => openVerifyDialog(task)}
+                                    sx={{ cursor: 'pointer', height: 22, fontSize: '0.7rem' }}
+                                  />
+                                </Tooltip>
+                              ) : (
+                                <Chip
+                                  label="Pending Audit"
+                                  size="small"
+                                  variant="outlined"
+                                  color="default"
+                                  onClick={() => openVerifyDialog(task)}
+                                  sx={{ cursor: 'pointer', height: 22, fontSize: '0.7rem' }}
+                                />
+                              )}
+                            </TableCell>
                             <TableCell align="right">
                               <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                <Tooltip title="View Details">
+                                  <IconButton size="small" onClick={() => setViewTask(task)}>
+                                    <ViewIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                                 <IconButton size="small" onClick={() => openEdit(task)}><EditIcon fontSize="small" /></IconButton>
                                 <IconButton size="small" color="error" onClick={() => handleDelete(task._id)}><DeleteIcon fontSize="small" /></IconButton>
                               </Stack>
@@ -1067,6 +1284,212 @@ const TasksTab = ({ projectId }) => {
           <Button variant="contained" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : editTask ? 'Update' : 'Create'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Physical Verification Dialog */}
+      <Dialog open={verifyDialogOpen} onClose={() => setVerifyDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1.5 }}>
+          <Stack direction="row" alignItems="center" gap={1}>
+            <CheckIcon color="success" />
+            <Typography variant="h6" fontWeight={600}>WBS Physical Verification</Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Stack spacing={2.5}>
+            <Typography variant="body2" color="text.secondary">
+              Review and sign off on physical completion of: <strong>{verifyTaskItem?.title}</strong>
+            </Typography>
+            
+            <FormControl fullWidth>
+              <InputLabel>Verification Audit Status</InputLabel>
+              <Select
+                value={verificationForm.isPhysicallyVerified ? 'true' : 'false'}
+                label="Verification Audit Status"
+                onChange={(e) => setVerificationForm(p => ({ ...p, isPhysicallyVerified: e.target.value === 'true' }))}
+              >
+                <MenuItem value="false">⚠️ Pending Visual Inspection</MenuItem>
+                <MenuItem value="true">✅ Physically Inspected & Verified</MenuItem>
+              </Select>
+            </FormControl>
+
+            <TextField
+              fullWidth
+              label="Auditor / Verified By"
+              placeholder="e.g. Lead Site Engineer, QC Manager"
+              value={verificationForm.verifiedBy}
+              onChange={(e) => setVerificationForm(p => ({ ...p, verifiedBy: e.target.value }))}
+            />
+
+            <TextField
+              fullWidth
+              label="Verification Audit Notes"
+              placeholder="Provide comments on physical inspection quality and compliance..."
+              multiline
+              rows={3}
+              value={verificationForm.verificationNotes}
+              onChange={(e) => setVerificationForm(p => ({ ...p, verificationNotes: e.target.value }))}
+            />
+
+            <TextField
+              fullWidth
+              label="Inspection / Proof Image URL (Optional)"
+              placeholder="e.g. https://images.unsplash.com/photo-1541888946425-d81bb19240f5"
+              value={verificationForm.verificationPhotoUrl}
+              onChange={(e) => setVerificationForm(p => ({ ...p, verificationPhotoUrl: e.target.value }))}
+            />
+
+            {verificationForm.isPhysicallyVerified && verificationForm.verificationPhotoUrl && (
+              <Box sx={{ mt: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, overflow: 'hidden' }}>
+                <Typography variant="caption" sx={{ px: 1.5, py: 0.5, display: 'block', bgcolor: 'grey.50', fontWeight: 600 }}>Inspection Proof Preview</Typography>
+                <img
+                  src={verificationForm.verificationPhotoUrl}
+                  alt="Inspection Proof Preview"
+                  style={{ width: '100%', height: 140, objectFit: 'cover' }}
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              </Box>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid', borderColor: 'divider', px: 3, py: 2 }}>
+          <Button onClick={() => setVerifyDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="success" onClick={handleSaveVerification} disabled={saving}>
+            {saving ? 'Saving Sign-off…' : 'Save Verification'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* View Phase / Task Details Dialog */}
+      <Dialog open={Boolean(viewTask)} onClose={() => setViewTask(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1.5 }}>
+          <Stack direction="row" alignItems="center" gap={1}>
+            <ViewIcon color="primary" />
+            <Typography variant="h6" fontWeight={600}>
+              WBS {viewTask?.level === 0 ? 'Phase' : 'Task'} Detailed Specification
+            </Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {viewTask && (
+            <Stack spacing={2.5}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Title</Typography>
+                <Typography variant="body1" fontWeight={600} color="primary.main">
+                  {viewTask.title}
+                </Typography>
+              </Box>
+
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Level</Typography>
+                  <Typography variant="body2" fontWeight={500}>{viewTask.level === 0 ? 'Phase (Level 0)' : 'Task (Level 1/2)'}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Status</Typography>
+                  <Box sx={{ mt: 0.5 }}>
+                    <Chip label={viewTask.status} size="small" color={TASK_STATUS_COLOR[viewTask.status] || 'default'} />
+                  </Box>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Planned Dates</Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {viewTask.plannedStartDate ? dayjs(viewTask.plannedStartDate).format('DD MMM YYYY') : '—'}
+                    {' → '}
+                    {viewTask.plannedEndDate ? dayjs(viewTask.plannedEndDate).format('DD MMM YYYY') : '—'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Progress %</Typography>
+                  <Stack direction="row" alignItems="center" gap={1} sx={{ mt: 0.5 }}>
+                    <LinearProgress
+                      variant="determinate"
+                      value={viewTask.progressPercent || 0}
+                      color={viewTask.progressPercent === 100 ? 'success' : 'info'}
+                      sx={{ width: 80, height: 6, borderRadius: 3 }}
+                    />
+                    <Typography variant="body2" fontWeight={700}>{viewTask.progressPercent || 0}%</Typography>
+                  </Stack>
+                </Grid>
+              </Grid>
+
+              {viewTask.description && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Description</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-line', bgcolor: 'grey.50', p: 1.5, borderRadius: 1 }}>
+                    {viewTask.description}
+                  </Typography>
+                </Box>
+              )}
+
+              <Divider />
+
+              <Typography variant="subtitle2" fontWeight={700}>Financials & Assignment</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Assigned Contractor</Typography>
+                  <Typography variant="body2" fontWeight={500}>{viewTask.assignedTo || '—'}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Estimated Labor Cost</Typography>
+                  <Typography variant="body2" fontWeight={600}>{fmt(viewTask.estimatedLaborCost)}</Typography>
+                </Grid>
+              </Grid>
+
+              <Divider />
+
+              <Typography variant="subtitle2" fontWeight={700}>Physical Verification Sign-off</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Inspection Status</Typography>
+                  <Box sx={{ mt: 0.5 }}>
+                    {viewTask.isPhysicallyVerified ? (
+                      <Chip label="Verified & Approved" size="small" color="success" icon={<CheckIcon sx={{ fontSize: '0.8rem !important' }} />} />
+                    ) : (
+                      <Chip label="Pending Visual Audit" size="small" variant="outlined" />
+                    )}
+                  </Box>
+                </Grid>
+                {viewTask.isPhysicallyVerified && (
+                  <>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Verified At</Typography>
+                      <Typography variant="body2" fontWeight={500}>
+                        {viewTask.verifiedAt ? dayjs(viewTask.verifiedAt).format('DD MMM YYYY HH:mm') : '—'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Verified By (Auditor)</Typography>
+                      <Typography variant="body2" fontWeight={600} color="primary.main">{viewTask.verifiedBy || 'QC Officer'}</Typography>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Typography variant="caption" color="text.secondary">Auditor Notes</Typography>
+                      <Typography variant="body2" sx={{ fontStyle: 'italic', bgcolor: 'grey.50', p: 1.5, borderRadius: 1 }}>
+                        {viewTask.verificationNotes || 'No notes provided.'}
+                      </Typography>
+                    </Grid>
+                  </>
+                )}
+              </Grid>
+
+              {viewTask.isPhysicallyVerified && viewTask.verificationPhotoUrl && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Site Verification Photo Proof</Typography>
+                  <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+                    <img
+                      src={viewTask.verificationPhotoUrl}
+                      alt="Verification site photo proof"
+                      style={{ width: '100%', maxHeight: 280, objectFit: 'cover' }}
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                  </Box>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid', borderColor: 'divider', px: 3, py: 1.5 }}>
+          <Button variant="contained" onClick={() => setViewTask(null)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
@@ -2138,7 +2561,7 @@ const ProjectDetail = () => {
         </Box>
         <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
           {tab === 0 && <OverviewTab project={project} onRefresh={loadProject} />}
-          {tab === 1 && <BOQTab projectId={id} />}
+          {tab === 1 && <BOQTab projectId={id} project={project} />}
           {tab === 2 && <TasksTab projectId={id} />}
           {tab === 3 && <ExpensesTab projectId={id} project={project} />}
           {tab === 4 && <DPRTab projectId={id} />}

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, Grid, Card, CardContent, Stack, Chip, CircularProgress,
   Alert, Divider, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  LinearProgress, Tooltip, IconButton, Button
+  LinearProgress, Tooltip, IconButton, Button, Dialog, DialogContent
 } from '@mui/material';
 import {
   AccountTree as StructureIcon, TrendingUp as ProgressIcon, AttachMoney as MoneyIcon,
@@ -24,6 +24,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
 
   const loadRollup = useCallback(async () => {
     if (!masterProjectId) return;
@@ -169,109 +170,165 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
       {/* Summary KPI Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">Total Master Budget</Typography>
-              <Typography variant="h5" fontWeight={700} color="primary.main">
-                {fmt(summaryMetrics.grandEstimatedBudget)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Across {summaryMetrics.totalSubUnits} Sub-Units
-              </Typography>
-            </CardContent>
-          </Card>
+          <Tooltip title="Click to view Cost Breakdown Structure (CBS)">
+            <Card variant="outlined" 
+              onClick={() => document.getElementById('cbs-matrix')?.scrollIntoView({ behavior: 'smooth' })}
+              sx={{
+                borderRadius: 2, cursor: 'pointer', transition: 'all 0.2s',
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 3, borderColor: 'primary.main' }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">Total Master Budget</Typography>
+                <Typography variant="h5" fontWeight={700} color="primary.main">
+                  {fmt(summaryMetrics.grandEstimatedBudget)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Across {summaryMetrics.totalSubUnits} Sub-Units
+                </Typography>
+              </CardContent>
+            </Card>
+          </Tooltip>
         </Grid>
 
         <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">Total Actual Spent</Typography>
-              <Typography variant="h5" fontWeight={700} color={summaryMetrics.costVariance > 0 ? 'error.main' : 'success.main'}>
-                {fmt(summaryMetrics.grandActualCost)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Variance: {fmt(summaryMetrics.costVariance)} ({summaryMetrics.costHealthStatus})
-              </Typography>
-            </CardContent>
-          </Card>
+          <Tooltip title="Click to view Budget vs Actual Expenditure Chart">
+            <Card variant="outlined"
+              onClick={() => document.getElementById('budget-vs-actual-chart')?.scrollIntoView({ behavior: 'smooth' })}
+              sx={{
+                borderRadius: 2, cursor: 'pointer', transition: 'all 0.2s',
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 3, borderColor: 'primary.main' }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">Total Actual Spent</Typography>
+                <Typography variant="h5" fontWeight={700} color={summaryMetrics.costVariance > 0 ? 'error.main' : 'success.main'}>
+                  {fmt(summaryMetrics.grandActualCost)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Variance: {fmt(summaryMetrics.costVariance)} ({summaryMetrics.costHealthStatus})
+                </Typography>
+              </CardContent>
+            </Card>
+          </Tooltip>
         </Grid>
 
         <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">Physical Completion</Typography>
-              <Typography variant="h5" fontWeight={700} color="info.main">
-                {summaryMetrics.masterOverallProgress}%
-              </Typography>
-              <Box sx={{ mt: 0.5 }}>
-                <LinearProgress variant="determinate" value={summaryMetrics.masterOverallProgress} color={progressColor} sx={{ height: 6, borderRadius: 3 }} />
-              </Box>
-            </CardContent>
-          </Card>
+          <Tooltip title="Click to view Sub-Project performance details">
+            <Card variant="outlined"
+              onClick={() => document.getElementById('villas-grid')?.scrollIntoView({ behavior: 'smooth' })}
+              sx={{
+                borderRadius: 2, cursor: 'pointer', transition: 'all 0.2s',
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 3, borderColor: 'primary.main' }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">Physical Completion</Typography>
+                <Typography variant="h5" fontWeight={700} color="info.main">
+                  {summaryMetrics.masterOverallProgress}%
+                </Typography>
+                <Box sx={{ mt: 0.5 }}>
+                  <LinearProgress variant="determinate" value={summaryMetrics.masterOverallProgress} color={progressColor} sx={{ height: 6, borderRadius: 3 }} />
+                </Box>
+              </CardContent>
+            </Card>
+          </Tooltip>
         </Grid>
 
         <Grid item xs={12} sm={6} md={3}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">Procurement & AP Bills</Typography>
-              <Typography variant="h6" fontWeight={600}>
-                GRN: {fmt(summaryMetrics.grnTotalSpent)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                AP Bills: {fmt(summaryMetrics.apTotalSpent)}
-              </Typography>
-            </CardContent>
-          </Card>
+          <Tooltip title="Click to open Procurement Module">
+            <Card variant="outlined"
+              onClick={() => navigate('/procurement')}
+              sx={{
+                borderRadius: 2, cursor: 'pointer', transition: 'all 0.2s',
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 3, borderColor: 'primary.main' }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">Procurement & AP Bills</Typography>
+                <Typography variant="h6" fontWeight={600}>
+                  GRN: {fmt(summaryMetrics.grnTotalSpent)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  AP Bills: {fmt(summaryMetrics.apTotalSpent)}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Tooltip>
         </Grid>
       </Grid>      {/* EVM & Cash Demand Row */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} md={4}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">Earned Value (EV)</Typography>
-              <Typography variant="h6" fontWeight={700} color="primary.main">
-                {fmt(summaryMetrics.earnedValueManagement?.earnedValue)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Budgeted value of completed work
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} md={4}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">Cost Performance Index (CPI)</Typography>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <Typography variant="h6" fontWeight={700} color={summaryMetrics.earnedValueManagement?.cpi >= 1.0 ? 'success.main' : 'error.main'}>
-                  {summaryMetrics.earnedValueManagement?.cpi || 1.0}
+          <Tooltip title="Click to view schedule S-Curve analytics">
+            <Card variant="outlined" 
+              onClick={() => document.getElementById('s-curve-chart')?.scrollIntoView({ behavior: 'smooth' })}
+              sx={{
+                borderRadius: 2, cursor: 'pointer', transition: 'all 0.2s',
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 3, borderColor: 'primary.main' }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">Earned Value (EV)</Typography>
+                <Typography variant="h6" fontWeight={700} color="primary.main">
+                  {fmt(summaryMetrics.earnedValueManagement?.earnedValue)}
                 </Typography>
-                <Chip
-                  label={summaryMetrics.earnedValueManagement?.cpiStatus} size="small"
-                  color={summaryMetrics.earnedValueManagement?.cpi >= 1.0 ? 'success' : 'error'}
-                  sx={{ height: 18, fontSize: '0.65rem' }}
-                />
-              </Stack>
-              <Typography variant="caption" color="text.secondary">
-                {summaryMetrics.earnedValueManagement?.cpi >= 1.0 ? 'Within approved cost parameters' : 'Over budget trend detected'}
-              </Typography>
-            </CardContent>
-          </Card>
+                <Typography variant="caption" color="text.secondary">
+                  Budgeted value of completed work
+                </Typography>
+              </CardContent>
+            </Card>
+          </Tooltip>
         </Grid>
 
         <Grid item xs={12} md={4}>
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="caption" color="text.secondary">30-Day Liquidity Demand Forecast</Typography>
-              <Typography variant="h6" fontWeight={700} color="warning.main">
-                {fmt(summaryMetrics.cashDemandForecast30Days)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Projected cash requirement for next 30 days
-              </Typography>
-            </CardContent>
-          </Card>
+          <Tooltip title="Click to view Budget vs Actual expenditure chart">
+            <Card variant="outlined"
+              onClick={() => document.getElementById('budget-vs-actual-chart')?.scrollIntoView({ behavior: 'smooth' })}
+              sx={{
+                borderRadius: 2, cursor: 'pointer', transition: 'all 0.2s',
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 3, borderColor: 'primary.main' }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">Cost Performance Index (CPI)</Typography>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Typography variant="h6" fontWeight={700} color={summaryMetrics.earnedValueManagement?.cpi >= 1.0 ? 'success.main' : 'error.main'}>
+                    {summaryMetrics.earnedValueManagement?.cpi || 1.0}
+                  </Typography>
+                  <Chip
+                    label={summaryMetrics.earnedValueManagement?.cpiStatus} size="small"
+                    color={summaryMetrics.earnedValueManagement?.cpi >= 1.0 ? 'success' : 'error'}
+                    sx={{ height: 18, fontSize: '0.65rem' }}
+                  />
+                </Stack>
+                <Typography variant="caption" color="text.secondary">
+                  {summaryMetrics.earnedValueManagement?.cpi >= 1.0 ? 'Within approved cost parameters' : 'Over budget trend detected'}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Tooltip>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <Tooltip title="Click to view Cash Flow Trend Forecast chart">
+            <Card variant="outlined"
+              onClick={() => document.getElementById('cash-flow-chart')?.scrollIntoView({ behavior: 'smooth' })}
+              sx={{
+                borderRadius: 2, cursor: 'pointer', transition: 'all 0.2s',
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 3, borderColor: 'primary.main' }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">30-Day Liquidity Demand Forecast</Typography>
+                <Typography variant="h6" fontWeight={700} color="warning.main">
+                  {fmt(summaryMetrics.cashDemandForecast30Days)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Projected cash requirement for next 30 days
+                </Typography>
+              </CardContent>
+            </Card>
+          </Tooltip>
         </Grid>
       </Grid>
 
@@ -285,25 +342,33 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
           <Grid container spacing={2}>
             {data.groundPhotoStream.map((photo, idx) => (
               <Grid item xs={12} sm={6} md={3} key={idx}>
-                <Card variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
-                  <Box
-                    component="img"
-                    src={photo.url}
-                    alt={photo.caption}
-                    sx={{ width: '100%', height: 130, objectFit: 'cover', borderBottom: '1px solid', borderColor: 'divider' }}
-                  />
-                  <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                    <Typography variant="caption" fontWeight={600} display="block" noWrap>
-                      {photo.projectName}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block" noWrap>
-                      {photo.caption}
-                    </Typography>
-                    {photo.isVerifiedLocation && (
-                      <Chip label="📍 GPS Verified Location" size="small" color="success" sx={{ fontSize: '0.6rem', height: 16, mt: 0.5 }} />
-                    )}
-                  </CardContent>
-                </Card>
+                <Tooltip title="Click to preview full-size photo">
+                  <Card variant="outlined"
+                    onClick={() => setSelectedPhoto(photo.url)}
+                    sx={{
+                      borderRadius: 2, height: '100%', cursor: 'pointer', transition: 'all 0.2s',
+                      '&:hover': { transform: 'scale(1.02)', boxShadow: 3 }
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={photo.url}
+                      alt={photo.caption}
+                      sx={{ width: '100%', height: 130, objectFit: 'cover', borderBottom: '1px solid', borderColor: 'divider' }}
+                    />
+                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Typography variant="caption" fontWeight={600} display="block" noWrap>
+                        {photo.projectName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                        {photo.caption}
+                      </Typography>
+                      {photo.isVerifiedLocation && (
+                        <Chip label="📍 GPS Verified Location" size="small" color="success" sx={{ fontSize: '0.6rem', height: 16, mt: 0.5 }} />
+                      )}
+                    </CardContent>
+                  </Card>
+                </Tooltip>
               </Grid>
             ))}
           </Grid>
@@ -314,7 +379,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {/* CBS Cost Share Donut Pie Chart */}
         <Grid item xs={12} md={6}>
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, height: 380, border: '1px solid', borderColor: 'divider' }}>
+          <Paper variant="outlined" id="cbs-donut-chart" sx={{ p: 2.5, borderRadius: 2, height: 380, border: '1px solid', borderColor: 'divider' }}>
             <Typography variant="subtitle1" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <MoneyIcon color="primary" /> CBS Cost Share Breakdown (Executive Donut Chart)
             </Typography>
@@ -346,7 +411,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
 
         {/* Villa Units Physical Progress Multi-Color Bar Chart */}
         <Grid item xs={12} md={6}>
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, height: 380, border: '1px solid', borderColor: 'divider' }}>
+          <Paper variant="outlined" id="subunit-progress-chart" sx={{ p: 2.5, borderRadius: 2, height: 380, border: '1px solid', borderColor: 'divider' }}>
             <Typography variant="subtitle1" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <ProgressIcon color="primary" /> Sub-Units Physical Completion (Multi-Color Bar Chart)
             </Typography>
@@ -371,7 +436,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
 
         {/* 3. S-Curve Cumulative Progress (Planned vs Actual Line Chart) */}
         <Grid item xs={12} md={6}>
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, height: 380 }}>
+          <Paper variant="outlined" id="s-curve-chart" sx={{ p: 2.5, borderRadius: 2, height: 380 }}>
             <Typography variant="subtitle1" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               📈 Master Project S-Curve (Planned vs Actual Line Chart)
             </Typography>
@@ -394,7 +459,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
 
         {/* 4. Sub-Unit Budget vs Actual Spend Comparison (Grouped Bar Chart) */}
         <Grid item xs={12} md={6}>
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, height: 380 }}>
+          <Paper variant="outlined" id="budget-vs-actual-chart" sx={{ p: 2.5, borderRadius: 2, height: 380 }}>
             <Typography variant="subtitle1" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               📊 Budget vs Actual Expenditure (Grouped Bar Chart)
             </Typography>
@@ -420,7 +485,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
       <Grid container spacing={3}>
         {/* Cost Breakdown Structure (CBS) Matrix */}
         <Grid item xs={12} md={5}>
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, height: '100%' }}>
+          <Paper variant="outlined" id="cbs-matrix" sx={{ p: 2.5, borderRadius: 2, height: '100%' }}>
             <Typography variant="subtitle1" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <MoneyIcon color="primary" /> Cost Breakdown Structure (CBS)
             </Typography>
@@ -455,7 +520,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
 
         {/* Sub-Projects / Villa Drill-down Table */}
         <Grid item xs={12} md={7}>
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+          <Paper variant="outlined" id="villas-grid" sx={{ p: 2.5, borderRadius: 2 }}>
             <Typography variant="subtitle1" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <UnitIcon color="primary" /> Sub-Project Units Performance (Villas Grid)
             </Typography>
@@ -508,6 +573,18 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Photo Preview Dialog */}
+      <Dialog open={Boolean(selectedPhoto)} onClose={() => setSelectedPhoto(null)} maxWidth="lg">
+        <DialogContent sx={{ p: 0, bgcolor: '#000000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Box
+            component="img"
+            src={selectedPhoto}
+            alt="DPR Full Preview"
+            sx={{ maxWidth: '100%', maxHeight: '85vh', display: 'block', objectFit: 'contain' }}
+          />
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }

@@ -40,6 +40,13 @@ const projectTaskSchema = new mongoose.Schema({
 
   notes: { type: String, trim: true },
 
+  // Physical Verification Sign-off (Option B)
+  isPhysicallyVerified: { type: Boolean, default: false },
+  verifiedAt: { type: Date },
+  verifiedBy: { type: String, trim: true },
+  verificationNotes: { type: String, trim: true },
+  verificationPhotoUrl: { type: String, trim: true },
+
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 

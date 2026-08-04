@@ -142,12 +142,52 @@ constructionProjectSchema.pre('save', async function (next) {
     this.projectNumber = `CP-${year}-${String(count + 1).padStart(4, '0')}`;
   }
 
-  // Recompute totals from budgetCategories
-  if (this.budgetCategories && this.budgetCategories.length) {
+  // Recompute totals
+  if (this.isMasterProject) {
+    const children = await this.constructor.find({ parentProject: this._id, status: { $ne: 'Cancelled' } }).select('totalEstimatedCost totalApprovedBudget');
+    this.totalEstimatedCost = children.reduce((s, c) => s + (c.totalEstimatedCost || 0), 0);
+    this.totalApprovedBudget = children.reduce((s, c) => s + (c.totalApprovedBudget || 0), 0);
+  } else if (this.budgetCategories && this.budgetCategories.length) {
     this.totalEstimatedCost = this.budgetCategories.reduce((s, c) => s + (c.estimatedAmount || 0), 0);
     this.totalApprovedBudget = this.budgetCategories.reduce((s, c) => s + (c.approvedAmount || 0), 0);
   }
 
+  next();
+});
+
+// Recompute totals from budgetCategories before findOneAndUpdate
+constructionProjectSchema.pre('findOneAndUpdate', async function (next) {
+  const update = this.getUpdate();
+  if (update) {
+    const doc = await this.model.findOne(this.getQuery()).select('isMasterProject');
+    if (doc && doc.isMasterProject) {
+      // If it is a master project, prevent query updates from overriding totals from categories
+      if (update.$set) {
+        delete update.$set.totalEstimatedCost;
+        delete update.$set.totalApprovedBudget;
+      } else {
+        delete update.totalEstimatedCost;
+        delete update.totalApprovedBudget;
+      }
+      return next();
+    }
+
+    let cats = null;
+    let target = null;
+
+    if (update.$set && update.$set.budgetCategories) {
+      cats = update.$set.budgetCategories;
+      target = update.$set;
+    } else if (update.budgetCategories) {
+      cats = update.budgetCategories;
+      target = update;
+    }
+
+    if (cats && Array.isArray(cats)) {
+      target.totalEstimatedCost = cats.reduce((s, c) => s + (c.estimatedAmount || 0), 0);
+      target.totalApprovedBudget = cats.reduce((s, c) => s + (c.approvedAmount || 0), 0);
+    }
+  }
   next();
 });
 
@@ -156,6 +196,61 @@ constructionProjectSchema.index({ status: 1 });
 constructionProjectSchema.index({ projectType: 1 });
 constructionProjectSchema.index({ createdAt: -1 });
 constructionProjectSchema.index({ projectManager: 1 });
+
+const syncParentHelper = async (parentProjectId) => {
+  if (!parentProjectId) return;
+  const model = mongoose.model('ConstructionProject');
+  const children = await model.find({ 
+    parentProject: parentProjectId, 
+    status: { $ne: 'Cancelled' } 
+  }).select('overallProgress totalEstimatedCost totalApprovedBudget');
+
+  if (!children.length) {
+    await model.findByIdAndUpdate(parentProjectId, { 
+      overallProgress: 0,
+      totalEstimatedCost: 0,
+      totalApprovedBudget: 0
+    });
+    return;
+  }
+
+  const avg = Math.round(children.reduce((s, c) => s + (c.overallProgress || 0), 0) / children.length);
+  const totalEst = children.reduce((s, c) => s + (c.totalEstimatedCost || 0), 0);
+  const totalApp = children.reduce((s, c) => s + (c.totalApprovedBudget || 0), 0);
+
+  const parent = await model.findByIdAndUpdate(parentProjectId, { 
+    overallProgress: avg,
+    totalEstimatedCost: totalEst,
+    totalApprovedBudget: totalApp
+  }, { new: true });
+
+  if (parent && parent.parentProject) {
+    await syncParentHelper(parent.parentProject);
+  }
+};
+
+// Post-save hook (for .create() and .save())
+constructionProjectSchema.post('save', async function (doc) {
+  if (doc.parentProject) {
+    await syncParentHelper(doc.parentProject);
+  }
+});
+
+// Post-findOneAndUpdate hook (for findByIdAndUpdate, findOneAndUpdate)
+constructionProjectSchema.post('findOneAndUpdate', async function (doc) {
+  if (doc && doc.parentProject) {
+    await syncParentHelper(doc.parentProject);
+  }
+});
+
+// Post-updateOne hook (for updateOne)
+constructionProjectSchema.post('updateOne', async function () {
+  const query = this.getQuery();
+  const doc = await this.model.findOne(query);
+  if (doc && doc.parentProject) {
+    await syncParentHelper(doc.parentProject);
+  }
+});
 
 module.exports = mongoose.model('ConstructionProject', constructionProjectSchema);
 module.exports.BUDGET_CATEGORIES = BUDGET_CATEGORIES;

@@ -14,6 +14,9 @@ const projectInvoiceSchema = new mongoose.Schema({
   milestoneId: { type: mongoose.Schema.Types.ObjectId, default: null },
   milestoneName: { type: String, trim: true },
 
+  // Link to BOQ item if invoice is raised against BOQ (Option B)
+  boqItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'BOQItem', default: null },
+
   // Client info (snapshot from project at invoice time)
   clientName: { type: String, trim: true },
   clientContact: { type: String, trim: true },

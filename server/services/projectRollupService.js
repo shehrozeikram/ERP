@@ -72,7 +72,7 @@ const ProjectRollupService = {
 
     // Fall back to direct project model budgeted amount if BOQs not added yet
     if (grandEstimatedBudget === 0) {
-      grandEstimatedBudget = childProjects.reduce((sum, p) => sum + (p.budget?.approvedBudget || p.budget?.estimatedBudget || 0), 0);
+      grandEstimatedBudget = childProjects.reduce((sum, p) => sum + (p.totalApprovedBudget || p.totalEstimatedCost || 0), 0);
     }
 
     // 3. Aggregate Actual Expenditure from Financial Documents (GRN, AP Bills, Store Issues)
@@ -98,7 +98,7 @@ const ProjectRollupService = {
     const childUnitBreakdown = childProjects
       .filter((p) => String(p._id) !== String(masterProjectId) || childProjects.length === 1)
       .map((p) => {
-        const estBudget = p.budget?.approvedBudget || p.budget?.estimatedBudget || 0;
+        const estBudget = p.totalApprovedBudget || p.totalEstimatedCost || 0;
         const milestones = p.milestones || [];
         const totalMilestones = milestones.length;
         const completedMilestones = milestones.filter((m) => m.status === 'Completed').length;

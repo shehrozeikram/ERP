@@ -12,7 +12,7 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import {
-  getProjectInvoices, createProjectInvoice, updateProjectInvoice, deleteProjectInvoice
+  getProjectInvoices, createProjectInvoice, updateProjectInvoice, deleteProjectInvoice, getBOQ
 } from '../../services/projectManagementService';
 
 const fmt = (v) =>
@@ -27,11 +27,12 @@ const STATUS_COLOR = {
 const EMPTY_FORM = {
   invoiceAmount: '', description: '', issueDate: dayjs().format('YYYY-MM-DD'),
   dueDate: '', billingPercentage: '', clientName: '', clientContact: '',
-  clientAddress: '', notes: '', status: 'Draft'
+  clientAddress: '', notes: '', status: 'Draft', boqItemId: ''
 };
 
 const ProjectInvoicesTab = ({ project }) => {
   const [data, setData] = useState(null);
+  const [boqItems, setBoqItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -48,8 +49,12 @@ const ProjectInvoicesTab = ({ project }) => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getProjectInvoices(project._id);
+      const [res, boqRes] = await Promise.all([
+        getProjectInvoices(project._id),
+        getBOQ(project._id)
+      ]);
       setData(res.data?.data || null);
+      setBoqItems(boqRes.data?.data?.items || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load invoices');
     } finally { setLoading(false); }
@@ -80,7 +85,8 @@ const ProjectInvoicesTab = ({ project }) => {
       clientContact: inv.clientContact || '',
       clientAddress: inv.clientAddress || '',
       notes: inv.notes || '',
-      status: inv.status
+      status: inv.status,
+      boqItemId: inv.boqItemId || ''
     });
     setDialogOpen(true);
   };
@@ -89,6 +95,22 @@ const ProjectInvoicesTab = ({ project }) => {
     if (!form.invoiceAmount || Number(form.invoiceAmount) <= 0) {
       setError('Invoice amount is required'); return;
     }
+    
+    // Validate billing against BOQ fulfillment progress
+    if (form.boqItemId) {
+      const selectedBOQ = boqItems.find(item => item._id === form.boqItemId);
+      if (selectedBOQ) {
+        const estQty = selectedBOQ.estimatedQuantity || 1;
+        const fulfillmentPct = Math.min(100, Math.round(((selectedBOQ.usedQuantity || 0) / estQty) * 100));
+        const fulfilledCost = (selectedBOQ.usedQuantity || 0) * (selectedBOQ.actualUnitPrice || selectedBOQ.estimatedUnitPrice || 0);
+        
+        if (Number(form.invoiceAmount) > fulfilledCost) {
+          setError(`Billing limit exceeded. Maximum allowable invoice for this BOQ item based on physical fulfillment is ${fmt(fulfilledCost)} (Fulfillment: ${fulfillmentPct}%).`);
+          return;
+        }
+      }
+    }
+
     setSaving(true); setError('');
     try {
       if (editInvoice) {
@@ -318,6 +340,40 @@ const ProjectInvoicesTab = ({ project }) => {
         <DialogContent sx={{ pt: 2 }}>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Base Invoice on BOQ Item (Optional)</InputLabel>
+                <Select
+                  value={form.boqItemId || ''}
+                  label="Base Invoice on BOQ Item (Optional)"
+                  onChange={(e) => {
+                    const boqId = e.target.value;
+                    const selected = boqItems.find(item => item._id === boqId);
+                    setForm(prev => {
+                      const fulfilledCost = selected ? (selected.usedQuantity || 0) * (selected.actualUnitPrice || selected.estimatedUnitPrice || 0) : '';
+                      return {
+                        ...prev,
+                        boqItemId: boqId,
+                        invoiceAmount: fulfilledCost,
+                        description: selected ? `Billing for BOQ Item: ${selected.title || selected.description} (${selected.usedQuantity} ${selected.unit} used)` : prev.description
+                      };
+                    });
+                  }}
+                >
+                  <MenuItem value="">None (Manual Invoice)</MenuItem>
+                  {boqItems.map(item => {
+                    const estQty = item.estimatedQuantity || 1;
+                    const fulfillmentPct = Math.min(100, Math.round(((item.usedQuantity || 0) / estQty) * 100));
+                    const fulfilledCost = (item.usedQuantity || 0) * (item.actualUnitPrice || item.estimatedUnitPrice || 0);
+                    return (
+                      <MenuItem key={item._id} value={item._id}>
+                        {item.title || item.description.substring(0, 30)}… (Fulfillment: {fulfillmentPct}%, Max Billable: {fmt(fulfilledCost)})
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            </Grid>
             {contractValue > 0 && (
               <Grid item xs={12} sm={5}>
                 <TextField
