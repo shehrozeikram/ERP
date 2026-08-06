@@ -53,8 +53,13 @@ class LeaveIntegrationService {
       // Get or create leave balance for the work year
       const balance = await this.getWorkYearBalance(employeeId, targetWorkYear);
 
-      // Get all leave requests for the employee (matching workYear, leaveYear, or all for employee)
-      const leaveRequests = await LeaveRequest.find({
+      // Calculate work year period dates
+      const hireDateObj = new Date(hireDate);
+      const workYearStartDate = new Date(hireDateObj.getFullYear() + targetWorkYear, hireDateObj.getMonth(), hireDateObj.getDate());
+      const workYearEndDate = new Date(hireDateObj.getFullYear() + targetWorkYear + 1, hireDateObj.getMonth(), hireDateObj.getDate());
+
+      // Get leave requests strictly within this work year period boundary
+      const allLeaveRequests = await LeaveRequest.find({
         employee: employeeId,
         isActive: true
       })
@@ -63,24 +68,24 @@ class LeaveIntegrationService {
         .populate('rejectedBy', 'firstName lastName')
         .sort({ appliedDate: -1 });
 
+      const filteredPeriodRequests = allLeaveRequests.filter(r => {
+        const leaveStart = new Date(r.startDate);
+        return leaveStart >= workYearStartDate && leaveStart < workYearEndDate;
+      });
+
       // Sync balance with approved leave requests
-      await this.syncBalanceWithLeaveRequests(balance, leaveRequests);
+      await this.syncBalanceWithLeaveRequests(balance, filteredPeriodRequests);
 
       // Get anniversary information
       const anniversaryInfo = await this.getEmployeeAnniversaryInfo(employeeId);
 
-      // Calculate work year period dates
-      const hireDateObj = new Date(hireDate);
-      const workYearStartDate = new Date(hireDateObj.getFullYear() + targetWorkYear, hireDateObj.getMonth(), hireDateObj.getDate());
-      const workYearEndDate = new Date(hireDateObj.getFullYear() + targetWorkYear + 1, hireDateObj.getMonth(), hireDateObj.getDate());
-
-      // Calculate statistics
+      // Calculate statistics for the filtered period
       const stats = {
-        totalRequests: leaveRequests.length,
-        approved: leaveRequests.filter(r => r.status === 'approved').length,
-        pending: leaveRequests.filter(r => r.status === 'pending').length,
-        rejected: leaveRequests.filter(r => r.status === 'rejected').length,
-        totalDaysApproved: leaveRequests
+        totalRequests: filteredPeriodRequests.length,
+        approved: filteredPeriodRequests.filter(r => r.status === 'approved').length,
+        pending: filteredPeriodRequests.filter(r => r.status === 'pending').length,
+        rejected: filteredPeriodRequests.filter(r => r.status === 'rejected').length,
+        totalDaysApproved: filteredPeriodRequests
           .filter(r => r.status === 'approved')
           .reduce((sum, r) => sum + r.totalDays, 0)
       };
@@ -104,7 +109,7 @@ class LeaveIntegrationService {
         leaveConfig: employee.leaveConfig,
         anniversaryInfo: anniversaryInfo,
         statistics: stats,
-        history: leaveRequests
+        history: filteredPeriodRequests
       };
     } catch (error) {
       throw new Error(`Failed to get employee leave summary: ${error.message}`);
@@ -210,24 +215,13 @@ class LeaveIntegrationService {
       // Update balance for each approved leave
       const approvedLeaves = leaveRequests.filter(r => r.status === 'approved');
       for (const leave of approvedLeaves) {
-        if (leave.leaveType && leave.leaveType.code) {
-          const typeMap = {
-            'ANNUAL': 'annual',
-            'AL': 'annual',
-            'annual': 'annual',
-            'SICK': 'sick',
-            'SL': 'sick',
-            'sick': 'sick',
-            'CASUAL': 'casual',
-            'CL': 'casual',
-            'casual': 'casual',
-            'MEDICAL': 'sick',
-            'ML': 'sick',
-            'medical': 'sick'
-          };
-
-          const balanceType = typeMap[leave.leaveType.code] || typeMap[leave.leaveType.code.toUpperCase()] || 'casual';
-          balance[balanceType].used += leave.totalDays;
+        const typeStr = `${leave.leaveType?.name || ''} ${leave.leaveType?.code || ''}`.toLowerCase();
+        if (typeStr.includes('annual') || typeStr.includes('al_')) {
+          balance.annual.used += leave.totalDays;
+        } else if (typeStr.includes('sick') || typeStr.includes('medical') || typeStr.includes('sl_') || typeStr.includes('ml_')) {
+          balance.sick.used += leave.totalDays;
+        } else {
+          balance.casual.used += leave.totalDays;
         }
       }
 

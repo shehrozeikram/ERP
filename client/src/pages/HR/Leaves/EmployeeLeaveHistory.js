@@ -225,7 +225,41 @@ const EmployeeLeaveHistory = () => {
     );
   }
 
-  const { employee, balance, statistics, history } = leaveSummary;
+  const { employee, balance, statistics, history } = leaveSummary || {};
+  const leaveHistoryList = Array.isArray(history) ? history : [];
+  const empBalance = balance || { annual: { allocated: 20, carriedForward: 0 }, sick: { allocated: 10 }, casual: { allocated: 10 } };
+  const empInfo = employee || {};
+
+  // Compute actual used days directly from filtered period history
+  const periodAnnualUsed = leaveHistoryList
+    .filter(r => r.status === 'approved' && `${r.leaveType?.name || ''} ${r.leaveType?.code || ''}`.toLowerCase().includes('annual'))
+    .reduce((sum, r) => sum + r.totalDays, 0);
+
+  const periodSickUsed = leaveHistoryList
+    .filter(r => r.status === 'approved' && (
+      `${r.leaveType?.name || ''} ${r.leaveType?.code || ''}`.toLowerCase().includes('sick') ||
+      `${r.leaveType?.name || ''} ${r.leaveType?.code || ''}`.toLowerCase().includes('medical')
+    ))
+    .reduce((sum, r) => sum + r.totalDays, 0);
+
+  const periodCasualUsed = leaveHistoryList
+    .filter(r => r.status === 'approved' && (
+      `${r.leaveType?.name || ''} ${r.leaveType?.code || ''}`.toLowerCase().includes('casual') ||
+      (
+        !`${r.leaveType?.name || ''} ${r.leaveType?.code || ''}`.toLowerCase().includes('annual') &&
+        !`${r.leaveType?.name || ''} ${r.leaveType?.code || ''}`.toLowerCase().includes('sick') &&
+        !`${r.leaveType?.name || ''} ${r.leaveType?.code || ''}`.toLowerCase().includes('medical')
+      )
+    ))
+    .reduce((sum, r) => sum + r.totalDays, 0);
+
+  const periodAnnualAllocated = (empBalance.annual?.allocated || 20) + (empBalance.annual?.carriedForward || 0);
+  const periodSickAllocated = empBalance.sick?.allocated || 10;
+  const periodCasualAllocated = empBalance.casual?.allocated || 10;
+
+  const periodAnnualAdvance = Math.max(0, periodAnnualUsed - periodAnnualAllocated);
+  const periodSickAdvance = Math.max(0, periodSickUsed - periodSickAllocated);
+  const periodCasualAdvance = Math.max(0, periodCasualUsed - periodCasualAllocated);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -271,17 +305,17 @@ const EmployeeLeaveHistory = () => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Avatar sx={{ width: 56, height: 56, bgcolor: 'primary.main' }}>
-              {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
+              {empInfo.firstName?.charAt(0)}{empInfo.lastName?.charAt(0)}
             </Avatar>
             <Box sx={{ flex: 1 }}>
               <Typography variant="h6">
-                {employee.firstName} {employee.lastName}
+                {empInfo.firstName} {empInfo.lastName}
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                ID: {employee.employeeId} | Email: {employee.email}
+                ID: {empInfo.employeeId} | Email: {empInfo.email}
               </Typography>
               <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
-                Date of Joining: {formatDate(employee.hireDate)}
+                Date of Joining: {formatDate(empInfo.hireDate)}
               </Typography>
               {leaveSummary.anniversaryInfo && (
                 <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
@@ -302,21 +336,21 @@ const EmployeeLeaveHistory = () => {
                 Annual Leave
               </Typography>
               <Typography variant="h4" color="primary.main">
-                {balance.annual.used} / {balance.annual.allocated + balance.annual.carriedForward}
+                {periodAnnualUsed} / {periodAnnualAllocated}
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                Used: {balance.annual.used}
-                {balance.annual.carriedForward > 0 && (
+                Used: {periodAnnualUsed}
+                {(empBalance.annual?.carriedForward || 0) > 0 && (
                   <Chip 
-                    label={`CF: ${balance.annual.carriedForward}`} 
+                    label={`CF: ${empBalance.annual.carriedForward}`} 
                     size="small" 
                     color="info" 
                     sx={{ ml: 1, height: 18 }}
                   />
                 )}
-                {balance.annual.advance > 0 && (
+                {periodAnnualAdvance > 0 && (
                   <Chip 
-                    label={`Adv: ${balance.annual.advance}`} 
+                    label={`Adv: ${periodAnnualAdvance}`} 
                     size="small" 
                     color="error" 
                     sx={{ ml: 1, height: 18 }}
@@ -334,21 +368,21 @@ const EmployeeLeaveHistory = () => {
                 Sick Leave
               </Typography>
               <Typography variant="h4" color="success.main">
-                {balance.sick.used} / 10
+                {periodSickUsed} / {periodSickAllocated}
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                Used: {balance.sick.used}
-                {balance.sick.carriedForward > 0 && (
+                Used: {periodSickUsed}
+                {(empBalance.sick?.carriedForward || 0) > 0 && (
                   <Chip 
-                    label={`CF: ${balance.sick.carriedForward}`} 
+                    label={`CF: ${empBalance.sick.carriedForward}`} 
                     size="small" 
                     color="info" 
                     sx={{ ml: 1, height: 18 }}
                   />
                 )}
-                {balance.sick.advance > 0 && (
+                {periodSickAdvance > 0 && (
                   <Chip 
-                    label={`Adv: ${balance.sick.advance}`} 
+                    label={`Adv: ${periodSickAdvance}`} 
                     size="small" 
                     color="error" 
                     sx={{ ml: 1, height: 18 }}
@@ -366,21 +400,21 @@ const EmployeeLeaveHistory = () => {
                 Casual Leave
               </Typography>
               <Typography variant="h4" color="info.main">
-                {balance.casual.used} / 10
+                {periodCasualUsed} / {periodCasualAllocated}
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                Used: {balance.casual.used}
-                {balance.casual.carriedForward > 0 && (
+                Used: {periodCasualUsed}
+                {(empBalance.casual?.carriedForward || 0) > 0 && (
                   <Chip 
-                    label={`CF: ${balance.casual.carriedForward}`} 
+                    label={`CF: ${empBalance.casual.carriedForward}`} 
                     size="small" 
                     color="info" 
                     sx={{ ml: 1, height: 18 }}
                   />
                 )}
-                {balance.casual.advance > 0 && (
+                {periodCasualAdvance > 0 && (
                   <Chip 
-                    label={`Adv: ${balance.casual.advance}`} 
+                    label={`Adv: ${periodCasualAdvance}`} 
                     size="small" 
                     color="error" 
                     sx={{ ml: 1, height: 18 }}
@@ -398,10 +432,10 @@ const EmployeeLeaveHistory = () => {
                 Total Requests
               </Typography>
               <Typography variant="h4" color="warning.main">
-                {statistics.totalRequests}
+                {leaveHistoryList.length}
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                Approved: {statistics.approved} | Pending: {statistics.pending}
+                Approved: {leaveHistoryList.filter(r => r.status === 'approved').length} | Pending: {leaveHistoryList.filter(r => r.status === 'pending').length}
               </Typography>
             </CardContent>
           </Card>
@@ -436,21 +470,21 @@ const EmployeeLeaveHistory = () => {
       </Card>
 
       {/* Carry Forward Details */}
-      {(balance.annual.carriedForward > 0 || balance.sick.carriedForward > 0 || balance.casual.carriedForward > 0) && (
+      {((empBalance.annual?.carriedForward || 0) > 0 || (empBalance.sick?.carriedForward || 0) > 0 || (empBalance.casual?.carriedForward || 0) > 0) && (
         <Card sx={{ mb: 3 }}>
           <CardContent>
             <Typography variant="h6" gutterBottom color="info.main">
               📋 Carry Forward Details
             </Typography>
             <Grid container spacing={2}>
-              {balance.annual.carriedForward > 0 && (
+              {(empBalance.annual?.carriedForward || 0) > 0 && (
                 <Grid item xs={12} md={4}>
                   <Box sx={{ p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
                     <Typography variant="body2" color="textSecondary" gutterBottom>
                       Annual Leave Carry Forward
                     </Typography>
                     <Typography variant="h5" color="info.dark">
-                      {balance.annual.carriedForward} days
+                      {empBalance.annual.carriedForward} days
                     </Typography>
                     <Typography variant="caption" color="textSecondary">
                       From previous work year
@@ -458,14 +492,14 @@ const EmployeeLeaveHistory = () => {
                   </Box>
                 </Grid>
               )}
-              {balance.sick.carriedForward > 0 && (
+              {(empBalance.sick?.carriedForward || 0) > 0 && (
                 <Grid item xs={12} md={4}>
                   <Box sx={{ p: 2, bgcolor: 'success.light', borderRadius: 1 }}>
                     <Typography variant="body2" color="textSecondary" gutterBottom>
                       Sick Leave Carry Forward
                     </Typography>
                     <Typography variant="h5" color="success.dark">
-                      {balance.sick.carriedForward} days
+                      {empBalance.sick.carriedForward} days
                     </Typography>
                     <Typography variant="caption" color="textSecondary">
                       From previous work year
@@ -473,14 +507,14 @@ const EmployeeLeaveHistory = () => {
                   </Box>
                 </Grid>
               )}
-              {balance.casual.carriedForward > 0 && (
+              {(empBalance.casual?.carriedForward || 0) > 0 && (
                 <Grid item xs={12} md={4}>
                   <Box sx={{ p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
                     <Typography variant="body2" color="textSecondary" gutterBottom>
                       Casual Leave Carry Forward
                     </Typography>
                     <Typography variant="h5" color="warning.dark">
-                      {balance.casual.carriedForward} days
+                      {empBalance.casual.carriedForward} days
                     </Typography>
                     <Typography variant="caption" color="textSecondary">
                       From previous work year
@@ -494,10 +528,10 @@ const EmployeeLeaveHistory = () => {
       )}
 
       {/* Advance Leave Warning */}
-      {balance.totalAdvanceLeaves > 0 && (
+      {(empBalance.totalAdvanceLeaves || 0) > 0 && (
         <Alert severity="warning" sx={{ mb: 3 }}>
           <Typography variant="body2">
-            <strong>Total Advance Leaves: {balance.totalAdvanceLeaves} days</strong> - 
+            <strong>Total Advance Leaves: {empBalance.totalAdvanceLeaves} days</strong> - 
             These will be deducted from the employee's payroll at the daily rate.
           </Typography>
         </Alert>
@@ -511,7 +545,7 @@ const EmployeeLeaveHistory = () => {
             Leave Requests ({leaveSummary.workYearPeriod ? `${formatDate(leaveSummary.workYearPeriod.startDate)} - ${formatDate(leaveSummary.workYearPeriod.endDate)}` : leaveSummary.year})
           </Typography>
           
-          {history.length === 0 ? (
+          {leaveHistoryList.length === 0 ? (
             <Alert severity="info" sx={{ mt: 2 }}>
               <Typography variant="body2">
                 No leave requests found for this work year period. 
@@ -534,7 +568,7 @@ const EmployeeLeaveHistory = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {history.map((leave) => (
+                  {leaveHistoryList.map((leave) => (
                     <TableRow key={leave._id} hover>
                       <TableCell>
                         <Chip

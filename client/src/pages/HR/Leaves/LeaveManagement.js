@@ -50,7 +50,8 @@ import {
   Person as PersonIcon,
   Assignment as AssignmentIcon,
   TrendingUp as TrendingUpIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  UploadFile as UploadFileIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -68,6 +69,10 @@ const LeaveManagement = () => {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [globalConfigDialog, setGlobalConfigDialog] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState(null);
   
   // Quick stats
   const [stats, setStats] = useState({
@@ -608,13 +613,27 @@ const LeaveManagement = () => {
               <SettingsIcon />
               Global Leave Configuration
             </Typography>
-            <Button
-              variant="outlined"
-              startIcon={<EditIcon />}
-              onClick={() => setGlobalConfigDialog(true)}
-            >
-              Edit Defaults
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<UploadFileIcon />}
+                onClick={() => {
+                  setImportDialogOpen(true);
+                  setImportFile(null);
+                  setImportSummary(null);
+                }}
+              >
+                Import Excel Leaves
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<EditIcon />}
+                onClick={() => setGlobalConfigDialog(true)}
+              >
+                Edit Defaults
+              </Button>
+            </Box>
           </Box>
           <Typography variant="body2" color="text.secondary" paragraph>
             These are the default leave limits applied to new employees. Individual employees can have custom limits configured on their profile.
@@ -1219,6 +1238,111 @@ const LeaveManagement = () => {
             }}
           >
             Save Defaults
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* Import Excel Leaves Dialog */}
+      <Dialog
+        open={importDialogOpen}
+        onClose={() => !importing && setImportDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <UploadFileIcon color="secondary" />
+          Import Employee Leaves from Excel (Leave.xlsx)
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" paragraph color="text.secondary">
+            Upload an Excel file (e.g. <code>Leave.xlsx</code>) containing historical employee leaves. The system will automatically calculate the work-year period for each leave based on the employee's <strong>Date of Joining</strong> and adjust their leave balances accordingly.
+          </Typography>
+
+          <Box sx={{ p: 3, border: '2px dashed #9c27b0', borderRadius: 2, textAlign: 'center', bgcolor: 'action.hover', mb: 2 }}>
+            <Button
+              variant="contained"
+              component="label"
+              startIcon={<UploadFileIcon />}
+              disabled={importing}
+            >
+              Choose Excel File (.xlsx)
+              <input
+                type="file"
+                hidden
+                accept=".xlsx, .xls"
+                onChange={(e) => setImportFile(e.target.files[0])}
+              />
+            </Button>
+            {importFile && (
+              <Typography variant="subtitle2" sx={{ mt: 1.5, fontWeight: 'bold', color: 'secondary.main' }}>
+                Selected File: {importFile.name} ({(importFile.size / 1024).toFixed(1)} KB)
+              </Typography>
+            )}
+          </Box>
+
+          {importSummary && (
+            <Paper sx={{ p: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+              <Typography variant="subtitle1" fontWeight="bold" color="primary.main" gutterBottom>
+                Import Summary Report
+              </Typography>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={3}>
+                  <Typography variant="caption" color="text.secondary">Total Rows</Typography>
+                  <Typography variant="h6">{importSummary.totalRows}</Typography>
+                </Grid>
+                <Grid item xs={3}>
+                  <Typography variant="caption" color="success.main">Imported</Typography>
+                  <Typography variant="h6" color="success.main">{importSummary.importedCount}</Typography>
+                </Grid>
+                <Grid item xs={3}>
+                  <Typography variant="caption" color="warning.main">Skipped / Exists</Typography>
+                  <Typography variant="h6" color="warning.main">{importSummary.skippedCount}</Typography>
+                </Grid>
+                <Grid item xs={3}>
+                  <Typography variant="caption" color="error.main">Errors</Typography>
+                  <Typography variant="h6" color="error.main">{importSummary.errorCount}</Typography>
+                </Grid>
+              </Grid>
+
+              {importSummary.errors?.length > 0 && (
+                <Box sx={{ mt: 1, maxHeight: 150, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
+                  <Typography variant="caption" color="error.main" fontWeight="bold" display="block">
+                    Error Log Snippet:
+                  </Typography>
+                  {importSummary.errors.map((errMsg, idx) => (
+                    <Typography key={idx} variant="caption" color="text.secondary" display="block">
+                      • {errMsg}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+            </Paper>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportDialogOpen(false)} disabled={importing}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            disabled={!importFile || importing}
+            onClick={async () => {
+              try {
+                setImporting(true);
+                const res = await leaveService.importExcelLeaves(importFile);
+                if (res.success) {
+                  setImportSummary(res.summary);
+                  setSuccess(`Excel Leave Import Complete! Imported ${res.summary.importedCount} leaves.`);
+                  loadData();
+                }
+              } catch (err) {
+                setError(err.message || 'Failed to import Excel leaves');
+              } finally {
+                setImporting(false);
+              }
+            }}
+          >
+            {importing ? <CircularProgress size={24} color="inherit" /> : 'Start Excel Import'}
           </Button>
         </DialogActions>
       </Dialog>

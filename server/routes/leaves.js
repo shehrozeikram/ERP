@@ -754,7 +754,7 @@ router.get('/reports/employee-stats',
     const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
     const month = req.query.month ? parseInt(req.query.month) : null;
     const department = req.query.department || null;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = parseInt(req.query.limit) || 2000;
 
     let dateFilter = {
       startDate: {
@@ -1267,6 +1267,230 @@ router.post('/anniversary/scheduler/run-manual',
       success: true,
       data: results,
       message: 'Anniversary tasks completed successfully'
+    });
+  })
+);
+
+// Configure multer for excel file upload
+const excelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
+});
+
+// @route   POST /api/leaves/import
+// @desc    Import leaves from Excel file (Leave.xlsx) year-wise relative to joiningDate
+// @access  Private (super_admin, admin, hr_manager)
+router.post('/import',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  excelUpload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Please upload an Excel file (.xlsx / .xls)' });
+    }
+
+    const xlsx = require('xlsx');
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const rawData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    if (!rawData || rawData.length === 0) {
+      return res.status(400).json({ success: false, message: 'Excel file is empty' });
+    }
+
+    // 1. Pre-fetch all active Employees and LeaveTypes
+    const [employeesList, leaveTypesList] = await Promise.all([
+      Employee.find({ isDeleted: { $ne: true } }).select('_id employeeId biometricId firstName lastName department joiningDate hireDate createdAt leaveConfig leaveBalance'),
+      LeaveType.find({ isActive: true })
+    ]);
+
+    // Build lookup maps
+    const empByIdMap = new Map();
+    const empByNameMap = new Map();
+
+    employeesList.forEach(emp => {
+      if (emp.employeeId) empByIdMap.set(String(emp.employeeId).trim(), emp);
+      if (emp.biometricId) empByIdMap.set(String(emp.biometricId).trim(), emp);
+      const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim().toLowerCase();
+      if (fullName) empByNameMap.set(fullName, emp);
+      if (emp.firstName) empByNameMap.set(String(emp.firstName).trim().toLowerCase(), emp);
+    });
+
+    const leaveTypeMap = new Map();
+    leaveTypesList.forEach(lt => {
+      leaveTypeMap.set(lt.name.trim().toLowerCase(), lt);
+      if (lt.code) leaveTypeMap.set(lt.code.trim().toLowerCase(), lt);
+    });
+
+    // Helper to get or create leave type dynamically
+    const getOrCreateLeaveType = async (typeName) => {
+      const key = String(typeName || 'Casual Leave').trim().toLowerCase();
+      if (leaveTypeMap.has(key)) return leaveTypeMap.get(key);
+
+      const code = key.substring(0, 10).toUpperCase().replace(/\s+/g, '_');
+      const newType = await LeaveType.create({
+        name: typeName,
+        code: code,
+        description: `Auto-created during Excel import: ${typeName}`,
+        daysPerYear: 10,
+        defaultDaysPerYear: 10,
+        isPaid: true,
+        requiresApproval: false,
+        isActive: true
+      });
+      leaveTypeMap.set(key, newType);
+      return newType;
+    };
+
+    let importedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    const errors = [];
+
+    // Process each row
+    for (let index = 0; index < rawData.length; index++) {
+      const row = rawData[index];
+      const rowNum = index + 2;
+
+      try {
+        const empIdInput = row['Employee ID'] !== undefined ? String(row['Employee ID']).trim() : null;
+        const firstNameInput = row['First Name'] ? String(row['First Name']).trim() : '';
+        const payCodeInput = row['Pay Code'] || 'Casual Leave';
+        const startTimeRaw = row['Start Time'];
+        const endTimeRaw = row['End Time'];
+        const reasonInput = row['Apply Reason'] || 'Imported Leave Record';
+
+        if (!startTimeRaw || !endTimeRaw) {
+          skippedCount++;
+          continue;
+        }
+
+        // Match Employee
+        let employee = null;
+        if (empIdInput && empByIdMap.has(empIdInput)) {
+          employee = empByIdMap.get(empIdInput);
+        } else if (firstNameInput && empByNameMap.has(firstNameInput.toLowerCase())) {
+          employee = empByNameMap.get(firstNameInput.toLowerCase());
+        }
+
+        if (!employee) {
+          skippedCount++;
+          if (errors.length < 20) {
+            errors.push(`Row ${rowNum}: Employee ID "${empIdInput}" / Name "${firstNameInput}" not found in system.`);
+          }
+          continue;
+        }
+
+        // Parse dates
+        const startDate = new Date(startTimeRaw);
+        const endDate = new Date(endTimeRaw);
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+          errorCount++;
+          if (errors.length < 20) errors.push(`Row ${rowNum}: Invalid date format.`);
+          continue;
+        }
+
+        // Calculate total days
+        const diffMs = Math.max(0, endDate.getTime() - startDate.getTime());
+        let totalDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        if (totalDays === 0) totalDays = 1;
+
+        // Calculate Work Year based on employee's Date of Joining (joiningDate || hireDate)
+        const joinDateObj = new Date(employee.joiningDate || employee.hireDate || employee.createdAt || '2023-01-01');
+        const startYear = Math.max(2020, startDate.getFullYear());
+
+        // Determine workYear index (0 = 1st work year, 1 = 2nd work year)
+        let workYearIndex = startYear - joinDateObj.getFullYear();
+        const anniversaryThisYear = new Date(startYear, joinDateObj.getMonth(), joinDateObj.getDate());
+        if (startDate < anniversaryThisYear) {
+          workYearIndex -= 1;
+        }
+        workYearIndex = Math.max(0, workYearIndex);
+
+        // Get Leave Type
+        const leaveType = await getOrCreateLeaveType(payCodeInput);
+
+        // Check for existing duplicate leave request
+        const existingRequest = await LeaveRequest.findOne({
+          employee: employee._id,
+          startDate: { $gte: new Date(startDate.setHours(0,0,0,0)), $lte: new Date(startDate.setHours(23,59,59,999)) },
+          leaveType: leaveType._id
+        });
+
+        if (existingRequest) {
+          skippedCount++;
+          continue;
+        }
+
+        // Create approved LeaveRequest record
+        await LeaveRequest.create({
+          employee: employee._id,
+          leaveType: leaveType._id,
+          startDate: startDate,
+          endDate: endDate,
+          totalDays: totalDays,
+          reason: reasonInput,
+          status: 'approved',
+          appliedDate: row['Apply Time'] ? new Date(row['Apply Time']) : startDate,
+          approvedDate: new Date(),
+          approvedBy: req.user._id,
+          createdBy: req.user._id,
+          workYear: workYearIndex,
+          leaveYear: startYear,
+          approvalComments: 'Imported from Excel Leave File'
+        });
+
+        // Deduct/sync from LeaveBalance for employee & workYearIndex / calendar year startYear
+        let balance = await LeaveBalance.findOne({
+          employee: employee._id,
+          $or: [
+            { year: startYear },
+            { workYear: workYearIndex }
+          ]
+        });
+
+        if (!balance) {
+          balance = new LeaveBalance({
+            employee: employee._id,
+            year: startYear,
+            workYear: workYearIndex,
+            annual: { allocated: 20, used: 0, remaining: 20 },
+            sick: { allocated: 10, used: 0, remaining: 10 },
+            casual: { allocated: 10, used: 0, remaining: 10 }
+          });
+        }
+        const codeKey = (leaveType.code || '').toLowerCase();
+        if (codeKey.includes('annual') || codeKey.includes('al')) {
+          balance.annual.used = (balance.annual.used || 0) + totalDays;
+          balance.annual.remaining = Math.max(0, (balance.annual.allocated || 20) - balance.annual.used);
+        } else if (codeKey.includes('sick') || codeKey.includes('sl') || codeKey.includes('medical')) {
+          balance.sick.used = (balance.sick.used || 0) + totalDays;
+          balance.sick.remaining = Math.max(0, (balance.sick.allocated || 10) - balance.sick.used);
+        } else {
+          balance.casual.used = (balance.casual.used || 0) + totalDays;
+          balance.casual.remaining = Math.max(0, (balance.casual.allocated || 10) - balance.casual.used);
+        }
+        await balance.save();
+
+        importedCount++;
+      } catch (rowErr) {
+        errorCount++;
+        if (errors.length < 20) {
+          errors.push(`Row ${rowNum}: ${rowErr.message}`);
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Excel Leave import completed successfully!`,
+      summary: {
+        totalRows: rawData.length,
+        importedCount,
+        skippedCount,
+        errorCount,
+        errors
+      }
     });
   })
 );

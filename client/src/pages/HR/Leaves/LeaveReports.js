@@ -90,7 +90,7 @@ const LeaveReports = () => {
 
   const [filters, setFilters] = useState({
     year: currentYear,
-    month: new Date().getMonth() + 1,
+    month: 'all',
     department: 'all'
   });
 
@@ -201,7 +201,7 @@ const LeaveReports = () => {
       const [statsRes, deptRes, empRes, trendsRes] = await Promise.all([
         api.get(`/leaves/statistics?${params.toString()}`),
         api.get(`/leaves/reports/department-stats?${params.toString()}`),
-        api.get(`/leaves/reports/employee-stats?${params.toString()}&limit=200`),
+        api.get(`/leaves/reports/employee-stats?${params.toString()}&limit=2000`),
         api.get(`/leaves/reports/monthly-trends?${params.toString()}`)
       ]);
 
