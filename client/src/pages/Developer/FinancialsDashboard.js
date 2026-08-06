@@ -2,13 +2,15 @@ import React, { useState, useCallback, useEffect } from 'react';
 import {
   Box, Card, CardContent, Chip, CircularProgress, Divider, Grid,
   IconButton, Paper, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Tooltip, Typography, Alert
+  TableContainer, TableHead, TableRow, Tooltip, Typography, Alert,
+  Slider, TextField, InputAdornment, Button, Tabs, Tab
 } from '@mui/material';
 import {
   AttachMoney as MoneyIcon, People as PeopleIcon, TrendingUp as TrendIcon,
   AccountBalance as FinanceIcon, ShoppingCart as ProcIcon, LocationCity as TajIcon,
   Groups as HRIcon, BarChart as ChartIcon, Refresh as RefreshIcon,
-  CalendarToday as CalIcon, TouchApp as ActIcon
+  CalendarToday as CalIcon, TouchApp as ActIcon, ReceiptLong as BillIcon,
+  Savings as SavingsIcon, Calculate as CalcIcon, Security as LicenseIcon
 } from '@mui/icons-material';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -96,6 +98,12 @@ export default function FinancialsDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // ERP Licensing Calculator State
+  const [perUserRate, setPerUserRate] = useState(5000); // PKR 5,000 / user / month
+  const [volumeFeePercent, setVolumeFeePercent] = useState(0.15); // 0.15% of total throughput
+  const [currencyMode, setCurrencyMode] = useState('PKR'); // PKR or USD
+  const [usdExchangeRate] = useState(278); // 1 USD = 278 PKR
+
   const load = useCallback(async () => {
     try {
       setError('');
@@ -125,7 +133,7 @@ export default function FinancialsDashboard() {
 
   if (!data) return null;
 
-  const { goLiveDate, activeUsers, totalUsers, totalActions, totalLogins,
+  const { goLiveDate, activeUsers, totalUsers, usersByRole, totalActions, totalLogins,
     grandTotal, moduleFinancials, monthlyTrend, activityBreakdown,
     moduleActivity, topUsers } = data;
   const { hr, procurement, finance, tajResidencia } = moduleFinancials;
@@ -144,6 +152,26 @@ export default function FinancialsDashboard() {
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 6);
+
+  // ── Licensing Calculations ──────────────────────────────────
+  const monthlyPerUserCostPKR = activeUsers * perUserRate;
+  const annualPerUserCostPKR = monthlyPerUserCostPKR * 12;
+
+  const volumeBasedAnnualCostPKR = (grandTotal * (volumeFeePercent / 100));
+  const volumeBasedMonthlyCostPKR = volumeBasedAnnualCostPKR / 12;
+
+  // Commercial Off-the-Shelf (SAP / Oracle / Dynamics) comparison estimate (e.g. $75 / user / mo + modules)
+  const commercialSapPerUserMoUSD = 75;
+  const commercialSapAnnualCostPKR = (activeUsers * commercialSapPerUserMoUSD * 12) * usdExchangeRate;
+  const estimatedSavingsPKR = commercialSapAnnualCostPKR - annualPerUserCostPKR;
+
+  const formatCurr = (valInPKR) => {
+    if (currencyMode === 'USD') {
+      const usdVal = valInPKR / usdExchangeRate;
+      return `$${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(usdVal)}`;
+    }
+    return PKR(valInPKR);
+  };
 
   return (
     <Box sx={{ p: 3, maxWidth: 1400, mx: 'auto' }}>
@@ -164,10 +192,10 @@ export default function FinancialsDashboard() {
             </Box>
             <Box>
               <Typography variant="h4" fontWeight={900} sx={{ color: '#ce93d8', letterSpacing: 0.5 }}>
-                ERP Financial Value Report
+                ERP Financial Value & Licensing Report
               </Typography>
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.55)', mt: 0.5 }}>
-                Total financial value processed through the system · All figures in PKR
+                Total financial volume processed & software licensing pricing model · Real-time MongoDB metrics
               </Typography>
             </Box>
           </Stack>
@@ -191,7 +219,7 @@ export default function FinancialsDashboard() {
             {PKR(grandTotal)}
           </Typography>
           <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mt: 0.5 }}>
-            Across {liveDays} days of operation · {activeUsers} active users
+            Across {liveDays} days of operation · {activeUsers} active user licenses
           </Typography>
         </Box>
       </Paper>
@@ -202,7 +230,7 @@ export default function FinancialsDashboard() {
           <KpiCard label="Total Value Processed" value={SHORT_PKR(grandTotal)} sub="All modules combined" color="#7c4dff" icon={<MoneyIcon />} highlight />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <KpiCard label="Active ERP Users" value={activeUsers} sub={`${totalUsers} total registered`} color="#00b0ff" icon={<PeopleIcon />} />
+          <KpiCard label="Active User Seats" value={activeUsers} sub={`${totalUsers} total registered`} color="#00b0ff" icon={<PeopleIcon />} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <KpiCard label="System Live" value={`${liveDays} days`} sub={`Since ${formatDate(goLiveDate)}`} color="#ff9100" icon={<CalIcon />} />
@@ -211,6 +239,199 @@ export default function FinancialsDashboard() {
           <KpiCard label="Total Actions Logged" value={Number(totalActions).toLocaleString()} sub={`${Number(totalLogins).toLocaleString()} logins recorded`} color="#00e676" icon={<ActIcon />} />
         </Grid>
       </Grid>
+
+      {/* ── ERP LICENSING & BILLING CALCULATOR (NEW SECTION) ────────────────── */}
+      <SectionTitle icon={<LicenseIcon />} sub="Detailed breakdown of how ERP licensing is charged per user seat vs volume">
+        ERP Software Licensing & Billing Model
+      </SectionTitle>
+
+      <Paper sx={{ p: 3, mb: 4, borderRadius: 3, border: '1px solid', borderColor: 'primary.main', bgcolor: 'background.paper' }} elevation={2}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2} sx={{ mb: 3 }}>
+          <Box>
+            <Typography variant="h6" fontWeight={800} color="primary.main">
+              💳 Interactive Licensing & Subscription Cost Generator
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Calculate software subscription cost based on current active user seats vs volume processed.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1}>
+            <Button
+              size="small"
+              variant={currencyMode === 'PKR' ? 'contained' : 'outlined'}
+              onClick={() => setCurrencyMode('PKR')}
+              sx={{ fontWeight: 700 }}
+            >
+              PKR (Rs.)
+            </Button>
+            <Button
+              size="small"
+              variant={currencyMode === 'USD' ? 'contained' : 'outlined'}
+              onClick={() => setCurrencyMode('USD')}
+              sx={{ fontWeight: 700 }}
+            >
+              USD ($)
+            </Button>
+          </Stack>
+        </Stack>
+
+        <Grid container spacing={3}>
+          {/* Controls Column */}
+          <Grid item xs={12} md={5}>
+            <Card variant="outlined" sx={{ p: 2.5, borderRadius: 2, bgcolor: 'action.hover' }}>
+              <Typography variant="subtitle2" fontWeight={800} textTransform="uppercase" letterSpacing={0.8} color="text.secondary" sx={{ mb: 2 }}>
+                ⚙️ License Pricing Controls
+              </Typography>
+
+              {/* Slider 1: Per User Monthly Rate */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="body2" fontWeight={700} id="per-user-slider-label">
+                  Per User Seat Rate (Monthly): <Typography component="span" fontWeight={900} color="primary.main">{formatCurr(perUserRate)} / user</Typography>
+                </Typography>
+                <Slider
+                  aria-labelledby="per-user-slider-label"
+                  value={perUserRate}
+                  min={1000}
+                  max={25000}
+                  step={500}
+                  onChange={(e, val) => setPerUserRate(val)}
+                  sx={{ mt: 1 }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Adjust per-seat monthly subscription fee (Industry standard: PKR 3,000 - 15,000 / seat / mo)
+                </Typography>
+              </Box>
+
+              {/* Slider 2: Transaction Volume Percentage Rate */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight={700} id="volume-slider-label">
+                  Volume Processing Fee Rate: <Typography component="span" fontWeight={900} color="secondary.main">{volumeFeePercent.toFixed(2)}%</Typography>
+                </Typography>
+                <Slider
+                  aria-labelledby="volume-slider-label"
+                  value={volumeFeePercent}
+                  min={0.05}
+                  max={1.0}
+                  step={0.05}
+                  onChange={(e, val) => setVolumeFeePercent(val)}
+                  color="secondary"
+                  sx={{ mt: 1 }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Percentage charge based on total financial throughput processed
+                </Typography>
+              </Box>
+
+              {/* Active User Breakdown Table */}
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 2, mb: 1 }}>
+                👥 Current User Seats Breakdown:
+              </Typography>
+              <Stack spacing={1}>
+                {usersByRole?.map((r, i) => (
+                  <Stack key={i} direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="caption" fontWeight={600} textTransform="capitalize">
+                      • {String(r._id).replace(/_/g, ' ')}
+                    </Typography>
+                    <Typography variant="caption" fontWeight={700}>
+                      {r.active} Active / {r.count} Total
+                    </Typography>
+                  </Stack>
+                ))}
+              </Stack>
+            </Card>
+          </Grid>
+
+          {/* Licensing Models Output Column */}
+          <Grid item xs={12} md={7}>
+            <Grid container spacing={2}>
+              {/* Model 1 Card: Per User Seat Subscription */}
+              <Grid item xs={12} sm={6}>
+                <Card sx={{ p: 2.5, borderRadius: 2.5, border: '2px solid', borderColor: 'primary.main', height: '100%', bgcolor: 'primary.50' }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <PeopleIcon color="primary" />
+                    <Typography variant="subtitle1" fontWeight={900} color="primary.main">
+                      1. Per-User Seat Model
+                    </Typography>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    Based on <Typography component="span" fontWeight={800}>{activeUsers} active user seats</Typography>
+                  </Typography>
+
+                  <Box sx={{ my: 2 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Est. Monthly Subscription</Typography>
+                    <Typography variant="h5" fontWeight={900} color="primary.main">
+                      {formatCurr(monthlyPerUserCostPKR)} <Typography component="span" variant="caption">/ month</Typography>
+                    </Typography>
+                  </Box>
+
+                  <Divider sx={{ my: 1.5 }} />
+
+                  <Typography variant="caption" color="text.secondary" display="block">Est. Annual License Revenue (ARR)</Typography>
+                  <Typography variant="h6" fontWeight={800} color="text.primary">
+                    {formatCurr(annualPerUserCostPKR)} <Typography component="span" variant="caption">/ year</Typography>
+                  </Typography>
+                </Card>
+              </Grid>
+
+              {/* Model 2 Card: Transaction Volume Based */}
+              <Grid item xs={12} sm={6}>
+                <Card sx={{ p: 2.5, borderRadius: 2.5, border: '2px solid', borderColor: 'secondary.main', height: '100%', bgcolor: 'secondary.50' }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <CalcIcon color="secondary" />
+                    <Typography variant="subtitle1" fontWeight={900} color="secondary.main">
+                      2. Volume Throughput Model
+                    </Typography>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    Based on <Typography component="span" fontWeight={800}>{SHORT_PKR(grandTotal)}</Typography> processed
+                  </Typography>
+
+                  <Box sx={{ my: 2 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Est. Monthly Volume Fee</Typography>
+                    <Typography variant="h5" fontWeight={900} color="secondary.main">
+                      {formatCurr(volumeBasedMonthlyCostPKR)} <Typography component="span" variant="caption">/ month</Typography>
+                    </Typography>
+                  </Box>
+
+                  <Divider sx={{ my: 1.5 }} />
+
+                  <Typography variant="caption" color="text.secondary" display="block">Est. Annual Volume Fee ({volumeFeePercent.toFixed(2)}%)</Typography>
+                  <Typography variant="h6" fontWeight={800} color="text.primary">
+                    {formatCurr(volumeBasedAnnualCostPKR)} <Typography component="span" variant="caption">/ year</Typography>
+                  </Typography>
+                </Card>
+              </Grid>
+
+              {/* Savings vs SAP / Oracle Commercial Card */}
+              <Grid item xs={12}>
+                <Paper sx={{ p: 2, borderRadius: 2, bgcolor: 'success.main', color: '#fff' }} elevation={1}>
+                  <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" justifyContent="space-between">
+                    <Stack direction="row" spacing={1.5} alignItems="center">
+                      <SavingsIcon sx={{ fontSize: 32 }} />
+                      <Box>
+                        <Typography variant="subtitle2" fontWeight={900}>
+                          💡 Estimated Annual Commercial ERP Licensing Savings
+                        </Typography>
+                        <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                          Compared to off-the-shelf software (SAP / Oracle @ $75/user/month for {activeUsers} users)
+                        </Typography>
+                      </Box>
+                    </Stack>
+                    <Box sx={{ textAlign: 'right' }}>
+                      <Typography variant="h6" fontWeight={900}>
+                        Save {formatCurr(estimatedSavingsPKR)} / year
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        (Commercial Cost: {formatCurr(commercialSapAnnualCostPKR)}/yr)
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Grid>
+        </Grid>
+      </Paper>
 
       {/* Module Breakdown + Pie Chart */}
       <SectionTitle icon={<ChartIcon />} sub="Financial value managed per module">Module-wise Financial Breakdown</SectionTitle>

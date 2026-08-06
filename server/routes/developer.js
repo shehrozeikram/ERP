@@ -193,10 +193,15 @@ router.get('/financials', asyncHandler(async (req, res) => {
 
   const goLiveDate = firstUser?.createdAt || new Date('2024-01-01');
 
-  // Count active non-developer users
-  const [activeUsers, totalUsers] = await Promise.all([
+  // Count active non-developer users and user role breakdown
+  const [activeUsers, totalUsers, usersByRole] = await Promise.all([
     User.countDocuments({ role: NON_DEV_ROLES, isActive: true }),
-    User.countDocuments({ role: NON_DEV_ROLES })
+    User.countDocuments({ role: NON_DEV_ROLES }),
+    User.aggregate([
+      { $match: { role: NON_DEV_ROLES } },
+      { $group: { _id: { $ifNull: ['$role', 'employee'] }, count: { $sum: 1 }, active: { $sum: { $cond: [{ $eq: ['$isActive', true] }, 1, 0] } } } },
+      { $sort: { count: -1 } }
+    ])
   ]);
 
   // ── Parallel financial aggregations ──────────────────────────────────────
@@ -367,6 +372,7 @@ router.get('/financials', asyncHandler(async (req, res) => {
       goLiveDate,
       activeUsers,
       totalUsers,
+      usersByRole,
       totalActions,
       totalLogins: loginStats[0]?.total || 0,
       grandTotal,
