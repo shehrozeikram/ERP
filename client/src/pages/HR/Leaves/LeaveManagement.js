@@ -627,6 +627,27 @@ const LeaveManagement = () => {
                 Import Excel Leaves
               </Button>
               <Button
+                variant="contained"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={async () => {
+                  if (window.confirm('⚠️ WARNING: Are you sure you want to PURGE ALL leave records and leave balances from the database? This cannot be undone.')) {
+                    try {
+                      setLoading(true);
+                      const res = await leaveService.purgeAllLeaves();
+                      setSuccess(`Purged successfully! Deleted ${res.deletedCounts?.requests || 0} leave requests and ${res.deletedCounts?.balances || 0} balances.`);
+                      loadData();
+                    } catch (err) {
+                      setError(err.message || 'Failed to purge leave records');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }
+                }}
+              >
+                Purge All Leaves
+              </Button>
+              <Button
                 variant="outlined"
                 startIcon={<EditIcon />}
                 onClick={() => setGlobalConfigDialog(true)}

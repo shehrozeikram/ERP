@@ -50,6 +50,29 @@ const upload = multer({
   }
 });
 
+// @route   POST /api/leaves/purge-all
+// @desc    Purge all leave requests and leave balances
+// @access  Private (Admin / HR)
+router.post('/purge-all',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const deletedRequests = await LeaveRequest.deleteMany({});
+    const deletedBalances = await LeaveBalance.deleteMany({});
+    const deletedTypes = await LeaveType.deleteMany({});
+
+    return res.json({
+      success: true,
+      message: 'All leave records and balances successfully purged from system',
+      deletedCounts: {
+        requests: deletedRequests.deletedCount,
+        balances: deletedBalances.deletedCount,
+        types: deletedTypes.deletedCount
+      }
+    });
+  })
+);
+
 // ==================== LEAVE TYPES ROUTES ====================
 
 // @route   GET /api/leaves/types
