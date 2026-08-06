@@ -38,6 +38,21 @@ export const deleteMilestone = (projectId, milestoneId) =>
   api.delete(`${BASE}/projects/${projectId}/milestones/${milestoneId}`);
 
 // ─── BOQ ──────────────────────────────────────────────────────────────────────
+export const getBOQHeaders = (projectId) =>
+  api.get(`${BASE}/projects/${projectId}/boq-headers`);
+
+export const createBOQHeader = (projectId, data) =>
+  api.post(`${BASE}/projects/${projectId}/boq-headers`, data);
+
+export const updateBOQHeader = (projectId, boqId, data) =>
+  api.put(`${BASE}/projects/${projectId}/boq-headers/${boqId}`, data);
+
+export const deleteBOQHeader = (projectId, boqId) =>
+  api.delete(`${BASE}/projects/${projectId}/boq-headers/${boqId}`);
+
+export const allocateBOQItem = (projectId, data) =>
+  api.post(`${BASE}/projects/${projectId}/boq/allocate`, data);
+
 export const getBOQ = (projectId, params = {}) =>
   api.get(`${BASE}/projects/${projectId}/boq`, { params });
 
@@ -49,6 +64,12 @@ export const bulkAddBOQItems = (projectId, items) =>
 
 export const updateBOQItem = (projectId, itemId, data) =>
   api.put(`${BASE}/projects/${projectId}/boq/${itemId}`, data);
+
+export const batchAssignBOQContractor = (projectId, data) =>
+  api.put(`${BASE}/projects/${projectId}/boq/batch-assign-contractor`, data);
+
+export const getSuppliers = () =>
+  api.get('/suppliers');
 
 export const updateBoqDiscount = (projectId, boqDiscountAmount) =>
   api.put(`${BASE}/projects/${projectId}/boq/discount`, { boqDiscountAmount });

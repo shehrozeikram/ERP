@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const { asyncHandler } = require('../middleware/errorHandler');
 
 const ConstructionProject = require('../models/projectManagement/ConstructionProject');
+const ProjectBOQ = require('../models/projectManagement/ProjectBOQ');
 const BOQItem = require('../models/projectManagement/BOQItem');
 const ProjectTask = require('../models/projectManagement/ProjectTask');
 const ProjectExpense = require('../models/projectManagement/ProjectExpense');
@@ -394,11 +395,13 @@ const boqNetEst = (i) => boqEst(i) - boqDisc(i);
 const boqAct = (i) => (Number(i?.usedQuantity) || 0) * (Number(i?.actualUnitPrice) || 0) || Number(i?.actualTotalCost) || 0;
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-const buildBoqFilter = (projectId, { search, phase, category } = {}) => {
-  const projectFilter = { project: new mongoose.Types.ObjectId(projectId) };
+const buildBoqFilter = (projectId, { search, phase, category, boqHeaderId, isSubProject } = {}) => {
+  const pId = new mongoose.Types.ObjectId(projectId);
+  const projectFilter = isSubProject ? { subProject: pId } : { project: pId };
   const filter = { ...projectFilter };
   if (phase) filter.phase = phase;
   if (category) filter.category = category;
+  if (boqHeaderId && isValidId(boqHeaderId)) filter.boqHeader = boqHeaderId;
   if (search) {
     const re = { $regex: search, $options: 'i' };
     filter.$or = ['title', 'description', 'specification', 'itemCode', 'category', 'unit', 'phase'].map((f) => ({ [f]: re }));
@@ -406,17 +409,142 @@ const buildBoqFilter = (projectId, { search, phase, category } = {}) => {
   return { filter, projectFilter };
 };
 
+// ─── BOQ DOCUMENT HEADERS (CONTAINERS) ────────────────────────────────────────
+
+// GET /api/project-management/projects/:id/boq-headers — list all BOQ documents for a project
+router.get('/projects/:id/boq-headers', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
+  const headers = await ProjectBOQ.find({ project: req.params.id })
+    .populate('createdBy', 'firstName lastName')
+    .sort({ createdAt: 1 })
+    .lean();
+
+  res.json({ success: true, data: headers });
+}));
+
+// POST /api/project-management/projects/:id/boq-headers — create a new BOQ document
+router.post('/projects/:id/boq-headers', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
+  const { title, description, version, notes, status } = req.body;
+  if (!title) return badRequest(res, 'BOQ Title is required');
+
+  const boqHeader = await ProjectBOQ.create({
+    project: req.params.id,
+    title: String(title).trim(),
+    description: description || '',
+    version: version || '1.0',
+    status: status || 'Active',
+    notes: notes || '',
+    createdBy: req.user?._id
+  });
+
+  res.status(201).json({ success: true, message: 'BOQ Document created', data: boqHeader });
+}));
+
+// PUT /api/project-management/projects/:id/boq-headers/:boqId
+router.put('/projects/:id/boq-headers/:boqId', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id) || !isValidId(req.params.boqId)) return badRequest(res, 'Invalid ID');
+
+  const allowed = ['title', 'description', 'version', 'status', 'notes'];
+  const update = {};
+  allowed.forEach(k => { if (req.body[k] !== undefined) update[k] = req.body[k]; });
+
+  const updated = await ProjectBOQ.findOneAndUpdate(
+    { _id: req.params.boqId, project: req.params.id },
+    { $set: update },
+    { new: true, runValidators: true }
+  ).lean();
+
+  if (!updated) return notFound(res, 'BOQ Document');
+  res.json({ success: true, message: 'BOQ Document updated', data: updated });
+}));
+
+// DELETE /api/project-management/projects/:id/boq-headers/:boqId
+router.delete('/projects/:id/boq-headers/:boqId', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id) || !isValidId(req.params.boqId)) return badRequest(res, 'Invalid ID');
+
+  const deleted = await ProjectBOQ.findOneAndDelete({ _id: req.params.boqId, project: req.params.id });
+  if (!deleted) return notFound(res, 'BOQ Document');
+
+  await BOQItem.deleteMany({ boqHeader: req.params.boqId, project: req.params.id });
+
+  res.json({ success: true, message: 'BOQ Document and linked items deleted' });
+}));
+
+// POST /api/project-management/projects/:id/boq/allocate — allocate item quantity to Sub-Project & Subcontractor
+router.post('/projects/:id/boq/allocate', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
+  const { itemId, subProjectId, contractorId, allocatedQuantity, contractorUnitPrice, notes } = req.body;
+  if (!itemId || !isValidId(itemId)) return badRequest(res, 'Valid itemId is required');
+
+  const item = await BOQItem.findById(itemId);
+  if (!item) return notFound(res, 'BOQ Item');
+
+  const allocQty = Math.max(0, Number(allocatedQuantity) || 0);
+  const currentAllocatedTotal = (item.allocations || []).reduce((sum, a) => sum + (Number(a.allocatedQuantity) || 0), 0);
+  const remainingQty = Math.max(0, (Number(item.estimatedQuantity) || 0) - currentAllocatedTotal);
+
+  if (allocQty > remainingQty) {
+    return badRequest(
+      res,
+      `Cannot allocate ${allocQty} ${item.unit}. Only ${remainingQty} ${item.unit} remaining unallocated out of Master BOQ quantity (${item.estimatedQuantity} ${item.unit}).`
+    );
+  }
+
+  item.allocations.push({
+    subProject: subProjectId || null,
+    contractor: contractorId || null,
+    allocatedQuantity: allocQty,
+    contractorUnitPrice: Number(contractorUnitPrice) || item.contractorUnitPrice || item.estimatedUnitPrice || 0,
+    notes: notes || ''
+  });
+
+  if (contractorId) item.contractor = contractorId;
+  if (subProjectId) item.subProject = subProjectId;
+  if (contractorUnitPrice) item.contractorUnitPrice = Number(contractorUnitPrice);
+
+  await item.save();
+
+  const updatedItem = await BOQItem.findById(item._id)
+    .populate('contractor', 'name email phone vendorType')
+    .populate('subProject', 'name projectNumber')
+    .populate('allocations.subProject', 'name projectNumber')
+    .populate('allocations.contractor', 'name email phone vendorType')
+    .lean();
+
+  res.json({ success: true, message: `Successfully allocated ${allocQty} ${item.unit}`, data: updatedItem });
+}));
+
+// DELETE /api/project-management/projects/:id/boq/allocate/:itemId/:allocationId — remove an allocation
+router.delete('/projects/:id/boq/allocate/:itemId/:allocationId', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id) || !isValidId(req.params.itemId)) return badRequest(res, 'Invalid ID');
+
+  const item = await BOQItem.findById(req.params.itemId);
+  if (!item) return notFound(res, 'BOQ Item');
+
+  item.allocations = (item.allocations || []).filter(a => String(a._id) !== String(req.params.allocationId));
+  await item.save();
+
+  res.json({ success: true, message: 'Allocation removed successfully', data: item });
+}));
+
 const withBoqTotals = (item) => {
   const estimatedTotalCost = boqEst(item);
   const discountAmount = boqDisc(item);
   const netEstimatedCost = boqNetEst(item);
   const actualTotalCost = boqAct(item);
+
+  const allocatedQuantityTotal = (item.allocations || []).reduce((sum, a) => sum + (Number(a.allocatedQuantity) || 0), 0);
+  const remainingQuantity = Math.max(0, (Number(item.estimatedQuantity) || 0) - allocatedQuantityTotal);
+
   return {
     ...item,
     discountAmount,
     estimatedTotalCost,
     netEstimatedCost,
     actualTotalCost,
+    allocatedQuantityTotal,
+    remainingQuantity,
     quantityVariance: (Number(item.usedQuantity) || 0) - (Number(item.estimatedQuantity) || 0),
     costVariance: actualTotalCost - netEstimatedCost
   };
@@ -442,17 +570,28 @@ router.get('/projects/:id/boq', asyncHandler(async (req, res) => {
   if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
 
   const { page = 1, limit = 25 } = req.query;
-  const { filter, projectFilter } = buildBoqFilter(req.params.id, req.query);
+  const project = await ConstructionProject.findById(req.params.id).select('boqDiscountAmount parentProject').lean();
+  if (!project) return notFound(res, 'Project');
+
+  const isSubProject = Boolean(project.parentProject);
+  const { filter, projectFilter } = buildBoqFilter(req.params.id, { ...req.query, isSubProject });
   const skip = (Number(page) - 1) * Number(limit);
   const totalFields = 'estimatedQuantity estimatedUnitPrice discountAmount usedQuantity actualUnitPrice estimatedTotalCost netEstimatedCost actualTotalCost';
 
-  const [items, total, allProjectRows, phases, allItemsCount, project] = await Promise.all([
-    BOQItem.find(filter).sort({ phase: 1, orderIndex: 1, createdAt: 1 }).skip(skip).limit(Number(limit)).lean(),
+  const [items, total, allProjectRows, phases, allItemsCount] = await Promise.all([
+    BOQItem.find(filter)
+      .populate('contractor', 'name email phone vendorType')
+      .populate('subProject', 'name projectNumber')
+      .populate('allocations.subProject', 'name projectNumber')
+      .populate('allocations.contractor', 'name email phone vendorType')
+      .sort({ phase: 1, orderIndex: 1, createdAt: 1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
     BOQItem.countDocuments(filter),
     BOQItem.find(projectFilter).select(totalFields).lean(),
     BOQItem.distinct('phase', projectFilter),
-    BOQItem.countDocuments(projectFilter),
-    ConstructionProject.findById(req.params.id).select('boqDiscountAmount').lean()
+    BOQItem.countDocuments(projectFilter)
   ]);
 
   const itemsWithTotals = items.map(withBoqTotals);
@@ -494,11 +633,32 @@ router.put('/projects/:id/boq/discount', asyncHandler(async (req, res) => {
   });
 }));
 
+// PUT /api/project-management/projects/:id/boq/batch-assign-contractor
+router.put('/projects/:id/boq/batch-assign-contractor', asyncHandler(async (req, res) => {
+  if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
+  const { itemIds, contractorId, subProjectId, contractorUnitPrice } = req.body;
+  if (!Array.isArray(itemIds) || !itemIds.length) return badRequest(res, 'itemIds array is required');
+
+  const update = {};
+  if (contractorId) update.contractor = contractorId;
+  if (subProjectId) update.subProject = subProjectId;
+  if (contractorUnitPrice != null && contractorUnitPrice !== '') {
+    update.contractorUnitPrice = Number(contractorUnitPrice);
+  }
+
+  await BOQItem.updateMany(
+    { _id: { $in: itemIds }, project: req.params.id },
+    { $set: update }
+  );
+
+  res.json({ success: true, message: `${itemIds.length} BOQ items assigned successfully` });
+}));
+
 // POST /api/project-management/projects/:id/boq — add single item
 router.post('/projects/:id/boq', asyncHandler(async (req, res) => {
   if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
 
-  const { title, description, unit, estimatedQuantity, estimatedUnitPrice, discountAmount, phase, category, specification, itemCode, notes, orderIndex } = req.body;
+  const { title, description, unit, estimatedQuantity, estimatedUnitPrice, discountAmount, phase, category, specification, itemCode, notes, orderIndex, contractor, subProject, boqHeader, contractorUnitPrice } = req.body;
   if (!description) return badRequest(res, 'Description is required');
   if (!unit) return badRequest(res, 'Unit is required');
   if (estimatedQuantity == null) return badRequest(res, 'Estimated quantity is required');
@@ -506,6 +666,7 @@ router.post('/projects/:id/boq', asyncHandler(async (req, res) => {
 
   const item = await BOQItem.create({
     project: req.params.id,
+    boqHeader: boqHeader || null,
     title: String(title || '').trim(),
     description,
     unit,
@@ -516,6 +677,9 @@ router.post('/projects/:id/boq', asyncHandler(async (req, res) => {
     category,
     specification,
     itemCode,
+    contractor: contractor || null,
+    subProject: subProject || null,
+    contractorUnitPrice: Number(contractorUnitPrice) || 0,
     notes,
     orderIndex: orderIndex || 0,
     createdBy: req.user?._id
@@ -530,11 +694,12 @@ router.post('/projects/:id/boq', asyncHandler(async (req, res) => {
 router.post('/projects/:id/boq/bulk', asyncHandler(async (req, res) => {
   if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
 
-  const { items } = req.body;
+  const { items, boqHeader } = req.body;
   if (!Array.isArray(items) || !items.length) return badRequest(res, 'Items array is required');
 
   const docs = items.map((item, idx) => ({
     project: req.params.id,
+    boqHeader: item.boqHeader || boqHeader || null,
     title: String(item.title || '').trim(),
     description: item.description,
     unit: item.unit,
@@ -545,6 +710,9 @@ router.post('/projects/:id/boq/bulk', asyncHandler(async (req, res) => {
     category: item.category || '',
     specification: item.specification || '',
     itemCode: item.itemCode || '',
+    contractor: item.contractor || null,
+    subProject: item.subProject || null,
+    contractorUnitPrice: Number(item.contractorUnitPrice) || 0,
     notes: item.notes || '',
     orderIndex: item.orderIndex ?? idx,
     createdBy: req.user?._id
@@ -561,12 +729,12 @@ router.put('/projects/:id/boq/:itemId', asyncHandler(async (req, res) => {
 
   const allowed = ['title', 'description', 'unit', 'phase', 'category', 'specification', 'itemCode',
     'estimatedQuantity', 'estimatedUnitPrice', 'discountAmount', 'orderedQuantity', 'receivedQuantity',
-    'usedQuantity', 'actualUnitPrice', 'notes', 'orderIndex'];
+    'usedQuantity', 'actualUnitPrice', 'notes', 'orderIndex', 'contractor', 'subProject', 'boqHeader', 'contractorUnitPrice', 'contractorBilledQuantity', 'contractorBilledAmount'];
 
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
 
-  ['estimatedQuantity', 'estimatedUnitPrice', 'discountAmount', 'orderedQuantity', 'receivedQuantity', 'usedQuantity', 'actualUnitPrice']
+  ['estimatedQuantity', 'estimatedUnitPrice', 'discountAmount', 'orderedQuantity', 'receivedQuantity', 'usedQuantity', 'actualUnitPrice', 'contractorUnitPrice', 'contractorBilledQuantity', 'contractorBilledAmount']
     .forEach((key) => {
       if (updates[key] !== undefined) updates[key] = Number(updates[key]);
     });
@@ -1009,34 +1177,119 @@ const syncProjectInvoiceTotals = async (projectId) => {
 router.get('/projects/:id/invoices', asyncHandler(async (req, res) => {
   if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
 
-  const invoices = await ProjectInvoice.find({ project: req.params.id })
+  const invoices = await ProjectInvoice.find({
+    $or: [{ project: req.params.id }, { masterProject: req.params.id }]
+  })
+    .populate('contractor', 'name email phone vendorType')
     .populate('createdBy', 'firstName lastName')
+    .populate('items.boqItem', 'title description unit estimatedQuantity estimatedUnitPrice contractorUnitPrice contractorBilledQuantity')
     .sort({ issueDate: -1 })
     .lean();
 
   // Summary stats
-  const totalInvoiced = invoices.filter(i => i.status !== 'Cancelled').reduce((s, i) => s + i.invoiceAmount, 0);
+  const totalInvoiced = invoices.filter(i => i.status !== 'Cancelled').reduce((s, i) => s + (i.netPayableAmount || i.invoiceAmount), 0);
   const totalPaid = invoices.filter(i => i.status === 'Paid').reduce((s, i) => s + (i.paidAmount || i.invoiceAmount), 0);
   const totalOutstanding = totalInvoiced - totalPaid;
 
   res.json({ success: true, data: { invoices, totalInvoiced, totalPaid, totalOutstanding } });
 }));
 
-// POST /api/project-management/projects/:id/invoices — manual invoice creation
+// POST /api/project-management/projects/:id/invoices — manual / Subcontractor IPC invoice creation
 router.post('/projects/:id/invoices', asyncHandler(async (req, res) => {
   if (!isValidId(req.params.id)) return badRequest(res, 'Invalid project ID');
 
   const project = await ConstructionProject.findById(req.params.id).lean();
   if (!project) return notFound(res, 'Project');
 
-  const { invoiceAmount, description, issueDate, dueDate, billingPercentage,
-    milestoneId, milestoneName, notes, clientName, clientContact, clientAddress, boqItemId } = req.body;
+  const masterProjectId = project.parentProject || null;
 
-  if (!invoiceAmount || Number(invoiceAmount) <= 0)
-    return badRequest(res, 'Invoice amount is required');
+  const { invoiceType = 'Subcontractor_IPC', contractor, items = [], retentionPercentage = 0,
+    advanceRecoveryAmount = 0, whtPercentage = 0, invoiceAmount, description, issueDate, dueDate,
+    billingPercentage, milestoneId, milestoneName, notes, clientName, clientContact, clientAddress, boqItemId } = req.body;
+
+  let processedItems = [];
+  let grossAmount = 0;
+  let ipcNumber = 1;
+
+  if (Array.isArray(items) && items.length > 0) {
+    if (contractor && isValidId(contractor)) {
+      const existingIpcCount = await ProjectInvoice.countDocuments({
+        $or: [{ project: req.params.id }, { masterProject: req.params.id }],
+        contractor,
+        invoiceType: 'Subcontractor_IPC',
+        status: { $ne: 'Cancelled' }
+      });
+      ipcNumber = existingIpcCount + 1;
+    }
+
+    for (const itemInput of items) {
+      if (!itemInput.boqItemId || !isValidId(itemInput.boqItemId)) continue;
+      // Search BOQ item under current project OR Master Project
+      const searchCriteria = masterProjectId
+        ? { _id: itemInput.boqItemId, $or: [{ project: req.params.id }, { project: masterProjectId }] }
+        : { _id: itemInput.boqItemId, project: req.params.id };
+
+      const boq = await BOQItem.findOne(searchCriteria);
+      if (!boq) continue;
+
+      const previousQuantity = Number(boq.contractorBilledQuantity) || 0;
+      const currentQuantity = Number(itemInput.currentQuantity) || 0;
+      const cumulativeQuantity = previousQuantity + currentQuantity;
+
+      // Over-billing validation against Master BOQ estimated quantity
+      if (cumulativeQuantity > boq.estimatedQuantity) {
+        return badRequest(
+          res,
+          `Billing quantity for item "${boq.title || boq.description}" (${cumulativeQuantity} ${boq.unit}) exceeds authorized BOQ estimated quantity (${boq.estimatedQuantity} ${boq.unit}).`
+        );
+      }
+
+      const unitPrice = Number(itemInput.unitPrice) || Number(boq.contractorUnitPrice) || Number(boq.estimatedUnitPrice) || 0;
+      const currentAmount = currentQuantity * unitPrice;
+      grossAmount += currentAmount;
+
+      processedItems.push({
+        boqItem: boq._id,
+        title: boq.title || '',
+        description: boq.description || '',
+        unit: boq.unit || '',
+        previousQuantity,
+        currentQuantity,
+        cumulativeQuantity,
+        unitPrice,
+        currentAmount
+      });
+    }
+  }
+
+  const finalGross = processedItems.length > 0 ? grossAmount : (Number(invoiceAmount) || 0);
+  if (finalGross <= 0 && (!invoiceAmount || Number(invoiceAmount) <= 0)) {
+    return badRequest(res, 'Invoice amount or valid BOQ executed line items are required');
+  }
+
+  const retentionP = Math.max(0, Number(retentionPercentage) || 0);
+  const retentionAmount = Math.round(finalGross * (retentionP / 100) * 100) / 100;
+  const advRec = Math.max(0, Number(advanceRecoveryAmount) || 0);
+  const whtP = Math.max(0, Number(whtPercentage) || 0);
+  const whtAmount = Math.round(finalGross * (whtP / 100) * 100) / 100;
+
+  const netPayableAmount = Math.max(0, Math.round((finalGross - retentionAmount - advRec - whtAmount) * 100) / 100);
+  const finalInvoiceAmt = processedItems.length > 0 ? netPayableAmount : Number(invoiceAmount);
 
   const invoice = await ProjectInvoice.create({
     project: req.params.id,
+    masterProject: masterProjectId,
+    contractor: contractor && isValidId(contractor) ? contractor : null,
+    invoiceType,
+    ipcNumber,
+    items: processedItems,
+    grossAmount: finalGross,
+    retentionPercentage: retentionP,
+    retentionAmount,
+    advanceRecoveryAmount: advRec,
+    whtPercentage: whtP,
+    whtAmount,
+    netPayableAmount,
     milestoneId: milestoneId || null,
     milestoneName: milestoneName || '',
     boqItemId: boqItemId || null,
@@ -1045,16 +1298,38 @@ router.post('/projects/:id/invoices', asyncHandler(async (req, res) => {
     clientAddress: clientAddress || project.address || '',
     contractValue: project.contractValue || 0,
     billingPercentage: Number(billingPercentage) || 0,
-    invoiceAmount: Number(invoiceAmount),
-    description: description || '',
+    invoiceAmount: finalInvoiceAmt,
+    description: description || (invoiceType === 'Subcontractor_IPC' ? `IPC #${ipcNumber} Subcontractor Bill` : ''),
     issueDate: issueDate ? new Date(issueDate) : new Date(),
     dueDate: dueDate ? new Date(dueDate) : undefined,
     notes,
     createdBy: req.user?._id
   });
 
+  // Update BOQ items billed quantities
+  if (processedItems.length > 0) {
+    await Promise.all(processedItems.map(item =>
+      BOQItem.findByIdAndUpdate(item.boqItem, {
+        $inc: {
+          contractorBilledQuantity: item.currentQuantity,
+          contractorBilledAmount: item.currentAmount
+        }
+      })
+    ));
+  }
+
   await syncProjectInvoiceTotals(req.params.id);
-  res.status(201).json({ success: true, message: 'Invoice created', data: invoice });
+  if (masterProjectId) {
+    await syncProjectInvoiceTotals(masterProjectId);
+  }
+
+  const populated = await ProjectInvoice.findById(invoice._id)
+    .populate('contractor', 'name email phone vendorType')
+    .populate('createdBy', 'firstName lastName')
+    .populate('items.boqItem', 'title description unit estimatedQuantity estimatedUnitPrice contractorUnitPrice contractorBilledQuantity')
+    .lean();
+
+  res.status(201).json({ success: true, message: 'Invoice created successfully', data: populated });
 }));
 
 // POST /api/project-management/projects/:id/milestones/:msId/generate-invoice

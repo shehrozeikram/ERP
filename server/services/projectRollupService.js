@@ -75,30 +75,43 @@ const ProjectRollupService = {
       grandEstimatedBudget = childProjects.reduce((sum, p) => sum + (p.totalApprovedBudget || p.totalEstimatedCost || 0), 0);
     }
 
-    // 3. Aggregate Actual Expenditure from Financial Documents (GRN, AP Bills, Store Issues)
-    const [grnAgg, apAgg, sinAgg] = await Promise.all([
+    // 3. Aggregate Actual Expenditure from Financial Documents (GRN, AP Bills, Store Issues, Project Expenses)
+    const ProjectExpense = require('../models/projectManagement/ProjectExpense');
+    const [grnAgg, apAgg, sinAgg, expAgg] = await Promise.all([
       GoodsReceive.aggregate([
         { $match: { project: { $in: allProjectIds }, status: 'Received' } },
-        { $group: { _id: null, total: { $sum: { $ifNull: ['$totalAmount', 0] } } } }
+        { $group: { _id: '$project', total: { $sum: { $ifNull: ['$totalAmount', 0] } } } }
       ]),
       AccountsPayable.aggregate([
         { $match: { project: { $in: allProjectIds } } },
-        { $group: { _id: null, total: { $sum: { $ifNull: ['$totalAmount', 0] } } } }
+        { $group: { _id: '$project', total: { $sum: { $ifNull: ['$totalAmount', 0] } } } }
       ]),
       GoodsIssue.aggregate([
         { $match: { project: { $in: allProjectIds }, status: 'Issued' } },
-        { $group: { _id: null, total: { $sum: { $ifNull: ['$totalQuantity', 0] } } } }
+        { $group: { _id: '$project', total: { $sum: { $ifNull: ['$totalQuantity', 0] } } } }
+      ]),
+      ProjectExpense.aggregate([
+        { $match: { project: { $in: allProjectIds }, paymentStatus: { $ne: 'Cancelled' } } },
+        { $group: { _id: '$project', total: { $sum: { $ifNull: ['$amount', 0] } } } }
       ])
     ]);
 
-    const grnTotalSpent = grnAgg[0]?.total || 0;
-    const apTotalSpent = apAgg[0]?.total || 0;
+    const grnSpentMap = new Map(grnAgg.map(g => [String(g._id), g.total || 0]));
+    const apSpentMap = new Map(apAgg.map(a => [String(a._id), a.total || 0]));
+    const expSpentMap = new Map(expAgg.map(e => [String(e._id), e.total || 0]));
 
-    // 4. Calculate Child Unit Performance Breakdown
+    const grnTotalSpent = grnAgg.reduce((sum, g) => sum + (g.total || 0), 0);
+    const apTotalSpent = apAgg.reduce((sum, a) => sum + (a.total || 0), 0);
+    const expTotalSpent = expAgg.reduce((sum, e) => sum + (e.total || 0), 0);
+
+    // 4. Calculate Child Unit Performance Breakdown with dynamic actual spending
     const childUnitBreakdown = childProjects
       .filter((p) => String(p._id) !== String(masterProjectId) || childProjects.length === 1)
       .map((p) => {
+        const pIdStr = String(p._id);
         const estBudget = p.totalApprovedBudget || p.totalEstimatedCost || 0;
+        const actualCost = p.totalActualSpent || expSpentMap.get(pIdStr) || apSpentMap.get(pIdStr) || grnSpentMap.get(pIdStr) || 0;
+
         const milestones = p.milestones || [];
         const totalMilestones = milestones.length;
         const completedMilestones = milestones.filter((m) => m.status === 'Completed').length;
@@ -112,6 +125,7 @@ const ProjectRollupService = {
           projectType: p.projectType,
           status: p.status,
           estimatedBudget: estBudget,
+          actualCost,
           completionPercentage,
           healthStatus: completionPercentage < 20 && p.status === 'Active' ? 'Requires Attention' : 'On Track'
         };
@@ -125,11 +139,11 @@ const ProjectRollupService = {
 
     // 6. Calculate EVM (Earned Value Management) & Predictive Cash Flow
     const earnedValue = Math.round((grandEstimatedBudget * masterOverallProgress) / 100);
-    const actualCostForEvm = grandActualCost || 1;
+    const actualCostForEvm = grandActualCost || expTotalSpent || grnTotalSpent || 1;
     const cpi = Number((earnedValue / actualCostForEvm).toFixed(2)); // Cost Performance Index
     const spi = Number(((masterOverallProgress || 1) / 50).toFixed(2)); // Schedule Performance Index (normalized vs 50% midpoint benchmark)
 
-    // 6. Fetch Ground Visual Proof Stream (Latest Geotagged Photos from DPRs)
+    // 7. Fetch Ground Visual Proof Stream (Latest Geotagged Photos from DPRs)
     const DailyProgressReport = require('../models/projectManagement/DailyProgressReport');
     const dprsWithPhotos = await DailyProgressReport.find({
       project: { $in: allProjectIds },
@@ -156,11 +170,63 @@ const ProjectRollupService = {
       });
     });
 
-    const costVariance = grandActualCost - grandEstimatedBudget;
+    const costVariance = (grandActualCost || expTotalSpent) - grandEstimatedBudget;
     const costHealthStatus = costVariance > 0 ? 'Over Budget' : 'Under Budget';
 
-    // 7. Calculate 30-Day Liquidity Demand Forecast
-    const cashDemandForecast30Days = Math.round((grandEstimatedBudget - grandActualCost) * 0.15);
+    // 8. Dynamic Monthly S-Curve Progress Timeline
+    const monthsBack = 6;
+    const now = new Date();
+    const sCurveData = [];
+    const cashFlowTrendData = [];
+
+    // Aggregate monthly expenses
+    const monthlyExpenses = await ProjectExpense.aggregate([
+      {
+        $match: {
+          project: { $in: allProjectIds },
+          paymentStatus: { $ne: 'Cancelled' }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$expenseDate' },
+            month: { $month: '$expenseDate' }
+          },
+          totalAmount: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    const expenseMonthMap = new Map();
+    monthlyExpenses.forEach((item) => {
+      const key = `${item._id.year}-${String(item._id.month).padStart(2, '0')}`;
+      expenseMonthMap.set(key, item.totalAmount);
+    });
+
+    for (let i = monthsBack - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthLabel = d.toLocaleString('en-US', { month: 'short' });
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      
+      const targetPlanned = Math.min(100, Math.round(((monthsBack - i) / monthsBack) * 100));
+      const actualProgress = i === 0 ? masterOverallProgress : Math.round((masterOverallProgress * (monthsBack - i)) / monthsBack);
+      
+      sCurveData.push({
+        month: monthLabel,
+        planned: targetPlanned,
+        actual: actualProgress
+      });
+
+      const monthSpent = expenseMonthMap.get(key) || 0;
+      cashFlowTrendData.push({
+        month: monthLabel,
+        cashOutflow: monthSpent
+      });
+    }
+
+    // 9. Calculate 30-Day Liquidity Demand Forecast
+    const cashDemandForecast30Days = Math.round(Math.max(0, grandEstimatedBudget - (grandActualCost || expTotalSpent)) * 0.15);
 
     return {
       masterProject: {
@@ -173,9 +239,10 @@ const ProjectRollupService = {
       summaryMetrics: {
         totalSubUnits: childUnitBreakdown.length,
         grandEstimatedBudget,
-        grandActualCost,
+        grandActualCost: grandActualCost || expTotalSpent,
         grnTotalSpent,
         apTotalSpent,
+        expTotalSpent,
         costVariance,
         costHealthStatus,
         masterOverallProgress,
@@ -186,11 +253,13 @@ const ProjectRollupService = {
           cpiStatus: cpi >= 1.0 ? 'On/Under Budget' : 'Cost Overrun Warning',
           spiStatus: spi >= 1.0 ? 'On/Ahead of Schedule' : 'Schedule Lag Warning'
         },
-        cashDemandForecast30Days: Math.max(0, cashDemandForecast30Days)
+        cashDemandForecast30Days
       },
       cbsCostBreakdown: cbsSummary,
       subUnitBreakdown: childUnitBreakdown,
-      groundPhotoStream: groundPhotoStream.slice(0, 8)
+      groundPhotoStream: groundPhotoStream.slice(0, 8),
+      sCurveData,
+      cashFlowTrendData
     };
   }
 };

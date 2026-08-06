@@ -7,8 +7,45 @@ const projectInvoiceSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  masterProject: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ConstructionProject',
+    default: null,
+    index: true
+  },
 
   invoiceNumber: { type: String, unique: true, sparse: true, trim: true },
+
+  // Subcontractor & IPC Details
+  contractor: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', default: null, index: true },
+  invoiceType: {
+    type: String,
+    enum: ['Subcontractor_IPC', 'Client_Invoice', 'General'],
+    default: 'Subcontractor_IPC'
+  },
+  ipcNumber: { type: Number, default: 1 },
+
+  // Line items for Progress-Based IPC Invoices
+  items: [{
+    boqItem: { type: mongoose.Schema.Types.ObjectId, ref: 'BOQItem' },
+    title: { type: String, trim: true },
+    description: { type: String, trim: true },
+    unit: { type: String, trim: true },
+    previousQuantity: { type: Number, default: 0 },
+    currentQuantity: { type: Number, default: 0 },
+    cumulativeQuantity: { type: Number, default: 0 },
+    unitPrice: { type: Number, default: 0 },
+    currentAmount: { type: Number, default: 0 }
+  }],
+
+  // Financial Breakdown & Deductions
+  grossAmount: { type: Number, default: 0 },
+  retentionPercentage: { type: Number, default: 0 },
+  retentionAmount: { type: Number, default: 0 },
+  advanceRecoveryAmount: { type: Number, default: 0 },
+  whtPercentage: { type: Number, default: 0 },
+  whtAmount: { type: Number, default: 0 },
+  netPayableAmount: { type: Number, default: 0 },
 
   // Milestone link (optional — manual invoices have no milestone)
   milestoneId: { type: mongoose.Schema.Types.ObjectId, default: null },

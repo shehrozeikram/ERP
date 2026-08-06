@@ -16,7 +16,7 @@ import {
   ExpandLess, ExpandMore, FiberManualRecord as DotIcon, Flag as FlagIcon,
   PhotoCamera as PhotoIcon, Refresh as RefreshIcon, Search as SearchIcon,
   Warning as WarnIcon, ShoppingCart as POIcon, Receipt as InvoiceIcon,
-  Visibility as ViewIcon
+  Visibility as ViewIcon, Engineering as ContractorIcon
 } from '@mui/icons-material';
 import { usePagination } from '../../hooks/usePagination';
 import TablePaginationWrapper from '../../components/TablePaginationWrapper';
@@ -25,8 +25,9 @@ import dayjs from 'dayjs';
 import { getImageUrl } from '../../utils/imageService';
 import {
   getProjectById, updateProject, updateBudgetStatus,
+  getBOQHeaders, createBOQHeader, updateBOQHeader, deleteBOQHeader, allocateBOQItem,
   getBOQ, addBOQItem, updateBOQItem, deleteBOQItem,
-  updateBoqDiscount,
+  updateBoqDiscount, batchAssignBOQContractor, getSuppliers,
   getTasks, createTask, updateTask, deleteTask,
   getExpenses, addExpense, updateExpense, deleteExpense,
   getDPRList, submitDPR, deleteDPR,
@@ -112,7 +113,7 @@ const BOQTab = ({ projectId, project }) => {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     title: '', description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '', discountAmount: '',
-    phase: 'General', category: '', specification: '', notes: ''
+    phase: 'General', category: '', specification: '', notes: '', contractor: '', contractorUnitPrice: '', boqHeader: ''
   });
 
   const [search, setSearch] = useState('');
@@ -120,9 +121,31 @@ const BOQTab = ({ projectId, project }) => {
   const [phaseFilter, setPhaseFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
 
+  // BOQ Document Header Containers state
+  const [boqHeaders, setBoqHeaders] = useState([]);
+  const [activeBoqHeaderId, setActiveBoqHeaderId] = useState('');
+  const [createHeaderOpen, setCreateHeaderOpen] = useState(false);
+  const [headerForm, setHeaderForm] = useState({ title: '', description: '', version: '1.0', notes: '' });
+  const [headerSaving, setHeaderSaving] = useState(false);
+
+  // Quantity Allocation state
+  const [allocateOpen, setAllocateOpen] = useState(false);
+  const [allocatingItem, setAllocatingItem] = useState(null);
+  const [allocForm, setAllocForm] = useState({ subProjectId: '', contractorId: '', allocatedQuantity: '', contractorUnitPrice: '', notes: '' });
+  const [allocSaving, setAllocSaving] = useState(false);
+
+  // Subcontractor & Sub-Project batch assignment state
+  const [subcontractors, setSubcontractors] = useState([]);
+  const [childProjects, setChildProjects] = useState([]);
+  const [batchAssignOpen, setBatchAssignOpen] = useState(false);
+  const [batchContractorId, setBatchContractorId] = useState('');
+  const [batchSubProjectId, setBatchSubProjectId] = useState('');
+  const [batchContractorUnitPrice, setBatchContractorUnitPrice] = useState('');
+  const [batchAssignSaving, setBatchAssignSaving] = useState(false);
+
   const pagination = usePagination({
     defaultRowsPerPage: 25,
-    resetDependencies: [searchDebounced, phaseFilter, categoryFilter]
+    resetDependencies: [searchDebounced, phaseFilter, categoryFilter, activeBoqHeaderId]
   });
 
   useEffect(() => {
@@ -151,20 +174,30 @@ const BOQTab = ({ projectId, project }) => {
         ...pagination.getApiParams(),
         ...(searchDebounced && { search: searchDebounced }),
         ...(phaseFilter && { phase: phaseFilter }),
-        ...(categoryFilter && { category: categoryFilter })
+        ...(categoryFilter && { category: categoryFilter }),
+        ...(activeBoqHeaderId && { boqHeaderId: activeBoqHeaderId })
       };
-      const [boqRes, posRes] = await Promise.all([
+      const [boqRes, headersRes, posRes, suppRes, projRes] = await Promise.all([
         getBOQ(projectId, params),
-        getProjectPurchaseOrders(projectId).catch(() => ({ data: { data: [] } }))
+        getBOQHeaders(projectId).catch(() => ({ data: { data: [] } })),
+        getProjectPurchaseOrders(projectId).catch(() => ({ data: { data: [] } })),
+        getSuppliers().catch(() => ({ data: { data: [] } })),
+        api.get('/project-management/projects', { params: { limit: 100 } }).catch(() => ({ data: { data: { projects: [] } } }))
       ]);
       setData(boqRes.data?.data ?? null);
+      setBoqHeaders(headersRes.data?.data || []);
       setWholeDiscount(String(boqRes.data?.data?.boqDiscountAmount ?? ''));
       pagination.setTotal(boqRes.data?.data?.pagination?.total || 0);
       setProjectPOs(posRes.data?.data || []);
+      setSubcontractors(suppRes.data?.data?.suppliers || suppRes.data?.data || []);
+
+      const allProjects = projRes.data?.data?.projects || projRes.data?.data || [];
+      const subProjs = allProjects.filter(p => String(p.parentProject?._id || p.parentProject) === String(projectId));
+      setChildProjects(subProjs);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load BOQ');
     } finally { setLoading(false); }
-  }, [projectId, pagination.page, pagination.rowsPerPage, searchDebounced, phaseFilter, categoryFilter]);
+  }, [projectId, pagination.page, pagination.rowsPerPage, searchDebounced, phaseFilter, categoryFilter, activeBoqHeaderId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -247,9 +280,70 @@ const BOQTab = ({ projectId, project }) => {
     } finally { setPoSaving(false); }
   };
 
+  const handleBatchAssign = async () => {
+    if (!batchContractorId && !batchSubProjectId) { setError('Please select a subcontractor or sub-project'); return; }
+    setBatchAssignSaving(true);
+    try {
+      await batchAssignBOQContractor(projectId, {
+        itemIds: Array.from(selectedItems.keys()),
+        contractorId: batchContractorId,
+        subProjectId: batchSubProjectId,
+        contractorUnitPrice: batchContractorUnitPrice
+      });
+      setSuccess(`${selectedItems.size} BOQ items assigned successfully`);
+      setBatchAssignOpen(false);
+      setSelectedItems(new Map());
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to assign contractor');
+    } finally { setBatchAssignSaving(false); }
+  };
+
+  const handleCreateHeader = async () => {
+    if (!headerForm.title) { setError('BOQ Document Title is required'); return; }
+    setHeaderSaving(true);
+    try {
+      const res = await createBOQHeader(projectId, headerForm);
+      setSuccess(`BOQ Document "${res.data?.data?.title}" created successfully`);
+      setCreateHeaderOpen(false);
+      setHeaderForm({ title: '', description: '', version: '1.0', notes: '' });
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to create BOQ document');
+    } finally { setHeaderSaving(false); }
+  };
+
+  const openAllocateModal = (item) => {
+    setAllocatingItem(item);
+    setAllocForm({
+      itemId: item._id,
+      subProjectId: item.subProject?._id || item.subProject || '',
+      contractorId: item.contractor?._id || item.contractor || '',
+      allocatedQuantity: item.estimatedQuantity || '',
+      contractorUnitPrice: item.contractorUnitPrice || item.estimatedUnitPrice || '',
+      notes: ''
+    });
+    setAllocateOpen(true);
+  };
+
+  const handleSaveAllocation = async () => {
+    if (!allocForm.allocatedQuantity || Number(allocForm.allocatedQuantity) <= 0) {
+      setError('Allocated quantity is required'); return;
+    }
+    setAllocSaving(true);
+    try {
+      await allocateBOQItem(projectId, allocForm);
+      setSuccess('Item quantity allocated to sub-project / contractor');
+      setAllocateOpen(false);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to allocate quantity');
+    } finally { setAllocSaving(false); }
+  };
+
   const openAdd = () => {
     setEditItem(null);
-    setForm({ title: '', description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '', discountAmount: '', phase: 'General', category: '', specification: '', notes: '' });
+    setForm({ title: '', description: '', unit: '', estimatedQuantity: '', estimatedUnitPrice: '', discountAmount: '', phase: 'General', category: '', specification: '', notes: '', contractor: '', contractorUnitPrice: '', boqHeader: activeBoqHeaderId });
     setDialogOpen(true);
   };
 
@@ -262,21 +356,30 @@ const BOQTab = ({ projectId, project }) => {
       discountAmount: (item.discountAmount && item.discountAmount > 0) ? item.discountAmount : '',
       phase: item.phase || 'General', category: item.category || '',
       specification: item.specification || '', notes: item.notes || '',
-      usedQuantity: item.usedQuantity || '', actualUnitPrice: item.actualUnitPrice || ''
+      usedQuantity: item.usedQuantity || '', actualUnitPrice: item.actualUnitPrice || '',
+      contractor: item.contractor?._id || item.contractor || '',
+      contractorUnitPrice: item.contractorUnitPrice || '',
+      boqHeader: item.boqHeader?._id || item.boqHeader || ''
     });
     setDialogOpen(true);
   };
 
   const handleSave = async () => {
-    if (!form.description) { setError('Description is required'); return; }
+    const desc = form.description || form.title;
+    if (!desc) { setError('Item Title / Description is required'); return; }
+    const payload = {
+      ...form,
+      title: form.title || desc,
+      description: desc
+    };
     setSaving(true); setError('');
     try {
       if (editItem) {
-        await updateBOQItem(projectId, editItem._id, { ...form });
+        await updateBOQItem(projectId, editItem._id, payload);
       } else {
-        await addBOQItem(projectId, { ...form });
+        await addBOQItem(projectId, payload);
       }
-      setSuccess(editItem ? 'Item updated' : 'Item added');
+      setSuccess(editItem ? 'Item updated' : 'BOQ Item added successfully');
       setDialogOpen(false);
       load();
     } catch (err) {
@@ -324,25 +427,109 @@ const BOQTab = ({ projectId, project }) => {
 
   const PO_STATUS_COLOR = { Draft: 'default', Approved: 'success', Ordered: 'primary', 'Partially Received': 'info', Received: 'success', Cancelled: 'error' };
 
+  const isSubProject = Boolean(project?.parentProject);
+
   return (
     <Box>
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 2 }}>{success}</Alert>}
+
+      {isSubProject && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <strong>Sub-Project Scope View:</strong> Master BOQ Documents are created and managed at the Main Portfolio Project level. Below are the specific BOQ item scope allocations assigned from the Main Portfolio Project to this Sub-Project.
+        </Alert>
+      )}
 
       <SectionHeader
         title={`Bill of Quantities${selectedItems.size ? ` — ${selectedItems.size} selected` : ''}`}
         action={
           <Stack direction="row" gap={1} flexWrap="wrap" justifyContent="flex-end">
             {selectedItems.size > 0 && (
-              <Button size="small" startIcon={<POIcon />} onClick={openCreatePO} variant="contained" color="secondary">
-                Create PO ({selectedItems.size})
-              </Button>
+              <>
+                <Button size="small" startIcon={<ContractorIcon />} onClick={() => { setBatchContractorId(''); setBatchContractorUnitPrice(''); setBatchAssignOpen(true); }} variant="contained" color="secondary">
+                  Assign Subcontractor ({selectedItems.size})
+                </Button>
+                <Button size="small" startIcon={<POIcon />} onClick={openCreatePO} variant="outlined" color="secondary">
+                  Create PO ({selectedItems.size})
+                </Button>
+              </>
             )}
             <Button size="small" startIcon={<RefreshIcon />} onClick={load} variant="outlined">Refresh</Button>
-            <Button size="small" startIcon={<AddIcon />} onClick={openAdd} variant="contained">Add Item</Button>
+            {!isSubProject && (
+              <Button size="small" startIcon={<AddIcon />} onClick={openAdd} variant="contained">Add Line Item</Button>
+            )}
           </Stack>
         }
       />
+
+      {/* BOQ Document Containers Dropdown Bar */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 2.5, borderRadius: 2, bgcolor: '#ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1.5}>
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+            <Typography variant="subtitle2" fontWeight={700} sx={{ color: 'text.primary', minWidth: 120 }}>
+              BOQ Document:
+            </Typography>
+            <FormControl size="small" sx={{ minWidth: 320 }}>
+              <Select
+                value={activeBoqHeaderId || ''}
+                displayEmpty
+                onChange={(e) => setActiveBoqHeaderId(e.target.value)}
+                sx={{ borderRadius: 1.5, fontWeight: activeBoqHeaderId ? 600 : 400, bgcolor: 'grey.50' }}
+              >
+                <MenuItem value="">
+                  <em>📁 All BOQ Documents (Master Project)</em>
+                </MenuItem>
+                {boqHeaders.map((h) => (
+                  <MenuItem key={h._id} value={h._id}>
+                    📄 {h.title} ({h.boqNumber || 'v1'})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {!isSubProject && (
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setCreateHeaderOpen(true)}
+                variant="outlined"
+                color="primary"
+                sx={{ borderRadius: 1.5 }}
+              >
+                New BOQ Document
+              </Button>
+            )}
+
+            {activeBoqHeaderId && !isSubProject && (
+              <IconButton
+                size="small"
+                color="error"
+                title="Delete Selected BOQ Document"
+                onClick={async () => {
+                  const targetHeader = boqHeaders.find(h => h._id === activeBoqHeaderId);
+                  if (window.confirm(`Delete BOQ Document "${targetHeader?.title}" and its linked line items?`)) {
+                    await deleteBOQHeader(projectId, activeBoqHeaderId);
+                    setSuccess('BOQ Document deleted');
+                    setActiveBoqHeaderId('');
+                    load();
+                  }
+                }}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Stack>
+
+          {activeBoqHeaderId && (() => {
+            const activeDoc = boqHeaders.find(h => h._id === activeBoqHeaderId);
+            return activeDoc ? (
+              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                Version: {activeDoc.version || '1.0'} {activeDoc.description ? `• ${activeDoc.description}` : ''}
+              </Typography>
+            ) : null;
+          })()}
+        </Stack>
+      </Paper>
 
       {data?.allItemsCount > 0 && (
         <>
@@ -448,9 +635,11 @@ const BOQTab = ({ projectId, project }) => {
                 <TableCell><strong>Title</strong></TableCell>
                 <TableCell><strong>Phase</strong></TableCell>
                 <TableCell><strong>Category</strong></TableCell>
+                <TableCell><strong>Subcontractor</strong></TableCell>
                 <TableCell><strong>Description</strong></TableCell>
                 <TableCell><strong>Unit</strong></TableCell>
                 <TableCell align="right"><strong>Est. Qty</strong></TableCell>
+                <TableCell align="right"><strong>Allocated / Rem.</strong></TableCell>
                 <TableCell align="right"><strong>Est. Price</strong></TableCell>
                 <TableCell align="right"><strong>Gross</strong></TableCell>
                 <TableCell align="right"><strong>Discount</strong></TableCell>
@@ -489,6 +678,21 @@ const BOQTab = ({ projectId, project }) => {
                       : '—'}
                   </TableCell>
                   <TableCell>
+                    {item.contractor || item.subProject ? (
+                      <Stack spacing={0.5}>
+                        {item.contractor && <Chip label={item.contractor.name || 'Subcontractor'} size="small" color="info" variant="outlined" />}
+                        {item.subProject && <Chip label={`Sub-Proj: ${item.subProject.name || item.subProject.projectNumber}`} size="small" color="primary" variant="outlined" />}
+                        {item.contractorUnitPrice > 0 && (
+                          <Typography variant="caption" color="text.secondary">
+                            Rate: {fmt(item.contractorUnitPrice)}
+                          </Typography>
+                        )}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">Unassigned</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Typography variant="body2">{item.description}</Typography>
                     {item.specification && <Typography variant="caption" color="text.secondary">{item.specification}</Typography>}
                     {item.linkedPurchaseOrders?.length > 0 && (
@@ -497,6 +701,27 @@ const BOQTab = ({ projectId, project }) => {
                   </TableCell>
                   <TableCell>{item.unit}</TableCell>
                   <TableCell align="right">{item.estimatedQuantity?.toLocaleString()}</TableCell>
+                  <TableCell align="right">
+                    {(() => {
+                      const masterQty = Number(item.estimatedQuantity) || 0;
+                      const allocQty = (item.allocations || []).reduce((s, a) => s + (Number(a.allocatedQuantity) || 0), 0);
+                      const remaining = Math.max(0, masterQty - allocQty);
+                      return (
+                        <Stack spacing={0.2} alignItems="flex-end">
+                          <Typography variant="body2" fontWeight={600} color={allocQty > 0 ? 'primary.main' : 'text.secondary'}>
+                            {allocQty.toLocaleString()} / {masterQty.toLocaleString()}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={remaining > 0 ? `${remaining.toLocaleString()} ${item.unit} Rem.` : 'Fully Allocated'}
+                            color={remaining > 0 ? (allocQty > 0 ? 'info' : 'success') : 'default'}
+                            variant="outlined"
+                            sx={{ height: 18, fontSize: '0.65rem' }}
+                          />
+                        </Stack>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell align="right">{fmt(item.estimatedUnitPrice)}</TableCell>
                   <TableCell align="right">{fmt(boqEstTotal(item))}</TableCell>
                   <TableCell align="right">
@@ -540,6 +765,11 @@ const BOQTab = ({ projectId, project }) => {
                   </TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                      <Tooltip title="Allocate Quantity to Sub-Project / Contractor">
+                        <IconButton size="small" color="secondary" onClick={() => openAllocateModal(item)}>
+                          <ContractorIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="View Details">
                         <IconButton size="small" onClick={() => setViewItem(item)}>
                           <ViewIcon fontSize="small" />
@@ -644,6 +874,31 @@ const BOQTab = ({ projectId, project }) => {
                 </Select>
               </FormControl>
             </Grid>
+
+            {boqHeaders.length > 0 && (
+              <Grid item xs={12}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>BOQ Document Container</InputLabel>
+                  <Select value={form.boqHeader || ''} label="BOQ Document Container" onChange={set('boqHeader')}>
+                    <MenuItem value="">-- General Master BOQ --</MenuItem>
+                    {boqHeaders.map(h => <MenuItem key={h._id} value={h._id}>{h.title} ({h.boqNumber || 'v1'})</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+
+            <Grid item xs={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Assigned Subcontractor</InputLabel>
+                <Select value={form.contractor || ''} label="Assigned Subcontractor" onChange={set('contractor')}>
+                  <MenuItem value="">Unassigned</MenuItem>
+                  {subcontractors.map(s => <MenuItem key={s._id} value={s._id}>{s.name} ({s.vendorType || 'Supplier'})</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth size="small" label="Contractor Agreed Rate (PKR)" type="number" value={form.contractorUnitPrice || ''} onChange={set('contractorUnitPrice')} inputProps={{ min: 0 }} />
+            </Grid>
             <Grid item xs={4}>
               <TextField fullWidth label="Unit" required value={form.unit} onChange={set('unit')} placeholder="Bags, Kg, Sq Ft…" />
             </Grid>
@@ -686,6 +941,244 @@ const BOQTab = ({ projectId, project }) => {
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : editItem ? 'Update' : 'Add Item'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create New BOQ Document Header Dialog */}
+      <Dialog open={createHeaderOpen} onClose={() => setCreateHeaderOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Create New BOQ Document</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth required label="BOQ Document Title"
+                placeholder="e.g. Civil Works BOQ, MEP BOQ, Substructure v1"
+                value={headerForm.title}
+                onChange={e => setHeaderForm(p => ({ ...p, title: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth label="Version"
+                value={headerForm.version}
+                onChange={e => setHeaderForm(p => ({ ...p, version: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth label="Description / Scope Summary"
+                multiline rows={2}
+                value={headerForm.description}
+                onChange={e => setHeaderForm(p => ({ ...p, description: e.target.value }))}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateHeaderOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateHeader} disabled={headerSaving}>
+            {headerSaving ? 'Creating…' : 'Create BOQ Document'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Quantity Allocation Dialog */}
+      <Dialog open={allocateOpen} onClose={() => setAllocateOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Allocate Quantity to Sub-Project / Subcontractor</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {allocatingItem && (() => {
+            const masterQty = Number(allocatingItem.estimatedQuantity) || 0;
+            const allocTotal = (allocatingItem.allocations || []).reduce((s, a) => s + (Number(a.allocatedQuantity) || 0), 0);
+            const remaining = Math.max(0, masterQty - allocTotal);
+            return (
+              <Box sx={{ mb: 2.5 }}>
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                    Item: {allocatingItem.title || allocatingItem.description}
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={4}>
+                      <Typography variant="caption" color="text.secondary">Master Quantity</Typography>
+                      <Typography variant="body1" fontWeight={700}>{masterQty.toLocaleString()} {allocatingItem.unit}</Typography>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Typography variant="caption" color="text.secondary">Allocated Quantity</Typography>
+                      <Typography variant="body1" fontWeight={700} color="primary.main">{allocTotal.toLocaleString()} {allocatingItem.unit}</Typography>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Typography variant="caption" color="text.secondary">Remaining Unallocated</Typography>
+                      <Typography variant="body1" fontWeight={700} color={remaining > 0 ? 'success.main' : 'error.main'}>
+                        {remaining.toLocaleString()} {allocatingItem.unit}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                </Paper>
+
+                {/* Existing Allocations Table */}
+                {(allocatingItem.allocations || []).length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Existing Allocations ({allocatingItem.allocations.length})
+                    </Typography>
+                    <Paper variant="outlined" sx={{ mt: 1, maxHeight: 160, overflowY: 'auto' }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: 'grey.100' }}>
+                            <TableCell>Sub-Project</TableCell>
+                            <TableCell>Contractor</TableCell>
+                            <TableCell align="right">Qty ({allocatingItem.unit})</TableCell>
+                            <TableCell align="right">Rate (PKR)</TableCell>
+                            <TableCell align="right">Action</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {allocatingItem.allocations.map((alloc) => (
+                            <TableRow key={alloc._id}>
+                              <TableCell>{alloc.subProject?.name || alloc.subProject?.projectNumber || 'All / Main'}</TableCell>
+                              <TableCell>{alloc.contractor?.name || '—'}</TableCell>
+                              <TableCell align="right"><strong>{alloc.allocatedQuantity?.toLocaleString()}</strong></TableCell>
+                              <TableCell align="right">{fmt(alloc.contractorUnitPrice)}</TableCell>
+                              <TableCell align="right">
+                                <IconButton
+                                  size="small" color="error"
+                                  title="Remove Allocation"
+                                  onClick={async () => {
+                                    if (window.confirm('Remove this allocation?')) {
+                                      try {
+                                        await api.delete(`/project-management/projects/${projectId}/boq/allocate/${allocatingItem._id}/${alloc._id}`);
+                                        setSuccess('Allocation removed');
+                                        setAllocateOpen(false);
+                                        load();
+                                      } catch (err) {
+                                        setError(err.response?.data?.message || 'Failed to remove allocation');
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </Paper>
+                  </Box>
+                )}
+              </Box>
+            );
+          })()}
+
+          <Grid container spacing={2}>
+            {childProjects.length > 0 && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Target Sub-Project</InputLabel>
+                  <Select
+                    value={allocForm.subProjectId}
+                    label="Target Sub-Project"
+                    onChange={e => setAllocForm(p => ({ ...p, subProjectId: e.target.value }))}
+                  >
+                    <MenuItem value="">-- All / Main Project --</MenuItem>
+                    {childProjects.map(p => <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            <Grid item xs={12} sm={childProjects.length > 0 ? 6 : 12}>
+              <FormControl fullWidth>
+                <InputLabel>Assigned Subcontractor</InputLabel>
+                <Select
+                  value={allocForm.contractorId}
+                  label="Assigned Subcontractor"
+                  onChange={e => setAllocForm(p => ({ ...p, contractorId: e.target.value }))}
+                >
+                  <MenuItem value="">-- Select Subcontractor --</MenuItem>
+                  {subcontractors.map(s => <MenuItem key={s._id} value={s._id}>{s.name}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth required type="number"
+                label={`Allocated Quantity (${allocatingItem?.unit || ''})`}
+                value={allocForm.allocatedQuantity}
+                onChange={e => setAllocForm(p => ({ ...p, allocatedQuantity: e.target.value }))}
+                inputProps={{ min: 0, max: allocatingItem ? Math.max(0, (allocatingItem.estimatedQuantity || 0) - (allocatingItem.allocations || []).reduce((s, a) => s + (a.allocatedQuantity || 0), 0)) : undefined }}
+                helperText={allocatingItem ? `Max Available: ${Math.max(0, (allocatingItem.estimatedQuantity || 0) - (allocatingItem.allocations || []).reduce((s, a) => s + (a.allocatedQuantity || 0), 0)).toLocaleString()} ${allocatingItem.unit}` : ''}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth type="number"
+                label="Contractor Agreed Rate (PKR)"
+                value={allocForm.contractorUnitPrice}
+                onChange={e => setAllocForm(p => ({ ...p, contractorUnitPrice: e.target.value }))}
+                inputProps={{ min: 0 }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth label="Allocation Notes"
+                value={allocForm.notes}
+                onChange={e => setAllocForm(p => ({ ...p, notes: e.target.value }))}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAllocateOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="secondary" onClick={handleSaveAllocation} disabled={allocSaving}>
+            {allocSaving ? 'Allocating…' : 'Save Allocation'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Batch Assign Subcontractor & Sub-Project Dialog */}
+      <Dialog open={batchAssignOpen} onClose={() => setBatchAssignOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Assign Subcontractor & Sub-Project ({selectedItems.size} BOQ Items)</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Select Subcontractor</InputLabel>
+                <Select value={batchContractorId} label="Select Subcontractor" onChange={e => setBatchContractorId(e.target.value)}>
+                  <MenuItem value="">-- Unassigned --</MenuItem>
+                  {subcontractors.map(s => <MenuItem key={s._id} value={s._id}>{s.name} ({s.vendorType || 'Supplier'})</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Grid>
+            {childProjects.length > 0 && (
+              <Grid item xs={12}>
+                <FormControl fullWidth>
+                  <InputLabel>Assign to Sub-Project</InputLabel>
+                  <Select value={batchSubProjectId} label="Assign to Sub-Project" onChange={e => setBatchSubProjectId(e.target.value)}>
+                    <MenuItem value="">-- All Sub-Projects --</MenuItem>
+                    {childProjects.map(p => <MenuItem key={p._id} value={p._id}>{p.name} ({p.projectNumber || 'Sub-Project'})</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Contractor Agreed Rate (PKR) [Optional]"
+                type="number"
+                value={batchContractorUnitPrice}
+                onChange={e => setBatchContractorUnitPrice(e.target.value)}
+                helperText="Leave empty to keep existing BOQ unit price"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBatchAssignOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="secondary" onClick={handleBatchAssign} disabled={batchAssignSaving}>
+            {batchAssignSaving ? 'Assigning…' : 'Confirm Assignment'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -837,16 +1330,18 @@ const BOQTab = ({ projectId, project }) => {
               
               <Grid container spacing={2}>
                 <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Phase</Typography>
+                  <Typography variant="caption" color="text.secondary">BOQ Document Container</Typography>
+                  <Typography variant="body2" fontWeight={600} color="primary.main">
+                    📄 {viewItem.boqHeader?.title || boqHeaders.find(h => h._id === (viewItem.boqHeader?._id || viewItem.boqHeader))?.title || 'General Master BOQ'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Phase / Work Package</Typography>
                   <Typography variant="body2" fontWeight={500}>{viewItem.phase || 'General'}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">Category</Typography>
                   <Typography variant="body2" fontWeight={500}>{viewItem.category || '—'}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">CBS Classification</Typography>
-                  <Typography variant="body2" fontWeight={500} color="secondary.main">{viewItem.cbsCategory || 'Materials'}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">Unit of Measure</Typography>
@@ -871,6 +1366,79 @@ const BOQTab = ({ projectId, project }) => {
                   </Typography>
                 </Box>
               )}
+
+              <Divider />
+
+              {/* Scope Allocations Breakdown */}
+              <Box>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                  Sub-Project & Subcontractor Quantity Allocations
+                </Typography>
+                {(() => {
+                  const masterQty = Number(viewItem.estimatedQuantity) || 0;
+                  const allocations = viewItem.allocations || [];
+                  const allocTotal = allocations.reduce((s, a) => s + (Number(a.allocatedQuantity) || 0), 0);
+                  const remaining = Math.max(0, masterQty - allocTotal);
+
+                  return (
+                    <Stack spacing={1.5}>
+                      <Grid container spacing={2} sx={{ bgcolor: 'grey.50', p: 1.5, borderRadius: 1.5 }}>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">Authorized Master Qty</Typography>
+                          <Typography variant="body2" fontWeight={700}>{masterQty.toLocaleString()} {viewItem.unit}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">Total Allocated Qty</Typography>
+                          <Typography variant="body2" fontWeight={700} color="primary.main">{allocTotal.toLocaleString()} {viewItem.unit}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">Remaining Unallocated</Typography>
+                          <Typography variant="body2" fontWeight={700} color={remaining > 0 ? 'success.main' : 'error.main'}>
+                            {remaining.toLocaleString()} {viewItem.unit}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+
+                      {allocations.length > 0 ? (
+                        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1.5 }}>
+                          <Table size="small">
+                            <TableHead sx={{ bgcolor: 'grey.100' }}>
+                              <TableRow>
+                                <TableCell><strong>Sub-Project</strong></TableCell>
+                                <TableCell><strong>Subcontractor</strong></TableCell>
+                                <TableCell align="right"><strong>Allocated Qty</strong></TableCell>
+                                <TableCell align="right"><strong>Agreed Rate</strong></TableCell>
+                                <TableCell align="right"><strong>Total Cost</strong></TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {allocations.map((alloc, idx) => {
+                                const q = Number(alloc.allocatedQuantity) || 0;
+                                const rate = Number(alloc.contractorUnitPrice) || Number(viewItem.estimatedUnitPrice) || 0;
+                                return (
+                                  <TableRow key={alloc._id || idx}>
+                                    <TableCell>{alloc.subProject?.name || alloc.subProject?.projectNumber || 'Main Portfolio'}</TableCell>
+                                    <TableCell>{alloc.contractor?.name || viewItem.contractor?.name || 'Unassigned'}</TableCell>
+                                    <TableCell align="right">
+                                      <strong>{q.toLocaleString()}</strong> {viewItem.unit}
+                                    </TableCell>
+                                    <TableCell align="right">{fmt(rate)}</TableCell>
+                                    <TableCell align="right"><strong>{fmt(q * rate)}</strong></TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', pl: 1 }}>
+                          No sub-project or contractor allocations assigned yet.
+                        </Typography>
+                      )}
+                    </Stack>
+                  );
+                })()}
+              </Box>
 
               <Divider />
 

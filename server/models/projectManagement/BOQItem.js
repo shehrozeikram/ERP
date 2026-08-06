@@ -46,6 +46,27 @@ const boqItemSchema = new mongoose.Schema({
   // Links to purchase orders
   linkedPurchaseOrders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder' }],
 
+  // BOQ Document Container Header
+  boqHeader: { type: mongoose.Schema.Types.ObjectId, ref: 'ProjectBOQ', default: null, index: true },
+
+  // Subcontractor / Contractor Assignment & Billing
+  contractor: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', default: null, index: true },
+  subProject: { type: mongoose.Schema.Types.ObjectId, ref: 'ConstructionProject', default: null, index: true },
+  contractorUnitPrice: { type: Number, default: 0, min: 0 },
+  contractorBilledQuantity: { type: Number, default: 0 },
+  contractorBilledAmount: { type: Number, default: 0 },
+
+  // Multi Sub-Project & Subcontractor Quantity Allocations
+  allocations: [{
+    subProject: { type: mongoose.Schema.Types.ObjectId, ref: 'ConstructionProject', index: true },
+    contractor: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', index: true },
+    allocatedQuantity: { type: Number, default: 0, min: 0 },
+    contractorUnitPrice: { type: Number, default: 0, min: 0 },
+    billedQuantity: { type: Number, default: 0 },
+    billedAmount: { type: Number, default: 0 },
+    notes: { type: String, trim: true }
+  }],
+
   notes: { type: String, trim: true },
   orderIndex: { type: Number, default: 0 },
 

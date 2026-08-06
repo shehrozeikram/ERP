@@ -88,24 +88,17 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
   const budgetVsActualBarData = (subUnitBreakdown || []).map((u) => ({
     name: u.name.length > 10 ? `${u.name.substring(0, 10)}…` : u.name,
     budget: u.estimatedBudget || 0,
-    spent: Math.round((u.estimatedBudget * (u.completionPercentage || 20)) / 100)
+    spent: u.actualCost || Math.round((u.estimatedBudget * (u.completionPercentage || 0)) / 100)
   }));
 
-  const sCurveData = [
-    { month: 'Month 1', planned: 10, actual: 8 },
-    { month: 'Month 2', planned: 25, actual: 22 },
-    { month: 'Month 3', planned: 45, actual: summaryMetrics.masterOverallProgress || 40 },
-    { month: 'Month 4', planned: 70, actual: null },
-    { month: 'Month 5', planned: 90, actual: null },
-    { month: 'Month 6', planned: 100, actual: null }
+  const sCurveData = data.sCurveData && data.sCurveData.length > 0 ? data.sCurveData : [
+    { month: 'Start', planned: 0, actual: 0 },
+    { month: 'Current', planned: summaryMetrics.masterOverallProgress || 0, actual: summaryMetrics.masterOverallProgress || 0 }
   ];
 
-  const cashFlowTrendData = [
-    { month: 'Jul', cashOutflow: summaryMetrics.grnTotalSpent * 0.2 },
-    { month: 'Aug', cashOutflow: summaryMetrics.grnTotalSpent * 0.5 },
-    { month: 'Sep', cashOutflow: summaryMetrics.grnTotalSpent * 0.8 },
-    { month: 'Oct (FC)', cashOutflow: summaryMetrics.cashDemandForecast30Days || 5000000 },
-    { month: 'Nov (FC)', cashOutflow: (summaryMetrics.cashDemandForecast30Days || 5000000) * 1.2 }
+  const cashFlowTrendData = data.cashFlowTrendData && data.cashFlowTrendData.length > 0 ? data.cashFlowTrendData : [
+    { month: 'Spent', cashOutflow: summaryMetrics.grandActualCost || summaryMetrics.grnTotalSpent || 0 },
+    { month: '30-Day Forecast', cashOutflow: summaryMetrics.cashDemandForecast30Days || 0 }
   ];
 
   return (
@@ -352,8 +345,12 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
                   >
                     <Box
                       component="img"
-                      src={photo.url}
+                      src={photo.url || 'https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?w=600&auto=format&fit=crop&q=80'}
                       alt={photo.caption}
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = 'https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?w=600&auto=format&fit=crop&q=80';
+                      }}
                       sx={{ width: '100%', height: 130, objectFit: 'cover', borderBottom: '1px solid', borderColor: 'divider' }}
                     />
                     <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
