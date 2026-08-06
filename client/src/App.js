@@ -247,6 +247,8 @@ import Payments from './pages/General/Payments';
 import ProjectManagement from './pages/General/ProjectManagement';
 import ProjectDetail from './pages/General/ProjectDetail';
 import ProjectWorkspaceRedirect from './pages/General/ProjectWorkspaceRedirect';
+import ServerMonitor from './pages/Developer/ServerMonitor';
+import FinancialsDashboard from './pages/Developer/FinancialsDashboard';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
@@ -810,6 +812,16 @@ function App() {
             <Route
               path="/general/project-management/:id"
               element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>}
+            />
+
+            {/* Developer Module Routes */}
+            <Route
+              path="/developer/server-monitor"
+              element={<ProtectedRoute requiredRole={["super_admin", "developer"]}><ServerMonitor /></ProtectedRoute>}
+            />
+            <Route
+              path="/developer/financials"
+              element={<ProtectedRoute requiredRole={["super_admin", "developer"]}><FinancialsDashboard /></ProtectedRoute>}
             />
 
             {/* Loan Management Routes */}

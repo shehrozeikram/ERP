@@ -143,6 +143,7 @@ const indentsRoutes = require('./routes/indents');
 const storesRoutes = require('./routes/stores');
 const projectManagementRoutes = require('./routes/projectManagement');
 const userTrackingRoutes = require('./routes/userTracking');
+const developerRoutes = require('./routes/developer');
 const activityLogger = require('./middleware/activityLogger');
 // Finance integration — new modules
 const financeJournalsRoutes = require('./routes/financeJournals');
@@ -733,6 +734,7 @@ app.use('/api/kpi', authMiddleware, activityLogger, require('./routes/kpi'));
 app.use('/api/items', authMiddleware, activityLogger, require('./routes/items'));
 app.use('/api/evaluation-level0-authorities', authMiddleware, activityLogger, evaluationLevel0AuthoritiesRoutes);
 app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activityLogger to tracking routes to avoid recursion
+app.use('/api/developer', authMiddleware, developerRoutes);
 // Public evaluation documents route (token-based access)
 app.use('/api/public/evaluation-documents', require('./routes/publicEvaluationDocuments'));
 

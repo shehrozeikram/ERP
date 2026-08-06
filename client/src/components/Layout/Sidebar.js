@@ -39,7 +39,8 @@ import {
   Description,
   Folder,
   QrCode2 as QrCodeIcon,
-  Chat as ChatIcon
+  Chat as ChatIcon,
+  DeveloperMode as DeveloperModeIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -77,7 +78,8 @@ const iconMap = {
   LocationCity: <LocationCity />,
   Description: <Description />,
   Folder: <Folder />,
-  QrCode: <QrCodeIcon />
+  QrCode: <QrCodeIcon />,
+  DeveloperMode: <DeveloperModeIcon />
 };
   return iconMap[iconName] || <Dashboard />;
 };
@@ -347,7 +349,11 @@ const Sidebar = () => {
       '/taj-residencia/land-purchase': 'land_purchase',
       '/taj-residencia/land-transfers': 'land_transfer',
       '/taj-residencia/land-acquisition/dashboard': 'land_acquisition_reports',
-      '/taj-residencia/land-acquisition/reports': 'land_acquisition_reports'
+      '/taj-residencia/land-acquisition/reports': 'land_acquisition_reports',
+
+      // Developer Module
+      '/developer/server-monitor': 'server_monitor',
+      '/developer/financials': 'developer_financials'
     };
     return pathToSubmoduleMap[path];
   };
@@ -374,7 +380,8 @@ const Sidebar = () => {
       '/documents-tracking': 'general',
       '/indents': 'general',
       '/user-tracking': 'general',
-      '/ceo-secretariat': 'general'
+      '/ceo-secretariat': 'general',
+      '/developer': 'developer_module'
     };
     
     return pathToModuleMap[path] || parts[0];

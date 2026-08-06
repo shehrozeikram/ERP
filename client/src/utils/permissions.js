@@ -35,7 +35,8 @@ export const MODULE_KEYS = {
   TAJ_RESIDENCIA: 'taj_residencia',
   GENERAL: 'general',
   ADMIN: 'admin',
-  ASSET_TAGGING: 'asset_tagging'
+  ASSET_TAGGING: 'asset_tagging',
+  DEVELOPER_MODULE: 'developer_module'
 };
 
 // Role-based Module Access (matching server config)
@@ -57,8 +58,9 @@ export const PERMISSIONS = {
   [ROLES.DEVELOPER]: {
     canAccessAll: false,
     modules: [
-      ...Object.values(MODULE_KEYS).filter((m) => m !== MODULE_KEYS.FINANCE),
-      MODULE_KEYS.FINANCE
+      ...Object.values(MODULE_KEYS).filter((m) => m !== MODULE_KEYS.FINANCE && m !== MODULE_KEYS.DEVELOPER_MODULE),
+      MODULE_KEYS.FINANCE,
+      MODULE_KEYS.DEVELOPER_MODULE
     ],
     description:
       'Full system access except core Finance, CEO Secretariat, and Finance API; includes Taj Utilities & Charges and Recovery (developer / Tovus)'
@@ -1092,6 +1094,18 @@ export const MODULES = {
         ]
       }
     ]
+  },
+
+  developer_module: {
+    name: 'Developer',
+    path: '/developer',
+    icon: 'DeveloperMode',
+    description: 'Server monitoring and ERP financial value reporting (superuser & developer only)',
+    roles: ['super_admin', 'developer'],
+    subItems: [
+      { name: 'Server Monitor', path: '/developer/server-monitor' },
+      { name: 'Financial Dashboard', path: '/developer/financials' }
+    ]
   }
 };
 
@@ -1322,6 +1336,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
     if (pathToCheck.startsWith('/documents-tracking')) return 'general';
     if (pathToCheck.startsWith('/general')) return 'general';
     if (pathToCheck.startsWith('/asset-tagging')) return 'asset_tagging';
+    if (pathToCheck.startsWith('/developer')) return 'developer_module';
     return null;
   };
   
