@@ -1524,9 +1524,25 @@ router.post('/import',
       }
     }
 
-    // Bulk save updated LeaveBalances
+    // Bulk save updated LeaveBalances with duplicate key safety
     for (const balDoc of balancesToSave.values()) {
-      await balDoc.save();
+      try {
+        await balDoc.save();
+      } catch (saveErr) {
+        if (saveErr.code === 11000) {
+          // If duplicate key error, find existing and update fields
+          const existing = await LeaveBalance.findOne({
+            employee: balDoc.employee,
+            $or: [{ year: balDoc.year }, { workYear: balDoc.workYear }]
+          });
+          if (existing) {
+            existing.annual.used = (existing.annual.used || 0) + balDoc.annual.used;
+            existing.sick.used = (existing.sick.used || 0) + balDoc.sick.used;
+            existing.casual.used = (existing.casual.used || 0) + balDoc.casual.used;
+            await existing.save();
+          }
+        }
+      }
     }
 
     return res.json({
