@@ -198,7 +198,8 @@ const leaveService = {
       const response = await api.post('/leaves/import', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        timeout: 600000 // 10 minutes timeout for bulk 7,000+ row processing
       });
       return response.data;
     } catch (error) {

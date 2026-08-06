@@ -1342,12 +1342,29 @@ router.post('/import',
       return newType;
     };
 
+    // Pre-fetch all existing LeaveRequests for duplicate checking in 1 query
+    const existingLeaveRequests = await LeaveRequest.find({}, 'employee startDate leaveType').lean();
+    const existingSet = new Set(
+      existingLeaveRequests.map(r => `${r.employee.toString()}_${new Date(r.startDate).toISOString().slice(0,10)}_${r.leaveType.toString()}`)
+    );
+
+    // Pre-fetch all existing LeaveBalances into an in-memory Map
+    const existingBalances = await LeaveBalance.find({});
+    const balanceMap = new Map();
+    existingBalances.forEach(b => {
+      balanceMap.set(`${b.employee.toString()}_${b.year}`, b);
+      balanceMap.set(`${b.employee.toString()}_wy_${b.workYear}`, b);
+    });
+
+    const leaveRequestsToInsert = [];
+    const balancesToSave = new Map();
+
     let importedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
     const errors = [];
 
-    // Process each row
+    // Process each row in memory
     for (let index = 0; index < rawData.length; index++) {
       const row = rawData[index];
       const rowNum = index + 2;
@@ -1399,7 +1416,7 @@ router.post('/import',
         const joinDateObj = new Date(employee.joiningDate || employee.hireDate || employee.createdAt || '2023-01-01');
         const startYear = Math.max(2020, startDate.getFullYear());
 
-        // Determine workYear index (0 = 1st work year, 1 = 2nd work year)
+        // Determine workYear index
         let workYearIndex = startYear - joinDateObj.getFullYear();
         const anniversaryThisYear = new Date(startYear, joinDateObj.getMonth(), joinDateObj.getDate());
         if (startDate < anniversaryThisYear) {
@@ -1410,20 +1427,17 @@ router.post('/import',
         // Get Leave Type
         const leaveType = await getOrCreateLeaveType(payCodeInput);
 
-        // Check for existing duplicate leave request
-        const existingRequest = await LeaveRequest.findOne({
-          employee: employee._id,
-          startDate: { $gte: new Date(startDate.setHours(0,0,0,0)), $lte: new Date(startDate.setHours(23,59,59,999)) },
-          leaveType: leaveType._id
-        });
-
-        if (existingRequest) {
+        // Fast duplicate check via Set
+        const dateKey = startDate.toISOString().slice(0,10);
+        const dupKey = `${employee._id.toString()}_${dateKey}_${leaveType._id.toString()}`;
+        if (existingSet.has(dupKey)) {
           skippedCount++;
           continue;
         }
+        existingSet.add(dupKey);
 
-        // Create approved LeaveRequest record
-        await LeaveRequest.create({
+        // Stage LeaveRequest for bulk insert
+        leaveRequestsToInsert.push({
           employee: employee._id,
           leaveType: leaveType._id,
           startDate: startDate,
@@ -1440,14 +1454,9 @@ router.post('/import',
           approvalComments: 'Imported from Excel Leave File'
         });
 
-        // Deduct/sync from LeaveBalance for employee & workYearIndex / calendar year startYear
-        let balance = await LeaveBalance.findOne({
-          employee: employee._id,
-          $or: [
-            { year: startYear },
-            { workYear: workYearIndex }
-          ]
-        });
+        // Stage LeaveBalance update in memory map
+        const balKey = `${employee._id.toString()}_${startYear}`;
+        let balance = balancesToSave.get(balKey) || balanceMap.get(balKey) || balanceMap.get(`${employee._id.toString()}_wy_${workYearIndex}`);
 
         if (!balance) {
           balance = new LeaveBalance({
@@ -1458,7 +1467,9 @@ router.post('/import',
             sick: { allocated: 10, used: 0, remaining: 10 },
             casual: { allocated: 10, used: 0, remaining: 10 }
           });
+          balanceMap.set(balKey, balance);
         }
+
         const codeKey = (leaveType.code || '').toLowerCase();
         if (codeKey.includes('annual') || codeKey.includes('al')) {
           balance.annual.used = (balance.annual.used || 0) + totalDays;
@@ -1470,7 +1481,7 @@ router.post('/import',
           balance.casual.used = (balance.casual.used || 0) + totalDays;
           balance.casual.remaining = Math.max(0, (balance.casual.allocated || 10) - balance.casual.used);
         }
-        await balance.save();
+        balancesToSave.set(balKey, balance);
 
         importedCount++;
       } catch (rowErr) {
@@ -1479,6 +1490,20 @@ router.post('/import',
           errors.push(`Row ${rowNum}: ${rowErr.message}`);
         }
       }
+    }
+
+    // Bulk insert LeaveRequests in batches of 1000
+    if (leaveRequestsToInsert.length > 0) {
+      const BATCH_SIZE = 1000;
+      for (let i = 0; i < leaveRequestsToInsert.length; i += BATCH_SIZE) {
+        const batch = leaveRequestsToInsert.slice(i, i + BATCH_SIZE);
+        await LeaveRequest.insertMany(batch, { ordered: false });
+      }
+    }
+
+    // Bulk save updated LeaveBalances
+    for (const balDoc of balancesToSave.values()) {
+      await balDoc.save();
     }
 
     return res.json({
