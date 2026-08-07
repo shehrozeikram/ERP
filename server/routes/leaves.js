@@ -217,14 +217,18 @@ router.get('/employees/balances',
         const casualAllocated = balance?.casual?.allocated ?? (typeof employee.leaveBalance?.casual === 'object' ? employee.leaveBalance?.casual?.allocated : null) ?? casualLimit;
         const sickAllocated = balance?.sick?.allocated ?? (typeof employee.leaveBalance?.sick === 'object' ? employee.leaveBalance?.sick?.allocated : null) ?? sickLimit;
 
+        const annualCarriedForward = balance?.annual?.carriedForward ?? (typeof employee.leaveBalance?.annual === 'object' ? employee.leaveBalance?.annual?.carriedForward : 0) ?? 0;
+        const casualCarriedForward = balance?.casual?.carriedForward ?? (typeof employee.leaveBalance?.casual === 'object' ? employee.leaveBalance?.casual?.carriedForward : 0) ?? 0;
+        const sickCarriedForward = balance?.sick?.carriedForward ?? (typeof employee.leaveBalance?.sick === 'object' ? employee.leaveBalance?.sick?.carriedForward : 0) ?? 0;
+
         const annualUsed = balance?.annual?.used ?? usage.annual;
         const casualUsed = balance?.casual?.used ?? usage.casual;
         const sickUsed = balance?.sick?.used ?? usage.sick;
         const medicalUsed = balance?.medical?.used ?? usage.medical;
 
-        const annualRemaining = Math.max(0, annualAllocated - annualUsed);
-        const casualRemaining = Math.max(0, casualAllocated - casualUsed);
-        const sickRemaining = Math.max(0, sickAllocated - sickUsed);
+        const annualRemaining = Math.max(0, (annualAllocated + annualCarriedForward) - annualUsed);
+        const casualRemaining = Math.max(0, (casualAllocated + casualCarriedForward) - casualUsed);
+        const sickRemaining = Math.max(0, (sickAllocated + sickCarriedForward) - sickUsed);
         const medicalRemaining = Math.max(0, sickAllocated - medicalUsed);
         
         return {
@@ -234,21 +238,21 @@ router.get('/employees/balances',
               allocated: annualAllocated, 
               used: annualUsed, 
               remaining: annualRemaining, 
-              carriedForward: balance?.annual?.carriedForward || 0, 
+              carriedForward: annualCarriedForward, 
               advance: balance?.annual?.advance || 0 
             },
             casual: { 
               allocated: casualAllocated, 
               used: casualUsed, 
               remaining: casualRemaining, 
-              carriedForward: balance?.casual?.carriedForward || 0, 
+              carriedForward: casualCarriedForward, 
               advance: balance?.casual?.advance || 0 
             },
             sick: { 
               allocated: sickAllocated, 
               used: sickUsed, 
               remaining: sickRemaining, 
-              carriedForward: balance?.sick?.carriedForward || 0, 
+              carriedForward: sickCarriedForward, 
               advance: balance?.sick?.advance || 0 
             },
             medical: { 

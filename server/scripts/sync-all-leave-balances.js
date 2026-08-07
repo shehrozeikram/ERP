@@ -1,0 +1,107 @@
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const path = require('path');
+
+dotenv.config({ path: path.join(__dirname, '../.env') });
+
+const Employee = require('../models/hr/Employee');
+const LeaveBalance = require('../models/hr/LeaveBalance');
+const CarryForwardService = require('../services/carryForwardService');
+const LeaveIntegrationService = require('../services/leaveIntegrationService');
+
+async function syncAllLeaveBalances() {
+  try {
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/sgc-erp';
+    console.log(`Connecting to MongoDB...`);
+    await mongoose.connect(mongoUri);
+    console.log('Connected to MongoDB successfully.');
+
+    const employees = await Employee.find({ isActive: true, isDeleted: false });
+    console.log(`Found ${employees.length} active employees to sync...`);
+
+    let updatedCount = 0;
+    for (const emp of employees) {
+      const hireDate = emp.hireDate || emp.joiningDate;
+      if (!hireDate) continue;
+
+      const currentWorkYear = LeaveIntegrationService.calculateWorkYear(hireDate);
+
+      // Ensure balances exist up to current work year
+      for (let wy = 0; wy <= currentWorkYear; wy++) {
+        await LeaveBalance.getOrCreateBalanceWithCarryForward(emp._id, wy);
+      }
+
+      // Recalculate carry forward sequentially for all work years of this employee
+      await CarryForwardService.recalculateCarryForward(emp._id);
+
+      // Also update embedded leaveBalance on Employee model for consistency
+      const currentBalance = await LeaveBalance.findOne({
+        employee: emp._id,
+        workYear: currentWorkYear
+      });
+
+      if (currentBalance) {
+        emp.leaveBalance = {
+          annual: {
+            allocated: currentBalance.annual.allocated,
+            used: currentBalance.annual.used,
+            remaining: Math.max(0, currentBalance.annual.allocated + currentBalance.annual.carriedForward - currentBalance.annual.used),
+            carriedForward: currentBalance.annual.carriedForward,
+            advance: currentBalance.annual.advance || 0
+          },
+          sick: {
+            allocated: currentBalance.sick.allocated,
+            used: currentBalance.sick.used,
+            remaining: Math.max(0, currentBalance.sick.allocated + currentBalance.sick.carriedForward - currentBalance.sick.used),
+            carriedForward: currentBalance.sick.carriedForward,
+            advance: currentBalance.sick.advance || 0
+          },
+          casual: {
+            allocated: currentBalance.casual.allocated,
+            used: currentBalance.casual.used,
+            remaining: Math.max(0, currentBalance.casual.allocated + currentBalance.casual.carriedForward - currentBalance.casual.used),
+            carriedForward: currentBalance.casual.carriedForward,
+            advance: currentBalance.casual.advance || 0
+          },
+          medical: {
+            allocated: currentBalance.sick.allocated,
+            used: currentBalance.sick.used,
+            remaining: Math.max(0, currentBalance.sick.allocated - currentBalance.sick.used),
+            carriedForward: 0,
+            advance: 0
+          }
+        };
+        await emp.save({ validateBeforeSave: false });
+        updatedCount++;
+      }
+    }
+
+    console.log(`Successfully synced leave balances for ${updatedCount} employees.`);
+    
+    // Check Mansoor Zareen specifically
+    const mansoor = await Employee.findOne({
+      $or: [
+        { firstName: /mansor/i },
+        { firstName: /mansoor/i },
+        { lastName: /zareen/i }
+      ]
+    });
+
+    if (mansoor) {
+      console.log('\n--- Mansoor Zareen Sync Result ---');
+      console.log(`Name: ${mansoor.firstName} ${mansoor.lastName}`);
+      console.log(`Joining Date: ${mansoor.joiningDate || mansoor.hireDate}`);
+      const balances = await LeaveBalance.find({ employee: mansoor._id }).sort({ workYear: 1 });
+      balances.forEach(b => {
+        console.log(`WorkYear ${b.workYear} (Year ${b.year}): Allocated=${b.annual.allocated}, Used=${b.annual.used}, CarriedForward=${b.annual.carriedForward}, Remaining=${b.annual.remaining}`);
+      });
+    }
+
+    process.exit(0);
+  } catch (err) {
+    console.error('Error syncing leave balances:', err);
+    process.exit(1);
+  }
+}
+
+syncAllLeaveBalances();
