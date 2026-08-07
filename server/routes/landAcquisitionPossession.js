@@ -75,13 +75,20 @@ const generatePossessionRef = async (mozaId) => {
   return `POS-${String(max + 1).padStart(4, '0')}`;
 };
 
+const khasraEntryId = (val) => {
+  if (!val) return undefined;
+  if (typeof val === 'object' && val._id) return String(val._id);
+  if (typeof val === 'string' && val.trim() && val !== '[object Object]') return val.trim();
+  return undefined;
+};
+
 const parseLine = (line) => ({
-  registryKhasraEntry: line.registryKhasraEntry || undefined,
+  registryKhasraEntry: khasraEntryId(line.registryKhasraEntry),
   registryKhewatNo: String(line.registryKhewatNo || '').trim(),
   registryKhasraNo: String(line.registryKhasraNo || '').trim(),
   registeredArea: parseAreaInput(line.registeredArea),
-  khasraEntry: line.khasraEntry || undefined,
-  registry: line.registry || undefined,
+  khasraEntry: khasraEntryId(line.khasraEntry),
+  registry: khasraEntryId(line.registry),
   khewatNo: String(line.khewatNo || '').trim(),
   khasraNo: String(line.khasraNo || '').trim(),
   khasraArea: parseAreaInput(line.khasraArea),
@@ -93,9 +100,9 @@ const parseLine = (line) => ({
 
 const buildPossessionPayload = (body) => {
   const lines = Array.isArray(body.lines) ? body.lines.map(parseLine) : [];
-  const invalidLine = lines.find((l) => !l.khasraEntry || !l.khewatNo || !l.khasraNo);
+  const invalidLine = lines.find((l) => !l.khewatNo || !l.khasraNo);
   if (invalidLine) {
-    const err = new Error('Each line must have an allocated khasra (where possession applies).');
+    const err = new Error('Each line must have a khasra number and khewat number.');
     err.status = 400;
     throw err;
   }
@@ -299,7 +306,7 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   let payload;
   try {
     payload = buildPossessionPayload(req.body);
-    payload.lines = await enrichPossessionLines(payload.lines);
+    payload.lines = await enrichPossessionLines(payload.lines, payload.moza);
     payload.khewatNo = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))].join(', ');
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, message: err.message });
@@ -380,7 +387,7 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
   let payload;
   try {
     payload = buildPossessionPayload(req.body);
-    payload.lines = await enrichPossessionLines(payload.lines);
+    payload.lines = await enrichPossessionLines(payload.lines, payload.moza || doc.moza);
     payload.khewatNo = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))].join(', ');
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, message: err.message });

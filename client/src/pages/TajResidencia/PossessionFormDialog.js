@@ -79,8 +79,12 @@ const emptyLine = () => ({
 
 const khasraEntryId = (entry) => {
   if (!entry) return '';
-  if (typeof entry === 'object' && entry._id) return entry._id;
-  return String(entry);
+  if (typeof entry === 'object') {
+    if (entry._id) return String(entry._id);
+    return '';
+  }
+  const str = String(entry).trim();
+  return str === '[object Object]' ? '' : str;
 };
 
 /** Build possession rows from a linked registry document. */
@@ -110,14 +114,14 @@ const possessionToForm = (doc) => ({
   moza: doc.moza?._id || doc.moza || '',
   totalArea: areaToForm(doc.totalArea),
   possessionRef: doc.possessionRef || '',
-  registry: doc.registry?._id || doc.registry || '',
+  registry: typeof doc.registry === 'object' ? (doc.registry._id || '') : (doc.registry || ''),
   lines: (doc.lines || []).length
     ? (doc.lines || []).map((line) => ({
-      registryKhasraEntry: line.registryKhasraEntry || '',
+      registryKhasraEntry: khasraEntryId(line.registryKhasraEntry),
       registryKhewatNo: line.registryKhewatNo || '',
       registryKhasraNo: line.registryKhasraNo || '',
-      khasraEntry: line.khasraEntry || '',
-      registry: line.registry || '',
+      khasraEntry: khasraEntryId(line.khasraEntry),
+      registry: khasraEntryId(line.registry),
       khewatNo: line.khewatNo || '',
       khasraNo: line.khasraNo || '',
       khasraArea: areaToForm(line.khasraArea || {}),
@@ -281,14 +285,25 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
     );
   }, [linkedRegistry, mozaKhasras, statusByKhasra]);
 
-  const findKhasraOption = (entryId, khasraNo, khewatNo) => {
+  const findKhasraOption = (entryIdInput, khasraNo, khewatNo) => {
+    const entryId = khasraEntryId(entryIdInput);
     if (entryId) {
-      return khasraOptions.find((k) => k._id === entryId) || null;
+      const matched = khasraOptions.find((k) => String(k._id) === entryId);
+      if (matched) return matched;
     }
-    if (khasraNo && khewatNo) {
-      return khasraOptions.find(
-        (k) => String(k.khasraNo) === String(khasraNo) && String(k.khewatNo) === String(khewatNo)
-      ) || null;
+    if (khasraNo) {
+      const cleanKhasra = String(khasraNo || '').trim().toLowerCase();
+      const cleanKhewat = String(khewatNo || '').trim().toLowerCase();
+      return (
+        khasraOptions.find(
+          (k) =>
+            String(k.khasraNo || '').trim().toLowerCase() === cleanKhasra &&
+            (!cleanKhewat || String(k.khewatNo || '').trim().toLowerCase() === cleanKhewat)
+        ) ||
+        khasraOptions.find(
+          (k) => String(k.khasraNo || '').trim().toLowerCase() === cleanKhasra
+        ) || null
+      );
     }
     return null;
   };
@@ -477,6 +492,11 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       toast.error('Total Possession Area cannot exceed Total Registry Area');
       return;
     }
+    const exceedingLine = form.lines.find(lineExceedsPlot);
+    if (exceedingLine) {
+      toast.error(`Total land possessed for Khasra ${exceedingLine.khasraNo || ''} cannot exceed khasra plot area.`);
+      return;
+    }
     const khewatNos = uniqueKhewatNos(form.lines);
     onSave({
       possessionDate: form.possessionDate,
@@ -486,12 +506,12 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       possessionRef: possession ? form.possessionRef.trim() : undefined,
       registry: form.registry || undefined,
       lines: form.lines.map((line) => ({
-        registryKhasraEntry: line.registryKhasraEntry || undefined,
+        registryKhasraEntry: khasraEntryId(line.registryKhasraEntry) || undefined,
         registryKhewatNo: line.registryKhewatNo.trim(),
         registryKhasraNo: line.registryKhasraNo.trim(),
         registeredArea: parseAreaForm(line.khasraArea),
-        khasraEntry: line.khasraEntry || undefined,
-        registry: line.registry || form.registry || undefined,
+        khasraEntry: khasraEntryId(line.khasraEntry) || undefined,
+        registry: khasraEntryId(line.registry) || khasraEntryId(form.registry) || undefined,
         khewatNo: line.khewatNo.trim(),
         khasraNo: line.khasraNo.trim(),
         khasraArea: parseAreaForm(line.khasraArea),
@@ -504,7 +524,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
   };
 
   const selectedMoza = mozas.find((m) => m._id === form.moza);
-  const hasValidLines = form.lines.some((l) => l.khasraEntry && l.khasraNo.trim());
+  const hasValidLines = form.lines.some((l) => Boolean(String(l.khasraNo || '').trim() || l.khasraEntry));
 
   return (
     <Dialog open={open} onClose={() => !saving && onClose()} maxWidth="xl" fullWidth>
@@ -811,8 +831,6 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
             || !form.possessionDate
             || !form.moza
             || !hasValidLines
-            || exceedsRegistryArea
-            || form.lines.some(lineExceedsPlot)
           }
         >
           {saving ? 'Saving…' : possession ? 'Update Possession' : 'Submit Possession'}

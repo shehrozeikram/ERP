@@ -25,12 +25,45 @@ const enrichRegistryLines = async (lines = []) => {
 };
 
 /** Sync possession line khasra/khewat (and registry khasra fields) from moza master */
-const enrichPossessionLines = async (lines = []) => {
+const enrichPossessionLines = async (lines = [], mozaId = null) => {
   const byId = await entryMapForIds(
     lines.flatMap((l) => [l.khasraEntry, l.registryKhasraEntry])
   );
+
+  let fallbackEntries = [];
+  const missingKhasraNos = lines
+    .filter((l) => !l.khasraEntry && l.khasraNo)
+    .map((l) => String(l.khasraNo).trim());
+
+  if (missingKhasraNos.length && mozaId) {
+    fallbackEntries = await LandMozaKhasraEntry.find({
+      moza: mozaId,
+      khasraNo: { $in: missingKhasraNos }
+    }).select('_id khasraNo khewatNo landInKhasra').lean();
+  }
+
   return lines.map((line) => {
-    let next = applyEntryToLine(line, byId.get(String(line.khasraEntry)));
+    let entry = byId.get(String(line.khasraEntry));
+    if (!entry && !line.khasraEntry && line.khasraNo) {
+      const cleanKhasra = String(line.khasraNo).trim().toLowerCase();
+      const cleanKhewat = String(line.khewatNo || '').trim().toLowerCase();
+      entry = fallbackEntries.find(
+        (e) =>
+          String(e.khasraNo).trim().toLowerCase() === cleanKhasra &&
+          (!cleanKhewat || String(e.khewatNo).trim().toLowerCase() === cleanKhewat)
+      ) || fallbackEntries.find(
+        (e) => String(e.khasraNo).trim().toLowerCase() === cleanKhasra
+      );
+    }
+
+    let next = entry
+      ? {
+          ...line,
+          khasraEntry: entry._id,
+          khewatNo: line.khewatNo || entry.khewatNo,
+          khasraNo: line.khasraNo || entry.khasraNo
+        }
+      : line;
     const regEntry = byId.get(String(line.registryKhasraEntry));
     if (regEntry) {
       next = {

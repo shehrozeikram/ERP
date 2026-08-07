@@ -141,9 +141,9 @@ const PossessionDetailDialog = ({ open, onClose, possessionId }) => {
                   <TableRow>
                     <TableCell><strong>#</strong></TableCell>
                     <TableCell><strong>Registry khasra</strong></TableCell>
-                    <TableCell><strong>Registry khasra area</strong></TableCell>
                     <TableCell><strong>Possessed khasra</strong></TableCell>
                     <TableCell><strong>Khasra area</strong></TableCell>
+                    <TableCell><strong>Registry khasra area</strong></TableCell>
                     <TableCell><strong>Possessed area</strong></TableCell>
                     <TableCell><strong>Total land owned</strong></TableCell>
                     <TableCell><strong>Transfer %</strong></TableCell>
@@ -157,11 +157,11 @@ const PossessionDetailDialog = ({ open, onClose, possessionId }) => {
                       <TableCell>
                         {formatKhasraKhewatLabel(line.registryKhasraNo, line.registryKhewatNo)}
                       </TableCell>
-                      <TableCell>{formatKMS(line.registeredArea || line.khasraArea)}</TableCell>
                       <TableCell>
                         {formatKhasraKhewatLabel(line.khasraNo, line.khewatNo)}
                       </TableCell>
                       <TableCell>{formatKMS(line.khasraEntry?.landInKhasra)}</TableCell>
+                      <TableCell>{formatKMS(line.registeredArea || line.khasraArea)}</TableCell>
                       <TableCell>{formatKMS(line.possessedArea)}</TableCell>
                       <TableCell>{formatKMS(line.totalLandPossessed)}</TableCell>
                       <TableCell>{formatTransferPercent(line.transferPercent)}%</TableCell>
@@ -170,7 +170,7 @@ const PossessionDetailDialog = ({ open, onClose, possessionId }) => {
                   ))}
                   {!lines.length && (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                      <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                         No possession lines recorded.
                       </TableCell>
                     </TableRow>
