@@ -12,6 +12,7 @@ if (!process.env.MONGODB_URI) {
 
 const Employee = require('../models/hr/Employee');
 const LeaveBalance = require('../models/hr/LeaveBalance');
+const LeaveRequest = require('../models/hr/LeaveRequest');
 const CarryForwardService = require('../services/carryForwardService');
 const LeaveIntegrationService = require('../services/leaveIntegrationService');
 
