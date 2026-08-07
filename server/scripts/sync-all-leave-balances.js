@@ -10,6 +10,11 @@ if (!process.env.MONGODB_URI) {
   dotenv.config({ path: path.join(__dirname, './.env') });
 }
 
+const Employee = require('../models/hr/Employee');
+const LeaveBalance = require('../models/hr/LeaveBalance');
+const CarryForwardService = require('../services/carryForwardService');
+const LeaveIntegrationService = require('../services/leaveIntegrationService');
+
 async function syncAllLeaveBalances() {
   try {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc-erp-backend';
