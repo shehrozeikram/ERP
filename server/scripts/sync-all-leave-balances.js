@@ -11,8 +11,8 @@ const LeaveIntegrationService = require('../services/leaveIntegrationService');
 
 async function syncAllLeaveBalances() {
   try {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/sgc-erp';
-    console.log(`Connecting to MongoDB...`);
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc-erp-backend';
+    console.log(`Connecting to MongoDB at ${mongoUri}...`);
     await mongoose.connect(mongoUri);
     console.log('Connected to MongoDB successfully.');
 
