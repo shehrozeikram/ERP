@@ -3,16 +3,17 @@ const dotenv = require('dotenv');
 const path = require('path');
 
 dotenv.config({ path: path.join(__dirname, '../.env') });
-
-const Employee = require('../models/hr/Employee');
-const LeaveBalance = require('../models/hr/LeaveBalance');
-const CarryForwardService = require('../services/carryForwardService');
-const LeaveIntegrationService = require('../services/leaveIntegrationService');
+if (!process.env.MONGODB_URI) {
+  dotenv.config({ path: path.join(__dirname, '../../.env') });
+}
+if (!process.env.MONGODB_URI) {
+  dotenv.config({ path: path.join(__dirname, './.env') });
+}
 
 async function syncAllLeaveBalances() {
   try {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc-erp-backend';
-    console.log(`Connecting to MongoDB at ${mongoUri}...`);
+    console.log(`Connecting to MongoDB... (URI masked: ${mongoUri.replace(/:([^@]+)@/, ':****@')})`);
     await mongoose.connect(mongoUri);
     console.log('Connected to MongoDB successfully.');
 
