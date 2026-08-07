@@ -215,12 +215,12 @@ class LeaveIntegrationService {
       // Update balance for each approved leave
       const approvedLeaves = leaveRequests.filter(r => r.status === 'approved');
       for (const leave of approvedLeaves) {
-        const codeStr = (leave.leaveType?.code || leave.leaveType?.name || '').toUpperCase();
-        const nameStr = (leave.leaveType?.name || '').toUpperCase();
+        const code = (leave.leaveType?.code || leave.leaveType?.name || '').toUpperCase();
+        const name = (leave.leaveType?.name || '').toUpperCase();
 
-        if (codeStr.includes('ANNUAL') || codeStr.includes('AL') || nameStr.includes('ANNUAL')) {
+        if (code.includes('ANNUAL') || code === 'AL' || code.startsWith('AL_') || name.includes('ANNUAL')) {
           balance.annual.used += leave.totalDays || 0;
-        } else if (codeStr.includes('SICK') || codeStr.includes('SL') || codeStr.includes('MEDICAL') || codeStr.includes('ML') || nameStr.includes('SICK') || nameStr.includes('MEDICAL')) {
+        } else if (code.includes('SICK') || code === 'SL' || code.startsWith('SL_') || code.includes('MEDICAL') || code === 'ML' || name.includes('SICK') || name.includes('MEDICAL')) {
           balance.sick.used += leave.totalDays || 0;
         } else {
           balance.casual.used += leave.totalDays || 0;

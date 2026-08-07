@@ -182,11 +182,13 @@ router.get('/employees/balances',
           usageMap.set(empId, { annual: 0, sick: 0, casual: 0, medical: 0 });
         }
         
-        const codeStr = (leave.leaveType?.code || leave.leaveType?.name || '').toUpperCase();
+        const code = (leave.leaveType?.code || leave.leaveType?.name || '').toUpperCase();
+        const name = (leave.leaveType?.name || '').toUpperCase();
         let balanceType = 'casual';
-        if (codeStr.includes('ANNUAL') || codeStr.includes('AL')) {
+
+        if (code.includes('ANNUAL') || code === 'AL' || code.startsWith('AL_') || name.includes('ANNUAL')) {
           balanceType = 'annual';
-        } else if (codeStr.includes('SICK') || codeStr.includes('SL') || codeStr.includes('MEDICAL') || codeStr.includes('ML')) {
+        } else if (code.includes('SICK') || code === 'SL' || code.startsWith('SL_') || code.includes('MEDICAL') || code === 'ML' || name.includes('SICK') || name.includes('MEDICAL')) {
           balanceType = 'sick';
         } else {
           balanceType = 'casual';
@@ -1472,11 +1474,13 @@ router.post('/import',
           balanceMap.set(balKey, balance);
         }
 
-        const codeKey = (leaveType.code || '').toLowerCase();
-        if (codeKey.includes('annual') || codeKey.includes('al')) {
+        const codeKey = (leaveType.code || leaveType.name || '').toUpperCase();
+        const nameKey = (leaveType.name || '').toUpperCase();
+
+        if (codeKey.includes('ANNUAL') || codeKey === 'AL' || codeKey.startsWith('AL_') || nameKey.includes('ANNUAL')) {
           balance.annual.used = (balance.annual.used || 0) + totalDays;
           balance.annual.remaining = Math.max(0, (balance.annual.allocated || 20) - balance.annual.used);
-        } else if (codeKey.includes('sick') || codeKey.includes('sl') || codeKey.includes('medical')) {
+        } else if (codeKey.includes('SICK') || codeKey === 'SL' || codeKey.startsWith('SL_') || codeKey.includes('MEDICAL') || codeKey === 'ML' || nameKey.includes('SICK') || nameKey.includes('MEDICAL')) {
           balance.sick.used = (balance.sick.used || 0) + totalDays;
           balance.sick.remaining = Math.max(0, (balance.sick.allocated || 10) - balance.sick.used);
         } else {

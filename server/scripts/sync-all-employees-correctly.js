@@ -61,12 +61,12 @@ async function syncAllEmployeesCorrectly() {
           let casualUsed = 0;
 
           for (const req of wyRequests) {
-            const codeStr = (req.leaveType?.code || req.leaveType?.name || '').toUpperCase();
-            const nameStr = (req.leaveType?.name || '').toUpperCase();
+            const code = (req.leaveType?.code || req.leaveType?.name || '').toUpperCase();
+            const name = (req.leaveType?.name || '').toUpperCase();
 
-            if (codeStr.includes('ANNUAL') || codeStr.includes('AL') || nameStr.includes('ANNUAL')) {
+            if (code.includes('ANNUAL') || code === 'AL' || code.startsWith('AL_') || name.includes('ANNUAL')) {
               annualUsed += req.totalDays || 0;
-            } else if (codeStr.includes('SICK') || codeStr.includes('SL') || codeStr.includes('MEDICAL') || codeStr.includes('ML') || nameStr.includes('SICK') || nameStr.includes('MEDICAL')) {
+            } else if (code.includes('SICK') || code === 'SL' || code.startsWith('SL_') || code.includes('MEDICAL') || code === 'ML' || name.includes('SICK') || name.includes('MEDICAL')) {
               sickUsed += req.totalDays || 0;
             } else {
               casualUsed += req.totalDays || 0;
