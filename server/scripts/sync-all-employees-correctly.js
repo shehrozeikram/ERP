@@ -98,10 +98,11 @@ async function syncAllEmployeesCorrectly() {
 
           // Update/Create LeaveBalance doc for this work year
           const year = hireDateObj.getFullYear() + wy + 1;
-          let balanceDoc = await LeaveBalance.findOne({ employee: emp._id, workYear: wy });
-          if (!balanceDoc) {
-            balanceDoc = await LeaveBalance.findOne({ employee: emp._id, year: year });
-          }
+          let balanceDoc = await LeaveBalance.findOne({
+            employee: emp._id,
+            $or: [{ workYear: wy }, { year: year }]
+          });
+
           if (!balanceDoc) {
             balanceDoc = new LeaveBalance({
               employee: emp._id,
