@@ -13,6 +13,7 @@ if (!process.env.MONGODB_URI) {
 const Employee = require('../models/hr/Employee');
 const LeaveRequest = require('../models/hr/LeaveRequest');
 const LeaveBalance = require('../models/hr/LeaveBalance');
+const LeaveType = require('../models/hr/LeaveType');
 
 async function inspectMansoor() {
   try {
