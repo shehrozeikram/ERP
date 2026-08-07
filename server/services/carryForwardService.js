@@ -76,15 +76,16 @@ class CarryForwardService {
     // 1. Individual cap: carry forward cannot exceed 20 days
     // 2. Total cap: new allocation + carry forward cannot exceed 40 days
     // Formula: carry forward = min(previous remaining, 20, 40 - new allocation)
-    if (balance.annual.remaining > 0) {
-      const individualCap = Math.min(balance.annual.remaining, 20);
+    if (balance && balance.annual && balance.annual.remaining > 0) {
+      const remainingDays = Number(balance.annual.remaining || 0);
+      const individualCap = Math.min(remainingDays, 20);
       const maxCarryForwardWithTotalCap = Math.max(0, 40 - newAllocation); // Ensure non-negative
       result.annual = Math.min(individualCap, maxCarryForwardWithTotalCap);
       
-      if (balance.annual.remaining > 20) {
-        result.reason += ` (carrying forward ${result.annual} days from ${balance.annual.remaining} remaining, capped at 20 days and total cap of 40)`;
-      } else if (result.annual < balance.annual.remaining) {
-        result.reason += ` (carrying forward ${result.annual} days from ${balance.annual.remaining} remaining, capped by 40-day total limit: ${newAllocation} + ${result.annual} = ${newAllocation + result.annual} ≤ 40)`;
+      if (remainingDays > 20) {
+        result.reason += ` (carrying forward ${result.annual} days from ${remainingDays} remaining, capped at 20 days and total cap of 40)`;
+      } else if (result.annual < remainingDays) {
+        result.reason += ` (carrying forward ${result.annual} days from ${remainingDays} remaining, capped by 40-day total limit: ${newAllocation} + ${result.annual} = ${newAllocation + result.annual} ≤ 40)`;
       } else {
         result.reason += ` (carrying forward ${result.annual} days from remaining)`;
       }
