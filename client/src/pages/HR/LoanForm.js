@@ -142,7 +142,7 @@ const LoanForm = () => {
 
   const calculateEMI = () => {
     const { loanAmount, interestRate, loanTerm } = formData;
-    
+
     if (loanAmount && interestRate && loanTerm) {
       const principal = parseFloat(loanAmount);
       const rate = parseFloat(interestRate);
@@ -165,7 +165,7 @@ const LoanForm = () => {
       ...prev,
       [field]: value
     }));
-    
+
     // Clear field-specific errors
     if (errors[field]) {
       setErrors(prev => ({
@@ -459,7 +459,7 @@ const LoanForm = () => {
                 <BankIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                 Salary Deduction Settings
               </Typography>
-              
+
               <FormControlLabel
                 control={
                   <Switch
@@ -496,8 +496,8 @@ const LoanForm = () => {
                         handleSalaryDeductionChange(field, e.target.value);
                       }}
                       InputProps={{
-                        startAdornment: formData.salaryDeduction.deductionType === 'Percentage' ? 
-                          <InputAdornment position="start">%</InputAdornment> : 
+                        startAdornment: formData.salaryDeduction.deductionType === 'Percentage' ?
+                          <InputAdornment position="start">%</InputAdornment> :
                           <InputAdornment position="start">₨</InputAdornment>,
                       }}
                     />

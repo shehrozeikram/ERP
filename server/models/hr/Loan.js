@@ -284,28 +284,28 @@ loanSchema.index({ status: 1 });
 loanSchema.index({ loanType: 1 });
 
 // Virtual for loan progress percentage
-loanSchema.virtual('progressPercentage').get(function() {
+loanSchema.virtual('progressPercentage').get(function () {
   if (this.totalPayable === 0) return 0;
   return Math.round((this.totalPaid / this.totalPayable) * 100);
 });
 
 // Virtual for remaining installments
-loanSchema.virtual('remainingInstallments').get(function() {
+loanSchema.virtual('remainingInstallments').get(function () {
   return this.loanSchedule.filter(installment =>
     ['Pending', 'Overdue', 'Partial', 'Paused'].includes(installment.status)
   ).length;
 });
 
 // Virtual for next due date
-loanSchema.virtual('nextDueDate').get(function() {
-  const nextInstallment = this.loanSchedule.find(installment => 
+loanSchema.virtual('nextDueDate').get(function () {
+  const nextInstallment = this.loanSchedule.find(installment =>
     ['Pending', 'Overdue', 'Partial'].includes(installment.status)
   );
   return nextInstallment ? nextInstallment.dueDate : null;
 });
 
 // Pre-save middleware to calculate loan details
-loanSchema.pre('save', function(next) {
+loanSchema.pre('save', function (next) {
   if (this.isModified('loanAmount') || this.isModified('interestRate')) {
     this.emiManuallyAdjusted = false;
   }
@@ -322,41 +322,41 @@ loanSchema.pre('save', function(next) {
     const principal = this.loanAmount;
     const rate = this.interestRate / 100 / 12; // Monthly interest rate
     const time = this.loanTerm;
-    
+
     if (rate === 0) {
       this.monthlyInstallment = principal / time;
     } else {
       this.monthlyInstallment = principal * (rate * Math.pow(1 + rate, time)) / (Math.pow(1 + rate, time) - 1);
     }
-    
+
     // Ensure values are valid numbers
     this.monthlyInstallment = Math.max(0, this.monthlyInstallment || 0);
     this.totalPayable = this.monthlyInstallment * this.loanTerm;
     this.outstandingBalance = this.totalPayable - (this.totalPaid || 0);
   }
-  
+
   next();
 });
 
 // Method to generate loan schedule
-loanSchema.methods.generateLoanSchedule = function() {
+loanSchema.methods.generateLoanSchedule = function () {
   const schedule = [];
   let remainingBalance = this.loanAmount;
   const monthlyRate = this.interestRate / 100 / 12;
-  
+
   // Ensure monthlyInstallment is calculated and valid
   if (!this.monthlyInstallment || isNaN(this.monthlyInstallment) || this.monthlyInstallment <= 0) {
     // Recalculate EMI
     const principal = this.loanAmount;
     const rate = this.interestRate / 100 / 12;
     const time = this.loanTerm;
-    
+
     if (rate === 0) {
       this.monthlyInstallment = principal / time;
     } else {
       this.monthlyInstallment = principal * (rate * Math.pow(1 + rate, time)) / (Math.pow(1 + rate, time) - 1);
     }
-    
+
     // Update totalPayable and outstandingBalance if they're not set
     if (!this.totalPayable || isNaN(this.totalPayable)) {
       this.totalPayable = this.monthlyInstallment * this.loanTerm;
@@ -365,15 +365,15 @@ loanSchema.methods.generateLoanSchedule = function() {
       this.outstandingBalance = this.totalPayable - (this.totalPaid || 0);
     }
   }
-  
+
   for (let i = 1; i <= this.loanTerm; i++) {
     const interest = remainingBalance * monthlyRate;
     const principal = this.monthlyInstallment - interest;
     remainingBalance = Math.max(0, remainingBalance - principal);
-    
+
     const dueDate = new Date(this.applicationDate);
     dueDate.setMonth(dueDate.getMonth() + i);
-    
+
     schedule.push({
       installmentNumber: i,
       dueDate: dueDate,
@@ -384,7 +384,7 @@ loanSchema.methods.generateLoanSchedule = function() {
       status: 'Pending'
     });
   }
-  
+
   this.loanSchedule = schedule;
   return schedule;
 };
@@ -393,7 +393,7 @@ loanSchema.methods.generateLoanSchedule = function() {
  * Recalculate pending schedule when EMI is permanently adjusted.
  * Paid/partial installments are kept; remaining months auto increase or decrease.
  */
-loanSchema.methods.recalculateScheduleFromNewEmi = function(newEmi) {
+loanSchema.methods.recalculateScheduleFromNewEmi = function (newEmi) {
   const {
     calculateRemainingMonths,
     getRemainingPrincipal,
@@ -471,28 +471,28 @@ loanSchema.methods.recalculateScheduleFromNewEmi = function(newEmi) {
   };
 };
 
-loanSchema.methods.reconcileScheduleWithPauses = function() {
+loanSchema.methods.reconcileScheduleWithPauses = function () {
   const { reconcileScheduleWithPauses } = require('../../utils/loanPauseSchedule');
   return reconcileScheduleWithPauses(this);
 };
 
 // Method to process payment
-loanSchema.methods.processPayment = function(amount, paymentMethod = 'Salary Deduction') {
+loanSchema.methods.processPayment = function (amount, paymentMethod = 'Salary Deduction') {
   if (amount <= 0) {
     throw new Error('Payment amount must be positive');
   }
-  
+
   let remainingAmount = amount;
   let updatedInstallments = [];
-  
+
   // Process payments starting from the oldest pending installment
   for (let installment of this.loanSchedule) {
     if (remainingAmount <= 0) break;
-    
+
     if (['Pending', 'Overdue', 'Partial'].includes(installment.status)) {
       const amountToPay = Math.min(remainingAmount, installment.amount);
       const newPaidAmount = (installment.paidAmount || 0) + amountToPay;
-      
+
       if (newPaidAmount >= installment.amount) {
         installment.status = 'Paid';
         installment.paymentDate = new Date();
@@ -502,24 +502,24 @@ loanSchema.methods.processPayment = function(amount, paymentMethod = 'Salary Ded
         installment.status = 'Partial';
         installment.paidAmount = newPaidAmount;
       }
-      
+
       remainingAmount -= amountToPay;
     }
-    
+
     updatedInstallments.push(installment);
   }
-  
+
   this.loanSchedule = updatedInstallments;
   this.totalPaid += (amount - remainingAmount);
   this.outstandingBalance = this.totalPayable - this.totalPaid;
-  
+
   // Update status if loan is completed
   if (this.outstandingBalance <= 0) {
     this.status = 'Completed';
   } else if (this.status === 'Disbursed') {
     this.status = 'Active';
   }
-  
+
   return {
     processedAmount: amount - remainingAmount,
     remainingAmount: remainingAmount,
@@ -528,7 +528,7 @@ loanSchema.methods.processPayment = function(amount, paymentMethod = 'Salary Ded
 };
 
 // Static method to get loan statistics
-loanSchema.statics.getLoanStatistics = async function() {
+loanSchema.statics.getLoanStatistics = async function () {
   const stats = await this.aggregate([
     {
       $group: {
@@ -541,7 +541,7 @@ loanSchema.statics.getLoanStatistics = async function() {
       }
     }
   ]);
-  
+
   const statusStats = await this.aggregate([
     {
       $group: {
@@ -551,7 +551,7 @@ loanSchema.statics.getLoanStatistics = async function() {
       }
     }
   ]);
-  
+
   return {
     overall: stats[0] || {},
     byStatus: statusStats

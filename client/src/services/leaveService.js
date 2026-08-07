@@ -205,16 +205,6 @@ const leaveService = {
     } catch (error) {
       throw error.response?.data || error;
     }
-  },
-
-  // Purge all leaves and balances from database
-  purgeAllLeaves: async () => {
-    try {
-      const response = await api.post('/leaves/purge-all');
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error;
-    }
   }
 };
 

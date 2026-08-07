@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -59,6 +60,7 @@ import api from '../../../services/api';
 import leaveService from '../../../services/leaveService';
 
 const LeaveManagement = () => {
+  const navigate = useNavigate();
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -615,8 +617,7 @@ const LeaveManagement = () => {
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
-                variant="contained"
-                color="secondary"
+                variant="outlined"
                 startIcon={<UploadFileIcon />}
                 onClick={() => {
                   setImportDialogOpen(true);
@@ -625,27 +626,6 @@ const LeaveManagement = () => {
                 }}
               >
                 Import Excel Leaves
-              </Button>
-              <Button
-                variant="contained"
-                color="error"
-                startIcon={<DeleteIcon />}
-                onClick={async () => {
-                  if (window.confirm('⚠️ WARNING: Are you sure you want to PURGE ALL leave records and leave balances from the database? This cannot be undone.')) {
-                    try {
-                      setLoading(true);
-                      const res = await leaveService.purgeAllLeaves();
-                      setSuccess(`Purged successfully! Deleted ${res.deletedCounts?.requests || 0} leave requests and ${res.deletedCounts?.balances || 0} balances.`);
-                      loadData();
-                    } catch (err) {
-                      setError(err.message || 'Failed to purge leave records');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }
-                }}
-              >
-                Purge All Leaves
               </Button>
               <Button
                 variant="outlined"
@@ -784,7 +764,7 @@ const LeaveManagement = () => {
             Employee Leave Balances
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Search for an employee to view their leave balance and add leave requests
+            Search for an employee to view their leave balance, click any card to view full leave history, or click + to add a request.
           </Typography>
           
           {/* Search Bar */}
@@ -831,29 +811,44 @@ const LeaveManagement = () => {
                           variant="outlined" 
                           sx={{ 
                             cursor: 'pointer',
+                            transition: 'all 0.2s',
                             '&:hover': { 
-                              boxShadow: 2,
+                              boxShadow: 3,
+                              borderColor: 'primary.main',
                               backgroundColor: 'action.hover'
                             }
                           }}
-                          onClick={() => {
-                            setSelectedEmployee(employee);
-                            setAddDialogOpen(true);
-                          }}
+                          onClick={() => navigate(`/hr/leaves/employee/${employee._id}`)}
                         >
                           <CardContent sx={{ p: 2 }}>
-                            <Box display="flex" alignItems="center" mb={1}>
-                              <Avatar sx={{ mr: 1, width: 32, height: 32, fontSize: '0.875rem' }}>
-                                {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
-                              </Avatar>
-                              <Box sx={{ minWidth: 0, flex: 1 }}>
-                                <Typography variant="subtitle2" noWrap>
-                                  {employee.firstName} {employee.lastName}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {employee.employeeId}
-                                </Typography>
+                            <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                              <Box display="flex" alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                                <Avatar sx={{ mr: 1, width: 32, height: 32, fontSize: '0.875rem' }}>
+                                  {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
+                                </Avatar>
+                                <Box sx={{ minWidth: 0, flex: 1 }}>
+                                  <Typography variant="subtitle2" noWrap>
+                                    {employee.firstName} {employee.lastName}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {employee.employeeId}
+                                  </Typography>
+                                </Box>
                               </Box>
+                              <Tooltip title="Add Leave Request">
+                                <IconButton 
+                                  size="small" 
+                                  color="primary"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedEmployee(employee);
+                                    setAddDialogOpen(true);
+                                  }}
+                                  sx={{ ml: 0.5 }}
+                                >
+                                  <AddIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </Box>
                             
                             <Box sx={{ mt: 1 }}>

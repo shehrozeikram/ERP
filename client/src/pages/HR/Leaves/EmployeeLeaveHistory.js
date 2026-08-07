@@ -269,9 +269,9 @@ const EmployeeLeaveHistory = () => {
           <Button
             variant="outlined"
             startIcon={<ArrowBackIcon />}
-            onClick={() => navigate(`/hr/employees/${employeeId}`)}
+            onClick={() => navigate(-1)}
           >
-            Back to Employee
+            Back
           </Button>
           <Typography variant="h4">Leave History</Typography>
         </Box>

@@ -65,7 +65,7 @@ router.get('/', authMiddleware, async (req, res) => {
     };
 
     const loans = await Loan.paginate(query, options);
-    
+
     // Ensure virtual fields are included
     const loansWithVirtuals = loans.docs.map(loan => {
       const loanObj = loan.toObject();
@@ -74,7 +74,7 @@ router.get('/', authMiddleware, async (req, res) => {
       loanObj.nextDueDate = loan.nextDueDate;
       return loanObj;
     });
-    
+
     res.json({
       ...loans,
       docs: loansWithVirtuals
@@ -100,19 +100,19 @@ router.get('/stats/overview', authMiddleware, async (req, res) => {
 router.get('/employee/:employeeId', authMiddleware, async (req, res) => {
   try {
     const { employeeId } = req.params;
-    
+
     // First try to find employee by employeeId (string like "06386")
     let employee = await Employee.findOne({ employeeId: employeeId });
-    
+
     if (!employee) {
       // If not found by employeeId, try by MongoDB ObjectId
       employee = await Employee.findById(employeeId);
     }
-    
+
     if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
-    
+
     // Now find loans using the employee's MongoDB ObjectId
     const loans = await Loan.find({ employee: employee._id })
       .populate('employee', 'employeeId firstName lastName email')
@@ -182,8 +182,8 @@ router.post('/', authMiddleware, async (req, res) => {
     });
 
     if (activeLoans.length > 0) {
-      return res.status(400).json({ 
-        message: 'Employee has active loans. Cannot apply for new loan until existing loans are completed.' 
+      return res.status(400).json({
+        message: 'Employee has active loans. Cannot apply for new loan until existing loans are completed.'
       });
     }
 
@@ -191,14 +191,14 @@ router.post('/', authMiddleware, async (req, res) => {
     const principal = parseFloat(loanAmount);
     const rate = parseFloat(interestRate) / 100 / 12; // Monthly interest rate
     const time = parseInt(loanTerm);
-    
+
     let monthlyInstallment;
     if (rate === 0) {
       monthlyInstallment = principal / time;
     } else {
       monthlyInstallment = principal * (rate * Math.pow(1 + rate, time)) / (Math.pow(1 + rate, time) - 1);
     }
-    
+
     const totalPayable = monthlyInstallment * time;
     const outstandingBalance = totalPayable;
 
@@ -222,10 +222,10 @@ router.post('/', authMiddleware, async (req, res) => {
     };
 
     const loan = new Loan(loanData);
-    
+
     // Generate loan schedule
     loan.generateLoanSchedule();
-    
+
     await loan.save();
 
     // Populate employee details for response
@@ -245,15 +245,15 @@ router.post('/', authMiddleware, async (req, res) => {
 router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const loan = await Loan.findById(req.params.id);
-    
+
     if (!loan) {
       return res.status(404).json({ message: 'Loan not found' });
     }
 
     // Only allow updates if loan is pending
     if (loan.status !== 'Pending') {
-      return res.status(400).json({ 
-        message: 'Cannot update loan application after it has been processed' 
+      return res.status(400).json({
+        message: 'Cannot update loan application after it has been processed'
       });
     }
 
@@ -289,16 +289,16 @@ router.put('/:id', authMiddleware, async (req, res) => {
 router.patch('/:id/approve', authMiddleware, checkPermission('hr.loan.approve'), async (req, res) => {
   try {
     const { rejectionReason } = req.body;
-    
+
     const loan = await Loan.findById(req.params.id);
-    
+
     if (!loan) {
       return res.status(404).json({ message: 'Loan not found' });
     }
 
     if (loan.status !== 'Pending') {
-      return res.status(400).json({ 
-        message: 'Loan can only be approved if it is in pending status' 
+      return res.status(400).json({
+        message: 'Loan can only be approved if it is in pending status'
       });
     }
 
@@ -332,20 +332,20 @@ router.patch('/:id/approve', authMiddleware, checkPermission('hr.loan.approve'),
 router.patch('/:id/reject', authMiddleware, checkPermission('hr.loan.approve'), async (req, res) => {
   try {
     const { rejectionReason } = req.body;
-    
+
     if (!rejectionReason) {
       return res.status(400).json({ message: 'Rejection reason is required' });
     }
 
     const loan = await Loan.findById(req.params.id);
-    
+
     if (!loan) {
       return res.status(404).json({ message: 'Loan not found' });
     }
 
     if (loan.status !== 'Pending') {
-      return res.status(400).json({ 
-        message: 'Loan can only be rejected if it is in pending status' 
+      return res.status(400).json({
+        message: 'Loan can only be rejected if it is in pending status'
       });
     }
 
@@ -374,16 +374,16 @@ router.patch('/:id/reject', authMiddleware, checkPermission('hr.loan.approve'), 
 router.patch('/:id/disburse', authMiddleware, checkPermission('hr.loan.disburse'), async (req, res) => {
   try {
     const { disbursementMethod, bankAccount } = req.body;
-    
+
     const loan = await Loan.findById(req.params.id);
-    
+
     if (!loan) {
       return res.status(404).json({ message: 'Loan not found' });
     }
 
     if (loan.status !== 'Approved') {
-      return res.status(400).json({ 
-        message: 'Loan can only be disbursed if it is approved' 
+      return res.status(400).json({
+        message: 'Loan can only be disbursed if it is approved'
       });
     }
 
@@ -415,20 +415,20 @@ router.patch('/:id/disburse', authMiddleware, checkPermission('hr.loan.disburse'
 router.patch('/:id/payment', authMiddleware, async (req, res) => {
   try {
     const { amount, paymentMethod } = req.body;
-    
+
     if (!amount || amount <= 0) {
       return res.status(400).json({ message: 'Valid payment amount is required' });
     }
 
     const loan = await Loan.findById(req.params.id);
-    
+
     if (!loan) {
       return res.status(404).json({ message: 'Loan not found' });
     }
 
     if (!['Active', 'Disbursed'].includes(loan.status)) {
-      return res.status(400).json({ 
-        message: 'Payment can only be processed for active or disbursed loans' 
+      return res.status(400).json({
+        message: 'Payment can only be processed for active or disbursed loans'
       });
     }
 
@@ -688,13 +688,13 @@ router.patch('/:id/adjust-installment', authMiddleware, async (req, res) => {
 router.post('/:id/notes', authMiddleware, async (req, res) => {
   try {
     const { content } = req.body;
-    
+
     if (!content || content.trim() === '') {
       return res.status(400).json({ message: 'Note content is required' });
     }
 
     const loan = await Loan.findById(req.params.id);
-    
+
     if (!loan) {
       return res.status(404).json({ message: 'Loan not found' });
     }
@@ -755,14 +755,14 @@ router.get('/:id/schedule', authMiddleware, async (req, res) => {
 router.delete('/:id', authMiddleware, checkPermission('loan_management'), async (req, res) => {
   try {
     const loan = await Loan.findById(req.params.id);
-    
+
     if (!loan) {
       return res.status(404).json({ message: 'Loan not found' });
     }
 
     if (loan.status !== 'Pending') {
-      return res.status(400).json({ 
-        message: 'Only pending loans can be deleted' 
+      return res.status(400).json({
+        message: 'Only pending loans can be deleted'
       });
     }
 
