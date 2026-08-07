@@ -98,10 +98,8 @@ async function syncAllEmployeesCorrectly() {
 
           // Update/Create LeaveBalance doc for this work year
           const year = hireDateObj.getFullYear() + wy + 1;
-          let balanceDoc = await LeaveBalance.findOne({
-            employee: emp._id,
-            $or: [{ workYear: wy }, { year: year }]
-          });
+          const existingBalances = await LeaveBalance.find({ employee: emp._id });
+          let balanceDoc = existingBalances.find(b => b.workYear === wy || b.year === year);
 
           if (!balanceDoc) {
             balanceDoc = new LeaveBalance({
@@ -141,7 +139,24 @@ async function syncAllEmployeesCorrectly() {
           balanceDoc.markModified('sick');
           balanceDoc.markModified('casual');
 
-          await balanceDoc.save({ validateBeforeSave: false });
+          try {
+            await balanceDoc.save({ validateBeforeSave: false });
+          } catch (saveErr) {
+            if (saveErr.code === 11000) {
+              const fallbackDoc = await LeaveBalance.findOne({ employee: emp._id, workYear: wy }) ||
+                                 await LeaveBalance.findOne({ employee: emp._id, year: year });
+              if (fallbackDoc) {
+                fallbackDoc.annual = balanceDoc.annual;
+                fallbackDoc.sick = balanceDoc.sick;
+                fallbackDoc.casual = balanceDoc.casual;
+                fallbackDoc.isCarriedForward = carriedForward > 0;
+                fallbackDoc.markModified('annual');
+                fallbackDoc.markModified('sick');
+                fallbackDoc.markModified('casual');
+                await fallbackDoc.save({ validateBeforeSave: false });
+              }
+            }
+          }
 
           // Pass remaining to next work year carry forward
           prevAnnualRemaining = annualRemaining;
