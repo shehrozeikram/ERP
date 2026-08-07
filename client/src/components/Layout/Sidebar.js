@@ -195,6 +195,7 @@ const Sidebar = () => {
       '/general/project-management/overview': 'project_management',
       '/general/project-management/projects': 'project_management',
       '/general/project-management/workspace': 'project_management',
+      '/general/subcontractors': 'project_management',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
 
@@ -287,6 +288,7 @@ const Sidebar = () => {
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/cash-approvals': 'cash_approvals',
       '/procurement/vendors': 'vendors',
+      '/procurement/subcontractors': 'vendors',
       '/procurement/vendor-bills': 'purchase_orders',
       '/procurement/store': 'store',
       '/procurement/store/quality-assurance': 'goods_receive',

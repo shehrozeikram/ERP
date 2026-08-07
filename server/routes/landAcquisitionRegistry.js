@@ -324,15 +324,25 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
 
   if (moza) {
     const mongoose = require('mongoose');
-    filter.moza = new mongoose.Types.ObjectId(moza);
+    if (mongoose.Types.ObjectId.isValid(moza)) {
+      filter.moza = new mongoose.Types.ObjectId(moza);
+    }
   }
-  if (search) {
-    const re = new RegExp(search, 'i');
-    filter.$or = [{ registryNo: re }, { inteqalNo: re }, { khewatNo: re }];
+  if (search && search.trim()) {
+    const cleanSearch = search.trim();
+    const escaped = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'i');
+    filter.$or = [
+      { registryNo: re },
+      { inteqalNo: re },
+      { khewatNo: re },
+      { 'lines.khewatNo': re },
+      { 'lines.khasraNo': re }
+    ];
   }
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 5000);
   const skip = (pageNum - 1) * limitNum;
 
   const SARSAIS_PER_KANAL = 180;

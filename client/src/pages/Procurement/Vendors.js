@@ -286,6 +286,8 @@ const Vendors = () => {
     }
   ];
 
+  const isSubcontractorView = window.location.pathname.includes('subcontractors');
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -297,10 +299,12 @@ const Vendors = () => {
             </Avatar>
             <Box>
               <Typography variant="h4" sx={{ fontWeight: 'bold', color: theme.palette.primary.main }}>
-                Vendors
+                {isSubcontractorView ? 'Subcontractors Registry' : 'Vendors & Subcontractors'}
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Approved vendor list (AVL) grouped by procurement category
+                {isSubcontractorView
+                  ? 'Approved Subcontractors and Construction Contractors Registry linked with Project BOQs'
+                  : 'Approved vendor & subcontractor list (AVL) grouped by procurement category'}
               </Typography>
             </Box>
           </Box>
@@ -321,7 +325,7 @@ const Vendors = () => {
               startIcon={<AddIcon />}
               onClick={handleCreate}
             >
-              Add Vendor
+              {isSubcontractorView ? 'Add Subcontractor' : 'Add Vendor'}
             </Button>
           </Box>
         </Box>

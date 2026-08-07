@@ -49,7 +49,8 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   Download as DownloadIcon,
-  CompareArrows as CompareArrowsIcon
+  CompareArrows as CompareArrowsIcon,
+  LocalGasStation as FuelIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -57,6 +58,7 @@ import { useData } from '../../contexts/DataContext';
 import api from '../../services/authService';
 import MonthlyPayrollApprovalSection from '../../components/HR/MonthlyPayrollApprovalSection';
 import PayrollMonthlyComparisonDialog from '../../components/HR/PayrollMonthlyComparisonDialog';
+import ImportFuelAllowanceDialog from '../../components/HR/ImportFuelAllowanceDialog';
 import { getPayrollStatusColor, getPayrollStatusLabel } from '../../utils/payrollStatusHelpers';
 import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
 import SalaryAdvanceManagement from '../../components/HR/SalaryAdvanceManagement';
@@ -103,6 +105,7 @@ const Payroll = () => {
     project: ''
   });
   const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
+  const [fuelDialogOpen, setFuelDialogOpen] = useState(false);
   const [bulkCreateLoading, setBulkCreateLoading] = useState(false);
   const [bulkCreateForm, setBulkCreateForm] = useState({
     month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
@@ -1427,7 +1430,15 @@ Do you want to:
         <Typography variant="h4" component="h1" gutterBottom>
           Payroll Management
         </Typography>
-        <Box>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<FuelIcon />}
+            onClick={() => setFuelDialogOpen(true)}
+            color="primary"
+          >
+            Import Fuel Allowance
+          </Button>
           <Button
             variant="outlined"
             startIcon={<GroupWorkIcon />}
@@ -1435,7 +1446,6 @@ Do you want to:
               fetchCurrentOverview();
               setBulkCreateDialogOpen(true);
             }}
-            sx={{ mr: 2 }}
             color="secondary"
           >
             Bulk Create Payroll
@@ -2732,6 +2742,14 @@ Do you want to:
           }
           await refreshComparisonDialogData();
           await fetchMonthlyPayrolls();
+        }}
+      />
+
+      <ImportFuelAllowanceDialog
+        open={fuelDialogOpen}
+        onClose={() => setFuelDialogOpen(false)}
+        onImportSuccess={() => {
+          fetchMonthlyPayrolls();
         }}
       />
         </>

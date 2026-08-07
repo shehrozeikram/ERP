@@ -892,7 +892,11 @@ const BOQTab = ({ projectId, project }) => {
                 <InputLabel>Assigned Subcontractor</InputLabel>
                 <Select value={form.contractor || ''} label="Assigned Subcontractor" onChange={set('contractor')}>
                   <MenuItem value="">Unassigned</MenuItem>
-                  {subcontractors.map(s => <MenuItem key={s._id} value={s._id}>{s.name} ({s.vendorType || 'Supplier'})</MenuItem>)}
+                  {subcontractors.map(s => (
+                    <MenuItem key={s._id} value={s._id}>
+                      {s.name} {s.vendorCategory ? `(${s.vendorCategory})` : ''}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
@@ -1137,7 +1141,6 @@ const BOQTab = ({ projectId, project }) => {
         </DialogActions>
       </Dialog>
 
-      {/* Batch Assign Subcontractor & Sub-Project Dialog */}
       <Dialog open={batchAssignOpen} onClose={() => setBatchAssignOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Assign Subcontractor & Sub-Project ({selectedItems.size} BOQ Items)</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
@@ -1148,7 +1151,11 @@ const BOQTab = ({ projectId, project }) => {
                 <InputLabel>Select Subcontractor</InputLabel>
                 <Select value={batchContractorId} label="Select Subcontractor" onChange={e => setBatchContractorId(e.target.value)}>
                   <MenuItem value="">-- Unassigned --</MenuItem>
-                  {subcontractors.map(s => <MenuItem key={s._id} value={s._id}>{s.name} ({s.vendorType || 'Supplier'})</MenuItem>)}
+                  {subcontractors.map(s => (
+                    <MenuItem key={s._id} value={s._id}>
+                      {s.name} {s.vendorCategory ? `(${s.vendorCategory})` : ''}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>

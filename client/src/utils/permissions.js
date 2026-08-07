@@ -827,9 +827,11 @@ export const MODULES = {
         name: 'Vendors',
         path: '/procurement/vendors',
         subItems: [
-          { name: 'Approved vendor list', path: '/procurement/vendors' }
+          { name: 'Approved vendor list', path: '/procurement/vendors' },
+          { name: 'Subcontractors', path: '/procurement/subcontractors' }
         ]
       },
+      { name: 'Subcontractors', path: '/procurement/subcontractors' },
       { name: "GRN's & Bills", path: '/procurement/vendor-bills' },
       { name: 'Reports', path: '/procurement/reports' },
       {
@@ -1075,6 +1077,7 @@ export const MODULES = {
         subItems: [
           { name: 'Overview', path: '/general/project-management/overview' },
           { name: 'Projects', path: '/general/project-management/projects' },
+          { name: 'Subcontractors', path: '/general/subcontractors' },
           { name: 'BOQ', path: '/general/project-management/workspace/boq' },
           { name: 'Tasks / WBS', path: '/general/project-management/workspace/tasks' },
           { name: 'Expenses', path: '/general/project-management/workspace/expenses' },

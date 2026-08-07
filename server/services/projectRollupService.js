@@ -72,7 +72,12 @@ const ProjectRollupService = {
 
     // Fall back to direct project model budgeted amount if BOQs not added yet
     if (grandEstimatedBudget === 0) {
-      grandEstimatedBudget = childProjects.reduce((sum, p) => sum + (p.totalApprovedBudget || p.totalEstimatedCost || 0), 0);
+      const subProjects = childProjects.filter(p => String(p._id) !== String(masterProjectId));
+      if (subProjects.length > 0) {
+        grandEstimatedBudget = subProjects.reduce((sum, p) => sum + (p.totalApprovedBudget || p.totalEstimatedCost || 0), 0);
+      } else {
+        grandEstimatedBudget = masterProject.totalApprovedBudget || masterProject.totalEstimatedCost || 0;
+      }
     }
 
     // 3. Aggregate Actual Expenditure from Financial Documents (GRN, AP Bills, Store Issues, Project Expenses)

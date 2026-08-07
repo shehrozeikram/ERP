@@ -44,7 +44,9 @@ import {
   Visibility as ViewIcon,
   Refresh as RefreshIcon,
   GetApp as GetAppIcon,
+  LocalGasStation as FuelIcon
 } from '@mui/icons-material';
+import ImportFuelAllowanceDialog from '../../components/HR/ImportFuelAllowanceDialog';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -77,6 +79,7 @@ const EmployeeList = () => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [fuelDialogOpen, setFuelDialogOpen] = useState(false);
   const [exportPages, setExportPages] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [probationCompletedEmployees, setProbationCompletedEmployees] = useState([]);
@@ -499,6 +502,14 @@ const EmployeeList = () => {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Employee Management</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<FuelIcon />}
+            onClick={() => setFuelDialogOpen(true)}
+            color="primary"
+          >
+            Import Fuel Allowance
+          </Button>
           <Button
             variant="outlined"
             startIcon={<GetAppIcon />}
@@ -1163,6 +1174,16 @@ const EmployeeList = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Import Fuel Allowance Dialog */}
+      <ImportFuelAllowanceDialog
+        open={fuelDialogOpen}
+        onClose={() => setFuelDialogOpen(false)}
+        onImportSuccess={() => {
+          fetchEmployees();
+          setSnackbar({ open: true, message: 'Fuel Allowance imported successfully!', severity: 'success' });
+        }}
+      />
 
       {/* Snackbar */}
       <Snackbar

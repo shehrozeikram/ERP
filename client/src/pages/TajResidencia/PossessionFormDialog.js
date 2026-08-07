@@ -193,8 +193,18 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
     getMozaKhasras(form.moza)
       .then((res) => setMozaKhasras(res.data?.data || []))
       .catch(() => setMozaKhasras([]));
-    getRegistries({ moza: form.moza, limit: 200 })
-      .then((res) => setRegistries(res.data?.data?.registries || []))
+    getRegistries({ moza: form.moza, limit: 1000 })
+      .then((res) => {
+        let list = res.data?.data?.registries || [];
+        if (possession?.registry) {
+          const regObj = typeof possession.registry === 'object' ? possession.registry : null;
+          const regId = regObj?._id || possession.registry;
+          if (regId && !list.some((r) => r._id === regId)) {
+            if (regObj) list = [regObj, ...list];
+          }
+        }
+        setRegistries(list);
+      })
       .catch(() => setRegistries([]));
     getPossessionStatus({ moza: form.moza })
       .then((res) => {
@@ -528,8 +538,39 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
             <Autocomplete
               fullWidth
               options={registries}
-              getOptionLabel={(r) => r ? `${r.registryNo}${r.inteqalNo ? ` / ${r.inteqalNo}` : ''}` : ''}
-              value={registries.find(r => r._id === form.registry) || null}
+              getOptionLabel={(r) => {
+                if (!r) return '';
+                if (typeof r === 'string') return r;
+                const parts = [];
+                if (r.registryNo) parts.push(`Reg: ${r.registryNo}`);
+                if (r.inteqalNo) parts.push(`Inteqal: ${r.inteqalNo}`);
+                if (r.khewatNo) parts.push(`Khewat: ${r.khewatNo}`);
+                return parts.length > 0 ? parts.join(' | ') : (r._id || '');
+              }}
+              filterOptions={(options, state) => {
+                const inputValue = (state.inputValue || '').trim().toLowerCase();
+                if (!inputValue) return options;
+                return options.filter((r) => {
+                  const regNo = String(r.registryNo || '').toLowerCase();
+                  const intNo = String(r.inteqalNo || '').toLowerCase();
+                  const khwNo = String(r.khewatNo || '').toLowerCase();
+                  const linesKhasras = (r.lines || []).map(l => String(l.khasraNo || '').toLowerCase()).join(' ');
+                  const linesKhewats = (r.lines || []).map(l => String(l.khewatNo || '').toLowerCase()).join(' ');
+                  return (
+                    regNo.includes(inputValue) ||
+                    intNo.includes(inputValue) ||
+                    khwNo.includes(inputValue) ||
+                    linesKhasras.includes(inputValue) ||
+                    linesKhewats.includes(inputValue)
+                  );
+                });
+              }}
+              value={
+                registries.find((r) => r._id === form.registry) ||
+                (possession?.registry && (possession.registry._id === form.registry || possession.registry === form.registry)
+                  ? possession.registry
+                  : null)
+              }
               onChange={(e, newValue) => {
                 handleRegistryLinkChange({ target: { value: newValue ? newValue._id : '' } });
               }}
@@ -541,7 +582,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
                   helperText={
                     linkedRegistry
                       ? `Pre-filled ${linkedRegistry.lines?.length || 0} khasra row(s) from registry`
-                      : 'Optional — auto-fills khasra rows'
+                      : 'Optional — search registry / inteqal / khewat'
                   }
                 />
               )}

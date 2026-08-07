@@ -1477,6 +1477,14 @@ function App() {
               path="/procurement/vendors" 
               element={<ProtectedRoute><Vendors /></ProtectedRoute>} 
             />
+            <Route 
+              path="/procurement/subcontractors" 
+              element={<ProtectedRoute><Vendors /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/general/subcontractors" 
+              element={<ProtectedRoute><Vendors /></ProtectedRoute>} 
+            />
             <Route
               path="/procurement/reports"
               element={<ProtectedRoute><ProcurementReports /></ProtectedRoute>}

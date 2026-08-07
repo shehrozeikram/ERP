@@ -138,25 +138,36 @@ router.get('/projects', asyncHandler(async (req, res) => {
 
 // GET /api/project-management/projects/statistics — dashboard stats
 router.get('/projects/statistics', asyncHandler(async (req, res) => {
-  const [statusCounts, financials] = await Promise.all([
+  const [statusCounts, financials, totalCount] = await Promise.all([
     ConstructionProject.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-    ConstructionProject.aggregate([{
-      $group: {
-        _id: null,
-        totalBudget: { $sum: '$totalApprovedBudget' },
-        totalSpent: { $sum: '$totalActualSpent' },
-        totalProjects: { $sum: 1 }
+    ConstructionProject.aggregate([
+      { $match: { isMasterProject: { $ne: true }, status: { $ne: 'Cancelled' } } },
+      {
+        $group: {
+          _id: null,
+          totalBudget: {
+            $sum: {
+              $cond: [
+                { $gt: ['$totalApprovedBudget', 0] },
+                '$totalApprovedBudget',
+                { $ifNull: ['$totalEstimatedCost', 0] }
+              ]
+            }
+          },
+          totalSpent: { $sum: { $ifNull: ['$totalActualSpent', 0] } }
+        }
       }
-    }])
+    ]),
+    ConstructionProject.countDocuments()
   ]);
 
   const byStatus = statusCounts.reduce((acc, s) => { acc[s._id] = s.count; return acc; }, {});
-  const fin = financials[0] || { totalBudget: 0, totalSpent: 0, totalProjects: 0 };
+  const fin = financials[0] || { totalBudget: 0, totalSpent: 0 };
 
   res.json({
     success: true,
     data: {
-      totalProjects: fin.totalProjects,
+      totalProjects: totalCount,
       active: byStatus['Active'] || 0,
       onHold: byStatus['On Hold'] || 0,
       completed: byStatus['Completed'] || 0,

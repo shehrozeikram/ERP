@@ -2925,4 +2925,130 @@ router.post('/employees/import-leavers', authorize('hr_manager', 'hr_admin', 'su
   }
 });
 
+// @route   POST /api/hr/employees/import-fuel-allowance
+// @desc    Import Fuel Allowance from Excel and apply to matching employees
+// @access  Private (hr_manager, hr_admin, super_admin, finance_manager)
+router.post('/employees/import-fuel-allowance', authorize('hr_manager', 'hr_admin', 'super_admin', 'finance_manager'), memoryUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded. Please select an Excel file (.xlsx, .xls).' });
+    }
+
+    const xlsx = require('xlsx');
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rawData = xlsx.utils.sheet_to_json(sheet, { defval: null });
+
+    if (!rawData || !rawData.length) {
+      return res.status(400).json({ success: false, message: 'Excel file appears to be empty.' });
+    }
+
+    // Helper to find key in row object
+    const findValue = (rowObj, candidates) => {
+      const keys = Object.keys(rowObj);
+      for (const cand of candidates) {
+        const matchKey = keys.find(k => k.trim().toLowerCase() === cand.trim().toLowerCase());
+        if (matchKey && rowObj[matchKey] != null) return rowObj[matchKey];
+      }
+      for (const cand of candidates) {
+        const matchKey = keys.find(k => k.trim().toLowerCase().includes(cand.trim().toLowerCase()));
+        if (matchKey && rowObj[matchKey] != null) return rowObj[matchKey];
+      }
+      return null;
+    };
+
+    const idCandidates = ['EMP ID Tovus', 'Employee ID', 'EMP ID', 'Emp ID', 'EmployeeNo', 'Code', 'EmpCode', 'ID'];
+    const fuelCandidates = ['Fuel Allowance', 'Fuel Allowance Amount', 'Fuel', 'Amount', 'Fuel (PKR)', 'FuelAllowance'];
+
+    let updatedCount = 0;
+    let notFoundCount = 0;
+    const unmatchedList = [];
+    const updatedDetails = [];
+
+    const month = req.body.month;
+    const year = req.body.year;
+
+    for (const row of rawData) {
+      const rawId = findValue(row, idCandidates);
+      const rawFuel = findValue(row, fuelCandidates);
+
+      if (rawId == null || rawFuel == null) continue;
+
+      const strId = String(rawId).trim();
+      const fuelAmount = parseFloat(rawFuel) || 0;
+
+      // Find matching employee
+      const emp = await Employee.findOne({
+        $or: [
+          { employeeId: strId },
+          { employeeId: strId.padStart(5, '0') },
+          { employeeId: String(parseInt(strId, 10)) }
+        ]
+      });
+
+      if (!emp) {
+        notFoundCount++;
+        unmatchedList.push(strId);
+        continue;
+      }
+
+      // Update employee allowances.fuel using updateOne to avoid legacy field validation errors
+      await Employee.updateOne(
+        { _id: emp._id },
+        {
+          $set: {
+            'allowances.fuel': {
+              isActive: fuelAmount > 0,
+              amount: fuelAmount
+            }
+          }
+        }
+      );
+
+      updatedCount++;
+      updatedDetails.push({
+        employeeId: emp.employeeId,
+        name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+        fuelAllowance: fuelAmount
+      });
+
+      // If month/year provided or active draft payroll exists, update draft payroll for this employee
+      if (month && year) {
+        const Payroll = require('../models/hr/Payroll');
+        const draftPayroll = await Payroll.findOne({
+          employee: emp._id,
+          month: String(month).padStart(2, '0'),
+          year: Number(year),
+          status: { $in: ['Draft', 'Generated', 'Pending'] }
+        });
+
+        if (draftPayroll) {
+          if (!draftPayroll.allowances) draftPayroll.allowances = {};
+          draftPayroll.allowances.fuel = {
+            isActive: fuelAmount > 0,
+            amount: fuelAmount
+          };
+          await draftPayroll.save();
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Fuel Allowance import complete! Updated ${updatedCount} employees. Skipped ${notFoundCount} unmatched.`,
+      data: {
+        updatedCount,
+        notFoundCount,
+        unmatchedList,
+        updatedDetails,
+        totalProcessed: rawData.length
+      }
+    });
+  } catch (error) {
+    console.error('Import Fuel Allowance Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to import Fuel Allowance: ' + error.message });
+  }
+});
+
 module.exports = router; 
