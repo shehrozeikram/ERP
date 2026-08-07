@@ -182,18 +182,16 @@ router.get('/employees/balances',
           usageMap.set(empId, { annual: 0, sick: 0, casual: 0, medical: 0 });
         }
         
-        const typeMap = {
-          'ANNUAL': 'annual',
-          'AL': 'annual',
-          'SICK': 'sick',
-          'SL': 'sick',
-          'CASUAL': 'casual',
-          'CL': 'casual',
-          'MEDICAL': 'medical',
-          'ML': 'medical'
-        };
+        const codeStr = (leave.leaveType?.code || leave.leaveType?.name || '').toUpperCase();
+        let balanceType = 'casual';
+        if (codeStr.includes('ANNUAL') || codeStr.includes('AL')) {
+          balanceType = 'annual';
+        } else if (codeStr.includes('SICK') || codeStr.includes('SL') || codeStr.includes('MEDICAL') || codeStr.includes('ML')) {
+          balanceType = 'sick';
+        } else {
+          balanceType = 'casual';
+        }
         
-        const balanceType = typeMap[leave.leaveType?.code] || 'casual';
         usageMap.get(empId)[balanceType] += leave.totalDays || 0;
       });
 

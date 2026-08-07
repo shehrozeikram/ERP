@@ -215,17 +215,26 @@ class LeaveIntegrationService {
       // Update balance for each approved leave
       const approvedLeaves = leaveRequests.filter(r => r.status === 'approved');
       for (const leave of approvedLeaves) {
-        const typeStr = `${leave.leaveType?.name || ''} ${leave.leaveType?.code || ''}`.toLowerCase();
-        if (typeStr.includes('annual') || typeStr.includes('al_')) {
-          balance.annual.used += leave.totalDays;
-        } else if (typeStr.includes('sick') || typeStr.includes('medical') || typeStr.includes('sl_') || typeStr.includes('ml_')) {
-          balance.sick.used += leave.totalDays;
+        const codeStr = (leave.leaveType?.code || leave.leaveType?.name || '').toUpperCase();
+        const nameStr = (leave.leaveType?.name || '').toUpperCase();
+
+        if (codeStr.includes('ANNUAL') || codeStr.includes('AL') || nameStr.includes('ANNUAL')) {
+          balance.annual.used += leave.totalDays || 0;
+        } else if (codeStr.includes('SICK') || codeStr.includes('SL') || codeStr.includes('MEDICAL') || codeStr.includes('ML') || nameStr.includes('SICK') || nameStr.includes('MEDICAL')) {
+          balance.sick.used += leave.totalDays || 0;
         } else {
-          balance.casual.used += leave.totalDays;
+          balance.casual.used += leave.totalDays || 0;
         }
       }
 
-      // Save the updated balance
+      balance.annual.remaining = Math.max(0, (balance.annual.allocated || 0) + (balance.annual.carriedForward || 0) - balance.annual.used);
+      balance.sick.remaining = Math.max(0, (balance.sick.allocated || 0) + (balance.sick.carriedForward || 0) - balance.sick.used);
+      balance.casual.remaining = Math.max(0, (balance.casual.allocated || 0) + (balance.casual.carriedForward || 0) - balance.casual.used);
+
+      balance.markModified('annual');
+      balance.markModified('sick');
+      balance.markModified('casual');
+
       await balance.save();
     } catch (error) {
       console.error('Error syncing balance with leave requests:', error);
