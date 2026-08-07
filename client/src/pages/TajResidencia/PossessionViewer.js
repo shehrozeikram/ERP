@@ -40,6 +40,20 @@ const formatDate = (value) => {
   return new Date(value).toLocaleDateString('en-GB');
 };
 
+const resolveRegistryNo = (row) => {
+  if (row.registry?.registryNo) return row.registry.registryNo;
+  const lineNos = [...new Set((row.lines || []).map((l) => (l.registry?.registryNo || l.registryNo || '')).filter(Boolean))];
+  if (lineNos.length > 0) return lineNos.join(', ');
+  return '—';
+};
+
+const resolveInteqalNo = (row) => {
+  if (row.registry?.inteqalNo) return row.registry.inteqalNo;
+  const lineNos = [...new Set((row.lines || []).map((l) => (l.registry?.inteqalNo || l.inteqalNo || '')).filter(Boolean))];
+  if (lineNos.length > 0) return lineNos.join(', ');
+  return '—';
+};
+
 const PossessionViewer = () => {
   const [mozas, setMozas] = useState([]);
   const [mozaFilter, setMozaFilter] = useState('');
@@ -166,7 +180,8 @@ const PossessionViewer = () => {
         'Moza': row.moza?.name || '',
         'Khewat No': row.khewatNo || '',
         'Possession Ref': row.possessionRef || '',
-        'Registry No': row.registry?.registryNo || '',
+        'Registry No': resolveRegistryNo(row),
+        'Inteqal No': resolveInteqalNo(row),
         'Khasras': [...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '',
         'Total Possessed': formatKMS(row.totalArea),
         'Total Lines': row.lines?.length || 0,
@@ -270,6 +285,7 @@ const PossessionViewer = () => {
                 <TableCell><strong>Khewat</strong></TableCell>
                 <TableCell><strong>Ref</strong></TableCell>
                 <TableCell><strong>Registry</strong></TableCell>
+                <TableCell><strong>Inteqal</strong></TableCell>
                 <TableCell><strong>Khasra</strong></TableCell>
                 <TableCell><strong>Total Possessed</strong></TableCell>
                 <TableCell><strong>Lines</strong></TableCell>
@@ -283,7 +299,8 @@ const PossessionViewer = () => {
                   <TableCell>{row.moza?.name || '—'}</TableCell>
                   <TableCell>{row.khewatNo}</TableCell>
                   <TableCell>{row.possessionRef || '—'}</TableCell>
-                  <TableCell>{row.registry?.registryNo || '—'}</TableCell>
+                  <TableCell>{resolveRegistryNo(row)}</TableCell>
+                  <TableCell>{resolveInteqalNo(row)}</TableCell>
                   <TableCell>{[...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '—'}</TableCell>
                   <TableCell>{formatKMS(row.totalArea)}</TableCell>
                   <TableCell>

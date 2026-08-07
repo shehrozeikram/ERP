@@ -173,11 +173,31 @@ router.get('/possessions', authMiddleware, asyncHandler(async (req, res) => {
 
   if (moza) {
     const mongoose = require('mongoose');
-    filter.moza = new mongoose.Types.ObjectId(moza);
+    if (mongoose.Types.ObjectId.isValid(moza)) {
+      filter.moza = new mongoose.Types.ObjectId(moza);
+    }
   }
-  if (search) {
-    const re = new RegExp(search, 'i');
-    filter.$or = [{ possessionRef: re }, { khewatNo: re }];
+  if (search && search.trim()) {
+    const cleanSearch = search.trim();
+    const escaped = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'i');
+
+    const LandRegistry = require('../models/tajResidencia/LandRegistry');
+    const matchingRegistries = await LandRegistry.find({
+      $or: [{ registryNo: re }, { inteqalNo: re }],
+      isActive: true
+    }).select('_id').lean();
+    const registryIds = matchingRegistries.map((r) => r._id);
+
+    filter.$or = [
+      { possessionRef: re },
+      { khewatNo: re },
+      { 'lines.khewatNo': re },
+      { 'lines.khasraNo': re },
+      { 'lines.registryKhewatNo': re },
+      { 'lines.registryKhasraNo': re },
+      ...(registryIds.length ? [{ registry: { $in: registryIds } }] : [])
+    ];
   }
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -191,6 +211,7 @@ router.get('/possessions', authMiddleware, asyncHandler(async (req, res) => {
     LandPossession.find(filter)
       .populate('moza', 'name slug')
       .populate('registry', 'registryNo inteqalNo registryDate')
+      .populate('lines.registry', 'registryNo inteqalNo registryDate')
       .sort({ possessionDate: -1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum),
@@ -262,6 +283,7 @@ router.get('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
   const doc = await LandPossession.findOne({ _id: req.params.id, isActive: true })
     .populate('moza', 'name slug')
     .populate('registry', 'registryNo inteqalNo registryDate')
+    .populate('lines.registry', 'registryNo inteqalNo registryDate')
     .populate('lines.khasraEntry', 'landInKhasra');
 
   if (!doc) {
@@ -336,6 +358,7 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   await doc.populate([
     { path: 'moza', select: 'name slug' },
     { path: 'registry', select: 'registryNo inteqalNo registryDate' },
+    { path: 'lines.registry', select: 'registryNo inteqalNo registryDate' },
     { path: 'lines.khasraEntry', select: 'landInKhasra' }
   ]);
 
@@ -409,6 +432,7 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
   await doc.populate([
     { path: 'moza', select: 'name slug' },
     { path: 'registry', select: 'registryNo inteqalNo registryDate' },
+    { path: 'lines.registry', select: 'registryNo inteqalNo registryDate' },
     { path: 'lines.khasraEntry', select: 'landInKhasra' }
   ]);
 
