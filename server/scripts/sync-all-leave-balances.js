@@ -33,9 +33,26 @@ async function syncAllLeaveBalances() {
 
         const currentWorkYear = LeaveIntegrationService.calculateWorkYear(hireDate);
 
-        // Ensure balances exist up to current work year
+        // Get all leave requests for employee
+        const allRequests = await LeaveRequest.find({
+          employee: emp._id,
+          isActive: true
+        }).populate('leaveType');
+
+        const hireDateObj = new Date(hireDate);
+
+        // Ensure balances exist and sync used days from requests for each work year
         for (let wy = 0; wy <= currentWorkYear; wy++) {
-          await LeaveBalance.getOrCreateBalanceWithCarryForward(emp._id, wy);
+          const wyStart = new Date(hireDateObj.getFullYear() + wy, hireDateObj.getMonth(), hireDateObj.getDate());
+          const wyEnd = new Date(hireDateObj.getFullYear() + wy + 1, hireDateObj.getMonth(), hireDateObj.getDate());
+
+          const periodRequests = allRequests.filter(r => {
+            const leaveStart = new Date(r.startDate);
+            return leaveStart >= wyStart && leaveStart < wyEnd;
+          });
+
+          const balance = await LeaveBalance.getOrCreateBalanceWithCarryForward(emp._id, wy);
+          await LeaveIntegrationService.syncBalanceWithLeaveRequests(balance, periodRequests);
         }
 
         // Recalculate carry forward sequentially for all work years of this employee
