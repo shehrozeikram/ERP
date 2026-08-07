@@ -210,7 +210,7 @@ router.get('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   const [rows, total, grandTotalAgg] = await Promise.all([
     LandPossession.find(filter)
       .populate('moza', 'name slug')
-      .populate('registry', 'registryNo inteqalNo registryDate')
+      .populate('registry', 'registryNo inteqalNo registryDate totalArea')
       .populate('lines.registry', 'registryNo inteqalNo registryDate')
       .sort({ possessionDate: -1, createdAt: -1 })
       .skip(skip)
@@ -218,15 +218,16 @@ router.get('/possessions', authMiddleware, asyncHandler(async (req, res) => {
     LandPossession.countDocuments(filter),
     LandPossession.aggregate([
       { $match: filter },
+      { $unwind: "$lines" },
       {
         $group: {
           _id: null,
           totalSarsais: {
             $sum: {
               $add: [
-                { $multiply: [{ $ifNull: ['$totalArea.kanal', 0] }, SARSAIS_PER_KANAL] },
-                { $multiply: [{ $ifNull: ['$totalArea.marla', 0] }, SARSAI_PER_MARLA] },
-                { $ifNull: ['$totalArea.sarsai', 0] }
+                { $multiply: [{ $ifNull: ['$lines.possessedArea.kanal', 0] }, SARSAIS_PER_KANAL] },
+                { $multiply: [{ $ifNull: ['$lines.possessedArea.marla', 0] }, SARSAI_PER_MARLA] },
+                { $ifNull: ['$lines.possessedArea.sarsai', 0] }
               ]
             }
           }
@@ -331,10 +332,10 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   }
 
   const finalTotal = toSarsais(payload.totalArea) ? payload.totalArea : payload.linesTotal;
-  if (toSarsais(payload.totalArea) && toSarsais(payload.linesTotal) !== toSarsais(payload.totalArea)) {
+  if (toSarsais(payload.totalArea) && toSarsais(payload.linesTotal) > toSarsais(payload.totalArea)) {
     return res.status(400).json({
       success: false,
-      message: 'Total area must match sum of possessed areas on all lines'
+      message: 'Total possessed area cannot exceed Total Registry Area'
     });
   }
 
@@ -357,7 +358,7 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
 
   await doc.populate([
     { path: 'moza', select: 'name slug' },
-    { path: 'registry', select: 'registryNo inteqalNo registryDate' },
+    { path: 'registry', select: 'registryNo inteqalNo registryDate totalArea' },
     { path: 'lines.registry', select: 'registryNo inteqalNo registryDate' },
     { path: 'lines.khasraEntry', select: 'landInKhasra' }
   ]);
@@ -408,10 +409,10 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
   }
 
   const finalTotal = toSarsais(payload.totalArea) ? payload.totalArea : payload.linesTotal;
-  if (toSarsais(payload.totalArea) && toSarsais(payload.linesTotal) !== toSarsais(payload.totalArea)) {
+  if (toSarsais(payload.totalArea) && toSarsais(payload.linesTotal) > toSarsais(payload.totalArea)) {
     return res.status(400).json({
       success: false,
-      message: 'Total area must match sum of possessed areas on all lines'
+      message: 'Total possessed area cannot exceed Total Registry Area'
     });
   }
 
@@ -431,7 +432,7 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
 
   await doc.populate([
     { path: 'moza', select: 'name slug' },
-    { path: 'registry', select: 'registryNo inteqalNo registryDate' },
+    { path: 'registry', select: 'registryNo inteqalNo registryDate totalArea' },
     { path: 'lines.registry', select: 'registryNo inteqalNo registryDate' },
     { path: 'lines.khasraEntry', select: 'landInKhasra' }
   ]);

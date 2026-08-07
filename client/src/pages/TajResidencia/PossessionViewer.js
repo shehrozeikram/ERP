@@ -33,7 +33,7 @@ import {
   getPossessions,
   updatePossession
 } from '../../services/landAcquisitionPossessionService';
-import { formatKMS } from '../../utils/landAreaUnits';
+import { addAreas, formatKMS } from '../../utils/landAreaUnits';
 
 const formatDate = (value) => {
   if (!value) return '—';
@@ -52,6 +52,21 @@ const resolveInteqalNo = (row) => {
   const lineNos = [...new Set((row.lines || []).map((l) => (l.registry?.inteqalNo || l.inteqalNo || '')).filter(Boolean))];
   if (lineNos.length > 0) return lineNos.join(', ');
   return '—';
+};
+
+const resolvePossessedArea = (row) => {
+  if (row.lines?.length > 0) {
+    const sum = addAreas(...row.lines.map((l) => l.possessedArea || {}));
+    return formatKMS(sum);
+  }
+  return formatKMS(row.totalArea);
+};
+
+const resolveTotalRegistryArea = (row) => {
+  if (row.registry?.totalArea && (row.registry.totalArea.kanal || row.registry.totalArea.marla || row.registry.totalArea.sarsai)) {
+    return formatKMS(row.registry.totalArea);
+  }
+  return formatKMS(row.totalArea);
 };
 
 const PossessionViewer = () => {
@@ -183,7 +198,8 @@ const PossessionViewer = () => {
         'Registry No': resolveRegistryNo(row),
         'Inteqal No': resolveInteqalNo(row),
         'Khasras': [...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '',
-        'Total Possessed': formatKMS(row.totalArea),
+        'Total Registry Area': resolveTotalRegistryArea(row),
+        'Total Possessed': resolvePossessedArea(row),
         'Total Lines': row.lines?.length || 0,
       }));
 
@@ -287,6 +303,7 @@ const PossessionViewer = () => {
                 <TableCell><strong>Registry</strong></TableCell>
                 <TableCell><strong>Inteqal</strong></TableCell>
                 <TableCell><strong>Khasra</strong></TableCell>
+                <TableCell><strong>Total Registry Area</strong></TableCell>
                 <TableCell><strong>Total Possessed</strong></TableCell>
                 <TableCell><strong>Lines</strong></TableCell>
                 <TableCell align="center" width={128}><strong>Actions</strong></TableCell>
@@ -302,7 +319,8 @@ const PossessionViewer = () => {
                   <TableCell>{resolveRegistryNo(row)}</TableCell>
                   <TableCell>{resolveInteqalNo(row)}</TableCell>
                   <TableCell>{[...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '—'}</TableCell>
-                  <TableCell>{formatKMS(row.totalArea)}</TableCell>
+                  <TableCell>{resolveTotalRegistryArea(row)}</TableCell>
+                  <TableCell>{resolvePossessedArea(row)}</TableCell>
                   <TableCell>
                     <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />
                   </TableCell>

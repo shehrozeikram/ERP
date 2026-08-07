@@ -22,6 +22,7 @@ import {
   Typography
 } from '@mui/material';
 import { Add, Delete } from '@mui/icons-material';
+import toast from 'react-hot-toast';
 import { getMozas, getMozaKhasras } from '../../services/landAcquisitionMozaService';
 import { getRegistries, getRegistry } from '../../services/landAcquisitionRegistryService';
 import {
@@ -354,17 +355,16 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
     [form.lines]
   );
 
-  useEffect(() => {
-    if (!open) return;
-    setForm((prev) => ({
-      ...prev,
-      totalArea: {
-        kanal: possessedTotal.kanal ? String(possessedTotal.kanal) : '',
-        marla: possessedTotal.marla ? String(possessedTotal.marla) : '',
-        sarsai: possessedTotal.sarsai ? String(possessedTotal.sarsai) : ''
-      }
-    }));
-  }, [open, possessedTotal.kanal, possessedTotal.marla, possessedTotal.sarsai]);
+  const totalRegistryArea = useMemo(
+    () => parseAreaForm(form.totalArea),
+    [form.totalArea]
+  );
+
+  const exceedsRegistryArea = useMemo(() => {
+    const regSarsais = toSarsais(totalRegistryArea);
+    const posSarsais = toSarsais(possessedTotal);
+    return regSarsais > 0 && posSarsais > regSarsais;
+  }, [totalRegistryArea, possessedTotal]);
 
   const setHeader = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
@@ -389,9 +389,16 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       }
     }
 
+    const regTotal = registry?.totalArea && toSarsais(registry.totalArea) > 0
+      ? areaToForm(registry.totalArea)
+      : (registry?.lines?.length
+          ? areaToForm(addAreas(...registry.lines.map((l) => l.acquiredArea || {})))
+          : emptyArea());
+
     setForm((prev) => ({
       ...prev,
       registry: registryId,
+      totalArea: regTotal,
       lines: linesFromRegistry(registry, registryId, mozaKhasras)
     }));
   };
@@ -466,6 +473,10 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
   };
 
   const handleSubmit = () => {
+    if (exceedsRegistryArea) {
+      toast.error('Total Possession Area cannot exceed Total Registry Area');
+      return;
+    }
     const khewatNos = uniqueKhewatNos(form.lines);
     onSave({
       possessionDate: form.possessionDate,
@@ -590,18 +601,30 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
           </Grid>
           <Grid item xs={12} md={2}>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-              Total Possessed (K · M · S)
+              Total Registry Area (K · M · S)
             </Typography>
             <AreaInputs value={form.totalArea} onChange={() => {}} readOnly />
-            <Typography variant="caption" color="text.secondary">
-              {formatKMS(possessedTotal)}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {formatKMS(totalRegistryArea)}
             </Typography>
+            <Typography
+              variant="caption"
+              color={exceedsRegistryArea ? 'error.main' : 'primary.main'}
+              sx={{ display: 'block', fontWeight: 600, mt: 0.5 }}
+            >
+              Total Possession Area: {formatKMS(possessedTotal)}
+            </Typography>
+            {exceedsRegistryArea && (
+              <Typography variant="caption" color="error.main" sx={{ display: 'block', fontWeight: 600 }}>
+                ⚠️ Exceeds Total Registry Area!
+              </Typography>
+            )}
           </Grid>
         </Grid>
 
         {selectedMoza && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Mouza {selectedMoza.name} — registry khasra for Khasra Area; possessed khasra for physical possession. Total Land Possessed and Transfer % update from prior possession plus this entry.
+            Mouza {selectedMoza.name} — registry khasra for Registry Area; possessed khasra for physical possession. Total Land Possessed and Transfer % update from prior possession plus this entry.
           </Typography>
         )}
 
@@ -616,7 +639,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
                 <TableRow>
                   <TableCell><strong>Registry Khasra</strong></TableCell>
                   <TableCell><strong>Possessed Khasra</strong></TableCell>
-                  <TableCell><strong>Khasra Area</strong></TableCell>
+                  <TableCell><strong>Registry Area</strong></TableCell>
                   <TableCell><strong>Possessed Area</strong></TableCell>
                   <TableCell><strong>Total Land Owned</strong></TableCell>
                   <TableCell width={80}><strong>Transfer %</strong></TableCell>
@@ -788,6 +811,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
             || !form.possessionDate
             || !form.moza
             || !hasValidLines
+            || exceedsRegistryArea
             || form.lines.some(lineExceedsPlot)
           }
         >
