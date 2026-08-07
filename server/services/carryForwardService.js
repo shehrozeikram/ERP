@@ -438,17 +438,27 @@ class CarryForwardService {
 
       // Recalculate carry forward for each work year
       for (const balance of balances) {
+        if (!balance.annual) {
+          balance.annual = { allocated: 20, used: 0, remaining: 20, carriedForward: 0, advance: 0 };
+        }
+        if (!balance.sick) {
+          balance.sick = { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 };
+        }
+        if (!balance.casual) {
+          balance.casual = { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 };
+        }
+
         const carryForward = await this.calculateCarryForward(employeeId, balance.workYear);
         
         // Update carry forward values
-        balance.annual.carriedForward = carryForward.annual;
-        balance.sick.carriedForward = carryForward.sick;
-        balance.casual.carriedForward = carryForward.casual;
+        balance.annual.carriedForward = carryForward.annual || 0;
+        balance.sick.carriedForward = carryForward.sick || 0;
+        balance.casual.carriedForward = carryForward.casual || 0;
         
         // Recalculate remaining (allocated + carried forward - used)
-        balance.annual.remaining = balance.annual.allocated + carryForward.annual - balance.annual.used;
-        balance.sick.remaining = balance.sick.allocated + carryForward.sick - balance.sick.used;
-        balance.casual.remaining = balance.casual.allocated + carryForward.casual - balance.casual.used;
+        balance.annual.remaining = (balance.annual.allocated || 0) + (carryForward.annual || 0) - (balance.annual.used || 0);
+        balance.sick.remaining = (balance.sick.allocated || 0) + (carryForward.sick || 0) - (balance.sick.used || 0);
+        balance.casual.remaining = (balance.casual.allocated || 0) + (carryForward.casual || 0) - (balance.casual.used || 0);
         
         await balance.save();
         

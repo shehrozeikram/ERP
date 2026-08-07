@@ -27,58 +27,62 @@ async function syncAllLeaveBalances() {
 
     let updatedCount = 0;
     for (const emp of employees) {
-      const hireDate = emp.hireDate || emp.joiningDate;
-      if (!hireDate) continue;
+      try {
+        const hireDate = emp.hireDate || emp.joiningDate;
+        if (!hireDate) continue;
 
-      const currentWorkYear = LeaveIntegrationService.calculateWorkYear(hireDate);
+        const currentWorkYear = LeaveIntegrationService.calculateWorkYear(hireDate);
 
-      // Ensure balances exist up to current work year
-      for (let wy = 0; wy <= currentWorkYear; wy++) {
-        await LeaveBalance.getOrCreateBalanceWithCarryForward(emp._id, wy);
-      }
+        // Ensure balances exist up to current work year
+        for (let wy = 0; wy <= currentWorkYear; wy++) {
+          await LeaveBalance.getOrCreateBalanceWithCarryForward(emp._id, wy);
+        }
 
-      // Recalculate carry forward sequentially for all work years of this employee
-      await CarryForwardService.recalculateCarryForward(emp._id);
+        // Recalculate carry forward sequentially for all work years of this employee
+        await CarryForwardService.recalculateCarryForward(emp._id);
 
-      // Also update embedded leaveBalance on Employee model for consistency
-      const currentBalance = await LeaveBalance.findOne({
-        employee: emp._id,
-        workYear: currentWorkYear
-      });
+        // Also update embedded leaveBalance on Employee model for consistency
+        const currentBalance = await LeaveBalance.findOne({
+          employee: emp._id,
+          workYear: currentWorkYear
+        });
 
-      if (currentBalance) {
-        emp.leaveBalance = {
-          annual: {
-            allocated: currentBalance.annual.allocated,
-            used: currentBalance.annual.used,
-            remaining: Math.max(0, currentBalance.annual.allocated + currentBalance.annual.carriedForward - currentBalance.annual.used),
-            carriedForward: currentBalance.annual.carriedForward,
-            advance: currentBalance.annual.advance || 0
-          },
-          sick: {
-            allocated: currentBalance.sick.allocated,
-            used: currentBalance.sick.used,
-            remaining: Math.max(0, currentBalance.sick.allocated + currentBalance.sick.carriedForward - currentBalance.sick.used),
-            carriedForward: currentBalance.sick.carriedForward,
-            advance: currentBalance.sick.advance || 0
-          },
-          casual: {
-            allocated: currentBalance.casual.allocated,
-            used: currentBalance.casual.used,
-            remaining: Math.max(0, currentBalance.casual.allocated + currentBalance.casual.carriedForward - currentBalance.casual.used),
-            carriedForward: currentBalance.casual.carriedForward,
-            advance: currentBalance.casual.advance || 0
-          },
-          medical: {
-            allocated: currentBalance.sick.allocated,
-            used: currentBalance.sick.used,
-            remaining: Math.max(0, currentBalance.sick.allocated - currentBalance.sick.used),
-            carriedForward: 0,
-            advance: 0
-          }
-        };
-        await emp.save({ validateBeforeSave: false });
-        updatedCount++;
+        if (currentBalance) {
+          emp.leaveBalance = {
+            annual: {
+              allocated: currentBalance.annual?.allocated || 20,
+              used: currentBalance.annual?.used || 0,
+              remaining: Math.max(0, (currentBalance.annual?.allocated || 20) + (currentBalance.annual?.carriedForward || 0) - (currentBalance.annual?.used || 0)),
+              carriedForward: currentBalance.annual?.carriedForward || 0,
+              advance: currentBalance.annual?.advance || 0
+            },
+            sick: {
+              allocated: currentBalance.sick?.allocated || 10,
+              used: currentBalance.sick?.used || 0,
+              remaining: Math.max(0, (currentBalance.sick?.allocated || 10) + (currentBalance.sick?.carriedForward || 0) - (currentBalance.sick?.used || 0)),
+              carriedForward: currentBalance.sick?.carriedForward || 0,
+              advance: currentBalance.sick?.advance || 0
+            },
+            casual: {
+              allocated: currentBalance.casual?.allocated || 10,
+              used: currentBalance.casual?.used || 0,
+              remaining: Math.max(0, (currentBalance.casual?.allocated || 10) + (currentBalance.casual?.carriedForward || 0) - (currentBalance.casual?.used || 0)),
+              carriedForward: currentBalance.casual?.carriedForward || 0,
+              advance: currentBalance.casual?.advance || 0
+            },
+            medical: {
+              allocated: currentBalance.sick?.allocated || 10,
+              used: currentBalance.sick?.used || 0,
+              remaining: Math.max(0, (currentBalance.sick?.allocated || 10) - (currentBalance.sick?.used || 0)),
+              carriedForward: 0,
+              advance: 0
+            }
+          };
+          await emp.save({ validateBeforeSave: false });
+          updatedCount++;
+        }
+      } catch (empErr) {
+        console.warn(`Warning syncing employee ${emp.firstName} ${emp.lastName} (${emp._id}): ${empErr.message}`);
       }
     }
 
