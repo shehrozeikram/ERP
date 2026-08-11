@@ -15,6 +15,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, LineChart, Line
 } from 'recharts';
 import { getProjectRollup } from '../../services/projectManagementService';
+import { getImageUrl } from '../../utils/imageService';
 
 const fmt = (v) =>
   new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(Number(v || 0));
@@ -345,7 +346,7 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
                   >
                     <Box
                       component="img"
-                      src={photo.url || 'https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?w=600&auto=format&fit=crop&q=80'}
+                      src={getImageUrl(photo.url) || 'https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?w=600&auto=format&fit=crop&q=80'}
                       alt={photo.caption}
                       onError={(e) => {
                         e.target.onerror = null;
@@ -571,12 +572,14 @@ export default function MasterExecutiveControlTower({ masterProjectId, onClose }
         </Grid>
       </Grid>
 
+
+
       {/* Photo Preview Dialog */}
       <Dialog open={Boolean(selectedPhoto)} onClose={() => setSelectedPhoto(null)} maxWidth="lg">
-        <DialogContent sx={{ p: 0, bgcolor: '#000000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <DialogContent sx={{ p: 0, bgcolor: '#000000', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <Box
             component="img"
-            src={selectedPhoto}
+            src={getImageUrl(selectedPhoto)}
             alt="DPR Full Preview"
             sx={{ maxWidth: '100%', maxHeight: '85vh', display: 'block', objectFit: 'contain' }}
           />

@@ -531,6 +531,25 @@ const BOQTab = ({ projectId, project }) => {
         </Stack>
       </Paper>
 
+      {activeBoqHeaderId && (() => {
+        const activeDoc = boqHeaders.find(h => h._id === activeBoqHeaderId);
+        return activeDoc ? (
+          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+            <Typography variant="subtitle2" fontWeight={700}>
+              📄 Active BOQ Document Scope: {activeDoc.title} ({activeDoc.boqNumber || 'v1.0'})
+            </Typography>
+            {activeDoc.description && (
+              <Typography variant="body2" sx={{ mt: 0.5 }}>{activeDoc.description}</Typography>
+            )}
+            {activeDoc.notes && (
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                Notes: {activeDoc.notes}
+              </Typography>
+            )}
+          </Alert>
+        ) : null;
+      })()}
+
       {data?.allItemsCount > 0 && (
         <>
           <Grid container spacing={2} sx={{ mb: 2 }}>
@@ -667,7 +686,16 @@ const BOQTab = ({ projectId, project }) => {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" fontWeight={500}>{boqTitle(item)}</Typography>
+                    <Typography variant="body2" fontWeight={600}>{boqTitle(item)}</Typography>
+                    {item.boqHeader?.title && (
+                      <Chip
+                        label={`📄 ${item.boqHeader.title}`}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                        sx={{ mt: 0.5, fontSize: '0.65rem', height: 18 }}
+                      />
+                    )}
                   </TableCell>
                   <TableCell>
                     <Chip label={item.phase || 'General'} size="small" variant="outlined" />
@@ -1918,7 +1946,7 @@ const TasksTab = ({ projectId }) => {
               <Box sx={{ mt: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, overflow: 'hidden' }}>
                 <Typography variant="caption" sx={{ px: 1.5, py: 0.5, display: 'block', bgcolor: 'grey.50', fontWeight: 600 }}>Inspection Proof Preview</Typography>
                 <img
-                  src={verificationForm.verificationPhotoUrl}
+                  src={getImageUrl(verificationForm.verificationPhotoUrl)}
                   alt="Inspection Proof Preview"
                   style={{ width: '100%', height: 140, objectFit: 'cover' }}
                   onError={(e) => { e.target.style.display = 'none'; }}
@@ -2052,9 +2080,18 @@ const TasksTab = ({ projectId }) => {
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Site Verification Photo Proof</Typography>
                   <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
                     <img
-                      src={viewTask.verificationPhotoUrl}
+                      src={getImageUrl(viewTask.verificationPhotoUrl)}
                       alt="Verification site photo proof"
-                      style={{ width: '100%', maxHeight: 280, objectFit: 'cover' }}
+                      style={{ width: '100%', maxHeight: 280, objectFit: 'cover', cursor: 'pointer' }}
+                      onClick={() => {
+                        const url = getImageUrl(viewTask.verificationPhotoUrl);
+                        if (url.startsWith('data:')) {
+                          const w = window.open('');
+                          w.document.write(`<img src="${url}" style="max-width:100%"/>`);
+                        } else {
+                          window.open(url, '_blank');
+                        }
+                      }}
                       onError={(e) => { e.target.style.display = 'none'; }}
                     />
                   </Box>
@@ -2529,7 +2566,18 @@ const DPRTab = ({ projectId }) => {
                         src={getImageUrl(photo.url)}
                         alt={photo.caption || `Photo ${i + 1}`}
                         sx={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 1, cursor: 'pointer' }}
-                        onClick={() => window.open(getImageUrl(photo.url), '_blank')}
+                        onClick={() => {
+                          const url = getImageUrl(photo.url);
+                          if (url?.startsWith('data:')) {
+                            const w = window.open('');
+                            if (w) {
+                              w.document.write(`<html><head><title>DPR Photo Preview</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111;"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain;"/></body></html>`);
+                              w.document.close();
+                            }
+                          } else if (url) {
+                            window.open(url, '_blank');
+                          }
+                        }}
                       />
                       {photo.caption && <Typography variant="caption" display="block" align="center">{photo.caption}</Typography>}
                     </Box>
@@ -2641,6 +2689,7 @@ const DPRTab = ({ projectId }) => {
 const OverviewTab = ({ project, onRefresh }) => {
   const [msDialogOpen, setMsDialogOpen] = useState(false);
   const [editMs, setEditMs] = useState(null);
+  const [viewMs, setViewMs] = useState(null);
   const [msForm, setMsForm] = useState({ title: '', description: '', plannedDate: '', billingTrigger: false, billingPercentage: 0, notes: '' });
   const [msError, setMsError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -2852,9 +2901,22 @@ const OverviewTab = ({ project, onRefresh }) => {
                         <Typography variant="subtitle2" fontWeight={600} noWrap>{ms.title}</Typography>
                         <Chip label={ms.status} size="small" color={MS_STATUS_COLOR[ms.status] || 'default'} sx={{ mt: 0.5 }} />
                       </Box>
-                      <Stack direction="row">
-                        <IconButton size="small" onClick={() => openEditMs(ms)}><EditIcon fontSize="small" /></IconButton>
-                        <IconButton size="small" color="error" onClick={() => handleDeleteMs(ms._id)}><DeleteIcon fontSize="small" /></IconButton>
+                      <Stack direction="row" spacing={0.5}>
+                        <Tooltip title="View Milestone Details">
+                          <IconButton size="small" color="info" onClick={() => setViewMs(ms)}>
+                            <ViewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Edit Milestone">
+                          <IconButton size="small" color="primary" onClick={() => openEditMs(ms)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete Milestone">
+                          <IconButton size="small" color="error" onClick={() => handleDeleteMs(ms._id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </Stack>
                     </Stack>
                     {ms.description && <Typography variant="caption" color="text.secondary">{ms.description}</Typography>}
@@ -2941,6 +3003,121 @@ const OverviewTab = ({ project, onRefresh }) => {
             <Button onClick={() => setMsDialogOpen(false)}>Cancel</Button>
             <Button variant="contained" onClick={handleSaveMs} disabled={saving}>
               {saving ? 'Saving…' : editMs ? 'Update' : 'Add'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* View Milestone Details Dialog */}
+        <Dialog open={Boolean(viewMs)} onClose={() => setViewMs(null)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ m: 0, p: 2, pb: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <FlagIcon color="primary" />
+              <Typography variant="h6" fontWeight={700}>Milestone Details</Typography>
+            </Stack>
+            {viewMs?.status && (
+              <Chip label={viewMs.status} size="small" color={MS_STATUS_COLOR[viewMs.status] || 'default'} />
+            )}
+          </DialogTitle>
+          <Divider />
+          {viewMs && (
+            <DialogContent sx={{ p: 2.5 }}>
+              <Stack spacing={2.5}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.5 }}>MILESTONE TITLE</Typography>
+                  <Typography variant="subtitle1" fontWeight={700}>{viewMs.title}</Typography>
+                </Box>
+
+                {viewMs.description && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.5 }}>DESCRIPTION</Typography>
+                    <Typography variant="body2" sx={{ bgcolor: 'action.hover', p: 1.5, borderRadius: 1 }}>{viewMs.description}</Typography>
+                  </Box>
+                )}
+
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">PLANNED COMPLETION DATE</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {viewMs.plannedDate ? dayjs(viewMs.plannedDate).format('DD MMMM YYYY') : 'Not specified'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">ACTUAL DATE</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {viewMs.actualDate ? dayjs(viewMs.actualDate).format('DD MMMM YYYY') : 'Pending Completion'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+
+                <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper' }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600}>PHYSICAL COMPLETION</Typography>
+                    <Typography variant="body2" fontWeight={700}>{viewMs.completionPercentage || 0}%</Typography>
+                  </Stack>
+                  <LinearProgress
+                    variant="determinate"
+                    value={viewMs.completionPercentage || 0}
+                    sx={{ height: 8, borderRadius: 4, bgcolor: 'grey.200' }}
+                  />
+                </Box>
+
+                <Box sx={{ p: 2, border: '1px solid', borderColor: 'warning.light', borderRadius: 2, bgcolor: 'warning.50' }}>
+                  <Typography variant="subtitle2" fontWeight={700} color="warning.dark" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <InvoiceIcon fontSize="small" /> Milestone Billing & Invoicing
+                  </Typography>
+                  <Grid container spacing={1}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary" display="block">Billing Trigger:</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {viewMs.billingTrigger || viewMs.billingPercentage > 0 ? 'Enabled' : 'Disabled'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary" display="block">Billing Percentage:</Typography>
+                      <Typography variant="body2" fontWeight={600}>{viewMs.billingPercentage || 0}% of Contract</Typography>
+                    </Grid>
+                    {Boolean(viewMs.billingPercentage > 0) && (
+                      <Grid item xs={12} sx={{ mt: 1 }}>
+                        <Typography variant="caption" color="text.secondary" display="block">Estimated Billable Amount:</Typography>
+                        <Typography variant="subtitle1" fontWeight={700} color="success.main">
+                          {project.contractValue ? fmt((viewMs.billingPercentage / 100) * project.contractValue) : 'Contract value not configured'}
+                        </Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+
+                  {(viewMs.billingTrigger || viewMs.billingPercentage > 0) && (
+                    <Button
+                      size="small" variant="contained" color="warning"
+                      startIcon={genInvLoading === viewMs._id ? <CircularProgress size={14} color="inherit" /> : <InvoiceIcon />}
+                      onClick={() => {
+                        const targetMs = viewMs;
+                        setViewMs(null);
+                        handleGenerateInvoice(targetMs);
+                      }}
+                      disabled={genInvLoading === viewMs._id}
+                      sx={{ mt: 1.5, width: '100%' }}
+                    >
+                      {genInvLoading === viewMs._id ? 'Generating Invoice…' : 'Generate Milestone Invoice'}
+                    </Button>
+                  )}
+                </Box>
+
+                {viewMs.notes && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.5 }}>REMARKS / NOTES</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>{viewMs.notes}</Typography>
+                  </Box>
+                )}
+              </Stack>
+            </DialogContent>
+          )}
+          <DialogActions sx={{ p: 2, pt: 1 }}>
+            <Button variant="outlined" startIcon={<EditIcon />} onClick={() => { const target = viewMs; setViewMs(null); openEditMs(target); }}>
+              Edit Milestone
+            </Button>
+            <Button variant="contained" onClick={() => setViewMs(null)}>
+              Close
             </Button>
           </DialogActions>
         </Dialog>

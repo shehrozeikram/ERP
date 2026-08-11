@@ -215,7 +215,8 @@ const IndentForm = () => {
           
           setIndentMeta({
             status: indent.status || null,
-            approvalChain: Array.isArray(indent.approvalChain) ? indent.approvalChain : []
+            approvalChain: Array.isArray(indent.approvalChain) ? indent.approvalChain : [],
+            rawIndent: indent
           });
           const draftApprovers = (indent.draftApproverIds || []).slice(0, 1);
           const slots = [0].map((i) => {
@@ -581,7 +582,7 @@ const IndentForm = () => {
       setError('');
 
       const draftApproverIds = approverSlots.map((u) => u?._id).filter(Boolean);
-      const canSendDraftApprovers = !isEdit || (indentMeta.status || 'Draft') === 'Draft';
+      const canSendDraftApprovers = !isEdit || ['Draft', 'Rejected'].includes(indentMeta.status || 'Draft');
 
       const indentData = {
         title: formData.title.trim(),
@@ -694,6 +695,20 @@ const IndentForm = () => {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
+        </Alert>
+      )}
+
+      {isEdit && indentMeta?.rawIndent && (indentMeta.rawIndent.rejectionReason || indentMeta.rawIndent.lastRejectionReason || indentMeta.rawIndent.procurementRejection?.observation?.trim()) && (
+        <Alert severity="warning" variant="outlined" sx={{ mb: 3, borderLeft: '6px solid #ed6c02', bgcolor: '#fff4e5', borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700} color="warning.dark">
+            ⚠️ Rejection / Correction Request from Approver
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.5 }}>
+            Please review the requested correction notes below, update your purchase request details, and click Submit to resubmit for approval.
+          </Typography>
+          <Typography variant="body2" fontWeight={600} sx={{ mt: 1, p: 1.5, bgcolor: '#ffffff', borderRadius: 1, border: '1px solid #ffe0b2' }}>
+            "{indentMeta.rawIndent.rejectionReason || indentMeta.rawIndent.lastRejectionReason || indentMeta.rawIndent.procurementRejection?.observation?.trim()}"
+          </Typography>
         </Alert>
       )}
 
@@ -1226,15 +1241,15 @@ const IndentForm = () => {
               loading ||
               !!indentNoError ||
               indentNoChecking ||
-              (isEdit && indentMeta.status && indentMeta.status !== 'Draft')
+              (isEdit && indentMeta.status && !['Draft', 'Rejected'].includes(indentMeta.status))
             }
             title={
-              isEdit && indentMeta.status && indentMeta.status !== 'Draft'
-                ? 'Only draft indents can be submitted from this form'
+              isEdit && indentMeta.status && !['Draft', 'Rejected'].includes(indentMeta.status)
+                ? 'Only draft or rejected indents can be submitted from this form'
                 : indentNoError || ''
             }
           >
-            {loading ? 'Submitting...' : 'Submit for Approval'}
+            {loading ? 'Submitting...' : (isEdit && indentMeta.status === 'Rejected') ? 'Resubmit for Approval' : 'Submit for Approval'}
           </Button>
         </Stack>
       </Paper>

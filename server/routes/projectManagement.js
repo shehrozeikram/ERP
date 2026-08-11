@@ -595,6 +595,7 @@ router.get('/projects/:id/boq', asyncHandler(async (req, res) => {
       .populate('subProject', 'name projectNumber')
       .populate('allocations.subProject', 'name projectNumber')
       .populate('allocations.contractor', 'name email phone vendorType')
+      .populate('boqHeader', 'title boqNumber version')
       .sort({ phase: 1, orderIndex: 1, createdAt: 1 })
       .skip(skip)
       .limit(Number(limit))

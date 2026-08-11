@@ -849,7 +849,7 @@ const IndentsList = () => {
                         >
                           <ViewIcon />
                         </IconButton>
-                        {item.status === 'Draft' && item.requestedBy?._id === user?.id && (
+                        {['Draft', 'Rejected', 'Rejected in Procurement'].includes(item.status) && item.requestedBy?._id === user?.id && (
                           <IconButton
                             size="small"
                             color="primary"

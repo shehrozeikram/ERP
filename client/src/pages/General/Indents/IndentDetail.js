@@ -68,7 +68,7 @@ const IndentDetail = () => {
   const [linkedPOs, setLinkedPOs] = useState([]);
   const [loadingPOs, setLoadingPOs] = useState(false);
   const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
-  const [submitSlots, setSubmitSlots] = useState([null, null, null]);
+  const [submitSlots, setSubmitSlots] = useState([null]);
   const [approverSearchOptions, setApproverSearchOptions] = useState([]);
   const [approverSearchLoading, setApproverSearchLoading] = useState(false);
   const [workflowHistoryOpen, setWorkflowHistoryOpen] = useState(false);
@@ -174,13 +174,14 @@ const IndentDetail = () => {
   };
 
   const handleSubmit = async () => {
+    const chainApprover = indent?.approvalChain?.[0]?.approver?._id || indent?.approvalChain?.[0]?.approver;
     const draft = indent?.draftApproverIds || [];
-    const ids = draft
-      .map((x) => (typeof x === 'object' && x?._id ? x._id : x))
-      .filter(Boolean);
-    if (ids.length === 3 && new Set(ids.map(String)).size === 3) {
+    const draftId = draft[0] ? (typeof draft[0] === 'object' && draft[0]?._id ? draft[0]._id : draft[0]) : null;
+    const targetApproverId = chainApprover || draftId;
+
+    if (targetApproverId) {
       try {
-        await runSubmitWithApprovers(ids);
+        await runSubmitWithApprovers([targetApproverId]);
       } catch (error) {
         setSnackbar({
           open: true,
@@ -190,20 +191,18 @@ const IndentDetail = () => {
       }
       return;
     }
-    const prefilled = [0, 1, 2].map((i) => {
-      const u = draft[i];
-      return u && typeof u === 'object' && u._id ? u : null;
-    });
+
+    const prefilled = draft[0] && typeof draft[0] === 'object' && draft[0]._id ? [draft[0]] : [null];
     setSubmitSlots(prefilled);
     setSubmitDialogOpen(true);
   };
 
   const handleConfirmSubmitDialog = async () => {
     const approverIds = submitSlots.map((u) => u?._id).filter(Boolean);
-    if (approverIds.length !== 3 || new Set(approverIds.map(String)).size !== 3) {
+    if (approverIds.length !== 1) {
       setSnackbar({
         open: true,
-        message: 'Select three different approvers.',
+        message: 'Select Head of Department approver.',
         severity: 'error'
       });
       return;
@@ -291,7 +290,7 @@ const IndentDetail = () => {
 
   // Check permissions
   const canEdit =
-    ['Draft', 'Rejected in Procurement'].includes(indent?.status) &&
+    ['Draft', 'Rejected', 'Rejected in Procurement'].includes(indent?.status) &&
     indent?.requestedBy?._id === user?.id;
   const chain = indent?.approvalChain || [];
   const hasChain = chain.length > 0;
@@ -309,7 +308,7 @@ const IndentDetail = () => {
     ['super_admin', 'developer', 'admin', 'hr_manager'].includes(user?.role) &&
     ['Submitted', 'Under Review'].includes(indent?.status);
   const canApproveReject = canApproveRejectChain || canApproveRejectLegacy;
-  const canSubmit = indent?.status === 'Draft' && indent?.requestedBy?._id === user?.id;
+  const canSubmit = ['Draft', 'Rejected'].includes(indent?.status) && indent?.requestedBy?._id === user?.id;
   const canResubmitToProcurement =
     indent?.status === 'Rejected in Procurement' &&
     indent?.requestedBy?._id === user?.id;
@@ -370,7 +369,7 @@ const IndentDetail = () => {
               startIcon={<SendIcon />}
               onClick={handleSubmit}
             >
-              Submit for Approval
+              {indent?.status === 'Rejected' ? 'Resubmit for Approval' : 'Submit for Approval'}
             </Button>
           )}
           {canResubmitToProcurement && (
@@ -524,15 +523,33 @@ const IndentDetail = () => {
                     </Typography>
                   </Grid>
                 )}
-                {indent.rejectionReason && (
+                {(indent.rejectionReason || indent.lastRejectionReason) && (
                   <Grid item xs={12}>
-                    <Alert severity="error">
-                      <Typography variant="body2" fontWeight={600}>
-                        Rejection Reason:
-                      </Typography>
-                      <Typography variant="body2">
-                        {indent.rejectionReason}
-                      </Typography>
+                    <Alert
+                      severity={indent.status === 'Rejected' ? 'error' : 'warning'}
+                      sx={{
+                        borderRadius: 2,
+                        borderLeft: `6px solid ${indent.status === 'Rejected' ? '#d32f2f' : '#ed6c02'}`,
+                        bgcolor: indent.status === 'Rejected' ? '#fdeded' : '#fff4e5'
+                      }}
+                    >
+                      <Stack spacing={1}>
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
+                          <Typography variant="subtitle2" fontWeight={700} color={indent.status === 'Rejected' ? 'error.main' : 'warning.dark'}>
+                            {indent.status === 'Rejected' ? '❌ Indent Rejected / Correction Requested' : '⚠️ Correction Notice & Resubmission to Senior'}
+                          </Typography>
+                          {indent.status === 'Submitted' && (
+                            <Chip label="🔄 Updated Indent Resubmitted for Senior Approval" size="small" color="info" sx={{ fontWeight: 600 }} />
+                          )}
+                        </Stack>
+
+                        <Typography variant="body2" fontWeight={600}>
+                          {indent.status === 'Rejected' ? 'Rejection / Correction Reason:' : 'Previous Rejection / Correction Requested by Senior:'}
+                        </Typography>
+                        <Typography variant="body2" sx={{ bgcolor: 'rgba(255,255,255,0.9)', p: 1.5, borderRadius: 1.5, border: '1px solid', borderColor: 'divider', fontStyle: 'italic', fontWeight: 500 }}>
+                          "{indent.rejectionReason || indent.lastRejectionReason}"
+                        </Typography>
+                      </Stack>
                     </Alert>
                   </Grid>
                 )}
@@ -566,6 +583,7 @@ const IndentDetail = () => {
                         <TableCell><strong>Approver</strong></TableCell>
                         <TableCell><strong>Status</strong></TableCell>
                         <TableCell><strong>When</strong></TableCell>
+                        <TableCell><strong>Approver Comment / Reason</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -588,6 +606,11 @@ const IndentDetail = () => {
                             </TableCell>
                             <TableCell>
                               {step?.actedAt ? dayjs(step.actedAt).format('DD-MMM-YYYY HH:mm') : '—'}
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" color="text.secondary">
+                                {step?.comment || indent.rejectionReason || indent.lastRejectionReason || '—'}
+                              </Typography>
                             </TableCell>
                           </TableRow>
                         );
@@ -801,26 +824,22 @@ const IndentDetail = () => {
       </Grid>
 
       <Dialog open={submitDialogOpen} onClose={() => setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Select three approvers</DialogTitle>
+        <DialogTitle>{indent?.status === 'Rejected' ? 'Resubmit for Approval' : 'Select Head of Department Approver'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 0.5 }}>
-            Each person will need to approve in the system before this indent is fully approved.
+            Select Head of Department approver to review this indent.
           </Typography>
           <Stack spacing={2}>
-            {['Head of Department', 'GM/PD', 'SVP/AVP'].map((label, index) => (
+            {['Head of Department'].map((label) => (
               <Autocomplete
                 key={label}
                 options={approverSearchOptions}
                 loading={approverSearchLoading}
                 getOptionLabel={(option) => approverDisplayName(option)}
                 isOptionEqualToValue={(a, b) => !!a && !!b && a._id === b._id}
-                value={submitSlots[index]}
+                value={submitSlots[0] || null}
                 onChange={(_, v) => {
-                  setSubmitSlots((prev) => {
-                    const next = [...prev];
-                    next[index] = v;
-                    return next;
-                  });
+                  setSubmitSlots([v]);
                 }}
                 onInputChange={(_, input, reason) => {
                   if (reason === 'input') {
@@ -851,7 +870,7 @@ const IndentDetail = () => {
         <DialogActions>
           <Button onClick={() => setSubmitDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleConfirmSubmitDialog} variant="contained">
-            Submit
+            {indent?.status === 'Rejected' ? 'Resubmit' : 'Submit'}
           </Button>
         </DialogActions>
       </Dialog>

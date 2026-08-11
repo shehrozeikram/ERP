@@ -14,8 +14,17 @@ const stripApiBaseSuffix = (baseUrl) => String(baseUrl || '').replace(/\/api\/?$
 export const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
   
-  // If it's already a full URL, return as is
-  if (imagePath.startsWith('http')) return imagePath;
+  // If it's already a full URL or data/blob URI, return as is
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://') || imagePath.startsWith('data:') || imagePath.startsWith('blob:')) {
+    return imagePath;
+  }
+
+  // Normalize path if missing leading slash
+  if (imagePath.startsWith('uploads/')) {
+    imagePath = '/' + imagePath;
+  } else if (imagePath.startsWith('api/uploads/')) {
+    imagePath = '/' + imagePath;
+  }
 
   // Some callers mistakenly prefix static paths with /api
   if (imagePath.startsWith('/api/uploads/')) {

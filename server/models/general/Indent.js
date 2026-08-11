@@ -235,6 +235,31 @@ const indentSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  lastRejectionReason: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  rejectionHistory: [{
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    rejectedAt: {
+      type: Date,
+      default: Date.now
+    },
+    reason: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    fromStatus: {
+      type: String,
+      trim: true,
+      default: ''
+    }
+  }],
   
   // Financial Information
   totalEstimatedCost: {

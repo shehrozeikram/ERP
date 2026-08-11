@@ -477,6 +477,7 @@ router.get('/:id',
       .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
       .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
       .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId')
+      .populate('rejectionHistory.rejectedBy', 'firstName lastName email')
       .populate('workflowHistory.changedBy', 'firstName lastName email');
 
     if (!indent || !indent.isActive) {
@@ -662,11 +663,15 @@ router.put('/:id',
       });
     }
 
-    // Check if user can edit (only draft or own indents)
-    if (indent.status !== 'Draft' && indent.requestedBy.toString() !== req.user.id.toString()) {
+    // Check if user can edit (draft, rejected, or rejected in procurement indents owned by user)
+    const isEditableStatus = ['Draft', 'Rejected', 'Rejected in Procurement'].includes(indent.status);
+    const isOwner = indent.requestedBy.toString() === req.user.id.toString();
+    const isSuperOrDev = ['super_admin', 'developer'].includes(req.user?.role);
+
+    if (!isEditableStatus || (!isOwner && !isSuperOrDev)) {
       return res.status(403).json({
         success: false,
-        message: 'You can only edit draft indents or your own indents'
+        message: 'You can only edit draft or rejected indents that you requested'
       });
     }
 
@@ -703,10 +708,10 @@ router.put('/:id',
     }
 
     if (req.body.draftApproverIds !== undefined) {
-      if (indent.status !== 'Draft') {
+      if (!['Draft', 'Rejected'].includes(indent.status)) {
         return res.status(400).json({
           success: false,
-          message: 'Approvers can only be changed while the indent is in Draft.'
+          message: 'Approvers can only be changed while the indent is in Draft or Rejected status.'
         });
       }
       const arr = Array.isArray(req.body.draftApproverIds) ? req.body.draftApproverIds : [];
@@ -963,10 +968,10 @@ router.post('/:id/submit',
       });
     }
 
-    if (indent.status !== 'Draft') {
+    if (!['Draft', 'Rejected'].includes(indent.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only draft indents can be submitted'
+        message: 'Only draft or rejected indents can be submitted'
       });
     }
 
@@ -1016,11 +1021,16 @@ router.post('/:id/submit',
     }));
     indent.draftApproverIds = [];
     indent.status = 'Submitted';
+    if (previousStatus === 'Rejected' || previousStatus === 'Rejected in Procurement') {
+      if (indent.rejectionReason) {
+        indent.lastRejectionReason = indent.rejectionReason;
+      }
+    }
     pushIndentWorkflowHistory(indent, {
       fromStatus: previousStatus,
       toStatus: indent.status,
       changedBy: req.user.id,
-      comments: 'Submitted for approval',
+      comments: previousStatus === 'Rejected' ? 'Resubmitted for approval after edits' : 'Submitted for approval',
       module: 'Indent'
     });
     indent.updatedBy = req.user.id;
@@ -1400,6 +1410,14 @@ router.post('/:id/reject',
       indent.approvalChain[stepIndex].comment = req.body.rejectionReason;
       indent.status = 'Rejected';
       indent.rejectionReason = req.body.rejectionReason;
+      indent.lastRejectionReason = req.body.rejectionReason;
+      if (!Array.isArray(indent.rejectionHistory)) indent.rejectionHistory = [];
+      indent.rejectionHistory.push({
+        rejectedBy: req.user.id,
+        rejectedAt: new Date(),
+        reason: req.body.rejectionReason,
+        fromStatus: previousStatus
+      });
       pushIndentWorkflowHistory(indent, {
         fromStatus: previousStatus,
         toStatus: indent.status,
@@ -1431,6 +1449,14 @@ router.post('/:id/reject',
     const previousStatus = indent.status;
     indent.status = 'Rejected';
     indent.rejectionReason = req.body.rejectionReason;
+    indent.lastRejectionReason = req.body.rejectionReason;
+    if (!Array.isArray(indent.rejectionHistory)) indent.rejectionHistory = [];
+    indent.rejectionHistory.push({
+      rejectedBy: req.user.id,
+      rejectedAt: new Date(),
+      reason: req.body.rejectionReason,
+      fromStatus: previousStatus
+    });
     pushIndentWorkflowHistory(indent, {
       fromStatus: previousStatus,
       toStatus: indent.status,
