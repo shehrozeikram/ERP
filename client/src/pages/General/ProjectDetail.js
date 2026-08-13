@@ -7,7 +7,7 @@ import {
   DialogActions, DialogContent, DialogTitle, Divider, FormControl, Grid,
   IconButton, InputLabel, LinearProgress, MenuItem, Paper, Select, Skeleton,
   Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, Tabs, TextField, Tooltip, Typography, Collapse, InputAdornment
+  TableRow, Tabs, TextField, Tooltip, Typography, Collapse, InputAdornment, Autocomplete
 } from '@mui/material';
 import {
   Add as AddIcon, ArrowBack as BackIcon, Assignment as TaskIcon,
@@ -916,17 +916,29 @@ const BOQTab = ({ projectId, project }) => {
             )}
 
             <Grid item xs={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Assigned Subcontractor</InputLabel>
-                <Select value={form.contractor || ''} label="Assigned Subcontractor" onChange={set('contractor')}>
-                  <MenuItem value="">Unassigned</MenuItem>
-                  {subcontractors.map(s => (
-                    <MenuItem key={s._id} value={s._id}>
-                      {s.name} {s.vendorCategory ? `(${s.vendorCategory})` : ''}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                options={subcontractors}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') return option;
+                  if (!option) return '';
+                  const idStr = option.supplierId ? ` (${option.supplierId})` : '';
+                  const catStr = option.vendorCategory ? ` - [${option.vendorCategory}]` : '';
+                  return `${option.name || ''}${idStr}${catStr}`;
+                }}
+                value={subcontractors.find(s => String(s._id) === String(form.contractor)) || null}
+                onChange={(event, newValue) => {
+                  setForm(p => ({ ...p, contractor: newValue ? newValue._id : '' }));
+                }}
+                isOptionEqualToValue={(option, value) => String(option._id) === String(value._id || value)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Assigned Subcontractor"
+                    size="small"
+                    placeholder="Search subcontractor..."
+                  />
+                )}
+              />
             </Grid>
             <Grid item xs={6}>
               <TextField fullWidth size="small" label="Contractor Agreed Rate (PKR)" type="number" value={form.contractorUnitPrice || ''} onChange={set('contractorUnitPrice')} inputProps={{ min: 0 }} />
@@ -1121,17 +1133,28 @@ const BOQTab = ({ projectId, project }) => {
               </Grid>
             )}
             <Grid item xs={12} sm={childProjects.length > 0 ? 6 : 12}>
-              <FormControl fullWidth>
-                <InputLabel>Assigned Subcontractor</InputLabel>
-                <Select
-                  value={allocForm.contractorId}
-                  label="Assigned Subcontractor"
-                  onChange={e => setAllocForm(p => ({ ...p, contractorId: e.target.value }))}
-                >
-                  <MenuItem value="">-- Select Subcontractor --</MenuItem>
-                  {subcontractors.map(s => <MenuItem key={s._id} value={s._id}>{s.name}</MenuItem>)}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                options={subcontractors}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') return option;
+                  if (!option) return '';
+                  const idStr = option.supplierId ? ` (${option.supplierId})` : '';
+                  const catStr = option.vendorCategory ? ` - [${option.vendorCategory}]` : '';
+                  return `${option.name || ''}${idStr}${catStr}`;
+                }}
+                value={subcontractors.find(s => String(s._id) === String(allocForm.contractorId)) || null}
+                onChange={(event, newValue) => {
+                  setAllocForm(p => ({ ...p, contractorId: newValue ? newValue._id : '' }));
+                }}
+                isOptionEqualToValue={(option, value) => String(option._id) === String(value._id || value)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Assigned Subcontractor"
+                    placeholder="Search subcontractor..."
+                  />
+                )}
+              />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
@@ -1175,17 +1198,28 @@ const BOQTab = ({ projectId, project }) => {
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Grid container spacing={2}>
             <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Select Subcontractor</InputLabel>
-                <Select value={batchContractorId} label="Select Subcontractor" onChange={e => setBatchContractorId(e.target.value)}>
-                  <MenuItem value="">-- Unassigned --</MenuItem>
-                  {subcontractors.map(s => (
-                    <MenuItem key={s._id} value={s._id}>
-                      {s.name} {s.vendorCategory ? `(${s.vendorCategory})` : ''}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                options={subcontractors}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') return option;
+                  if (!option) return '';
+                  const idStr = option.supplierId ? ` (${option.supplierId})` : '';
+                  const catStr = option.vendorCategory ? ` - [${option.vendorCategory}]` : '';
+                  return `${option.name || ''}${idStr}${catStr}`;
+                }}
+                value={subcontractors.find(s => String(s._id) === String(batchContractorId)) || null}
+                onChange={(event, newValue) => {
+                  setBatchContractorId(newValue ? newValue._id : '');
+                }}
+                isOptionEqualToValue={(option, value) => String(option._id) === String(value._id || value)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Select Subcontractor"
+                    placeholder="Search subcontractor..."
+                  />
+                )}
+              />
             </Grid>
             {childProjects.length > 0 && (
               <Grid item xs={12}>

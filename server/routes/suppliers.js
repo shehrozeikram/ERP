@@ -23,11 +23,16 @@ router.get('/', async (req, res) => {
       ];
     }
 
-    const suppliers = await Supplier.find(filter)
+    const parsedLimit = limit === 'all' || limit === '0' ? 0 : (parseInt(limit, 10) || 10);
+    let query = Supplier.find(filter)
       .populate('createdBy', 'firstName lastName')
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .sort({ name: 1, createdAt: -1 });
+
+    if (parsedLimit > 0) {
+      query = query.limit(parsedLimit).skip(((parseInt(page, 10) || 1) - 1) * parsedLimit);
+    }
+
+    const suppliers = await query;
 
     const total = await Supplier.countDocuments(filter);
 

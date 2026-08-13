@@ -3,7 +3,8 @@ import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, FormControl, Grid, IconButton,
   InputLabel, MenuItem, Paper, Select, Skeleton, Stack, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography, Divider
+  TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography, Divider,
+  Autocomplete
 } from '@mui/material';
 import {
   Add as AddIcon, CheckCircle as PaidIcon, Delete as DeleteIcon,
@@ -414,19 +415,30 @@ const ProjectInvoicesTab = ({ project }) => {
 
             {form.invoiceType === 'Subcontractor_IPC' && (
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth size="small" required>
-                  <InputLabel>Assign Subcontractor</InputLabel>
-                  <Select
-                    value={form.contractor}
-                    label="Assign Subcontractor"
-                    onChange={e => handleContractorChange(e.target.value)}
-                  >
-                    <MenuItem value="">-- Select Subcontractor --</MenuItem>
-                    {suppliers.map(s => (
-                      <MenuItem key={s._id} value={s._id}>{s.name} ({s.vendorType || 'Supplier'})</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <Autocomplete
+                  options={suppliers}
+                  getOptionLabel={(option) => {
+                    if (typeof option === 'string') return option;
+                    if (!option) return '';
+                    const idStr = option.supplierId ? ` (${option.supplierId})` : '';
+                    const catStr = option.vendorCategory ? ` - [${option.vendorCategory}]` : (option.vendorType ? ` - [${option.vendorType}]` : '');
+                    return `${option.name || ''}${idStr}${catStr}`;
+                  }}
+                  value={suppliers.find(s => String(s._id) === String(form.contractor)) || null}
+                  onChange={(event, newValue) => {
+                    handleContractorChange(newValue ? newValue._id : '');
+                  }}
+                  isOptionEqualToValue={(option, value) => String(option._id) === String(value._id || value)}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Assign Subcontractor"
+                      size="small"
+                      required
+                      placeholder="Type to search subcontractor by name or ID..."
+                    />
+                  )}
+                />
               </Grid>
             )}
 
