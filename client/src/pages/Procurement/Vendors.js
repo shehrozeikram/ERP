@@ -234,13 +234,14 @@ const Vendors = () => {
   const handleSubmit = async () => {
     try {
       setLoading(true);
+      setError('');
       
       if (formDialog.mode === 'create') {
         await api.post('/procurement/vendors', formData);
-        setSuccess('Vendor created successfully');
+        setSuccess(isSubcontractorView ? 'Subcontractor created successfully' : 'Vendor created successfully');
       } else {
         await api.put(`/procurement/vendors/${formDialog.data._id}`, formData);
-        setSuccess('Vendor updated successfully');
+        setSuccess(isSubcontractorView ? 'Subcontractor updated successfully' : 'Vendor updated successfully');
       }
       
       setFormDialog({ open: false, mode: 'create', data: null });
@@ -248,7 +249,11 @@ const Vendors = () => {
       loadStatistics();
       loadCategoryOptions();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save vendor');
+      console.error('Error saving vendor:', err);
+      const backendMsg = err.response?.data?.message
+        || (err.response?.data?.errors && Array.isArray(err.response?.data?.errors) ? err.response.data.errors.map(e => e.msg).join(', ') : null)
+        || 'Failed to save vendor';
+      setError(backendMsg);
     } finally {
       setLoading(false);
     }
@@ -752,7 +757,7 @@ const Vendors = () => {
           <Button 
             variant="contained" 
             onClick={handleSubmit}
-            disabled={!formData.name || !formData.contactPerson || !formData.phone || !formData.email || !formData.address}
+            disabled={!formData.name}
           >
             {formDialog.mode === 'create' ? 'Create' : 'Update'}
           </Button>

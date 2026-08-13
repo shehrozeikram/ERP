@@ -2848,10 +2848,29 @@ router.delete('/purchase-orders/:id',
 // ==================== VENDORS ROUTES ====================
 
 const generateNextSupplierId = async () => {
-  const lastSupplier = await Supplier.findOne().sort({ supplierId: -1 }).select('supplierId').lean();
-  if (!lastSupplier?.supplierId) return 'SUP-0001';
-  const lastNum = parseInt(String(lastSupplier.supplierId).split('-')[1], 10);
-  return `SUP-${String((Number.isFinite(lastNum) ? lastNum : 0) + 1).padStart(4, '0')}`;
+  const suppliers = await Supplier.find({ supplierId: /^SUP-\d+$/i }).select('supplierId').lean();
+  let maxNum = 0;
+  for (const s of suppliers) {
+    if (s.supplierId) {
+      const match = String(s.supplierId).match(/^SUP-(\d+)$/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (Number.isFinite(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+  }
+
+  let candidateId = `SUP-${String(maxNum + 1).padStart(4, '0')}`;
+  let tries = 0;
+  while (await Supplier.exists({ supplierId: candidateId }) && tries < 1000) {
+    maxNum++;
+    candidateId = `SUP-${String(maxNum + 1).padStart(4, '0')}`;
+    tries++;
+  }
+
+  return candidateId;
 };
 
 // @route   GET /api/procurement/vendors
@@ -3041,29 +3060,35 @@ router.post('/vendors/quick', [
 }));
 
 // @route   POST /api/procurement/vendors
-// @desc    Create new vendor
-// @access  Private (Procurement and Admin)
+// @desc    Create new vendor or subcontractor
+// @access  Private
 router.post('/vendors', [
-  body('name').trim().notEmpty().withMessage('Vendor name is required'),
-  body('contactPerson').trim().notEmpty().withMessage('Contact person is required'),
-  body('phone').trim().notEmpty().withMessage('Phone is required'),
-  body('email').isEmail().withMessage('Valid email is required'),
-  body('address').trim().notEmpty().withMessage('Address is required')
-], authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager'), asyncHandler(async (req, res) => {
+  body('name').trim().notEmpty().withMessage('Vendor/Subcontractor name is required'),
+  body('contactPerson').optional({ checkFalsy: true }).trim(),
+  body('phone').optional({ checkFalsy: true }).trim(),
+  body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email address is required'),
+  body('address').optional({ checkFalsy: true }).trim()
+], authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'project_manager', 'site_engineer', 'hr_manager', 'general_manager', 'director', 'executive'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
       success: false,
+      message: errors.array().map(e => e.msg).join(', '),
       errors: errors.array()
     });
   }
 
   const newSupplierId = await generateNextSupplierId();
+  const slug = String(req.body.name || 'vendor').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24);
 
   const vendor = new Supplier({
     ...req.body,
+    contactPerson: (req.body.contactPerson || '—').trim(),
+    phone: (req.body.phone || '—').trim(),
+    email: (req.body.email || `${slug || 'vendor'}-${Date.now()}@sgc.local`).trim().toLowerCase(),
+    address: (req.body.address || '—').trim(),
     supplierId: newSupplierId,
-    createdBy: req.user.id
+    createdBy: req.user.id || req.user._id
   });
 
   await vendor.save();
@@ -3080,18 +3105,19 @@ router.post('/vendors', [
 
 // @route   PUT /api/procurement/vendors/:id
 // @desc    Update vendor
-// @access  Private (Procurement and Admin)
+// @access  Private
 router.put('/vendors/:id', [
-  body('name').optional().trim().notEmpty().withMessage('Vendor name is required'),
-  body('contactPerson').optional().trim().notEmpty().withMessage('Contact person is required'),
-  body('phone').optional().trim().notEmpty().withMessage('Phone is required'),
-  body('email').optional().isEmail().withMessage('Valid email is required'),
-  body('address').optional().trim().notEmpty().withMessage('Address is required')
-], authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
+  body('name').optional({ checkFalsy: true }).trim().notEmpty().withMessage('Vendor name cannot be empty'),
+  body('contactPerson').optional({ checkFalsy: true }).trim(),
+  body('phone').optional({ checkFalsy: true }).trim(),
+  body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email address is required'),
+  body('address').optional({ checkFalsy: true }).trim()
+], authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'project_manager', 'site_engineer', 'hr_manager', 'general_manager', 'director', 'executive'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
       success: false,
+      message: errors.array().map(e => e.msg).join(', '),
       errors: errors.array()
     });
   }
