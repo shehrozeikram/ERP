@@ -1075,12 +1075,15 @@ const Payments = () => {
             const stepByUserId = new Map(
               approvalSteps.map((s) => [String(s?.approver?._id || s?.approver || ''), s])
             );
-            const personName = (userObj, fallback = '') => (
-              [userObj?.firstName, userObj?.lastName].filter(Boolean).join(' ').trim() ||
-              userObj?.email ||
-              fallback ||
-              '—'
-            );
+            const personName = (user, fallback = '') => {
+              if (fallback && String(fallback).trim()) return String(fallback).trim();
+              if (user) {
+                const n = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+                if (n) return n;
+                if (user?.email) return user.email;
+              }
+              return '—';
+            };
             const rows = [
               {
                 key: 'preparedBy',
@@ -1097,19 +1100,19 @@ const Payments = () => {
               {
                 key: 'chiefOperatingOfficer',
                 label: 'Chief operating officer',
-                user: approvals.verifiedByUser,
+                user: null,
                 fallback: poData.approvalAuthorities?.chiefOperatingOfficer || poData.approvalAuthorities?.verifiedBy || approvals.verifiedBy || auth.verifiedBy || ''
               },
               {
                 key: 'avpTaj',
                 label: 'AVP Taj',
-                user: approvals.authorisedRepUser,
+                user: null,
                 fallback: poData.approvalAuthorities?.avpTaj || poData.approvalAuthorities?.authorisedRep || approvals.authorisedRep || auth.authorisedRep || ''
               },
               ...(poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment ? [{
                 key: 'technicalDepartment',
                 label: 'Technical Department',
-                user: approvals.technicalDepartmentUser,
+                user: null,
                 fallback: poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment || ''
               }] : []),
               {
@@ -1179,10 +1182,13 @@ const Payments = () => {
                         ? (row.approvedAt || null)
                         : (explicitApproval?.approvedAt || step?.actedAt || null);
                       const isApproved = Boolean(approvedAt);
+                      const displayAuthorityName = explicitApproval?.approver
+                        ? ([explicitApproval.approver.firstName, explicitApproval.approver.lastName].filter(Boolean).join(' ').trim() || explicitApproval.approver.email || row.fallback || '—')
+                        : personName(approvalUser, row.fallback);
                       return (
                         <TableRow key={row.key || row.label}>
                           <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
-                          <TableCell>{personName(approvalUser, row.fallback)}</TableCell>
+                          <TableCell>{displayAuthorityName}</TableCell>
                           <TableCell>
                             <Chip
                               size="small"

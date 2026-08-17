@@ -239,11 +239,11 @@ const buildAuthorityTextConditions = (tokens = []) => {
 const AUTHORITY_SLOT_CONFIG = [
   { key: 'preparedBy', label: 'Prepared By', indentUserField: 'preparedByUser' },
   { key: 'managerProcurement', label: 'Manager Procurement', indentUserField: 'managerProcurementUser' },
-  { key: 'chiefOperatingOfficer', label: 'Chief operating officer', indentUserField: 'verifiedByUser' },
-  { key: 'avpTaj', label: 'AVP Taj', indentUserField: 'authorisedRepUser' },
-  { key: 'technicalDepartment', label: 'Technical Department', indentUserField: 'technicalDepartmentUser' },
-  { key: 'verifiedBy', label: 'Chief operating officer', indentUserField: 'verifiedByUser' },
-  { key: 'authorisedRep', label: 'AVP Taj', indentUserField: 'authorisedRepUser' },
+  { key: 'chiefOperatingOfficer', label: 'Chief operating officer', indentUserField: '' },
+  { key: 'avpTaj', label: 'AVP Taj', indentUserField: '' },
+  { key: 'technicalDepartment', label: 'Technical Department', indentUserField: '' },
+  { key: 'verifiedBy', label: 'Chief operating officer', indentUserField: '' },
+  { key: 'authorisedRep', label: 'AVP Taj', indentUserField: '' },
   { key: 'financeRep', label: 'Finance Rep.', indentUserField: 'financeRepUser' }
 ];
 const getUserIdentityTokens = (user) => {
@@ -274,8 +274,8 @@ const getRequiredAuthoritySlots = async (indentId, approvalAuthorities = {}) => 
     : null;
   const csa = indent?.comparativeStatementApprovals || {};
   return AUTHORITY_SLOT_CONFIG.map((slot) => {
-    const userId = String(csa?.[slot.indentUserField] || '').trim();
     const textToken = normalizeToken(approvalAuthorities?.[slot.key]);
+    const userId = (!textToken && slot.indentUserField) ? String(csa?.[slot.indentUserField] || '').trim() : '';
     if (!userId && !textToken) return null;
     return { ...slot, userId: userId || '', textToken: textToken || '' };
   }).filter(Boolean);

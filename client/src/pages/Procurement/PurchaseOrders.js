@@ -1805,12 +1805,15 @@ const PurchaseOrders = () => {
                   {(() => {
                     const indent = viewDialog.data?.indent || {};
                     const approvals = indent?.comparativeStatementApprovals || {};
-                    const personName = (user, fallback = '') => (
-                      [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
-                      user?.email ||
-                      fallback ||
-                      '—'
-                    );
+                    const personName = (user, fallback = '') => {
+                      if (fallback && String(fallback).trim()) return String(fallback).trim();
+                      if (user) {
+                        const n = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+                        if (n) return n;
+                        if (user?.email) return user.email;
+                      }
+                      return '—';
+                    };
                     const rows = [
                       {
                         key: 'preparedBy',
@@ -1827,19 +1830,19 @@ const PurchaseOrders = () => {
                       {
                         key: 'chiefOperatingOfficer',
                         label: 'Chief operating officer',
-                        user: approvals.verifiedByUser,
+                        user: null,
                         fallback: viewDialog.data.approvalAuthorities?.chiefOperatingOfficer || viewDialog.data.approvalAuthorities?.verifiedBy || approvals.verifiedBy || ''
                       },
                       {
                         key: 'avpTaj',
                         label: 'AVP Taj',
-                        user: approvals.authorisedRepUser,
+                        user: null,
                         fallback: viewDialog.data.approvalAuthorities?.avpTaj || viewDialog.data.approvalAuthorities?.authorisedRep || approvals.authorisedRep || ''
                       },
                       ...(viewDialog.data.approvalAuthorities?.technicalDepartment || approvals.technicalDepartment ? [{
                         key: 'technicalDepartment',
                         label: 'Technical Department',
-                        user: approvals.technicalDepartmentUser,
+                        user: null,
                         fallback: viewDialog.data.approvalAuthorities?.technicalDepartment || approvals.technicalDepartment || ''
                       }] : [])
                     ];
@@ -1901,10 +1904,13 @@ const PurchaseOrders = () => {
                                 actedAt = authorityApprovedAt || actedAt;
                                 legacyAuthorityApplied = true;
                               }
+                              const displayAuthorityName = slotApproval?.approver
+                                ? ([slotApproval.approver?.firstName, slotApproval.approver?.lastName].filter(Boolean).join(' ').trim() || slotApproval.approver?.email || row.fallback || '—')
+                                : personName(approvalUser, row.fallback);
                               return (
                                 <TableRow key={row.label}>
                                   <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
-                                  <TableCell>{personName(approvalUser, row.fallback)}</TableCell>
+                                  <TableCell>{displayAuthorityName}</TableCell>
                                   <TableCell>
                                     {actedAt && approvalUser?.digitalSignature ? (
                                       <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />

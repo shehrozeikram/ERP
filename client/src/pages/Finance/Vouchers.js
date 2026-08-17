@@ -1383,19 +1383,22 @@ const Vouchers = () => {
                               const stepByUserId = new Map(
                                 approvalSteps.map((step) => [String(step?.approver?._id || step?.approver || ''), step])
                               );
-                              const personName = (userObj, fallback = '') => (
-                                [userObj?.firstName, userObj?.lastName].filter(Boolean).join(' ').trim() ||
-                                userObj?.email ||
-                                fallback ||
-                                '—'
-                              );
+                              const personName = (user, fallback = '') => {
+                                if (fallback && String(fallback).trim()) return String(fallback).trim();
+                                if (user) {
+                                  const n = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+                                  if (n) return n;
+                                  if (user?.email) return user.email;
+                                }
+                                return '—';
+                              };
                               const authorityRows = [
                                 { key: 'preparedBy', label: 'Prepared By', user: csa.preparedByUser, fallback: authorityText.preparedBy || csa.preparedBy || '' },
                                 { key: 'managerProcurement', label: 'Manager Procurement', user: csa.managerProcurementUser, fallback: authorityText.managerProcurement || csa.managerProcurement || '' },
-                                { key: 'chiefOperatingOfficer', label: 'Chief operating officer', user: csa.verifiedByUser, fallback: authorityText.chiefOperatingOfficer || authorityText.verifiedBy || csa.verifiedBy || '' },
-                                { key: 'avpTaj', label: 'AVP Taj', user: csa.authorisedRepUser, fallback: authorityText.avpTaj || authorityText.authorisedRep || csa.authorisedRep || '' },
+                                { key: 'chiefOperatingOfficer', label: 'Chief operating officer', user: null, fallback: authorityText.chiefOperatingOfficer || authorityText.verifiedBy || csa.verifiedBy || '' },
+                                { key: 'avpTaj', label: 'AVP Taj', user: null, fallback: authorityText.avpTaj || authorityText.authorisedRep || csa.authorisedRep || '' },
                                 ...(authorityText.technicalDepartment || csa.technicalDepartment ? [
-                                  { key: 'technicalDepartment', label: 'Technical Department', user: csa.technicalDepartmentUser, fallback: authorityText.technicalDepartment || csa.technicalDepartment || '' }
+                                  { key: 'technicalDepartment', label: 'Technical Department', user: null, fallback: authorityText.technicalDepartment || csa.technicalDepartment || '' }
                                 ] : []),
                                 { key: 'preAuditInitial', label: 'Initial Pre-Audit', user: poData.preAuditInitialApprovedBy, fallback: '' },
                                 { key: 'auditDirectorApproval', label: 'Audit Director', user: poData.auditApprovedBy, fallback: '' }
@@ -1421,10 +1424,14 @@ const Vouchers = () => {
                                   || (row.key === 'auditDirectorApproval' ? poData.auditApprovedAt : null)
                                   || null;
 
+                                const displayAuthorityName = authorityApproval?.approver
+                                  ? ([authorityApproval.approver.firstName, authorityApproval.approver.lastName].filter(Boolean).join(' ').trim() || authorityApproval.approver.email || row.fallback || '—')
+                                  : personName(authorityUser, row.fallback);
+
                                 return (
                                   <TableRow key={row.key}>
                                     <TableCell sx={{ border: '1px solid #ccc', fontWeight: 600 }}>{row.label}</TableCell>
-                                    <TableCell sx={{ border: '1px solid #ccc' }}>{personName(authorityUser, row.fallback)}</TableCell>
+                                    <TableCell sx={{ border: '1px solid #ccc' }}>{displayAuthorityName}</TableCell>
                                     <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center' }}>
                                       {authorityUser?.digitalSignature ? (
                                         <DigitalSignatureImage userOrPath={authorityUser} alt={`${row.label} signature`} />

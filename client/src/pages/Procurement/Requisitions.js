@@ -668,8 +668,8 @@ const Requisitions = () => {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {req.status === 'Draft' && (
-                        <Tooltip title="Delete">
+                      {user?.role === 'developer' && (
+                        <Tooltip title="Delete requisition & all related records (Developer only)">
                           <IconButton 
                             size="small" 
                             color="error" 
@@ -1731,14 +1731,17 @@ const Requisitions = () => {
 
       {/* DELETE DIALOG */}
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, id: null })}>
-        <DialogTitle>Delete Requisition</DialogTitle>
+        <DialogTitle>Delete Requisition (Developer Only)</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete this requisition? This action cannot be undone.</Typography>
+          <Typography>Are you sure you want to permanently delete this requisition?</Typography>
+          <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+            This will permanently delete this requisition and all related documents across Procurement, Pre-Audit, Finance, and CEO Office. This action cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialog({ open: false, id: null })}>Cancel</Button>
           <Button variant="contained" color="error" onClick={confirmDelete}>
-            Delete
+            Delete Everything
           </Button>
         </DialogActions>
       </Dialog>

@@ -72,6 +72,8 @@ const IndentDetail = () => {
   const [approverSearchOptions, setApproverSearchOptions] = useState([]);
   const [approverSearchLoading, setApproverSearchLoading] = useState(false);
   const [workflowHistoryOpen, setWorkflowHistoryOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Load indent data
   const loadIndent = useCallback(async () => {
@@ -288,6 +290,30 @@ const IndentDetail = () => {
     return colors[status] || 'default';
   };
 
+  const handleDeleteIndent = async () => {
+    try {
+      setDeleting(true);
+      await indentService.deleteIndent(id);
+      setSnackbar({
+        open: true,
+        message: 'Indent and all related records deleted successfully',
+        severity: 'success'
+      });
+      setDeleteDialogOpen(false);
+      setTimeout(() => {
+        navigate('/general/indents');
+      }, 1000);
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to delete indent',
+        severity: 'error'
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // Check permissions
   const canEdit =
     ['Draft', 'Rejected', 'Rejected in Procurement'].includes(indent?.status) &&
@@ -416,6 +442,16 @@ const IndentDetail = () => {
           >
             Workflow History
           </Button>
+          {user?.role === 'developer' && (
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<DeleteIcon />}
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              Delete (Developer)
+            </Button>
+          )}
         </Stack>
       </Stack>
 
@@ -911,6 +947,25 @@ const IndentDetail = () => {
         document={indent}
         documentType="indent"
       />
+
+      {/* Delete Confirmation Dialog (Developer Only) */}
+      <Dialog open={deleteDialogOpen} onClose={() => !deleting && setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Indent (Developer Only)</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to permanently delete indent <strong>{indent?.indentNumber}</strong>?
+          </Typography>
+          <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+            This will permanently delete this indent and all related records across Procurement, Pre-Audit, Finance, and CEO Office. This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>Cancel</Button>
+          <Button onClick={handleDeleteIndent} color="error" variant="contained" disabled={deleting}>
+            {deleting ? 'Deleting…' : 'Delete Everything'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

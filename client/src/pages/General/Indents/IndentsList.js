@@ -876,13 +876,8 @@ const IndentsList = () => {
                             </IconButton>
                           </>
                         )}
-                        {(['super_admin', 'developer', 'admin'].includes(user?.role) ||
-                          (item.status === 'Draft' && item.requestedBy?._id === user?.id)) && (
-                          <Tooltip title={
-                            ['super_admin', 'developer', 'admin'].includes(user?.role)
-                              ? 'Delete indent'
-                              : 'Delete your draft indent'
-                          }>
+                        {user?.role === 'developer' && (
+                          <Tooltip title="Delete indent & all related documents (Developer only)">
                             <IconButton
                               size="small"
                               color="error"
@@ -916,17 +911,19 @@ const IndentsList = () => {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Indent</DialogTitle>
+        <DialogTitle>Delete Indent (Developer Only)</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete indent <strong>{selectedIndent?.indentNumber}</strong>? 
-            This action cannot be undone.
+            Are you sure you want to permanently delete indent <strong>{selectedIndent?.indentNumber}</strong>?
+          </Typography>
+          <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+            This will permanently delete this indent and all related documents across Procurement, Pre-Audit, Finance, and CEO Office. This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
-            Delete
+            Delete Everything
           </Button>
         </DialogActions>
       </Dialog>

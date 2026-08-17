@@ -920,35 +920,160 @@ router.put('/:id/split-po-assignments',
 );
 
 // @route   DELETE /api/indents/:id
-// @desc    Delete indent (soft delete)
-// @access  Private
+// @desc    Cascade delete indent and all related documents across procurement, pre-audit, finance, CEO office, general indent
+// @access  Private (Developer only)
 router.delete('/:id',
   authMiddleware,
   asyncHandler(async (req, res) => {
-    const indent = await Indent.findById(req.params.id);
+    // Only allow Developer to delete indents and related documents
+    if (req.user.role !== 'developer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Developer can delete indents and their related documents'
+      });
+    }
 
-    if (!indent || !indent.isActive) {
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
       return res.status(404).json({
         success: false,
         message: 'Indent not found'
       });
     }
 
-    // Only allow deletion of draft indents or by admin
-    if (indent.status !== 'Draft' && !['super_admin', 'admin'].includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only draft indents can be deleted'
+    const indentId = indent._id;
+    const indentNumber = indent.indentNumber;
+
+    // Load related models
+    const QuotationInvitation = require('../models/procurement/QuotationInvitation');
+    const Quotation = require('../models/procurement/Quotation');
+    const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+    const CashApproval = require('../models/procurement/CashApproval');
+    const InwardGatePass = require('../models/procurement/InwardGatePass');
+    const GoodsReceive = require('../models/procurement/GoodsReceive');
+    const QualityInspection = require('../models/procurement/QualityInspection');
+    const DeliveryChallan = require('../models/procurement/DeliveryChallan');
+    const PurchaseReturn = require('../models/procurement/PurchaseReturn');
+    const GoodsIssue = require('../models/procurement/GoodsIssue');
+    const LandedCostVoucher = require('../models/procurement/LandedCostVoucher');
+    const AccountsPayable = require('../models/finance/AccountsPayable');
+    const VendorAdvance = require('../models/finance/VendorAdvance');
+    const ApPaymentApplication = require('../models/finance/ApPaymentApplication');
+    const JournalEntry = require('../models/finance/JournalEntry');
+    const Notification = require('../models/hr/Notification');
+    const BOQItem = require('../models/projectManagement/BOQItem');
+    const ProjectExpense = require('../models/projectManagement/ProjectExpense');
+
+    // 1. Find all POs linked to this indent
+    const pos = await PurchaseOrder.find({ indent: indentId }).select('_id orderNumber poNumber').lean();
+    const poIds = pos.map(p => p._id);
+    const poNumbers = pos.map(p => p.orderNumber || p.poNumber).filter(Boolean);
+
+    // 2. Find all Cash Approvals linked to this indent
+    const cas = await CashApproval.find({ indent: indentId }).select('_id approvalNumber voucherEntryId').lean();
+    const caIds = cas.map(c => c._id);
+    const caNumbers = cas.map(c => c.approvalNumber).filter(Boolean);
+    const caVoucherIds = cas.map(c => c.voucherEntryId).filter(Boolean);
+
+    // 3. Find Goods Receive (GRNs) for these POs to delete LandedCostVouchers
+    const grns = poIds.length ? await GoodsReceive.find({ purchaseOrder: { $in: poIds } }).select('_id').lean() : [];
+    const grnIds = grns.map(g => g._id);
+
+    // 4. Find Accounts Payable records for these POs or Cash Approvals
+    const aps = (poIds.length || caIds.length) ? await AccountsPayable.find({
+      $or: [
+        ...(poIds.length ? [{ 'poDetails.poId': { $in: poIds } }, { poId: { $in: poIds } }] : []),
+        ...(caIds.length ? [{ cashApprovalId: { $in: caIds } }] : [])
+      ]
+    }).select('_id voucherEntryId').lean() : [];
+    const apIds = aps.map(a => a._id);
+    const apVoucherIds = aps.map(a => a.voucherEntryId).filter(Boolean);
+
+    // 5. Delete LandedCostVouchers
+    if (grnIds.length > 0) {
+      await LandedCostVoucher.deleteMany({ goodsReceive: { $in: grnIds } });
+    }
+
+    // 6. Delete downstream PO documents
+    if (poIds.length > 0) {
+      await InwardGatePass.deleteMany({ purchaseOrder: { $in: poIds } });
+      await GoodsReceive.deleteMany({ purchaseOrder: { $in: poIds } });
+      await QualityInspection.deleteMany({ purchaseOrder: { $in: poIds } });
+      await DeliveryChallan.deleteMany({ purchaseOrder: { $in: poIds } });
+      await PurchaseReturn.deleteMany({ purchaseOrder: { $in: poIds } });
+      await VendorAdvance.deleteMany({ purchaseOrder: { $in: poIds } });
+      await ProjectExpense.deleteMany({ linkedPurchaseOrder: { $in: poIds } });
+      await BOQItem.updateMany(
+        { linkedPurchaseOrders: { $in: poIds } },
+        { $pull: { linkedPurchaseOrders: { $in: poIds } } }
+      );
+    }
+
+    // 7. Delete Goods Issues referencing PO or Indent
+    await GoodsIssue.deleteMany({
+      $or: [
+        { referenceIndent: indentId },
+        ...(poIds.length > 0 ? [{ referencePurchaseOrder: { $in: poIds } }] : [])
+      ]
+    });
+
+    // 8. Delete AP Payment Applications
+    if (caIds.length > 0 || apIds.length > 0) {
+      await ApPaymentApplication.deleteMany({
+        $or: [
+          ...(caIds.length > 0 ? [{ cashApprovalId: { $in: caIds } }] : []),
+          ...(apIds.length > 0 ? [{ billId: { $in: apIds } }] : [])
+        ]
       });
     }
 
-    indent.isActive = false;
-    indent.updatedBy = req.user.id;
-    await indent.save({ validateBeforeSave: false }); // skip validation on soft-delete (old indents may lack new required fields)
+    // 9. Delete Accounts Payable bills
+    if (apIds.length > 0 || poIds.length > 0 || caIds.length > 0) {
+      await AccountsPayable.deleteMany({
+        $or: [
+          ...(apIds.length > 0 ? [{ _id: { $in: apIds } }] : []),
+          ...(poIds.length > 0 ? [{ 'poDetails.poId': { $in: poIds } }, { poId: { $in: poIds } }] : []),
+          ...(caIds.length > 0 ? [{ cashApprovalId: { $in: caIds } }] : [])
+        ]
+      });
+    }
+
+    // 10. Delete Journal Entries / Vouchers
+    const allVoucherEntryIds = [...caVoucherIds, ...apVoucherIds].filter(Boolean);
+    const voucherRefs = [indentNumber, indent.erpRef, ...poNumbers, ...caNumbers].filter(Boolean);
+    if (allVoucherEntryIds.length > 0 || poIds.length > 0 || voucherRefs.length > 0) {
+      await JournalEntry.deleteMany({
+        $or: [
+          ...(allVoucherEntryIds.length > 0 ? [{ _id: { $in: allVoucherEntryIds } }] : []),
+          ...(poIds.length > 0 ? [{ purchaseOrder: { $in: poIds } }] : []),
+          ...(voucherRefs.length > 0 ? [{ 'lines.reference': { $in: voucherRefs } }] : [])
+        ]
+      });
+    }
+
+    // 11. Delete Purchase Orders and Cash Approvals
+    await PurchaseOrder.deleteMany({ indent: indentId });
+    await CashApproval.deleteMany({ indent: indentId });
+
+    // 12. Delete Quotations and Quotation Invitations
+    await Quotation.deleteMany({ indent: indentId });
+    await QuotationInvitation.deleteMany({ indent: indentId });
+
+    // 13. Delete Notifications related to this indent or downstream docs
+    await Notification.deleteMany({
+      $or: [
+        { 'data.indentId': indentId },
+        ...(poIds.length > 0 ? [{ 'data.purchaseOrderId': { $in: poIds } }, { 'data.poId': { $in: poIds } }] : []),
+        ...(caIds.length > 0 ? [{ 'data.cashApprovalId': { $in: caIds } }] : [])
+      ]
+    });
+
+    // 14. Delete the Indent document itself
+    await Indent.findByIdAndDelete(indentId);
 
     res.json({
       success: true,
-      message: 'Indent deleted successfully'
+      message: `Indent ${indentNumber || ''} and all related documents across procurement, pre-audit, finance, and CEO office deleted successfully.`
     });
   })
 );
