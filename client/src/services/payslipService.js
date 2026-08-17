@@ -207,6 +207,7 @@ export const formatPayslipData = (payslip) => {
     formattedDeductions: {
       providentFund: formatCurrency(payslip.deductions?.providentFund),
       eobi: formatCurrency(payslip.deductions?.eobi),
+      employeeSecurity: formatCurrency(payslip.deductions?.employeeSecurity),
       incomeTax: formatCurrency(payslip.deductions?.incomeTax),
       loanDeduction: formatCurrency(payslip.deductions?.loanDeduction),
       advanceDeduction: formatCurrency(payslip.deductions?.advanceDeduction),

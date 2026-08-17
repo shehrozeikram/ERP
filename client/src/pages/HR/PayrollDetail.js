@@ -743,6 +743,12 @@ const PayrollDetail = () => {
                       <TableCell>Provident Fund</TableCell>
                       <TableCell align="right">{formatPKR(payroll.providentFund || 0)}</TableCell>
                     </TableRow>
+                    {payroll.employeeSecurity > 0 && (
+                      <TableRow>
+                        <TableCell>Employee Security</TableCell>
+                        <TableCell align="right">{formatPKR(payroll.employeeSecurity || 0)}</TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell>Loan Deductions</TableCell>
                       <TableCell align="right">{formatPKR(payroll.loanDeductions || 0)}</TableCell>

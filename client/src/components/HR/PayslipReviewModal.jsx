@@ -149,6 +149,7 @@ const PayslipReviewModal = ({
                 <TableBody>
                   {[
                     ['EOBI', deductions?.eobi],
+                    ['Employee Security', deductions?.employeeSecurity],
                     ['Income Tax', deductions?.incomeTax],
                     ['Provident Fund', deductions?.providentFund],
                     ['Health Insurance', deductions?.healthInsurance],

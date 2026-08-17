@@ -287,6 +287,10 @@ const EmployeeForm = () => {
       amount: Yup.number().min(0, 'Provident Fund amount must be positive'),
       percentage: Yup.number().min(0, 'Provident Fund percentage must be positive')
     }),
+    employeeSecurity: Yup.object({
+      isActive: Yup.boolean(),
+      amount: Yup.number().min(0, 'Employee security amount must be positive')
+    }),
     address: Yup.object({
       street: Yup.string().required('Street address is required'),
       city: Yup.string().required('City is required'),
@@ -780,6 +784,10 @@ const EmployeeForm = () => {
           amount: employeeData.providentFund?.amount || 0,
           percentage: employeeData.providentFund?.percentage || 0.0834 // 8.34% is the default
         },
+        employeeSecurity: {
+          isActive: employeeData.employeeSecurity?.isActive || false,
+          amount: employeeData.employeeSecurity?.amount || 0
+        },
         address: {
           ...employeeData.address,
           city: employeeData.address?.city?._id || employeeData.address?.city || '',
@@ -1036,6 +1044,10 @@ const EmployeeForm = () => {
         fixedAmount: 0
       },
       providentFund: {
+        isActive: false,
+        amount: 0
+      },
+      employeeSecurity: {
         isActive: false,
         amount: 0
       },
@@ -4229,6 +4241,50 @@ const EmployeeForm = () => {
               </Grid>
             )}
 
+            {/* Employee Security Deduction */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.employeeSecurity?.isActive || false}
+                      onChange={(e) => {
+                        formik.setFieldValue('employeeSecurity.isActive', e.target.checked);
+                        if (!e.target.checked) formik.setFieldValue('employeeSecurity.amount', 0);
+                      }}
+                      name="employeeSecurity.isActive"
+                      color="primary"
+                    />
+                  }
+                  label="Employee Security Deduction Active"
+                />
+                <FormHelperText>
+                  Security deduction amount to be deducted monthly in payroll
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.employeeSecurity?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="employeeSecurity.amount"
+                  label="Employee Security Amount"
+                  type="number"
+                  value={formik.values.employeeSecurity?.amount || 0}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                  inputProps={{ min: 0, step: 1 }}
+                  helperText="This amount will be deducted from employee payroll every month."
+                  error={Boolean(formik.errors.employeeSecurity?.amount)}
+                />
+              </Grid>
+            )}
+
             {/* Auto-Calculated Salary Breakdown */}
             <Grid item xs={12}>
               <Card variant="outlined" sx={{ p: 2, backgroundColor: '#f8f9fa', mt: 2 }}>
@@ -4380,11 +4436,23 @@ const EmployeeForm = () => {
                       </Typography>
                     </>
                   )}
+                  {formik.values.employeeSecurity?.isActive && (
+                    <>
+                      <Divider sx={{ my: 1 }} />
+                      <Typography variant="body2" color="error">
+                        <strong>Employee Security Deduction:</strong> {formatPKR(formik.values.employeeSecurity?.amount || 0)}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        Monthly security deduction
+                      </Typography>
+                    </>
+                  )}
                   
                   {/* Net Salary Calculation */}
                   {(() => {
                     const grossSalary = formik.values.salary?.gross || 0;
-                    const totalDeductions = (formik.values.eobi?.isActive ? (formik.values.eobi?.amount || 370) : 0);
+                    const totalDeductions = (formik.values.eobi?.isActive ? (formik.values.eobi?.amount || 407) : 0) +
+                      (formik.values.employeeSecurity?.isActive ? (Number(formik.values.employeeSecurity?.amount) || 0) : 0);
                     // Provident Fund excluded from total deductions (Coming Soon)
                     // + (formik.values.providentFund?.isActive ? Math.round(basicSalary * 0.0834) : 0);
                     

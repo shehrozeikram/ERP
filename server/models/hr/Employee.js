@@ -687,6 +687,18 @@ const employeeSchema = new mongoose.Schema({
       min: [0, 'Provident Fund percentage cannot be negative']
     }
   },
+  // Employee Security Deduction
+  employeeSecurity: {
+    isActive: {
+      type: Boolean,
+      default: false
+    },
+    amount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Employee security amount cannot be negative']
+    }
+  },
   currency: {
     type: String,
     default: 'PKR',
@@ -1589,6 +1601,12 @@ employeeSchema.pre('save', async function (next) {
     } else if (!this.eobi.amount || this.eobi.amount <= 0) {
       this.eobi.amount = 407;
       this.eobi.percentage = this.eobi.percentage || 1;
+    }
+  }
+
+  if (this.isModified('employeeSecurity.isActive') || this.isModified('employeeSecurity.amount') || this.isModified('employeeSecurity')) {
+    if (!this.employeeSecurity?.isActive) {
+      if (this.employeeSecurity) this.employeeSecurity.amount = 0;
     }
   }
 

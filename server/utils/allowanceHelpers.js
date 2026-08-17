@@ -229,6 +229,14 @@ const getEmployeeEobiDeduction = (employee) => {
   return 407;
 };
 
+/** Employee Security deduction from employee master (0 when inactive). */
+const getEmployeeSecurityDeduction = (employee) => {
+  if (!employee?.employeeSecurity?.isActive) return 0;
+  const amount = Number(employee.employeeSecurity.amount);
+  if (Number.isFinite(amount) && amount > 0) return Math.round(amount);
+  return 0;
+};
+
 /**
  * Returns { isManual, tax } for an employee's income tax.
  * When manualTax.isActive, the fixed amount overrides auto calculation.
@@ -262,6 +270,7 @@ const syncDraftPayrollsManualTaxFromEmployee = async (employee) => {
       (payroll.healthInsurance || 0) +
       (payroll.loanDeductions || 0) +
       (payroll.eobi || 0) +
+      (payroll.employeeSecurity || 0) +
       (payroll.attendanceDeduction || 0) +
       (payroll.leaveDeduction || 0) +
       (payroll.otherDeductions || 0);
@@ -288,5 +297,6 @@ module.exports = {
   syncDraftPayrollsTaxFromSettings,
   syncDraftPayrollsManualTaxFromEmployee,
   getEmployeeEobiDeduction,
+  getEmployeeSecurityDeduction,
   resolveEmployeeIncomeTax
 };

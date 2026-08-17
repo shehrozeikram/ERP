@@ -146,6 +146,7 @@ const EmployeePayrollDetails = () => {
 
     return (currentPayroll.incomeTax || 0) +
       (currentPayroll.eobi || 0) +
+      (currentPayroll.employeeSecurity || 0) +
       (currentPayroll.healthInsurance || 0) +
       loanDeductions +
       (currentPayroll.attendanceDeduction || 0) +
@@ -553,6 +554,12 @@ const EmployeePayrollDetails = () => {
                       <TableCell>Provident Fund</TableCell>
                       <TableCell align="right">{formatPKR(currentPayroll.providentFund || 0)}</TableCell>
                     </TableRow>
+                    {currentPayroll.employeeSecurity > 0 && (
+                      <TableRow>
+                        <TableCell>Employee Security</TableCell>
+                        <TableCell align="right">{formatPKR(currentPayroll.employeeSecurity || 0)}</TableCell>
+                      </TableRow>
+                    )}
                     {/* Individual Loan Deductions */}
                     {console.log('🔍 Employee loans for deductions:', employeeLoans)}
                     {employeeLoans

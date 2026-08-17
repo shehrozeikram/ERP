@@ -6,7 +6,8 @@ const {
   fuelAllowanceAmount,
   payrollAllowancesFromEmployee,
   additionalAllowancesTotal,
-  getEmployeeEobiDeduction
+  getEmployeeEobiDeduction,
+  getEmployeeSecurityDeduction
 } = require('../../utils/allowanceHelpers');
 const {
   applyPayrollProration,
@@ -279,6 +280,12 @@ const payrollSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'EOBI cannot be negative']
+  },
+  // Employee Security Deduction
+  employeeSecurity: {
+    type: Number,
+    default: 0,
+    min: [0, 'Employee security cannot be negative']
   },
   // Attendance
   totalWorkingDays: {
@@ -741,6 +748,7 @@ payrollSchema.pre('save', function(next) {
     (this.loanDeductions || 0) +
     (this.advanceSalary || 0) +
     (this.eobi || 0) + 
+    (this.employeeSecurity || 0) + 
     (this.attendanceDeduction || 0) + // Attendance deduction (26-day basis)
     (this.leaveDeduction || 0) + // Leave deduction
     (this.otherDeductions || 0);
@@ -978,6 +986,11 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
       let eobi = getEmployeeEobiDeduction(employee);
       if (factor < 1) eobi = Math.round(eobi * factor);
       return eobi;
+    })(),
+    employeeSecurity: (() => {
+      let sec = getEmployeeSecurityDeduction(employee);
+      if (factor < 1) sec = Math.round(sec * factor);
+      return sec;
     })(),
     currency: employee.currency || 'PKR',
     remarks: `Monthly payroll generated for ${month}/${year}${buildPayrollProrationRemarksSuffix(proration)}`,

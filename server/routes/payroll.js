@@ -50,6 +50,7 @@ const {
   payrollAllowancesFromEmployee,
   additionalAllowancesTotal,
   getEmployeeEobiDeduction,
+  getEmployeeSecurityDeduction,
   resolveEmployeeIncomeTax
 } = require('../utils/allowanceHelpers');
 const {
@@ -62,7 +63,7 @@ const router = express.Router();
 
 /** Fields required for payroll proration (joining + partial monthly pay) and salary math. */
 const PAYROLL_EMPLOYEE_SELECT =
-  'firstName lastName employeeId salary allowances arrears eobi manualTax hireDate appointmentDate partialSalaryPay placementDepartment placementProject placementDesignation department position providentFund cashSalary';
+  'firstName lastName employeeId salary allowances arrears eobi employeeSecurity manualTax hireDate appointmentDate partialSalaryPay placementDepartment placementProject placementDesignation department position providentFund cashSalary';
 
 const isProvidentFundEnabledForEmployee = (employee) =>
   employee?.providentFund?.isActive === true;
@@ -151,12 +152,14 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
   let { tax: resolvedTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
   // EOBI is a flat monthly amount — prorate it for the partial first month.
   let eobiDeduction = getEmployeeEobiDeduction(employee);
+  let employeeSecurityDeduction = getEmployeeSecurityDeduction(employee);
   if (proration.factor < 1) {
     eobiDeduction = Math.round(eobiDeduction * proration.factor);
+    employeeSecurityDeduction = Math.round(employeeSecurityDeduction * proration.factor);
   }
   const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
   const netSalary = Math.round(
-    totalEarnings - resolvedTax - eobiDeduction
+    totalEarnings - resolvedTax - eobiDeduction - employeeSecurityDeduction
   );
 
   return {
@@ -172,6 +175,7 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
     taxCalculation,
     resolvedTax,
     eobiDeduction,
+    employeeSecurityDeduction,
     netSalary,
     proration,
     effectiveAllowances,
@@ -206,7 +210,7 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
     };
   }
 
-  const { taxCalculation, eobiDeduction, resolvedTax } = figures;
+  const { taxCalculation, eobiDeduction, employeeSecurityDeduction = 0, resolvedTax } = figures;
   const finalTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
   const proratedGross = figures.grossSalary ?? gross;
   const workingDays = figures.proration?.workingDaysFromJoining || 26;
@@ -235,13 +239,14 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
     incomeTax: finalTax,
     isManualTax: Boolean(employee?.manualTax?.isActive),
     eobi: eobiDeduction,
+    employeeSecurity: employeeSecurityDeduction,
     healthInsurance: 0,
     providentFund: calculateProvidentFundForEmployee(employee, figures.basic),
     loanDeductions: 0,
     attendanceDeduction: 0,
     leaveDeduction: 0,
     otherDeductions: 0,
-    totalDeductions: Math.round(finalTax + eobiDeduction),
+    totalDeductions: Math.round(finalTax + eobiDeduction + employeeSecurityDeduction),
     totalWorkingDays: workingDays,
     presentDays: workingDays,
     absentDays: 0,
@@ -1284,7 +1289,9 @@ router.get('/current-overview',
         const monthlyTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
         const taxableIncome =
           taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome;
-        const netSalary = Math.round(figures.totalEarnings - monthlyTax - figures.eobiDeduction);
+        const netSalary = Math.round(
+          figures.totalEarnings - monthlyTax - figures.eobiDeduction - (figures.employeeSecurityDeduction || 0)
+        );
 
         totalBasicSalary += figures.basic;
         totalGrossSalary += figures.totalEarnings;
@@ -1308,6 +1315,7 @@ router.get('/current-overview',
           taxableIncome: Math.round(taxableIncome),
           monthlyTax: monthlyTax,
           eobi: Math.round(figures.eobiDeduction),
+          employeeSecurity: Math.round(figures.employeeSecurityDeduction || 0),
           netSalary: netSalary,
           isManualTax: Boolean(employee?.manualTax?.isActive),
           department: employee.department,
@@ -1796,8 +1804,10 @@ router.post('/', [
           const providentFund = calculateProvidentFundForEmployee(employee, basicSalary);
           // EOBI is a flat monthly fee — prorate it for the partial first month.
           let eobi = getEmployeeEobiDeduction(employee);
+          let employeeSecurity = getEmployeeSecurityDeduction(employee);
           if (proration.factor < 1) {
             eobi = Math.round(eobi * proration.factor);
+            employeeSecurity = Math.round(employeeSecurity * proration.factor);
           }
           
           // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS (respects pauses & overrides)
@@ -1847,14 +1857,14 @@ router.post('/', [
           } = attendanceData;
         
           // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
-          const totalDeductions = monthlyTax + eobi + attendanceDeduction + loanDeductions + advanceSalary;
+          const totalDeductions = monthlyTax + eobi + employeeSecurity + attendanceDeduction + loanDeductions + advanceSalary;
           
           // Define healthInsurance and otherDeductions
           const healthInsurance = 0;
           const otherDeductions = 0;
           
           // Net = Total Earnings − all deductions (Provident Fund is display-only, not deducted)
-          const netSalary = totalEarnings - monthlyTax - eobi - healthInsurance - loanDeductions - advanceSalary - attendanceDeduction - otherDeductions;
+          const netSalary = totalEarnings - monthlyTax - eobi - employeeSecurity - healthInsurance - loanDeductions - advanceSalary - attendanceDeduction - otherDeductions;
 
           if (netSalary < 0) {
             return {
@@ -1890,6 +1900,7 @@ router.post('/', [
             advanceSalary: advanceSalary,
             otherDeductions: 0,
             eobi,
+            employeeSecurity,
             totalWorkingDays,
             presentDays,
             absentDays,
@@ -2234,6 +2245,7 @@ router.put('/:id', [
     updateData.incomeTax = parseFloat(req.body.deductions.tax) || 0;
     updateData.healthInsurance = parseFloat(req.body.deductions.insurance) || 0;
     updateData.eobi = parseFloat(req.body.deductions.eobi) || 0;
+    updateData.employeeSecurity = parseFloat(req.body.deductions.employeeSecurity) || 0;
     updateData.otherDeductions = parseFloat(req.body.deductions.other) || 0;
   }
 
@@ -2278,9 +2290,10 @@ router.put('/:id', [
     }
   }
 
-  const payrollEmployee = await Employee.findById(payroll.employee).select('providentFund eobi manualTax');
+  const payrollEmployee = await Employee.findById(payroll.employee).select('providentFund eobi employeeSecurity manualTax');
   if (!req.body.deductions) {
     updateData.eobi = getEmployeeEobiDeduction(payrollEmployee);
+    updateData.employeeSecurity = getEmployeeSecurityDeduction(payrollEmployee);
   }
   const pfEnabledForEmployee = isProvidentFundEnabledForEmployee(payrollEmployee);
   updateData.providentFundEnabled = pfEnabledForEmployee;
@@ -2391,10 +2404,11 @@ router.put('/:id', [
   }
 
   // 🔧 UPDATE TOTAL DEDUCTIONS WITH CORRECT FORMULA
-  // Total Deductions = Income Tax + EOBI + Health Insurance + Attendance Deduction + Other Deductions
+  // Total Deductions = Income Tax + EOBI + Employee Security + Health Insurance + Attendance Deduction + Other Deductions
   // Note: Provident Fund is NOT included in total deductions (as per business requirement)
   updateData.totalDeductions = (updateData.incomeTax || payroll.incomeTax || 0) + 
-    (updateData.eobi || payroll.eobi || 407) + 
+    (updateData.eobi || payroll.eobi || 0) + 
+    (updateData.employeeSecurity !== undefined ? updateData.employeeSecurity : (payroll.employeeSecurity || 0)) + 
     (updateData.healthInsurance || payroll.healthInsurance || 0) + 
     Math.round(attendanceDeduction) + 
     (updateData.otherDeductions || payroll.otherDeductions || 0);
@@ -2589,10 +2603,11 @@ router.put('/:id', [
   }
 
   // 🔧 UPDATE TOTAL DEDUCTIONS WITH CORRECT FORMULA
-  // Total Deductions = Income Tax + EOBI + Health Insurance + Loan Deductions + Attendance Deduction + Other Deductions
+  // Total Deductions = Income Tax + EOBI + Employee Security + Health Insurance + Loan Deductions + Attendance Deduction + Other Deductions
   // Note: Provident Fund is NOT included in total deductions (as per business requirement)
   payroll.totalDeductions = (payroll.incomeTax || 0) + 
-    (payroll.eobi || 407) + 
+    (payroll.eobi || 0) + 
+    (payroll.employeeSecurity || 0) + 
     (payroll.healthInsurance || 0) + 
     (payroll.loanDeductions || 0) + 
     (payroll.attendanceDeduction || 0) + 
@@ -3081,6 +3096,12 @@ router.get('/:id/download',
     currentTableY += 25;
     doc.text('EOBI', 350, currentTableY)
        .text(formatCurrency(payroll.eobi), 500, currentTableY);
+
+    if (payroll.employeeSecurity > 0) {
+      currentTableY += 25;
+      doc.text('Employee Security', 350, currentTableY)
+         .text(formatCurrency(payroll.employeeSecurity), 500, currentTableY);
+    }
 
     currentTableY += 25;
     doc.text('Other Deductions', 350, currentTableY)
@@ -3591,6 +3612,7 @@ router.post('/:id/generate-payslip',
         deductions: {
           providentFund: providentFundForPayslip,
           eobi: payroll.eobi || 0,
+          employeeSecurity: payroll.employeeSecurity || 0,
           incomeTax: payroll.incomeTax || 0,
           loanDeduction: payroll.loanDeductions || 0,
           advanceDeduction: 0,

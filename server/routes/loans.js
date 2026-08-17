@@ -47,9 +47,22 @@ router.get('/', authMiddleware, async (req, res) => {
 
     // Search filter
     if (search) {
+      const trimmed = search.trim();
+      const matchingEmployees = await Employee.find({
+        $or: [
+          { firstName: { $regex: trimmed, $options: 'i' } },
+          { lastName: { $regex: trimmed, $options: 'i' } },
+          { employeeId: { $regex: trimmed, $options: 'i' } }
+        ]
+      }).select('_id');
+
+      const empIds = matchingEmployees.map(e => e._id);
+
       query.$or = [
-        { purpose: { $regex: search, $options: 'i' } },
-        { 'guarantor.name': { $regex: search, $options: 'i' } }
+        { purpose: { $regex: trimmed, $options: 'i' } },
+        { loanNumber: { $regex: trimmed, $options: 'i' } },
+        { 'guarantor.name': { $regex: trimmed, $options: 'i' } },
+        { employee: { $in: empIds } }
       ];
     }
 
@@ -57,11 +70,11 @@ router.get('/', authMiddleware, async (req, res) => {
       page: parseInt(page),
       limit: parseInt(limit),
       populate: [
-        { path: 'employee', select: 'employeeId firstName lastName email' },
+        { path: 'employee', select: 'employeeId firstName lastName email department designation' },
         { path: 'approvedBy', select: 'firstName lastName' },
         { path: 'disbursedBy', select: 'firstName lastName' }
       ],
-      sort: { applicationDate: -1 }
+      sort: { createdAt: -1, applicationDate: -1 }
     };
 
     const loans = await Loan.paginate(query, options);

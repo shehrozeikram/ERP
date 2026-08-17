@@ -146,6 +146,7 @@ const PayrollForm = () => {
       pension: Yup.number().min(0, 'Pension must be positive'),
       eobi: Yup.number().min(0, 'EOBI must be positive'),
       providentFund: Yup.number().min(0, 'Provident Fund must be positive'),
+      employeeSecurity: Yup.number().min(0, 'Employee security must be positive'),
       vehicleLoan: Yup.number().min(0, 'Vehicle loan must be positive'),
       companyLoan: Yup.number().min(0, 'Company loan must be positive'),
       other: Yup.number().min(0, 'Other deduction must be positive')
@@ -216,6 +217,7 @@ const PayrollForm = () => {
         pension: 0,
         eobi: 0,
         providentFund: 0,
+        employeeSecurity: 0,
         vehicleLoan: 0,
         companyLoan: 0,
         other: 0
@@ -621,6 +623,13 @@ const PayrollForm = () => {
       } else {
         formik.setFieldValue('deductions.providentFund', 0);
       }
+
+      // Set Employee Security if employee has it active
+      if (employee.employeeSecurity?.isActive && employee.employeeSecurity?.amount > 0) {
+        formik.setFieldValue('deductions.employeeSecurity', Number(employee.employeeSecurity.amount));
+      } else {
+        formik.setFieldValue('deductions.employeeSecurity', 0);
+      }
       
       // Fetch and set loan information
       const loans = await fetchEmployeeLoans(employeeId);
@@ -724,6 +733,7 @@ const PayrollForm = () => {
       (values.deductions?.insurance || 0) + 
       (values.deductions?.pension || 0) + 
       (values.deductions?.eobi || 0) + 
+      (values.deductions?.employeeSecurity || 0) + 
       // (values.deductions?.providentFund || 0) + // Excluded - Coming Soon
       (values.deductions?.loan || 0) + 
       (values.deductions?.other || 0) + 
@@ -1496,6 +1506,20 @@ const PayrollForm = () => {
                             '&:hover fieldset': { borderColor: 'warning.main' }
                           }
                         }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="deductions.employeeSecurity"
+                        label="Employee Security"
+                        value={formik.values.deductions.employeeSecurity || 0}
+                        onChange={formik.handleChange}
+                        InputProps={{
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                        helperText="Employee Security Deduction"
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>

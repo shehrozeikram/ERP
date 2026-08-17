@@ -1294,6 +1294,11 @@ const EmployeeView = () => {
                   Provident Fund: {formatPKR(employee.providentFund?.amount || 0)}
                 </Typography>
               )}
+              {employee.employeeSecurity?.isActive && (
+                <Typography variant="body2" color="error">
+                  Employee Security: {formatPKR(employee.employeeSecurity?.amount || 0)}
+                </Typography>
+              )}
               <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
                 Monthly compensation (Gross Salary)
               </Typography>

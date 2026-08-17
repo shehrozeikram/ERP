@@ -442,6 +442,12 @@ const PayslipDetail = () => {
                       <TableCell>EOBI</TableCell>
                       <TableCell align="right">{payslip.formattedDeductions.eobi}</TableCell>
                     </TableRow>
+                    {payslip.deductions?.employeeSecurity > 0 && (
+                      <TableRow>
+                        <TableCell>Employee Security</TableCell>
+                        <TableCell align="right">{payslip.formattedDeductions.employeeSecurity}</TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell>Income Tax</TableCell>
                       <TableCell align="right">{payslip.formattedDeductions.incomeTax}</TableCell>

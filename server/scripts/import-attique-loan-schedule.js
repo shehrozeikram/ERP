@@ -122,8 +122,12 @@ async function importLoanToUri(uri) {
 async function main() {
   const uris = [
     'mongodb://127.0.0.1:27017/sgc_erp_local',
-    'mongodb://127.0.0.1:27017/sgc_erp'
+    'mongodb://127.0.0.1:27017/sgc_erp',
+    'mongodb://127.0.0.1:27017/sgc-erp-backend'
   ];
+  if (process.env.MONGODB_URI && !uris.includes(process.env.MONGODB_URI)) {
+    uris.push(process.env.MONGODB_URI);
+  }
   if (process.env.MONGODB_URI_LOCAL && !uris.includes(process.env.MONGODB_URI_LOCAL)) {
     uris.push(process.env.MONGODB_URI_LOCAL);
   }
