@@ -575,7 +575,6 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
                 const parts = [];
                 if (r.registryNo) parts.push(`Reg: ${r.registryNo}`);
                 if (r.inteqalNo) parts.push(`Inteqal: ${r.inteqalNo}`);
-                if (r.khewatNo) parts.push(`Khewat: ${r.khewatNo}`);
                 return parts.length > 0 ? parts.join(' | ') : (r._id || '');
               }}
               filterOptions={(options, state) => {
@@ -613,7 +612,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
                   helperText={
                     linkedRegistry
                       ? `Pre-filled ${linkedRegistry.lines?.length || 0} khasra row(s) from registry`
-                      : 'Optional — search registry / inteqal / khewat'
+                      : 'Optional — search registry / inteqal'
                   }
                 />
               )}
@@ -657,6 +656,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
+                  <TableCell><strong>Registry Khewat</strong></TableCell>
                   <TableCell><strong>Registry Khasra</strong></TableCell>
                   <TableCell><strong>Possessed Khasra</strong></TableCell>
                   <TableCell><strong>Registry Area</strong></TableCell>
@@ -677,6 +677,15 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
 
                   return (
                     <TableRow key={`line-${index}`}>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          value={line.registryKhewatNo || ''}
+                          onChange={(e) => updateLine(index, { registryKhewatNo: e.target.value })}
+                          placeholder="Khewat…"
+                          sx={{ minWidth: 90, maxWidth: 120 }}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Autocomplete
                           size="small"
