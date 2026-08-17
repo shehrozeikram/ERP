@@ -642,17 +642,209 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
   });
 }));
 
-// DELETE /api/taj-residencia/land-acquisition/registries/:id
-router.delete('/registries/:id', authMiddleware, asyncHandler(async (req, res) => {
-  const registry = await LandRegistry.findOne({ _id: req.params.id, isActive: true });
-  if (!registry) {
-    return res.status(404).json({ success: false, message: 'Registry not found' });
+// GET /api/taj-residencia/land-acquisition/khasra-summary
+router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
+  const { moza, search = '', page = 1, limit = 25 } = req.query;
+  const LandMozaKhasraEntry = require('../models/tajResidencia/LandMozaKhasraEntry');
+  const LandPossession = require('../models/tajResidencia/LandPossession');
+
+  const khasraFilter = {};
+  if (moza) {
+    const mongoose = require('mongoose');
+    if (mongoose.Types.ObjectId.isValid(moza)) {
+      khasraFilter.moza = new mongoose.Types.ObjectId(moza);
+    }
   }
 
-  registry.isActive = false;
-  await registry.save();
+  // If search query is provided
+  if (search && search.trim()) {
+    const cleanSearch = search.trim();
+    const escaped = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'i');
 
-  res.json({ success: true, message: 'Registry deleted' });
+    const matchingRegistries = await LandRegistry.find({
+      isActive: true,
+      ...(moza && { moza }),
+      $or: [
+        { registryNo: re },
+        { inteqalNo: re },
+        { 'lines.khasraNo': re },
+        { 'lines.khewatNo': re }
+      ]
+    }).select('lines.khasraEntry').lean();
+
+    const searchKhasraEntryIds = [];
+    matchingRegistries.forEach((r) => {
+      (r.lines || []).forEach((l) => {
+        if (l.khasraEntry) searchKhasraEntryIds.push(l.khasraEntry);
+      });
+    });
+
+    khasraFilter.$or = [
+      { khasraNo: re },
+      { khewatNo: re },
+      ...(searchKhasraEntryIds.length ? [{ _id: { $in: searchKhasraEntryIds } }] : [])
+    ];
+  }
+
+  const allKhasras = await LandMozaKhasraEntry.find(khasraFilter)
+    .populate('moza', 'name slug')
+    .sort({ moza: 1, srNo: 1, khasraNo: 1 })
+    .lean();
+
+  if (!allKhasras.length) {
+    return res.json({
+      success: true,
+      data: {
+        khasras: [],
+        pagination: { page: Number(page) || 1, limit: Number(limit) || 25, total: 0 },
+        grandTotal: {
+          baseline: { kanal: 0, marla: 0, sarsai: 0 },
+          registered: { kanal: 0, marla: 0, sarsai: 0 },
+          remainingToRegister: { kanal: 0, marla: 0, sarsai: 0 },
+          possessed: { kanal: 0, marla: 0, sarsai: 0 },
+          remainingToPossess: { kanal: 0, marla: 0, sarsai: 0 }
+        }
+      }
+    });
+  }
+
+  const mozaIds = [...new Set(allKhasras.map((k) => String(k.moza?._id || k.moza)))];
+
+  const [registries, possessions] = await Promise.all([
+    LandRegistry.find({ moza: { $in: mozaIds }, isActive: true })
+      .populate('seller', 'name cnic phoneNumber partyDate')
+      .populate('purchaser', 'name cnic phoneNumber partyDate')
+      .populate('dealer', 'name cnic phoneNumber partyDate')
+      .lean(),
+    LandPossession.find({ moza: { $in: mozaIds }, isActive: true }).lean()
+  ]);
+
+  const registriesByKhasra = new Map();
+  registries.forEach((reg) => {
+    (reg.lines || []).forEach((line) => {
+      const kId = String(line.khasraEntry || '');
+      const kKey = `${String(reg.moza)}_${String(line.khewatNo || '').trim()}_${String(line.khasraNo || '').trim()}`;
+      const item = {
+        _id: reg._id,
+        registryNo: reg.registryNo,
+        inteqalNo: reg.inteqalNo,
+        dealNo: reg.dealNo,
+        registryDate: reg.registryDate,
+        seller: reg.seller,
+        purchaser: reg.purchaser,
+        dealer: reg.dealer,
+        acquiredArea: normalizeArea(line.acquiredArea),
+        registryDocAttachments: reg.registryDocAttachments || [],
+        inteqalDocAttachments: reg.inteqalDocAttachments || [],
+        attachments: reg.attachments || [],
+        transferPercent: line.transferPercent,
+        remarks: line.remarks
+      };
+
+      if (kId) {
+        if (!registriesByKhasra.has(kId)) registriesByKhasra.set(kId, []);
+        registriesByKhasra.get(kId).push(item);
+      }
+      if (!registriesByKhasra.has(kKey)) registriesByKhasra.set(kKey, []);
+      registriesByKhasra.get(kKey).push(item);
+    });
+  });
+
+  const possessionsByKhasra = new Map();
+  possessions.forEach((pos) => {
+    (pos.lines || []).forEach((line) => {
+      const kId = String(line.khasraEntry || '');
+      const kKey = `${String(pos.moza)}_${String(line.khewatNo || '').trim()}_${String(line.khasraNo || '').trim()}`;
+      const item = {
+        _id: pos._id,
+        possessionRef: pos.possessionRef,
+        possessionDate: pos.possessionDate,
+        possessedArea: normalizeArea(line.possessedArea),
+        transferPercent: line.transferPercent,
+        remarks: line.remarks
+      };
+
+      if (kId) {
+        if (!possessionsByKhasra.has(kId)) possessionsByKhasra.set(kId, []);
+        possessionsByKhasra.get(kId).push(item);
+      }
+      if (!possessionsByKhasra.has(kKey)) possessionsByKhasra.set(kKey, []);
+      possessionsByKhasra.get(kKey).push(item);
+    });
+  });
+
+  let grandBaseline = { kanal: 0, marla: 0, sarsai: 0 };
+  let grandRegistered = { kanal: 0, marla: 0, sarsai: 0 };
+  let grandRemainingToRegister = { kanal: 0, marla: 0, sarsai: 0 };
+  let grandPossessed = { kanal: 0, marla: 0, sarsai: 0 };
+  let grandRemainingToPossess = { kanal: 0, marla: 0, sarsai: 0 };
+
+  const enrichedKhasras = allKhasras.map((entry) => {
+    const id = String(entry._id);
+    const mozaIdStr = String(entry.moza?._id || entry.moza);
+    const fallbackKey = `${mozaIdStr}_${String(entry.khewatNo || '').trim()}_${String(entry.khasraNo || '').trim()}`;
+
+    const regList = registriesByKhasra.get(id) || registriesByKhasra.get(fallbackKey) || [];
+    const uniqueRegistries = Array.from(new Map(regList.map(r => [String(r._id) + JSON.stringify(r.acquiredArea), r])).values());
+
+    const posList = possessionsByKhasra.get(id) || possessionsByKhasra.get(fallbackKey) || [];
+    const uniquePossessions = Array.from(new Map(posList.map(p => [String(p._id) + JSON.stringify(p.possessedArea), p])).values());
+
+    const baseline = normalizeArea(entry.landInKhasra);
+    const registered = addAreas(...uniqueRegistries.map(r => r.acquiredArea));
+    const possessed = addAreas(...uniquePossessions.map(p => p.possessedArea));
+    const remainingToRegister = subtractAreas(baseline, registered);
+    const remainingToPossess = subtractAreas(registered, possessed);
+
+    grandBaseline = addAreas(grandBaseline, baseline);
+    grandRegistered = addAreas(grandRegistered, registered);
+    grandRemainingToRegister = addAreas(grandRemainingToRegister, remainingToRegister);
+    grandPossessed = addAreas(grandPossessed, possessed);
+    grandRemainingToPossess = addAreas(grandRemainingToPossess, remainingToPossess);
+
+    return {
+      _id: entry._id,
+      srNo: entry.srNo,
+      moza: entry.moza,
+      khewatNo: entry.khewatNo,
+      khasraNo: entry.khasraNo,
+      landInKhasra: baseline,
+      totalAcquired: registered,
+      remainingToRegister,
+      totalPossessed: possessed,
+      remainingToPossess,
+      registries: uniqueRegistries,
+      possessions: uniquePossessions,
+      registriesCount: uniqueRegistries.length,
+      possessionsCount: uniquePossessions.length,
+      remarks: entry.remarks
+    };
+  });
+
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 500);
+  const skip = (pageNum - 1) * limitNum;
+  const pagedKhasras = enrichedKhasras.slice(skip, skip + limitNum);
+
+  res.json({
+    success: true,
+    data: {
+      khasras: pagedKhasras,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: enrichedKhasras.length
+      },
+      grandTotal: {
+        baseline: grandBaseline,
+        registered: grandRegistered,
+        remainingToRegister: grandRemainingToRegister,
+        possessed: grandPossessed,
+        remainingToPossess: grandRemainingToPossess
+      }
+    }
+  });
 }));
 
 module.exports = router;

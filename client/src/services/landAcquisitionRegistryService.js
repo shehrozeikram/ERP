@@ -60,11 +60,14 @@ export const updateRegistry = (id, data, options = {}, legacyRemovedIds = []) =>
 
 export const deleteRegistry = (id) => api.delete(`${BASE}/registries/${id}`);
 
+export const getKhasraSummary = (params = {}) => api.get(`${BASE}/khasra-summary`, { params });
+
 export default {
   getRegistries,
   getRegistry,
   getRegisteredTotals,
   createRegistry,
   updateRegistry,
-  deleteRegistry
+  deleteRegistry,
+  getKhasraSummary
 };

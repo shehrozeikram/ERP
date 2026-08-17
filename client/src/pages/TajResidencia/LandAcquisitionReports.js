@@ -25,6 +25,7 @@ import { getPossessionStatus } from '../../services/landAcquisitionPossessionSer
 import { formatKMS, addAreas } from '../../utils/landAreaUnits';
 import RegistryViewer from './RegistryViewer';
 import PossessionViewer from './PossessionViewer';
+import KhasraSummaryViewer from './KhasraSummaryViewer';
 
 const TABLE_HEAD_SX = {
   fontWeight: 700,
@@ -336,6 +337,14 @@ const LandAcquisitionReports = () => {
           Khasra Acquisition Report
         </Button>
         <Button
+          variant={reportType === 'khasra-summary' ? 'contained' : 'text'}
+          color="primary"
+          onClick={() => setReportType('khasra-summary')}
+          sx={{ borderRadius: 1.5, px: 2.5, fontWeight: 700 }}
+        >
+          Khasra Summary Report
+        </Button>
+        <Button
           variant={reportType === 'registry' ? 'contained' : 'text'}
           color="primary"
           onClick={() => setReportType('registry')}
@@ -363,6 +372,8 @@ const LandAcquisitionReports = () => {
         <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
           No mouza found.
         </Typography>
+      ) : reportType === 'khasra-summary' ? (
+        <KhasraSummaryViewer />
       ) : reportType === 'registry' ? (
         <RegistryViewer />
       ) : reportType === 'possession' ? (
