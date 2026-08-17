@@ -1089,29 +1089,29 @@ const Payments = () => {
                 fallback: poData.approvalAuthorities?.preparedBy || approvals.preparedBy || auth.preparedBy || ''
               },
               {
-                key: 'verifiedBy',
-                label: 'Verified By (Procurement Committee)',
-                user: approvals.verifiedByUser,
-                fallback: poData.approvalAuthorities?.verifiedBy || approvals.verifiedBy || auth.verifiedBy || ''
-              },
-              {
-                key: 'authorisedRep',
-                label: 'Authorised Rep.',
-                user: approvals.authorisedRepUser,
-                fallback: poData.approvalAuthorities?.authorisedRep || approvals.authorisedRep || auth.authorisedRep || ''
-              },
-              {
-                key: 'financeRep',
-                label: 'Finance Rep.',
-                user: approvals.financeRepUser,
-                fallback: poData.approvalAuthorities?.financeRep || approvals.financeRep || auth.financeRep || ''
-              },
-              {
                 key: 'managerProcurement',
                 label: 'Manager Procurement',
                 user: approvals.managerProcurementUser,
                 fallback: poData.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || ''
               },
+              {
+                key: 'chiefOperatingOfficer',
+                label: 'Chief operating officer',
+                user: approvals.verifiedByUser,
+                fallback: poData.approvalAuthorities?.chiefOperatingOfficer || poData.approvalAuthorities?.verifiedBy || approvals.verifiedBy || auth.verifiedBy || ''
+              },
+              {
+                key: 'avpTaj',
+                label: 'AVP Taj',
+                user: approvals.authorisedRepUser,
+                fallback: poData.approvalAuthorities?.avpTaj || poData.approvalAuthorities?.authorisedRep || approvals.authorisedRep || auth.authorisedRep || ''
+              },
+              ...(poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment ? [{
+                key: 'technicalDepartment',
+                label: 'Technical Department',
+                user: approvals.technicalDepartmentUser,
+                fallback: poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment || ''
+              }] : []),
               {
                 key: 'preAuditInitial',
                 label: 'Pre-Audit Initial Approval',

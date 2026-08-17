@@ -73,11 +73,9 @@ const PODocumentView = ({ data }) => {
   const signatureColumns = [
     { label: 'Prepared By', value: auth.preparedBy },
     { label: 'Manager Procurement', value: auth.managerProcurement },
-    { label: 'Director Procurement', value: auth.verifiedBy },
-    { label: 'Internal Auditor', value: '' },
-    { label: 'Director Finance', value: auth.financeRep },
-    { label: 'Senior Executive Director', value: auth.authorisedRep },
-    { label: 'President', value: '' }
+    { label: 'Chief operating officer', value: auth.chiefOperatingOfficer || auth.verifiedBy },
+    { label: 'AVP Taj', value: auth.avpTaj || auth.authorisedRep },
+    ...(auth.technicalDepartment ? [{ label: 'Technical Department', value: auth.technicalDepartment }] : [])
   ];
 
   return (
@@ -312,7 +310,7 @@ const PODocumentView = ({ data }) => {
           <tbody>
             <tr>
               {signatureColumns.map(({ label, value }) => (
-                <td key={label} style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                <td key={label} style={{ padding: '20px 10px', textAlign: 'center', width: signatureColumns.length ? `${Math.floor(100 / signatureColumns.length)}%` : '25%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }} />
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>{label}</Typography>
                   {value && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{value}</Typography>}

@@ -60,10 +60,10 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'preparedBy', label: 'Prepared By' },
-  { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
-  { key: 'authorisedRep', label: 'Authorised Rep.' },
-  { key: 'financeRep', label: 'Finance Rep.' },
-  { key: 'managerProcurement', label: 'Manager Procurement' }
+  { key: 'managerProcurement', label: 'Manager Procurement' },
+  { key: 'chiefOperatingOfficer', label: 'Chief operating officer' },
+  { key: 'avpTaj', label: 'AVP Taj' },
+  { key: 'technicalDepartment', label: 'Technical Department' }
 ];
 const normalizeAuthorityToken = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const tokenMatchesAuthorityText = (token, authorityText) => {
@@ -217,10 +217,10 @@ const PurchaseOrders = () => {
         });
         setApprovalAuthority({
           preparedBy: approvals.preparedBy || approverLabel(user) || '',
-          verifiedBy: approvals.verifiedBy || '',
-          authorisedRep: approvals.authorisedRep || '',
-          financeRep: approvals.financeRep || '',
-          managerProcurement: approvals.managerProcurement || ''
+          managerProcurement: approvals.managerProcurement || '',
+          chiefOperatingOfficer: approvals.chiefOperatingOfficer || approvals.verifiedBy || '',
+          avpTaj: approvals.avpTaj || approvals.authorisedRep || '',
+          technicalDepartment: approvals.technicalDepartment || ''
         });
         setFormDialog({ open: true, mode: 'create', data: null, quotationId });
       } catch (err) {
@@ -292,10 +292,10 @@ const PurchaseOrders = () => {
   const handleCreate = () => {
     setApprovalAuthority({
       preparedBy: approverLabel(user) || '',
-      verifiedBy: '',
-      authorisedRep: '',
-      financeRep: '',
-      managerProcurement: ''
+      managerProcurement: '',
+      chiefOperatingOfficer: '',
+      avpTaj: '',
+      technicalDepartment: ''
     });
     setFormData({
       vendor: '',
@@ -329,10 +329,10 @@ const PurchaseOrders = () => {
       const approvals = fullOrder.approvalAuthorities || {};
       setApprovalAuthority({
         preparedBy: approvals.preparedBy || '',
-        verifiedBy: approvals.verifiedBy || '',
-        authorisedRep: approvals.authorisedRep || '',
-        financeRep: approvals.financeRep || '',
-        managerProcurement: approvals.managerProcurement || ''
+        managerProcurement: approvals.managerProcurement || '',
+        chiefOperatingOfficer: approvals.chiefOperatingOfficer || approvals.verifiedBy || '',
+        avpTaj: approvals.avpTaj || approvals.authorisedRep || '',
+        technicalDepartment: approvals.technicalDepartment || ''
       });
       // Initialize observation answers if there are observations
       if (fullOrder.auditObservations && fullOrder.auditObservations.length > 0) {
@@ -360,10 +360,10 @@ const PurchaseOrders = () => {
       const approvals = order.approvalAuthorities || {};
       setApprovalAuthority({
         preparedBy: approvals.preparedBy || '',
-        verifiedBy: approvals.verifiedBy || '',
-        authorisedRep: approvals.authorisedRep || '',
-        financeRep: approvals.financeRep || '',
-        managerProcurement: approvals.managerProcurement || ''
+        managerProcurement: approvals.managerProcurement || '',
+        chiefOperatingOfficer: approvals.chiefOperatingOfficer || approvals.verifiedBy || '',
+        avpTaj: approvals.avpTaj || approvals.authorisedRep || '',
+        technicalDepartment: approvals.technicalDepartment || ''
       });
       setFormDialog({ open: true, mode: 'edit', data: order, quotationId: null });
       setError('Failed to load full purchase order details');
@@ -667,10 +667,11 @@ const PurchaseOrders = () => {
     ].filter(Boolean);
     const textAssigned = [
       csaText.preparedBy,
-      csaText.verifiedBy,
-      csaText.authorisedRep,
-      csaText.financeRep,
-      csaText.managerProcurement
+      csaText.managerProcurement,
+      csaText.chiefOperatingOfficer || csaText.verifiedBy,
+      csaText.avpTaj || csaText.authorisedRep,
+      csaText.technicalDepartment,
+      csaText.financeRep
     ].map((v) => normalizeAuthorityToken(v)).filter(Boolean);
     return [...authorityIds, ...chainIds].includes(uid)
       || userTokens.some((t) => textAssigned.some((assigned) => tokenMatchesAuthorityText(t, assigned)));
@@ -1818,29 +1819,29 @@ const PurchaseOrders = () => {
                         fallback: viewDialog.data.approvalAuthorities?.preparedBy || approvals.preparedBy || ''
                       },
                       {
-                        key: 'verifiedBy',
-                        label: 'Verified By (Procurement Committee)',
-                        user: approvals.verifiedByUser,
-                        fallback: viewDialog.data.approvalAuthorities?.verifiedBy || approvals.verifiedBy || ''
-                      },
-                      {
-                        key: 'authorisedRep',
-                        label: 'Authorised Rep.',
-                        user: approvals.authorisedRepUser,
-                        fallback: viewDialog.data.approvalAuthorities?.authorisedRep || approvals.authorisedRep || ''
-                      },
-                      {
-                        key: 'financeRep',
-                        label: 'Finance Rep.',
-                        user: approvals.financeRepUser,
-                        fallback: viewDialog.data.approvalAuthorities?.financeRep || approvals.financeRep || ''
-                      },
-                      {
                         key: 'managerProcurement',
                         label: 'Manager Procurement',
                         user: approvals.managerProcurementUser,
                         fallback: viewDialog.data.approvalAuthorities?.managerProcurement || approvals.managerProcurement || ''
-                      }
+                      },
+                      {
+                        key: 'chiefOperatingOfficer',
+                        label: 'Chief operating officer',
+                        user: approvals.verifiedByUser,
+                        fallback: viewDialog.data.approvalAuthorities?.chiefOperatingOfficer || viewDialog.data.approvalAuthorities?.verifiedBy || approvals.verifiedBy || ''
+                      },
+                      {
+                        key: 'avpTaj',
+                        label: 'AVP Taj',
+                        user: approvals.authorisedRepUser,
+                        fallback: viewDialog.data.approvalAuthorities?.avpTaj || viewDialog.data.approvalAuthorities?.authorisedRep || approvals.authorisedRep || ''
+                      },
+                      ...(viewDialog.data.approvalAuthorities?.technicalDepartment || approvals.technicalDepartment ? [{
+                        key: 'technicalDepartment',
+                        label: 'Technical Department',
+                        user: approvals.technicalDepartmentUser,
+                        fallback: viewDialog.data.approvalAuthorities?.technicalDepartment || approvals.technicalDepartment || ''
+                      }] : [])
                     ];
                     const authorityApprovalHistory = Array.isArray(viewDialog.data?.workflowHistory)
                       ? [...viewDialog.data.workflowHistory]

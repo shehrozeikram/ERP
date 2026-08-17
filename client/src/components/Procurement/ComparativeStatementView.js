@@ -94,16 +94,13 @@ const ComparativeStatementView = ({
   };
   const selectedRequisition = requisition;
   const comparativeNote = note;
-  const keys = ['preparedBy', 'verifiedBy', 'authorisedRep', 'financeRep', 'managerProcurement'];
+  const keys = ['preparedBy', 'managerProcurement'];
   const comparativeApproval = selectedRequisition?.comparativeApproval;
   const comparativeSteps = Array.isArray(comparativeApproval?.approvers) ? comparativeApproval.approvers : [];
   const comparativeAuthorityUserMap = (() => {
     const csa = selectedRequisition?.comparativeStatementApprovals || {};
     const slots = [
       { key: 'preparedByUser', label: 'Prepared By' },
-      { key: 'verifiedByUser', label: 'Verified By (Procurement Committee)' },
-      { key: 'authorisedRepUser', label: 'Authorised Rep.' },
-      { key: 'financeRepUser', label: 'Finance Rep.' },
       { key: 'managerProcurementUser', label: 'Manager Procurement' }
     ];
     const map = new Map();
@@ -530,9 +527,6 @@ const ComparativeStatementView = ({
             <Grid container spacing={2}>
               {[
                 { key: 'preparedBy', label: 'Prepared By' },
-                { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
-                { key: 'authorisedRep', label: 'Authorised Representative' },
-                { key: 'financeRep', label: 'Finance Representative' },
                 { key: 'managerProcurement', label: 'Manager Procurement' }
               ].map((field) => {
                 const sel = authorityUserSelection?.[field.key] || null;

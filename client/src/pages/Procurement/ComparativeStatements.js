@@ -137,20 +137,14 @@ const ComparativeStatements = () => {
             (preparedBySelection
               ? ([preparedBySelection.firstName, preparedBySelection.lastName].filter(Boolean).join(' ').trim() || preparedBySelection.email || '')
               : ''),
-          verifiedBy: approvals.verifiedBy || '',
-          authorisedRep: approvals.authorisedRep || '',
-          financeRep: approvals.financeRep || '',
           managerProcurement: approvals.managerProcurement || ''
         });
         setAuthorityUserSelection({
           preparedBy: preparedBySelection,
-          verifiedBy: approvals.verifiedByUser || null,
-          authorisedRep: approvals.authorisedRepUser || null,
-          financeRep: approvals.financeRepUser || null,
           managerProcurement: approvals.managerProcurementUser || null
         });
         setComparativeNote(fullRequisition.notes != null ? String(fullRequisition.notes) : '');
-        const hasExistingApprovals = approvals.preparedBy || approvals.verifiedBy || approvals.authorisedRep || approvals.financeRep || approvals.managerProcurement;
+        const hasExistingApprovals = approvals.preparedBy || approvals.managerProcurement;
         setApprovalsSavedForRequisition(hasExistingApprovals ? fullRequisition._id : null);
       }
       
@@ -374,15 +368,12 @@ const ComparativeStatements = () => {
             }
           : null);
       const payload = {
-        ...approvalAuthority,
         preparedBy:
           preparedByUser
             ? ([preparedByUser.firstName, preparedByUser.lastName].filter(Boolean).join(' ').trim() || preparedByUser.email || '')
             : '',
         preparedByUser: preparedByUser?._id || null,
-        verifiedByUser: authorityUserSelection.verifiedBy?._id || null,
-        authorisedRepUser: authorityUserSelection.authorisedRep?._id || null,
-        financeRepUser: authorityUserSelection.financeRep?._id || null,
+        managerProcurement: approvalAuthority.managerProcurement || '',
         managerProcurementUser: authorityUserSelection.managerProcurement?._id || null,
         notes: comparativeNote
       };

@@ -211,10 +211,13 @@ const purchaseOrderSchema = new mongoose.Schema({
   // Approval authorities (names/designations) for signature section - prefilled from comparative statement when created from quotation
   approvalAuthorities: {
     preparedBy: { type: String, trim: true, default: '' },
+    managerProcurement: { type: String, trim: true, default: '' },
+    chiefOperatingOfficer: { type: String, trim: true, default: '' },
+    avpTaj: { type: String, trim: true, default: '' },
+    technicalDepartment: { type: String, trim: true, default: '' },
     verifiedBy: { type: String, trim: true, default: '' },
     authorisedRep: { type: String, trim: true, default: '' },
-    financeRep: { type: String, trim: true, default: '' },
-    managerProcurement: { type: String, trim: true, default: '' }
+    financeRep: { type: String, trim: true, default: '' }
   },
   authorityApprovals: [{
     authorityKey: { type: String, trim: true },

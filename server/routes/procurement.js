@@ -238,10 +238,13 @@ const buildAuthorityTextConditions = (tokens = []) => {
 };
 const AUTHORITY_SLOT_CONFIG = [
   { key: 'preparedBy', label: 'Prepared By', indentUserField: 'preparedByUser' },
-  { key: 'verifiedBy', label: 'Verified By (Procurement Committee)', indentUserField: 'verifiedByUser' },
-  { key: 'authorisedRep', label: 'Authorised Rep.', indentUserField: 'authorisedRepUser' },
-  { key: 'financeRep', label: 'Finance Rep.', indentUserField: 'financeRepUser' },
-  { key: 'managerProcurement', label: 'Manager Procurement', indentUserField: 'managerProcurementUser' }
+  { key: 'managerProcurement', label: 'Manager Procurement', indentUserField: 'managerProcurementUser' },
+  { key: 'chiefOperatingOfficer', label: 'Chief operating officer', indentUserField: 'verifiedByUser' },
+  { key: 'avpTaj', label: 'AVP Taj', indentUserField: 'authorisedRepUser' },
+  { key: 'technicalDepartment', label: 'Technical Department', indentUserField: 'technicalDepartmentUser' },
+  { key: 'verifiedBy', label: 'Chief operating officer', indentUserField: 'verifiedByUser' },
+  { key: 'authorisedRep', label: 'AVP Taj', indentUserField: 'authorisedRepUser' },
+  { key: 'financeRep', label: 'Finance Rep.', indentUserField: 'financeRepUser' }
 ];
 const getUserIdentityTokens = (user) => {
   const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
@@ -255,10 +258,11 @@ const isAssignedByAuthorityText = (approvalAuthorities, user) => {
   const authorities = approvalAuthorities || {};
   const assignedTexts = [
     authorities.preparedBy,
-    authorities.verifiedBy,
-    authorities.authorisedRep,
-    authorities.financeRep,
-    authorities.managerProcurement
+    authorities.managerProcurement,
+    authorities.chiefOperatingOfficer || authorities.verifiedBy,
+    authorities.avpTaj || authorities.authorisedRep,
+    authorities.technicalDepartment,
+    authorities.financeRep
   ].map(normalizeToken).filter(Boolean);
   if (!assignedTexts.length) return false;
   const tokens = getUserIdentityTokens(user);
@@ -1099,18 +1103,24 @@ router.post('/purchase-orders', [
   if (req.body.approvalAuthorities && typeof req.body.approvalAuthorities === 'object') {
     purchaseOrder.approvalAuthorities = {
       preparedBy: req.body.approvalAuthorities.preparedBy || preparedByName,
-      verifiedBy: req.body.approvalAuthorities.verifiedBy || '',
-      authorisedRep: req.body.approvalAuthorities.authorisedRep || '',
-      financeRep: req.body.approvalAuthorities.financeRep || '',
-      managerProcurement: req.body.approvalAuthorities.managerProcurement || ''
+      managerProcurement: req.body.approvalAuthorities.managerProcurement || '',
+      chiefOperatingOfficer: req.body.approvalAuthorities.chiefOperatingOfficer || req.body.approvalAuthorities.verifiedBy || '',
+      avpTaj: req.body.approvalAuthorities.avpTaj || req.body.approvalAuthorities.authorisedRep || '',
+      technicalDepartment: req.body.approvalAuthorities.technicalDepartment || '',
+      verifiedBy: req.body.approvalAuthorities.chiefOperatingOfficer || req.body.approvalAuthorities.verifiedBy || '',
+      authorisedRep: req.body.approvalAuthorities.avpTaj || req.body.approvalAuthorities.authorisedRep || '',
+      financeRep: req.body.approvalAuthorities.financeRep || ''
     };
   } else {
     purchaseOrder.approvalAuthorities = {
       preparedBy: preparedByName,
+      managerProcurement: '',
+      chiefOperatingOfficer: '',
+      avpTaj: '',
+      technicalDepartment: '',
       verifiedBy: '',
       authorisedRep: '',
-      financeRep: '',
-      managerProcurement: ''
+      financeRep: ''
     };
   }
 

@@ -23,7 +23,7 @@ export function canBypassPreparedByAuthorityLock(user) {
   return userMatchesGmProcurement(user);
 }
 
-const otherAuthorityUserKeys = ['verifiedByUser', 'authorisedRepUser', 'financeRepUser', 'managerProcurementUser'];
+const otherAuthorityUserKeys = ['managerProcurementUser'];
 
 const hasOtherAuthorityUser = (requisition) =>
   otherAuthorityUserKeys.some((k) => Boolean(requisition?.comparativeStatementApprovals?.[k]));

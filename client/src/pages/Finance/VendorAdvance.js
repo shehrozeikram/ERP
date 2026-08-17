@@ -1418,10 +1418,12 @@ const VendorAdvance = () => {
                             );
                             const authorityRows = [
                               { key: 'preparedBy', label: 'Prepared By', user: csa.preparedByUser, fallback: authorityText.preparedBy || csa.preparedBy || '' },
-                              { key: 'verifiedBy', label: 'Verified By (Procurement Committee)', user: csa.verifiedByUser, fallback: authorityText.verifiedBy || csa.verifiedBy || '' },
-                              { key: 'authorisedRep', label: 'Authorised Rep.', user: csa.authorisedRepUser, fallback: authorityText.authorisedRep || csa.authorisedRep || '' },
-                              { key: 'financeRep', label: 'Finance Rep.', user: csa.financeRepUser, fallback: authorityText.financeRep || csa.financeRep || '' },
                               { key: 'managerProcurement', label: 'Manager Procurement', user: csa.managerProcurementUser, fallback: authorityText.managerProcurement || csa.managerProcurement || '' },
+                              { key: 'chiefOperatingOfficer', label: 'Chief operating officer', user: csa.verifiedByUser, fallback: authorityText.chiefOperatingOfficer || authorityText.verifiedBy || csa.verifiedBy || '' },
+                              { key: 'avpTaj', label: 'AVP Taj', user: csa.authorisedRepUser, fallback: authorityText.avpTaj || authorityText.authorisedRep || csa.authorisedRep || '' },
+                              ...(authorityText.technicalDepartment || csa.technicalDepartment ? [
+                                { key: 'technicalDepartment', label: 'Technical Department', user: csa.technicalDepartmentUser, fallback: authorityText.technicalDepartment || csa.technicalDepartment || '' }
+                              ] : []),
                               { key: 'preAuditInitial', label: 'Initial Pre-Audit', user: poData.preAuditInitialApprovedBy, fallback: '' },
                               { key: 'auditDirectorApproval', label: 'Audit Director', user: poData.auditApprovedBy, fallback: '' }
                             ];
