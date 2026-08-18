@@ -432,30 +432,38 @@ const LandAcquisitionReports = () => {
                       <Chip size="small" label={`${m.entryCount || 0} khasra records`} color="primary" variant="outlined" />
                     </Stack>
 
-                    {totals.baseline && (
-                      <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ fontSize: '0.8125rem' }}>
-                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'grey.100', border: '1px solid', borderColor: 'grey.300' }}>
-                          <Typography variant="caption" color="text.secondary" display="block" fontWeight={600}>Land in Khasra</Typography>
-                          <Typography variant="body2" fontWeight={700}>{formatKMS(totals.baseline)}</Typography>
-                        </Box>
-                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
-                          <Typography variant="caption" color="success.main" display="block" fontWeight={600}>Purchased (Registry)</Typography>
-                          <Typography variant="body2" fontWeight={700} color="success.dark">{formatKMS(totals.registered)}</Typography>
-                        </Box>
-                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.200' }}>
-                          <Typography variant="caption" color="warning.main" display="block" fontWeight={600}>Pending Purchased</Typography>
-                          <Typography variant="body2" fontWeight={700} color="warning.dark">{formatKMS(totals.remainingToRegister)}</Typography>
-                        </Box>
-                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
-                          <Typography variant="caption" color="primary.main" display="block" fontWeight={600}>Possession</Typography>
-                          <Typography variant="body2" fontWeight={700} color="primary.dark">{formatKMS(totals.possessed)}</Typography>
-                        </Box>
-                        <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'error.50', border: '1px solid', borderColor: 'error.200' }}>
-                          <Typography variant="caption" color="error.main" display="block" fontWeight={600}>Pending Possession</Typography>
-                          <Typography variant="body2" fontWeight={700} color="error.dark">{formatKMS(totals.remainingToPossess)}</Typography>
-                        </Box>
-                      </Stack>
-                    )}
+                    {totals.baseline && (() => {
+                      const regTotal = totals.registered || { kanal: 0, marla: 0, sarsai: 0 };
+                      const posTotal = totals.possessed || { kanal: 0, marla: 0, sarsai: 0 };
+                      const baseTotal = totals.baseline || { kanal: 0, marla: 0, sarsai: 0 };
+                      const pendingPurchase = subtractAreas(baseTotal, regTotal);
+                      const pendingPossession = subtractAreas(regTotal, posTotal);
+
+                      return (
+                        <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ fontSize: '0.8125rem' }}>
+                          <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'grey.100', border: '1px solid', borderColor: 'grey.300' }}>
+                            <Typography variant="caption" color="text.secondary" display="block" fontWeight={600}>Land in Khasra</Typography>
+                            <Typography variant="body2" fontWeight={700}>{formatKMS(baseTotal)}</Typography>
+                          </Box>
+                          <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
+                            <Typography variant="caption" color="success.main" display="block" fontWeight={600}>Purchased (Registry)</Typography>
+                            <Typography variant="body2" fontWeight={700} color="success.dark">{formatKMS(regTotal)}</Typography>
+                          </Box>
+                          <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.200' }}>
+                            <Typography variant="caption" color="warning.main" display="block" fontWeight={600}>Pending Purchased</Typography>
+                            <Typography variant="body2" fontWeight={700} color="warning.dark">{formatKMS(pendingPurchase)}</Typography>
+                          </Box>
+                          <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+                            <Typography variant="caption" color="primary.main" display="block" fontWeight={600}>Possession</Typography>
+                            <Typography variant="body2" fontWeight={700} color="primary.dark">{formatKMS(posTotal)}</Typography>
+                          </Box>
+                          <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1, bgcolor: 'error.50', border: '1px solid', borderColor: 'error.200' }}>
+                            <Typography variant="caption" color="error.main" display="block" fontWeight={600}>Pending Possession</Typography>
+                            <Typography variant="body2" fontWeight={700} color="error.dark">{formatKMS(pendingPossession)}</Typography>
+                          </Box>
+                        </Stack>
+                      );
+                    })()}
                   </Stack>
                 </AccordionSummary>
                 <AccordionDetails sx={{ pt: 1, pb: 2, px: 2, bgcolor: 'grey.50', minHeight: 480 }}>

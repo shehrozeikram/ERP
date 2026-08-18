@@ -117,10 +117,11 @@ router.get('/mozas', authMiddleware, asyncHandler(async (req, res) => {
         rows.forEach((row) => {
           if (row.baseline) baseline = addAreas(baseline, row.baseline);
           if (row.registered) registered = addAreas(registered, row.registered);
-          if (row.remainingToRegister) remainingToRegister = addAreas(remainingToRegister, row.remainingToRegister);
           if (row.possessed) possessed = addAreas(possessed, row.possessed);
-          if (row.remainingToPossess) remainingToPossess = addAreas(remainingToPossess, row.remainingToPossess);
         });
+
+        remainingToRegister = subtractAreas(baseline, registered);
+        remainingToPossess = subtractAreas(registered, possessed);
 
         return {
           ...m,
