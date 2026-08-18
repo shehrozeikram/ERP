@@ -22,7 +22,7 @@ import {
 import { ExpandMore } from '@mui/icons-material';
 import { getMozas } from '../../services/landAcquisitionMozaService';
 import { getPossessionStatus } from '../../services/landAcquisitionPossessionService';
-import { formatKMS, addAreas } from '../../utils/landAreaUnits';
+import { formatKMS, addAreas, subtractAreas } from '../../utils/landAreaUnits';
 import RegistryViewer from './RegistryViewer';
 import PossessionViewer from './PossessionViewer';
 import KhasraSummaryViewer from './KhasraSummaryViewer';
@@ -151,6 +151,18 @@ const MozaReportTable = ({ mozaId, active }) => {
       const matchKhewat = khewatFilter ? String(row.khewatNo || '').toLowerCase().includes(khewatFilter.toLowerCase()) : true;
       const matchKhasra = khasraFilter ? String(row.khasraNo || '').toLowerCase().includes(khasraFilter.toLowerCase()) : true;
       return matchKhewat && matchKhasra;
+    }).map(row => {
+      const baseline = row.baseline || { kanal: 0, marla: 0, sarsai: 0 };
+      const registered = row.registered || { kanal: 0, marla: 0, sarsai: 0 };
+      const possessed = row.possessed || { kanal: 0, marla: 0, sarsai: 0 };
+      return {
+        ...row,
+        baseline,
+        registered,
+        possessed,
+        remainingToRegister: subtractAreas(baseline, registered),
+        remainingToPossess: subtractAreas(registered, possessed)
+      };
     });
   }, [entries, khewatFilter, khasraFilter]);
 
