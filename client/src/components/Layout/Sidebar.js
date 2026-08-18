@@ -286,7 +286,6 @@ const Sidebar = () => {
       '/procurement/quotations': 'quotations',
       '/procurement/comparative-statements': 'comparative_statements',
       '/procurement/purchase-orders': 'purchase_orders',
-      '/procurement/cash-approvals': 'cash_approvals',
       '/procurement/vendors': 'vendors',
       '/procurement/subcontractors': 'vendors',
       '/procurement/vendor-bills': 'purchase_orders',

@@ -309,7 +309,6 @@ export const SUBMODULES = {
     'quotations',
     'comparative_statements',
     'purchase_orders',
-    'cash_approvals',
     'vendors',
     'store',
     'store_management',
@@ -822,7 +821,6 @@ export const MODULES = {
       { name: 'Quotations', path: '/procurement/quotations' },
       { name: 'Comparative Statements', path: '/procurement/comparative-statements' },
       { name: 'Purchase Orders', path: '/procurement/purchase-orders' },
-      { name: 'Cash Approvals', path: '/procurement/cash-approvals' },
       {
         name: 'Vendors',
         path: '/procurement/vendors',

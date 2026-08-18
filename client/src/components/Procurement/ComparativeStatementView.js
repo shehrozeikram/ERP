@@ -136,12 +136,20 @@ const ComparativeStatementView = ({
     });
   }, []);
 
+  const pendingItems = (selectedRequisition?.items || []).filter(item => (item.orderedQuantity || 0) < item.quantity);
+  const totalPendingItems = pendingItems.length;
+  const assignedPendingCount = (selectedRequisition?.items || []).reduce((count, item, idx) => {
+    if ((item.orderedQuantity || 0) < item.quantity && vendorAssignments[idx]) {
+      return count + 1;
+    }
+    return count;
+  }, 0);
+
   const allItemsAssigned =
-    selectedRequisition?.items?.length > 0 &&
-    selectedRequisition.items.every((_, idx) => vendorAssignments[idx]);
+    totalPendingItems > 0 && assignedPendingCount === totalPendingItems;
 
   const assignedCount = Object.keys(vendorAssignments).length;
-  const totalItems = selectedRequisition?.items?.length || 0;
+  const totalItems = totalPendingItems;
 
   const handleCreateSplitPOs = () => {
     if (onCreateSplitPOs) {
@@ -288,13 +296,19 @@ const ComparativeStatementView = ({
                   if (!isQuoted) return null; // Hide row if no vendor quoted this item
 
                   const assignedQuotationId = vendorAssignments[itemIndex];
+                  const isAlreadyOrdered = (item.orderedQuantity || 0) >= item.quantity;
                   return (
                     <React.Fragment key={itemIndex}>
-                      <tr style={{ border: '1px solid #000', backgroundColor: assignedQuotationId ? '#f0fff0' : undefined }}>
+                      <tr style={{ border: '1px solid #000', backgroundColor: isAlreadyOrdered ? '#fafafa' : assignedQuotationId ? '#f0fff0' : undefined }}>
                         <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{itemIndex + 1}</td>
                         <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                          {item.itemName || item.description || '___________'}
-                          {assignedQuotationId && !readOnly && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
+                            <span>{item.itemName || item.description || '___________'}</span>
+                            {isAlreadyOrdered && (
+                              <Chip size="small" label="PO Created" color="success" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+                            )}
+                          </Box>
+                          {assignedQuotationId && !readOnly && !isAlreadyOrdered && (
                             <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', color: '#2e7d32', fontWeight: 600, '@media print': { display: 'none' } }}>
                               → {quotations.find(q => q._id === assignedQuotationId)?.vendor?.name || 'Vendor'}
                             </Box>
@@ -310,25 +324,25 @@ const ComparativeStatementView = ({
                             : 0;
                           const isAssignedToThis = vendorAssignments[itemIndex] === quote._id;
                           const cellBg = isAssignedToThis ? '#c8e6c9' : undefined;
-                          const canAssign = !isNotQuoted && !readOnly && onCreateSplitPOs;
+                          const canAssign = !isAlreadyOrdered && !isNotQuoted && !readOnly && onCreateSplitPOs;
                           return (
                             <React.Fragment key={quoteIdx}>
                               <td
-                                style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined }}
+                                style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined, opacity: isAlreadyOrdered ? 0.6 : 1 }}
                                 onClick={canAssign ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
                               >
                                 {!isNotQuoted ? formatNumber(quoteItem.unitPrice) : '___________'}
                               </td>
                               <Tooltip
-                                title={canAssign ? (isAssignedToThis ? 'Click to unassign' : 'Click to assign this item to this vendor') : isNotQuoted ? 'Vendor did not quote for this item' : ''}
+                                title={isAlreadyOrdered ? 'Item already ordered / PO created' : canAssign ? (isAssignedToThis ? 'Click to unassign' : 'Click to assign this item to this vendor') : isNotQuoted ? 'Vendor did not quote for this item' : ''}
                                 placement="top"
                               >
                                 <td
-                                  style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined }}
+                                  style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined, opacity: isAlreadyOrdered ? 0.6 : 1 }}
                                   onClick={canAssign ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
                                 >
                                   {!isNotQuoted ? formatNumber(itemTotal) : '___________'}
-                                  {isAssignedToThis && !readOnly && (
+                                  {isAssignedToThis && !readOnly && !isAlreadyOrdered && (
                                     <CheckCircleIcon sx={{ fontSize: '0.8rem', ml: 0.5, color: '#2e7d32', verticalAlign: 'middle', '@media print': { display: 'none' } }} />
                                   )}
                                 </td>

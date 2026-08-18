@@ -245,6 +245,9 @@ const PurchaseOrders = () => {
     internalNotes: ''
   });
 
+  // Prefilled quotation tracking info
+  const [quotationPrefillInfo, setQuotationPrefillInfo] = useState(null);
+
   // When navigated from Quotations with createFromQuotationId, fetch quotation and open create form prefilled
   useEffect(() => {
     const quotationId = location.state?.createFromQuotationId;
@@ -258,15 +261,16 @@ const PurchaseOrders = () => {
         const indent = q.indent || {};
         const approvals = indent.comparativeStatementApprovals || {};
 
-        setFormData({
-          vendor: q.vendor?._id || q.vendor || '',
-          orderDate: new Date().toISOString().split('T')[0],
-          expectedDeliveryDate: q.expiryDate ? dayjs(q.expiryDate).format('YYYY-MM-DD') : dayjs().add(30, 'day').format('YYYY-MM-DD'),
-          deliveryAddress: q.vendor?.address || '',
-          status: 'Draft',
-          priority: 'Medium',
-          items: (q.items && q.items.length > 0)
-            ? q.items.map(item => ({
+        const indentItems = indent.items || [];
+        const totalQuoteItems = q.items?.length || 0;
+        const filteredItems = (q.items && q.items.length > 0)
+          ? q.items
+              .filter((item, idx) => {
+                const indentItem = indentItems[idx] || indentItems.find(ii => (ii.itemName || '').trim().toLowerCase() === (item.description || '').trim().toLowerCase());
+                if (!indentItem) return true;
+                return (indentItem.orderedQuantity || 0) < indentItem.quantity;
+              })
+              .map(item => ({
                 description: item.description || '',
                 quantity: item.quantity || 1,
                 unit: item.unit || 'pcs',
@@ -274,7 +278,34 @@ const PurchaseOrders = () => {
                 taxRate: item.taxRate || 0,
                 discount: item.discount || 0
               }))
-            : [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
+          : [];
+
+        const isFullyOrdered = totalQuoteItems > 0 && filteredItems.length === 0;
+        const isPartiallyOrdered = totalQuoteItems > 0 && filteredItems.length > 0 && filteredItems.length < totalQuoteItems;
+
+        setQuotationPrefillInfo({
+          quotationNumber: q.quotationNumber,
+          indentNumber: indent.indentNumber,
+          totalQuoteItems,
+          remainingItems: filteredItems.length,
+          isFullyOrdered,
+          isPartiallyOrdered
+        });
+
+        if (isFullyOrdered) {
+          setError(`All items for Quotation ${q.quotationNumber || ''} (Indent ${indent.indentNumber || ''}) have already been ordered into Purchase Order(s).`);
+          navigate(location.pathname, { replace: true, state: {} });
+          return;
+        }
+
+        setFormData({
+          vendor: q.vendor?._id || q.vendor || '',
+          orderDate: new Date().toISOString().split('T')[0],
+          expectedDeliveryDate: q.expiryDate ? dayjs(q.expiryDate).format('YYYY-MM-DD') : dayjs().add(30, 'day').format('YYYY-MM-DD'),
+          deliveryAddress: q.vendor?.address || '',
+          status: 'Draft',
+          priority: 'Medium',
+          items: filteredItems.length > 0 ? filteredItems : [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
           shippingCost: 0,
           paymentTerms: q.paymentTerms || '',
           notes: q.notes ? `From quotation ${q.quotationNumber || ''}. ${q.notes}` : `Created from quotation ${q.quotationNumber || ''}`,
@@ -538,6 +569,15 @@ const PurchaseOrders = () => {
       if (formDialog.mode === 'create' && formDialog.quotationId) {
         payload.quotation = formDialog.quotationId;
       }
+
+      // Validate items have descriptions and quantity
+      const validItems = (payload.items || []).filter(item => item.description && item.description.trim() !== '' && (Number(item.quantity) || 0) > 0);
+      if (validItems.length === 0) {
+        setError('Cannot create Purchase Order: Please add at least one item with a valid description and quantity.');
+        setLoading(false);
+        return;
+      }
+      payload.items = validItems;
 
       // When editing, ensure status is always included
       // If status is not set in formData, use the original status from the PO
@@ -1275,6 +1315,20 @@ const PurchaseOrders = () => {
                 </Alert>
               </Grid>
             )}
+            {/* Quotation Prefill Notification */}
+            {quotationPrefillInfo?.isPartiallyOrdered && (
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight={600}>
+                    Partial Indent Fulfillment:
+                  </Typography>
+                  <Typography variant="body2">
+                    Showing only the remaining <strong>{quotationPrefillInfo.remainingItems}</strong> unfulfilled item(s) from Quotation <strong>{quotationPrefillInfo.quotationNumber}</strong> (Indent {quotationPrefillInfo.indentNumber}). Other item(s) were already ordered in previous Purchase Order(s).
+                  </Typography>
+                </Alert>
+              </Grid>
+            )}
+
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
@@ -1522,13 +1576,13 @@ const PurchaseOrders = () => {
       {/* View Dialog */}
       <Dialog 
         open={viewDialog.open} 
-        onClose={() => setViewDialog({ open: false, data: null, attachedGrns: [], poDetailTab: 0 })}
+        onClose={() => setViewDialog({ open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 })}
         maxWidth={false}
         fullWidth
         PaperProps={{
           sx: {
-            width: '90%',
-            maxWidth: '210mm',
+            width: '95%',
+            maxWidth: viewDialog.poDetailTab === 3 ? '1400px' : '230mm',
             maxHeight: '95vh',
             m: 2,
             '@media print': {
@@ -2369,6 +2423,33 @@ const PurchaseOrders = () => {
               .po-print-page table td {
                 padding-top: 6px !important;
                 padding-bottom: 6px !important;
+              }
+              .comparative-table {
+                font-size: 0.7rem !important;
+              }
+              .comparative-table th,
+              .comparative-table td {
+                padding: 4px 4px !important;
+                font-size: 0.7rem !important;
+                line-height: 1.2 !important;
+              }
+              .comparative-table thead th {
+                padding: 6px 4px !important;
+              }
+              .terms-table th,
+              .terms-table td {
+                padding: 4px 4px !important;
+                font-size: 0.7rem !important;
+              }
+              .signature-cell {
+                padding: 10px 5px !important;
+              }
+              .signature-cell .MuiBox-root {
+                min-height: 30px !important;
+                margin-bottom: 4px !important;
+              }
+              .signature-cell .MuiTypography-root {
+                font-size: 0.6rem !important;
               }
             }
           `

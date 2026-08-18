@@ -474,9 +474,11 @@ const isAuditReadRole = (user) => {
   return n === 'audit_manager' || n === 'auditor' || n === 'audit_director' || user.role === 'Audit Director';
 };
 
-/** Read-only access to quotations by indent (GET) for exec / audit without being assignee */
+/** Read-only access to quotations by indent (GET) for exec / audit / procurement / authority approvers */
 const canViewQuotationsByIndentRead = (user, indent) => {
   if (!user?.id || !indent) return false;
+  if (['super_admin', 'admin', 'procurement_manager', 'finance_manager'].includes(user.role)) return true;
+  if (hasProcurementAccess(user)) return true;
   if (canOperateAssignedProcurementRequisition(user, indent)) return true;
   if (isAuditReadRole(user)) return true;
   if (hasFinanceAccess(user)) return true;
@@ -484,6 +486,11 @@ const canViewQuotationsByIndentRead = (user, indent) => {
   const approverSteps = Array.isArray(indent?.comparativeApproval?.approvers) ? indent.comparativeApproval.approvers : [];
   const isComparativeApprover = approverSteps.some((step) => String(step?.approver || '') === String(user.id));
   if (isComparativeApprover) return true;
+  const csa = indent?.comparativeStatementApprovals || {};
+  const csaUsers = [csa.preparedByUser, csa.verifiedByUser, csa.authorisedRepUser, csa.financeRepUser, csa.managerProcurementUser]
+    .map((u) => (u?._id || u)?.toString())
+    .filter(Boolean);
+  if (csaUsers.includes(String(user.id))) return true;
   return false;
 };
 
@@ -1071,6 +1078,17 @@ router.post('/purchase-orders', [
     return res.status(404).json({
       success: false,
       message: 'Vendor not found'
+    });
+  }
+
+  // Filter out any blank or zero-quantity items
+  const validIncomingItems = (req.body.items || []).filter(
+    item => item.description && item.description.trim() !== '' && (Number(item.quantity) || 0) > 0
+  );
+  if (validIncomingItems.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Cannot create Purchase Order: Please provide at least one item with a valid description and quantity greater than 0.'
     });
   }
 
@@ -6344,7 +6362,7 @@ router.get('/quotations',
     const quotations = await Quotation.find(query)
       .populate({
         path: 'indent',
-        select: 'indentNumber title comparativeApproval',
+        select: 'indentNumber title status items comparativeApproval',
         populate: {
           path: 'comparativeApproval.rejectionObservations.rejectedBy',
           select: 'firstName lastName email'
@@ -6785,12 +6803,16 @@ router.post('/quotations/:id/create-po',
     // Create purchase order from quotation
     const purchaseOrder = new PurchaseOrder({
       vendor: quotation.vendor._id,
+      indent: quotation.indent?._id || quotation.indent || undefined,
+      quotation: quotation._id,
       orderDate: new Date(),
       expectedDeliveryDate: quotation.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
       status: 'Draft',
       priority: 'Medium',
       items: quotation.items.map(item => ({
         description: item.description,
+        specification: item.specification || '',
+        brand: item.brand || '',
         quantity: item.quantity,
         unit: item.unit,
         unitPrice: item.unitPrice,
@@ -6806,6 +6828,16 @@ router.post('/quotations/:id/create-po',
     });
 
     await purchaseOrder.save();
+
+    // Trigger indent fulfillment update
+    if (purchaseOrder.indent) {
+      try {
+        const Indent = require('../models/general/Indent');
+        await Indent.updateFulfillment(purchaseOrder.indent);
+      } catch (err) {
+        console.error('Error updating indent fulfillment after PO creation:', err);
+      }
+    }
 
     // Update quotation status to indicate PO was created
     quotation.updatedBy = req.user.id;
@@ -6964,6 +6996,13 @@ router.post('/quotations/by-indent/:indentId/create-split-pos',
       createdPOs.push(populated);
     }
 
+    try {
+      const Indent = require('../models/general/Indent');
+      await Indent.updateFulfillment(indent._id);
+    } catch (err) {
+      console.error('Error updating indent fulfillment after split POs:', err);
+    }
+
     res.status(201).json({
       success: true,
       message: `${createdPOs.length} Purchase Order(s) created from Comparative Statement`,
@@ -7086,6 +7125,13 @@ router.post('/quotations/by-indent/:indentId/create-split-pos-from-saved',
       indentDoc.splitPOAssignments = undefined;
       indentDoc.markModified('splitPOAssignments');
       await indentDoc.save();
+    }
+
+    try {
+      const IndentModel = require('../models/general/Indent');
+      await IndentModel.updateFulfillment(req.params.indentId);
+    } catch (err) {
+      console.error('Error updating indent fulfillment after split POs from saved:', err);
     }
 
     res.status(201).json({

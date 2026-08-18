@@ -1453,26 +1453,6 @@ function App() {
               path="/procurement/purchase-orders" 
               element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} 
             />
-            <Route
-              path="/procurement/cash-approvals"
-              element={
-                <ProtectedRoute>
-                  <Suspense fallback={lazyPageFallback}>
-                    <CashApprovals />
-                  </Suspense>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/procurement/cash-approvals/:id/print"
-              element={
-                <ProtectedRoute>
-                  <Suspense fallback={lazyPageFallback}>
-                    <CashApprovalDocumentView />
-                  </Suspense>
-                </ProtectedRoute>
-              }
-            />
             <Route 
               path="/procurement/vendors" 
               element={<ProtectedRoute><Vendors /></ProtectedRoute>} 

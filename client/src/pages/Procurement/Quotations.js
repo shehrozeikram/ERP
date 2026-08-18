@@ -41,7 +41,6 @@ import {
   Refresh as RefreshIcon,
   CheckCircle as ApproveIcon,
   ShoppingCart as POIcon,
-  MonetizationOn as CashApprovalIcon,
   Print as PrintIcon,
   CallSplit as SplitIcon,
   ExpandMore as ExpandMoreIcon
@@ -713,8 +712,45 @@ const Quotations = () => {
                                     </Tooltip>
                                   </>
                                 )}
-                                {quote.status === 'Finalized' && (
-                                  <>
+                                {quote.status === 'Finalized' && (() => {
+                                  const indentItems = group.indent?.items || [];
+                                  const quoteItems = quote.items || [];
+                                  const isFullyOrdered = quoteItems.length > 0 && quoteItems.every((qItem, qIdx) => {
+                                    const matchedIndent = indentItems[qIdx] || indentItems.find(ii => (ii.itemName || '').trim().toLowerCase() === (qItem.description || '').trim().toLowerCase());
+                                    if (matchedIndent) {
+                                      return (matchedIndent.orderedQuantity || 0) >= (matchedIndent.quantity || 1);
+                                    }
+                                    return (qItem.orderedQuantity || 0) >= (qItem.quantity || 1);
+                                  });
+
+                                  if (isFullyOrdered) {
+                                    return (
+                                      <Stack direction="row" spacing={0.5} alignItems="center">
+                                        <Tooltip title="PO already created for all items in this quotation / indent">
+                                          <span>
+                                            <IconButton
+                                              size="small"
+                                              disabled
+                                              sx={{ opacity: 0.4 }}
+                                            >
+                                              <POIcon fontSize="small" />
+                                            </IconButton>
+                                          </span>
+                                        </Tooltip>
+                                        <Tooltip title="All items in this quotation / indent have already been ordered into PO(s)">
+                                          <Chip
+                                            size="small"
+                                            label="PO Created"
+                                            color="success"
+                                            variant="outlined"
+                                            sx={{ fontSize: '0.75rem', fontWeight: 600, height: 22 }}
+                                          />
+                                        </Tooltip>
+                                      </Stack>
+                                    );
+                                  }
+
+                                  return (
                                     <Tooltip title="Create PO">
                                       <IconButton
                                         size="small"
@@ -724,17 +760,8 @@ const Quotations = () => {
                                         <POIcon fontSize="small" />
                                       </IconButton>
                                     </Tooltip>
-                                    <Tooltip title="Create Cash Approval">
-                                      <IconButton
-                                        size="small"
-                                        color="warning"
-                                        onClick={() => navigate('/procurement/cash-approvals', { state: { createFromQuotationId: quote._id } })}
-                                      >
-                                        <CashApprovalIcon fontSize="small" />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </>
-                                )}
+                                  );
+                                })()}
                               </TableCell>
                             </TableRow>
                           ))}
