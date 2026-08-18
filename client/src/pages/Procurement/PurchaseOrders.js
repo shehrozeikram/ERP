@@ -53,6 +53,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
+import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
+import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
@@ -73,6 +75,69 @@ const tokenMatchesAuthorityText = (token, authorityText) => {
   return normalizedAuthorityText === normalizedToken
     || normalizedAuthorityText.includes(normalizedToken)
     || normalizedToken.includes(normalizedAuthorityText);
+};
+
+const renderIndentApprovalProgress = (indent, { title = 'Indent approval progress' } = {}) => {
+  if (!indent) return null;
+  const steps = Array.isArray(indent.approvalChain) ? indent.approvalChain : [];
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+        {title}
+      </Typography>
+      {steps.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          No indent approval chain is recorded for this requisition.
+        </Typography>
+      ) : (
+        <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
+                <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {steps.map((step, idx) => {
+                const approver = step.approver;
+                const aid = approver?._id || approver;
+                const name =
+                  [approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() ||
+                  approver?.email ||
+                  (aid ? `User ${String(aid).slice(-6)}` : `Approver ${idx + 1}`);
+                const status = step.status || 'pending';
+                const chipColor = status === 'approved' ? 'success' : status === 'rejected' ? 'error' : 'warning';
+                const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
+                return (
+                  <TableRow key={String(aid || idx)}>
+                    <TableCell>{name}</TableCell>
+                    <TableCell>
+                      <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} />
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                      {step?.actedAt ? formatDate(step.actedAt) : '—'}
+                    </TableCell>
+                    <TableCell align="center">
+                      {status === 'approved' && approver?.digitalSignature ? (
+                        <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                      ) : status === 'approved' ? (
+                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </Box>
+  );
 };
 
 const WidePopper = (props) => {
@@ -113,7 +178,7 @@ const PurchaseOrders = () => {
   
   // Dialog states (quotationId set when creating PO from Quotations page)
   const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null, quotationId: null });
-  const [viewDialog, setViewDialog] = useState({ open: false, data: null, attachedGrns: [], poDetailTab: 0 });
+  const [viewDialog, setViewDialog] = useState({ open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   
@@ -378,9 +443,21 @@ const PurchaseOrders = () => {
       ]);
       const poData = poRes.data?.success ? poRes.data.data : order;
       const grns = grnRes.data?.success ? (grnRes.data.data?.receives || []) : [];
-      setViewDialog({ open: true, data: poData, attachedGrns: grns, poDetailTab: 0 });
+
+      let quotations = [];
+      const indentId = poData.indent?._id || poData.indent;
+      if (indentId) {
+        try {
+          const qRes = await api.get(`/procurement/quotations/by-indent/${indentId}`);
+          quotations = qRes.data?.success ? (qRes.data.data || []) : [];
+        } catch {
+          quotations = [];
+        }
+      }
+
+      setViewDialog({ open: true, data: poData, attachedGrns: grns, quotations, poDetailTab: 0 });
     } catch (err) {
-      setViewDialog({ open: true, data: order, attachedGrns: [] });
+      setViewDialog({ open: true, data: order, attachedGrns: [], quotations: [], poDetailTab: 0 });
     }
   };
 
@@ -1468,7 +1545,35 @@ const PurchaseOrders = () => {
         <DialogTitle sx={{ '@media print': { display: 'none' }, pb: 1 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">Purchase Order Details</Typography>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              {viewDialog.data && viewDialog.data.status === 'Pending Approval' && isAssignedAuthorityUser(viewDialog.data) && !hasCurrentUserApprovedAuthority(viewDialog.data) && (
+                <>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    startIcon={<ApproveIcon />}
+                    onClick={async () => {
+                      await handleApprove(viewDialog.data._id);
+                      setViewDialog(prev => ({ ...prev, open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 }));
+                    }}
+                    size="small"
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<RejectIcon />}
+                    onClick={async () => {
+                      await handleReject(viewDialog.data._id);
+                      setViewDialog(prev => ({ ...prev, open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 }));
+                    }}
+                    size="small"
+                  >
+                    Reject
+                  </Button>
+                </>
+              )}
               <Button
                 variant="outlined"
                 startIcon={<HistoryIcon />}
@@ -1495,9 +1600,14 @@ const PurchaseOrders = () => {
                 value={viewDialog.poDetailTab ?? 0}
                 onChange={(_, v) => setViewDialog(prev => ({ ...prev, poDetailTab: v }))}
                 sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                variant="scrollable"
+                scrollButtons="auto"
               >
                 <Tab label="Purchase Order" />
                 <Tab label={viewDialog.attachedGrns?.length > 0 ? `GRN(s) (${viewDialog.attachedGrns.length})` : 'GRN(s)'} />
+                <Tab label="Indent" />
+                <Tab label="Comparative Statement" />
+                <Tab label={`Quotations (${viewDialog.quotations?.length || 0})`} />
               </Tabs>
               {viewDialog.poDetailTab === 0 && (
             <Box sx={{ width: '100%' }} className="print-content">
@@ -1598,233 +1708,240 @@ const PurchaseOrders = () => {
                 {/* Vendor and PO Details - Second Row in Columns */}
                 <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
                   {/* Left Column - Vendor Info */}
-                  <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
+                  <Box sx={{ flex: 1 }}>
                     <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
-                      {viewDialog.data.vendor?.name || 'Vendor Name'}
+                      Vendor:
                     </Typography>
-                    <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>
-                      {viewDialog.data.vendor?.address || 'Vendor Address'}
+                    <Typography sx={{ fontSize: '0.9rem', mb: 0.5, fontWeight: 500 }}>
+                      {viewDialog.data.vendor?.name || '—'}
                     </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
-                      <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
-                      <Typography component="span">
-                        Indent# {viewDialog.data.indent?.indentNumber || 'N/A'} Dated. {viewDialog.data.indent?.requestedDate ? formatDateForPrint(viewDialog.data.indent.requestedDate) : 'N/A'}.
-                        {viewDialog.data.indent?.title && ` ${viewDialog.data.indent.title}.`}
-                        {viewDialog.data.indent?.requestedBy && ` End User. ${viewDialog.data.indent.requestedBy.firstName} ${viewDialog.data.indent.requestedBy.lastName}`}
-                      </Typography>
-                    </Box>
+                    <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                      {viewDialog.data.vendor?.contactPerson || '—'}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
+                      {viewDialog.data.vendor?.phone || '—'}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                      {viewDialog.data.vendor?.address || '—'}
+                    </Typography>
                   </Box>
 
-                  {/* Right Column - PO Details */}
-                  <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>P.O No.:</Typography>
-                      <Typography component="span">
-                        {viewDialog.data.orderNumber ? 
-                          (viewDialog.data.orderNumber.startsWith('P') && !viewDialog.data.orderNumber.includes('-')
-                            ? viewDialog.data.orderNumber
-                            : 'P' + (viewDialog.data.orderNumber.match(/\d+$/)?.[0] || viewDialog.data.orderNumber.split('-').pop() || '').padStart(9, '0'))
-                          : 'N/A'}
+                  {/* Right Column - PO Info */}
+                  <Box sx={{ flex: 1, textAlign: 'right' }}>
+                    <Box sx={{ mb: 1 }}>
+                      <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                        PO Number:{' '}
+                      </Typography>
+                      <Typography component="span" sx={{ fontSize: '0.9rem' }}>
+                        {viewDialog.data.orderNumber}
                       </Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
-                      <Typography component="span">{formatDateForPrint(viewDialog.data.orderDate)}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Date:</Typography>
-                      <Typography component="span">{viewDialog.data.expectedDeliveryDate ? formatDateForPrint(viewDialog.data.expectedDeliveryDate) : '___________'}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
-                      <Typography component="span">
-                        {(() => {
-                          const addr = viewDialog.data.shippingAddress;
-                          if (typeof viewDialog.data.deliveryAddress === 'string' && viewDialog.data.deliveryAddress.trim()) {
-                            return viewDialog.data.deliveryAddress.trim();
-                          }
-                          if (addr && typeof addr === 'object') {
-                            const parts = [addr.street, addr.city, addr.state, addr.zipCode, addr.country].filter(Boolean);
-                            return parts.length ? parts.join(', ') : (viewDialog.data.vendor?.address || '___________');
-                          }
-                          return viewDialog.data.vendor?.address || '___________';
-                        })()}
+                    <Box sx={{ mb: 1 }}>
+                      <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                        Order Date:{' '}
+                      </Typography>
+                      <Typography component="span" sx={{ fontSize: '0.9rem' }}>
+                        {formatDateForPrint(viewDialog.data.orderDate)}
                       </Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', mb: 0.5 }}>
-                      <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
-                      <Typography component="span">{viewDialog.data.indent?.department?.name || '___________'}</Typography>
+                    <Box sx={{ mb: 1 }}>
+                      <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                        Expected Delivery:{' '}
+                      </Typography>
+                      <Typography component="span" sx={{ fontSize: '0.9rem' }}>
+                        {formatDateForPrint(viewDialog.data.expectedDeliveryDate)}
+                      </Typography>
                     </Box>
+                    <Box sx={{ mb: 1 }}>
+                      <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                        Status:{' '}
+                      </Typography>
+                      <Typography component="span" sx={{ fontSize: '0.9rem' }}>
+                        {viewDialog.data.status}
+                      </Typography>
+                    </Box>
+                    {viewDialog.data.quotation && (
+                      <Box sx={{ mb: 1 }}>
+                        <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                          Quotation Ref:{' '}
+                        </Typography>
+                        <Typography component="span" sx={{ fontSize: '0.9rem' }}>
+                          {viewDialog.data.quotation?.quotationNumber || (typeof viewDialog.data.quotation === 'string' ? viewDialog.data.quotation : '—')}
+                        </Typography>
+                      </Box>
+                    )}
+                    {viewDialog.data.indent && (
+                      <Box>
+                        <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                          Indent Ref:{' '}
+                        </Typography>
+                        <Typography component="span" sx={{ fontSize: '0.9rem' }}>
+                          {viewDialog.data.indent?.indentNumber || (typeof viewDialog.data.indent === 'string' ? viewDialog.data.indent : '—')}
+                        </Typography>
+                      </Box>
+                    )}
                   </Box>
                 </Box>
 
-                {/* Items Table */}
-                <Box sx={{ mb: 3 }}>
-                  <table
-                    style={{
-                      width: '100%',
-                      borderCollapse: 'collapse',
+                {/* Items Table - Main Content */}
+                <TableContainer 
+                  component={Box} 
+                  sx={{ 
+                    mb: 3, 
+                    border: '1px solid #000',
+                    '& .MuiTable-root': {
+                      borderCollapse: 'collapse'
+                    },
+                    '& .MuiTableCell-root': {
                       border: '1px solid #000',
-                      fontSize: '0.85rem',
-                      fontFamily: 'Arial, sans-serif'
+                      padding: '8px 12px',
+                      fontSize: '0.85rem'
+                    },
+                    '& .MuiTableHead-root .MuiTableCell-root': {
+                      backgroundColor: '#f5f5f5',
+                      fontWeight: 700,
+                      color: '#000'
+                    }
+                  }}
+                >
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ width: '8%', textAlign: 'center' }}>S#</TableCell>
+                        <TableCell sx={{ width: '42%' }}>Item Description</TableCell>
+                        <TableCell sx={{ width: '12%', textAlign: 'center' }}>Qty</TableCell>
+                        <TableCell sx={{ width: '10%', textAlign: 'center' }}>Unit</TableCell>
+                        <TableCell sx={{ width: '14%', textAlign: 'right' }}>Unit Price</TableCell>
+                        <TableCell sx={{ width: '14%', textAlign: 'right' }}>Amount</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {viewDialog.data.items?.map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell sx={{ textAlign: 'center' }}>{index + 1}</TableCell>
+                          <TableCell>{item.description}</TableCell>
+                          <TableCell sx={{ textAlign: 'center' }}>{item.quantity}</TableCell>
+                          <TableCell sx={{ textAlign: 'center' }}>{item.unit}</TableCell>
+                          <TableCell sx={{ textAlign: 'right' }}>{formatNumber(item.unitPrice)}</TableCell>
+                          <TableCell sx={{ textAlign: 'right', fontWeight: 600 }}>{formatNumber(item.amount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+
+                {/* Financial Summary - Right Aligned with Borders */}
+                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Box 
+                    sx={{ 
+                      width: '320px',
+                      border: '1px solid #000',
+                      '& > div': {
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        p: 1,
+                        borderBottom: '1px solid #ccc',
+                        fontSize: '0.85rem',
+                        '&:last-child': {
+                          borderBottom: 'none',
+                          borderTop: '2px solid #000',
+                          fontWeight: 700,
+                          backgroundColor: '#f5f5f5'
+                        }
+                      }
                     }}
                   >
-                    <thead>
-                      <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>
-                          Sr no
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
-                          Product
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '23%' }}>
-                          Description
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>
-                          Specification
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
-                          Brand
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '11%' }}>
-                          Quantity Unit
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
-                          Rate
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
-                          Amount
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {viewDialog.data.items && viewDialog.data.items.length > 0 ? (
-                        viewDialog.data.items.map((item, index) => (
-                          <tr key={index} style={{ border: '1px solid #000' }}>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
-                              {index + 1}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                              {item.productCode || viewDialog.data.indent?.items?.[index]?.itemCode || `44-001-${String(index + 1).padStart(4, '0')}`}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                              {item.description || viewDialog.data.indent?.items?.[index]?.itemName || '___________'}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                              {item.specification || viewDialog.data.indent?.items?.[index]?.specification || viewDialog.data.indent?.items?.[index]?.description || viewDialog.data.indent?.items?.[index]?.purpose || '___________'}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                              {item.brand || viewDialog.data.indent?.items?.[index]?.brand || '___________'}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
-                              {item.quantity ? `${formatNumber(item.quantity)} ${item.unit || 'Nos'}` : '___________'}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
-                              {item.unitPrice ? formatNumber(item.unitPrice) : '___________'}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
-                              {item.amount ? formatNumber(item.amount) : '___________'}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={8} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
-                            No items
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </Box>
-
-                {/* Financial Summary - Right Aligned */}
-                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                  <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
-                      <Typography component="span">{formatNumber(viewDialog.data.totalAmount || 0)}</Typography>
+                    <Box>
+                      <Typography sx={{ fontSize: '0.85rem' }}>Subtotal:</Typography>
+                      <Typography sx={{ fontSize: '0.85rem' }}>{formatPKR(viewDialog.data.subtotal)}</Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography component="span" fontWeight={600}>Net Total:</Typography>
-                      <Typography component="span">{formatNumber(viewDialog.data.totalAmount || 0)}</Typography>
+                    {viewDialog.data.taxAmount > 0 && (
+                      <Box>
+                        <Typography sx={{ fontSize: '0.85rem' }}>Tax:</Typography>
+                        <Typography sx={{ fontSize: '0.85rem' }}>{formatPKR(viewDialog.data.taxAmount)}</Typography>
+                      </Box>
+                    )}
+                    {viewDialog.data.discountAmount > 0 && (
+                      <Box>
+                        <Typography sx={{ fontSize: '0.85rem' }}>Discount:</Typography>
+                        <Typography sx={{ fontSize: '0.85rem' }}>-{formatPKR(viewDialog.data.discountAmount)}</Typography>
+                      </Box>
+                    )}
+                    {viewDialog.data.shippingCost > 0 && (
+                      <Box>
+                        <Typography sx={{ fontSize: '0.85rem' }}>Shipping:</Typography>
+                        <Typography sx={{ fontSize: '0.85rem' }}>{formatPKR(viewDialog.data.shippingCost)}</Typography>
+                      </Box>
+                    )}
+                    <Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 700 }}>Total Amount:</Typography>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 700 }}>{formatPKR(viewDialog.data.totalAmount)}</Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                      <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
-                      <Typography component="span">{formatNumber(viewDialog.data.shippingCost || 0)}</Typography>
-                    </Box>
-                    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic' }}>
-                      Rupees {numberToWords(viewDialog.data.totalAmount || 0)}
-                    </Typography>
                   </Box>
                 </Box>
 
-                {/* Terms & Conditions */}
-                <Box sx={{ mb: 3, border: '1px solid #ccc', p: 2, fontSize: '0.9rem' }}>
-                  <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, textDecoration: 'underline' }}>
-                    TERMS & CONDITIONS
+                {/* Amount in Words */}
+                <Box sx={{ mb: 3, p: 1.5, border: '1px solid #000', backgroundColor: '#fafafa' }}>
+                  <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, mb: 0.5 }}>
+                    Amount in Words:
                   </Typography>
-                  <Box sx={{ lineHeight: 1.8 }}>
-                    <Typography sx={{ mb: 1, fontWeight: 600 }}>Main Terms & Conditions</Typography>
-                    <Box sx={{ mb: 1 }}>
-                      <Typography component="span" fontWeight={600}>Payment Terms:</Typography>
-                      <Typography component="span" sx={{ ml: 1 }}>
-                        {viewDialog.data.paymentTerms || '100% Advance Payment'}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ mb: 1 }}>
-                      <Typography component="span" fontWeight={600}>Delivery Terms:</Typography>
-                      <Typography component="span" sx={{ ml: 1 }}>
-                        At-Site Delivery
-                      </Typography>
-                    </Box>
-                    <Box sx={{ mb: 1 }}>
-                      <Typography component="span" fontWeight={600}>Delivery Time.</Typography>
-                      <Typography component="span" sx={{ ml: 1 }}>
-                        Delivery within: {viewDialog.data.quotation?.deliveryTime || '03 days'} of confirmed PO & Payment
-                      </Typography>
-                    </Box>
-                    <Typography sx={{ mb: 1 }}>
-                      Rates Are Exclusive Of all The Taxes
-                    </Typography>
-                    {viewDialog.data.vendor?.cnic && (
-                      <Typography sx={{ mb: 1 }}>
-                        CNIC {viewDialog.data.vendor.cnic}
-                      </Typography>
-                    )}
-                    {viewDialog.data.vendor?.payeeName && (
-                      <Typography>
-                        Payee Name: {viewDialog.data.vendor.payeeName}
-                      </Typography>
-                    )}
+                  <Typography sx={{ fontSize: '0.85rem', textTransform: 'capitalize', fontStyle: 'italic' }}>
+                    {numberToWords(viewDialog.data.totalAmount)}
+                  </Typography>
+                </Box>
+
+                {/* Terms and Conditions */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1rem' }}>
+                    Terms & Conditions:
+                  </Typography>
+                  <Box sx={{ fontSize: '0.8rem', color: 'text.secondary', pl: 2 }}>
+                    <Typography sx={{ fontSize: '0.8rem', mb: 0.5 }}>• Payment Terms: {viewDialog.data.paymentTerms || 'Standard Terms Apply'}</Typography>
+                    <Typography sx={{ fontSize: '0.8rem', mb: 0.5 }}>• Delivery: As per schedule mentioned above</Typography>
+                    <Typography sx={{ fontSize: '0.8rem', mb: 0.5 }}>• Inspection: Goods subject to inspection upon delivery</Typography>
+                    <Typography sx={{ fontSize: '0.8rem' }}>• Warranty: Standard manufacturer warranty applies</Typography>
                   </Box>
                 </Box>
 
-                {/* Approval/Signature Section */}
-                <Box sx={{ mt: 4 }}>
+                {/* Delivery Address */}
+                {viewDialog.data.deliveryAddress && (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1rem' }}>
+                      Delivery Address:
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                      {viewDialog.data.deliveryAddress}
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Notes */}
+                {viewDialog.data.notes && (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1rem' }}>
+                      Notes:
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                      {viewDialog.data.notes}
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Signatures Section */}
+                <Box sx={{ mt: 4, pt: 2 }}>
                   {(() => {
-                    const indent = viewDialog.data?.indent || {};
-                    const approvals = indent?.comparativeStatementApprovals || {};
-                    const personName = (user, fallback = '') => {
-                      if (fallback && String(fallback).trim()) return String(fallback).trim();
-                      if (user) {
-                        const n = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
-                        if (n) return n;
-                        if (user?.email) return user.email;
-                      }
-                      return '—';
-                    };
+                    const approvals = viewDialog.data.indent?.comparativeStatementApprovals || {};
                     const rows = [
                       {
                         key: 'preparedBy',
                         label: 'Prepared By',
-                        user: approvals.preparedByUser,
+                        user: approvals.preparedByUser || null,
                         fallback: viewDialog.data.approvalAuthorities?.preparedBy || approvals.preparedBy || ''
                       },
                       {
                         key: 'managerProcurement',
                         label: 'Manager Procurement',
-                        user: approvals.managerProcurementUser,
+                        user: approvals.managerProcurementUser || null,
                         fallback: viewDialog.data.approvalAuthorities?.managerProcurement || approvals.managerProcurement || ''
                       },
                       {
@@ -1888,32 +2005,24 @@ const PurchaseOrders = () => {
                           </TableHead>
                           <TableBody>
                             {rows.map((row) => {
-                              const slotApproval = authorityApprovalByKey.get(row.key);
-                              let approvalUser = row.user;
-                              let actedAt = null;
-                              if (slotApproval) {
-                                approvalUser = slotApproval?.approver && typeof slotApproval.approver === 'object'
-                                  ? slotApproval.approver
-                                  : row.user;
-                                actedAt = slotApproval?.approvedAt || null;
-                              }
-                              const rowAuthorityText = viewDialog.data?.approvalAuthorities?.[row.key] || approvals?.[row.key] || row.fallback || '';
-                              const rowMatchesApprovedAuthority = matchesAuthority(rowAuthorityText) || matchesAuthority(personName(row.user, ''));
-                              if (!slotApproval && !legacyAuthorityApplied && (authorityApprovedBy || authorityApprovedAt) && rowMatchesApprovedAuthority) {
-                                approvalUser = authorityApprovedBy || approvalUser;
-                                actedAt = authorityApprovedAt || actedAt;
+                              const authorityApproval = authorityApprovalByKey.get(row.key);
+                              const authorityUser = authorityApproval?.approver || row.user;
+                              const isLegacyApproved = !authorityApproval && !legacyAuthorityApplied && matchesAuthority(row.fallback);
+                              if (isLegacyApproved) {
                                 legacyAuthorityApplied = true;
                               }
-                              const displayAuthorityName = slotApproval?.approver
-                                ? ([slotApproval.approver?.firstName, slotApproval.approver?.lastName].filter(Boolean).join(' ').trim() || slotApproval.approver?.email || row.fallback || '—')
-                                : personName(approvalUser, row.fallback);
+                              const signatureUser = authorityApproval?.approver || row.user || (isLegacyApproved ? authorityApprovedBy : null);
+                              const isApprovedRow = Boolean(authorityApproval || isLegacyApproved);
+                              const actedAt = authorityApproval?.approvedAt || (isLegacyApproved ? authorityApprovedAt : null);
                               return (
-                                <TableRow key={row.label}>
+                                <TableRow key={row.key}>
                                   <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
-                                  <TableCell>{displayAuthorityName}</TableCell>
-                                  <TableCell>
-                                    {actedAt && approvalUser?.digitalSignature ? (
-                                      <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
+                                  <TableCell>{row.fallback || (authorityUser ? approverLabel(authorityUser) : '—')}</TableCell>
+                                  <TableCell align="center">
+                                    {isApprovedRow && signatureUser?.digitalSignature ? (
+                                      <DigitalSignatureImage userOrPath={signatureUser} alt={`Signature ${row.label}`} />
+                                    ) : isApprovedRow ? (
+                                      <Typography variant="caption" color="text.secondary">Approved (no signature)</Typography>
                                     ) : (
                                       <Typography variant="caption" color="text.secondary">—</Typography>
                                     )}
@@ -2054,11 +2163,140 @@ const PurchaseOrders = () => {
               )}
             </Box>
               )}
+              {viewDialog.poDetailTab === 2 && (
+                <Box sx={{ width: '100%', p: 2 }} className="print-content">
+                  {!viewDialog.data.indent ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                      No Indent / Requisition linked to this Purchase Order.
+                    </Typography>
+                  ) : (
+                    <Paper
+                      sx={{
+                        p: { xs: 3, sm: 3.5, md: 4 },
+                        maxWidth: '210mm',
+                        mx: 'auto',
+                        backgroundColor: '#fff',
+                        boxShadow: 'none',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        fontFamily: 'Arial, sans-serif'
+                      }}
+                    >
+                      <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                        Purchase Request Form
+                      </Typography>
+                      {viewDialog.data.indent.title && (
+                        <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>
+                          {viewDialog.data.indent.title}
+                        </Typography>
+                      )}
+                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                        <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                        <Typography component="span" sx={{ ml: 1 }}>
+                          {viewDialog.data.indent.erpRef || 'PR #' + (viewDialog.data.indent.indentNumber?.split('-').pop() || '')}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        <Box><Typography component="span" fontWeight={600}>Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.data.indent.requestedDate)}</Typography></Box>
+                        <Box><Typography component="span" fontWeight={600}>Required Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.data.indent.requiredDate) || '—'}</Typography></Box>
+                        <Box><Typography component="span" fontWeight={600}>Indent No.:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.data.indent.indentNumber || '—'}</Typography></Box>
+                      </Box>
+                      <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        <Box><Typography component="span" fontWeight={600}>Department:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.data.indent.department?.name || viewDialog.data.indent.department || '—'}</Typography></Box>
+                        <Box><Typography component="span" fontWeight={600}>Originator:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.data.indent.requestedBy?.firstName && viewDialog.data.indent.requestedBy?.lastName ? `${viewDialog.data.indent.requestedBy.firstName} ${viewDialog.data.indent.requestedBy.lastName}` : viewDialog.data.indent.requestedBy?.name || '—'}</Typography></Box>
+                      </Box>
+                      <Box sx={{ mb: 3 }}>
+                        <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                <TableCell sx={{ fontWeight: 'bold' }}>S#</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Item Name</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Brand</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Unit</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }} align="center">Qty</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Purpose</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Est. Cost</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {(viewDialog.data.indent.items || []).map((item, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell align="center">{idx + 1}</TableCell>
+                                  <TableCell>{item.itemName || '—'}</TableCell>
+                                  <TableCell>{item.description || '—'}</TableCell>
+                                  <TableCell>{item.brand || '—'}</TableCell>
+                                  <TableCell>{item.unit || '—'}</TableCell>
+                                  <TableCell align="center">{item.quantity ?? '—'}</TableCell>
+                                  <TableCell>{item.purpose || '—'}</TableCell>
+                                  <TableCell align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </Box>
+                      {viewDialog.data.indent.justification && (
+                        <Box sx={{ mb: 2 }}>
+                          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                            {viewDialog.data.indent.justification}
+                          </Typography>
+                        </Box>
+                      )}
+                      {renderIndentApprovalProgress(viewDialog.data.indent, {
+                        title: 'Indent approval progress'
+                      })}
+                    </Paper>
+                  )}
+                </Box>
+              )}
+              {viewDialog.poDetailTab === 3 && (
+                <Box sx={{ width: '100%', p: 2, overflowX: 'auto' }}>
+                  {!viewDialog.data.indent ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                      No Comparative Statement linked to this Purchase Order.
+                    </Typography>
+                  ) : (
+                    <ComparativeStatementView
+                      requisition={viewDialog.data.indent}
+                      quotations={viewDialog.quotations || []}
+                      approvalAuthority={viewDialog.data.indent?.comparativeStatementApprovals || {}}
+                      note={viewDialog.data.indent?.notes ?? ''}
+                      readOnly
+                      formatNumber={formatNumber}
+                      loadingQuotations={false}
+                      showPrintButton={false}
+                    />
+                  )}
+                </Box>
+              )}
+              {viewDialog.poDetailTab === 4 && (
+                <Box sx={{ width: '100%', p: 2 }}>
+                  {(!viewDialog.quotations || viewDialog.quotations.length === 0) ? (
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                      No quotations linked to this Purchase Order / Indent.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={4}>
+                      {viewDialog.quotations.map((q) => (
+                        <QuotationDetailView
+                          key={q._id}
+                          quotation={q}
+                          formatNumber={formatNumber}
+                          formatDateForPrint={formatDateForPrint}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              )}
             </>
           )}
         </DialogContent>
         <DialogActions sx={{ '@media print': { display: 'none' } }}>
-          <Button onClick={() => setViewDialog({ open: false, data: null, attachedGrns: [], poDetailTab: 0 })}>Close</Button>
+          <Button onClick={() => setViewDialog({ open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 })}>Close</Button>
         </DialogActions>
       </Dialog>
 
