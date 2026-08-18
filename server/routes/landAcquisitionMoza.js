@@ -102,7 +102,7 @@ router.get('/mozas', authMiddleware, asyncHandler(async (req, res) => {
     .lean();
 
   const { buildMozaAcquisitionStatus } = require('../utils/landAcquisitionStatus');
-  const { addAreas } = require('../utils/landAreaUnits');
+  const { addAreas, subtractAreas } = require('../utils/landAreaUnits');
 
   const mozasWithTotals = await Promise.all(
     mozas.map(async (m) => {
