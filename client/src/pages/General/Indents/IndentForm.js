@@ -14,6 +14,7 @@ import {
   Snackbar,
   CircularProgress,
   Autocomplete,
+  createFilterOptions,
   Table,
   TableBody,
   TableCell,
@@ -51,6 +52,27 @@ const newEmptyIndentItem = () => ({
   purpose: '',
   estimatedCost: 0
 });
+
+// Custom filter that prioritizes items/categories starting with the typed query, then contains
+const prefixFirstFilter = (options, { inputValue }) => {
+  const query = (inputValue || '').trim().toLowerCase();
+  if (!query) return options;
+
+  const startsWithMatches = [];
+  const containsMatches = [];
+
+  options.forEach((option) => {
+    const text = typeof option === 'string' ? option : (option.name || option.label || '');
+    const lower = text.toLowerCase();
+    if (lower.startsWith(query)) {
+      startsWithMatches.push(option);
+    } else if (lower.includes(query)) {
+      containsMatches.push(option);
+    }
+  });
+
+  return [...startsWithMatches, ...containsMatches];
+};
 
 const IndentForm = () => {
   const { id } = useParams();
@@ -857,26 +879,32 @@ const IndentForm = () => {
             </FormControl>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth size="small" required>
-              <InputLabel>Category</InputLabel>
-              <Select
-                value={formData.category}
-                label="Category"
-                onChange={(e) => handleChange('category', e.target.value)}
-              >
-                {categoriesLoading ? (
-                  <MenuItem value="" disabled>
-                    Loading categories...
-                  </MenuItem>
-                ) : (
-                  itemCategories.map((cat) => (
-                    <MenuItem key={cat} value={cat}>
-                      {cat}
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
+            <Autocomplete
+              fullWidth
+              size="small"
+              options={itemCategories}
+              filterOptions={prefixFirstFilter}
+              loading={categoriesLoading}
+              value={formData.category || null}
+              onChange={(_, newValue) => handleChange('category', newValue || '')}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  required
+                  label="Category"
+                  placeholder="Search / select category"
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {categoriesLoading ? <CircularProgress color="inherit" size={16} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    )
+                  }}
+                />
+              )}
+            />
           </Grid>
           {formData.category === OTHERS_CATEGORY && (
             <Grid item xs={12} sm={6} md={9}>
@@ -955,29 +983,53 @@ const IndentForm = () => {
                             placeholder="Enter item name"
                             variant="standard"
                             InputProps={{ disableUnderline: true }}
-                            sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                            sx={{ '& .MuiInputBase-input': { py: 0.5, px: 0.5 } }}
                           />
                         ) : (
-                          <TextField
-                            select
-                            fullWidth
+                          <Autocomplete
+                            freeSolo
+                            autoHighlight
                             size="small"
+                            options={itemOptions.map(opt => (typeof opt === 'string' ? opt : opt.name || ''))}
+                            filterOptions={prefixFirstFilter}
+                            loading={itemOptionsLoading}
                             value={item.itemName || ''}
-                            onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
-                            required
-                            variant="standard"
-                            InputProps={{ disableUnderline: true }}
-                            sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
-                          >
-                            <MenuItem value="" disabled>
-                              {itemOptionsLoading ? 'Loading items...' : 'Select item'}
-                            </MenuItem>
-                            {itemOptions.map((opt) => (
-                              <MenuItem key={opt._id || opt.name} value={opt.name || ''}>
-                                {opt.name || ''}
-                              </MenuItem>
-                            ))}
-                          </TextField>
+                            onChange={(_, newValue) => {
+                              handleItemChange(index, 'itemName', newValue || '');
+                              // If matched item has default unit/description, prefill optionally
+                              const matchedOpt = itemOptions.find(o => (o.name || '') === newValue);
+                              if (matchedOpt) {
+                                if (matchedOpt.unit && !item.unit) {
+                                  handleItemChange(index, 'unit', matchedOpt.unit);
+                                }
+                                if (matchedOpt.description && !item.description) {
+                                  handleItemChange(index, 'description', matchedOpt.description);
+                                }
+                              }
+                            }}
+                            onInputChange={(_, newInputValue) => {
+                              handleItemChange(index, 'itemName', newInputValue || '');
+                            }}
+                            renderInput={(params) => (
+                              <TextField
+                                {...params}
+                                required
+                                placeholder="Search or type item name..."
+                                variant="standard"
+                                InputProps={{
+                                  ...params.InputProps,
+                                  disableUnderline: true,
+                                  endAdornment: (
+                                    <>
+                                      {itemOptionsLoading ? <CircularProgress color="inherit" size={14} /> : null}
+                                      {params.InputProps.endAdornment}
+                                    </>
+                                  )
+                                }}
+                                sx={{ '& .MuiInputBase-input': { py: 0.5, px: 0.5 } }}
+                              />
+                            )}
+                          />
                         )}
                       </TableCell>
                       <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
