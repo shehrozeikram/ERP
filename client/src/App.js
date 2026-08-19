@@ -94,6 +94,7 @@ import BankStatementImport from './pages/Finance/BankStatementImport';
 import FinanceSetup from './pages/Finance/FinanceSetup';
 import Vouchers from './pages/Finance/Vouchers';
 import VoucherView from './pages/Finance/VoucherView';
+import Legacy from './pages/Finance/Legacy';
 import PurchaseReturns from './pages/Procurement/PurchaseReturns';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
 import ProcurementReports from './pages/Procurement/ProcurementReports';
@@ -1117,6 +1118,10 @@ function App() {
             <Route 
               path="/finance/reports" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinancialReports /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/legacy" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><Legacy /></ProtectedRoute>} 
             />
             <Route
               path="/finance/journals"

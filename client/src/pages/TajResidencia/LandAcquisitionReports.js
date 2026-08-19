@@ -19,7 +19,9 @@ import {
   Chip,
   TextField
 } from '@mui/material';
-import { ExpandMore } from '@mui/icons-material';
+import { ExpandMore, Download as DownloadIcon } from '@mui/icons-material';
+import * as XLSX from 'xlsx';
+import toast from 'react-hot-toast';
 import { getMozas } from '../../services/landAcquisitionMozaService';
 import { getPossessionStatus } from '../../services/landAcquisitionPossessionService';
 import { formatKMS, addAreas, subtractAreas } from '../../utils/landAreaUnits';
@@ -121,12 +123,13 @@ const TABLE_COLGROUP = (
   </colgroup>
 );
 
-const MozaReportTable = ({ mozaId, active }) => {
+const MozaReportTable = ({ mozaId, mozaName, active }) => {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [khewatFilter, setKhewatFilter] = useState('');
   const [khasraFilter, setKhasraFilter] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const loadEntries = useCallback(async () => {
     if (!mozaId || !active) return;
@@ -181,6 +184,79 @@ const MozaReportTable = ({ mozaId, active }) => {
     return res;
   }, [filteredEntries]);
 
+  const handleExport = () => {
+    if (!filteredEntries.length) {
+      toast.error('No data to export');
+      return;
+    }
+    setExporting(true);
+    try {
+      const rows = filteredEntries.map((row) => ({
+        'Sr No': row.srNo || '',
+        'Khewat No': row.khewatNo || '',
+        'Khasra No': row.khasraNo || '',
+        'Land in Khasra (K-M-S)': formatKMS(row.baseline),
+        'Land in Khasra - Kanal': row.baseline?.kanal || 0,
+        'Land in Khasra - Marla': row.baseline?.marla || 0,
+        'Land in Khasra - Sarsai': row.baseline?.sarsai || 0,
+        'Purchased Registry (K-M-S)': formatKMS(row.registered),
+        'Purchased - Kanal': row.registered?.kanal || 0,
+        'Purchased - Marla': row.registered?.marla || 0,
+        'Purchased - Sarsai': row.registered?.sarsai || 0,
+        'Pending Purchased (K-M-S)': formatKMS(row.remainingToRegister),
+        'Pending Purchased - Kanal': row.remainingToRegister?.kanal || 0,
+        'Pending Purchased - Marla': row.remainingToRegister?.marla || 0,
+        'Pending Purchased - Sarsai': row.remainingToRegister?.sarsai || 0,
+        'Possession (K-M-S)': formatKMS(row.possessed),
+        'Possession - Kanal': row.possessed?.kanal || 0,
+        'Possession - Marla': row.possessed?.marla || 0,
+        'Possession - Sarsai': row.possessed?.sarsai || 0,
+        'Pending Possession (K-M-S)': formatKMS(row.remainingToPossess),
+        'Pending Possession - Kanal': row.remainingToPossess?.kanal || 0,
+        'Pending Possession - Marla': row.remainingToPossess?.marla || 0,
+        'Pending Possession - Sarsai': row.remainingToPossess?.sarsai || 0
+      }));
+
+      // Add summary / total row
+      rows.push({
+        'Sr No': 'TOTAL',
+        'Khewat No': '',
+        'Khasra No': '',
+        'Land in Khasra (K-M-S)': formatKMS(totals.baseline),
+        'Land in Khasra - Kanal': totals.baseline?.kanal || 0,
+        'Land in Khasra - Marla': totals.baseline?.marla || 0,
+        'Land in Khasra - Sarsai': totals.baseline?.sarsai || 0,
+        'Purchased Registry (K-M-S)': formatKMS(totals.registered),
+        'Purchased - Kanal': totals.registered?.kanal || 0,
+        'Purchased - Marla': totals.registered?.marla || 0,
+        'Purchased - Sarsai': totals.registered?.sarsai || 0,
+        'Pending Purchased (K-M-S)': formatKMS(totals.remainingToRegister),
+        'Pending Purchased - Kanal': totals.remainingToRegister?.kanal || 0,
+        'Pending Purchased - Marla': totals.remainingToRegister?.marla || 0,
+        'Pending Purchased - Sarsai': totals.remainingToRegister?.sarsai || 0,
+        'Possession (K-M-S)': formatKMS(totals.possessed),
+        'Possession - Kanal': totals.possessed?.kanal || 0,
+        'Possession - Marla': totals.possessed?.marla || 0,
+        'Possession - Sarsai': totals.possessed?.sarsai || 0,
+        'Pending Possession (K-M-S)': formatKMS(totals.remainingToPossess),
+        'Pending Possession - Kanal': totals.remainingToPossess?.kanal || 0,
+        'Pending Possession - Marla': totals.remainingToPossess?.marla || 0,
+        'Pending Possession - Sarsai': totals.remainingToPossess?.sarsai || 0
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      const safeMozaName = (mozaName || 'Moza').replace(/[^a-zA-Z0-9_-]/g, '_');
+      XLSX.utils.book_append_sheet(wb, ws, safeMozaName.substring(0, 31));
+      XLSX.writeFile(wb, `Khasra_Acquisition_${safeMozaName}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Exported successfully');
+    } catch (err) {
+      toast.error('Failed to export data');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (!active) return null;
 
   return (
@@ -188,21 +264,32 @@ const MozaReportTable = ({ mozaId, active }) => {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {!loading && !error && entries.length > 0 && (
-        <Stack direction="row" spacing={2} sx={{ mb: 2, px: 0.5 }}>
-          <TextField
-            size="small"
-            label="Filter Khewat No."
-            value={khewatFilter}
-            onChange={(e) => setKhewatFilter(e.target.value)}
-            sx={{ width: 200 }}
-          />
-          <TextField
-            size="small"
-            label="Filter Khasra No."
-            value={khasraFilter}
-            onChange={(e) => setKhasraFilter(e.target.value)}
-            sx={{ width: 200 }}
-          />
+        <Stack direction="row" spacing={2} sx={{ mb: 2, px: 0.5 }} alignItems="center" justifyContent="space-between" flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <TextField
+              size="small"
+              label="Filter Khewat No."
+              value={khewatFilter}
+              onChange={(e) => setKhewatFilter(e.target.value)}
+              sx={{ width: 200 }}
+            />
+            <TextField
+              size="small"
+              label="Filter Khasra No."
+              value={khasraFilter}
+              onChange={(e) => setKhasraFilter(e.target.value)}
+              sx={{ width: 200 }}
+            />
+          </Stack>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleExport}
+            disabled={exporting || !filteredEntries.length}
+            sx={{ fontWeight: 600 }}
+          >
+            {exporting ? 'Exporting...' : 'Export Excel'}
+          </Button>
         </Stack>
       )}
 
@@ -467,7 +554,7 @@ const LandAcquisitionReports = () => {
                   </Stack>
                 </AccordionSummary>
                 <AccordionDetails sx={{ pt: 1, pb: 2, px: 2, bgcolor: 'grey.50', minHeight: 480 }}>
-                  <MozaReportTable mozaId={m._id} active={isExpanded} />
+                  <MozaReportTable mozaId={m._id} mozaName={m.name} active={isExpanded} />
                 </AccordionDetails>
               </Accordion>
             );

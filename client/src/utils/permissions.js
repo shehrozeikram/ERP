@@ -302,7 +302,8 @@ export const SUBMODULES = {
     'recovery_campaigns',
     'recovery_my_tasks',
     'vouchers',
-    'finance_companies'
+    'finance_companies',
+    'legacy'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
     'procurement_requisitions',
@@ -804,7 +805,8 @@ export const MODULES = {
           }
         ]
       },
-      { name: 'Financial Reports', path: '/finance/reports' }
+      { name: 'Financial Reports', path: '/finance/reports' },
+      { name: 'Legacy', path: '/finance/legacy' }
     ]
   },
   

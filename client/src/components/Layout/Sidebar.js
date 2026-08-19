@@ -279,6 +279,7 @@ const Sidebar = () => {
       '/finance/recovery/my-tasks': 'recovery_my_tasks',
       '/finance/vouchers': 'vouchers',
       '/finance/reports': 'financial_reports',
+      '/finance/legacy': 'legacy',
       
       // Procurement Module (must match permissions.js / Role Permission Matrix submodule keys)
       '/procurement': null, // dashboard - no submodule, allow if module allowed
