@@ -217,10 +217,11 @@ const ExecutiveCeoPaymentsSection = () => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchRef = (p.displayRef || '').toLowerCase().includes(q);
+      const matchCompany = (getCompanyValue(p) || '').toLowerCase().includes(q);
       const matchVendor = (p.displayVendor || '').toLowerCase().includes(q);
       const matchNotes = (p.displayNotes || '').toLowerCase().includes(q);
       const matchDept = (p.department || '').toLowerCase().includes(q);
-      return matchRef || matchVendor || matchNotes || matchDept;
+      return matchRef || matchCompany || matchVendor || matchNotes || matchDept;
     }
     return true;
   });
@@ -250,6 +251,40 @@ const ExecutiveCeoPaymentsSection = () => {
   const formatNumber = (num) => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
+  };
+
+  const getCompanyValue = (item) => {
+    if (!item) return '—';
+    if (typeof item.parentCompanyName === 'string' && item.parentCompanyName.trim()) {
+      return item.parentCompanyName.trim();
+    }
+    if (typeof item.company === 'string' && item.company.trim()) {
+      return item.company.trim();
+    }
+    if (item.company && typeof item.company === 'object' && item.company.name) {
+      return item.company.name.trim();
+    }
+    if (typeof item.companyName === 'string' && item.companyName.trim()) {
+      return item.companyName.trim();
+    }
+    if (item.placementCompany && typeof item.placementCompany === 'object' && item.placementCompany.name) {
+      return item.placementCompany.name.trim();
+    }
+    if (typeof item.subsidiaryName === 'string' && item.subsidiaryName.trim()) {
+      return item.subsidiaryName.trim();
+    }
+    if (item.indent?.company) {
+      if (typeof item.indent.company === 'string' && item.indent.company.trim()) {
+        return item.indent.company.trim();
+      }
+      if (typeof item.indent.company === 'object' && item.indent.company.name) {
+        return item.indent.company.name.trim();
+      }
+    }
+    if (typeof item.indent?.companyName === 'string' && item.indent.companyName.trim()) {
+      return item.indent.companyName.trim();
+    }
+    return '—';
   };
 
   const numberToWords = (num) => {
@@ -1399,6 +1434,7 @@ const ExecutiveCeoPaymentsSection = () => {
               <TableHead sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Type & Ref #</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Company</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Vendor / Payee</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Department</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Purpose / Notes</TableCell>
@@ -1435,6 +1471,12 @@ const ExecutiveCeoPaymentsSection = () => {
                             {item.displayRef}
                           </Typography>
                         </Stack>
+                      </TableCell>
+
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                          {getCompanyValue(item)}
+                        </Typography>
                       </TableCell>
 
                       <TableCell>

@@ -811,6 +811,40 @@ const Payments = () => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
   };
+
+  const getCompanyDisplay = (item) => {
+    if (!item) return '—';
+    if (typeof item.parentCompanyName === 'string' && item.parentCompanyName.trim()) {
+      return item.parentCompanyName.trim();
+    }
+    if (typeof item.company === 'string' && item.company.trim()) {
+      return item.company.trim();
+    }
+    if (item.company && typeof item.company === 'object' && item.company.name) {
+      return item.company.name.trim();
+    }
+    if (typeof item.companyName === 'string' && item.companyName.trim()) {
+      return item.companyName.trim();
+    }
+    if (item.placementCompany && typeof item.placementCompany === 'object' && item.placementCompany.name) {
+      return item.placementCompany.name.trim();
+    }
+    if (typeof item.subsidiaryName === 'string' && item.subsidiaryName.trim()) {
+      return item.subsidiaryName.trim();
+    }
+    if (item.indent?.company) {
+      if (typeof item.indent.company === 'string' && item.indent.company.trim()) {
+        return item.indent.company.trim();
+      }
+      if (typeof item.indent.company === 'object' && item.indent.company.name) {
+        return item.indent.company.name.trim();
+      }
+    }
+    if (typeof item.indent?.companyName === 'string' && item.indent.companyName.trim()) {
+      return item.indent.companyName.trim();
+    }
+    return '—';
+  };
   // Purchase Order View Component
   const theme = useTheme();
   const PurchaseOrderView = ({ poData }) => {
@@ -1485,6 +1519,7 @@ const Payments = () => {
                                       <TableHead>
                                         <TableRow sx={{ background: '#fafafa' }}>
                                           <TableCell sx={{ fontWeight: 700 }}>Reference No</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Company</TableCell>
                                           <TableCell sx={{ fontWeight: 700 }}>To Whom Paid</TableCell>
                                           <TableCell sx={{ fontWeight: 700 }}>Amount</TableCell>
                                           <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
@@ -1496,6 +1531,11 @@ const Payments = () => {
                                         {monthSettlements.map((settlement) => (
                                           <TableRow key={settlement._id} hover>
                                             <TableCell>{settlement.referenceNumber?.trim() || settlement._id || 'N/A'}</TableCell>
+                                            <TableCell>
+                                              <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                                                {getCompanyDisplay(settlement)}
+                                              </Typography>
+                                            </TableCell>
                                             <TableCell>{settlement.toWhomPaid || 'N/A'}</TableCell>
                                             <TableCell sx={{ fontWeight: 600 }}>
                                               {formatPKR(settlement.grandTotal || settlement.amount)}
