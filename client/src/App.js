@@ -559,7 +559,7 @@ function App() {
               {/* Dashboard */}
               <Route 
                 path="/dashboard" 
-                element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><Dashboard /></ProtectedRoute>} 
+                element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management"]}><Dashboard /></ProtectedRoute>} 
               />
             <Route
               path="/settings"
@@ -789,6 +789,10 @@ function App() {
 
             <Route
               path="/general/ceo-secretariat/payments"
+              element={<ProtectedRoute><Payments /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/payments"
               element={<ProtectedRoute><Payments /></ProtectedRoute>}
             />
             <Route

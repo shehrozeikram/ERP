@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import {
   Box,
   Grid,
@@ -65,6 +65,7 @@ import DeviceStatusChart from '../../components/DeviceStatusChart';
 import DepartmentChart from '../../components/DepartmentChart';
 import LocationWiseAttendanceCard from '../../components/LocationWiseAttendanceCard';
 import indentService from '../../services/indentService';
+import ExecutiveCeoPaymentsSection from '../../components/Dashboard/ExecutiveCeoPaymentsSection';
 
 const DASHBOARD_DEBUG = process.env.REACT_APP_DASHBOARD_DEBUG === 'true';
 const logDebug = (...args) => {
@@ -1252,6 +1253,9 @@ const Dashboard = () => {
             <Button onClick={() => setPresentUsersDialogOpen(false)} variant="contained">Close</Button>
           </DialogActions>
         </Dialog>
+
+        {/* Executive CEO Payment Authorizations Section */}
+        <ExecutiveCeoPaymentsSection />
 
         {/* User Profile and Modules */}
         <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>

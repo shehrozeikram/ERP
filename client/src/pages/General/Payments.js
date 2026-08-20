@@ -63,7 +63,7 @@ import {
   History as HistoryIcon,
   ArrowForward as ArrowForwardIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import paymentSettlementService from '../../services/paymentSettlementService';
 import api from '../../services/api';
@@ -81,7 +81,17 @@ import { formatDateTime } from '../../utils/dateUtils';
 
 const Payments = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
+
+  const getInitialTab = () => {
+    const t = searchParams.get('tab');
+    if (t === 'forwarded' || t === 'forwarded_to_ceo' || t === '1') return 1;
+    if (t === 'returned' || t === '2') return 2;
+    if (t === 'approved' || t === '3') return 3;
+    if (t === 'rejected' || t === '4') return 4;
+    return 0;
+  };
   
   const [settlements, setSettlements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +103,7 @@ const Payments = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [departments, setDepartments] = useState([]);
-  const [tabValue, setTabValue] = useState(0);
+  const [tabValue, setTabValue] = useState(getInitialTab);
   
   // Dialog states
   const [viewDialog, setViewDialog] = useState({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
@@ -116,6 +126,23 @@ const Payments = () => {
   const [returnAgree, setReturnAgree] = useState(false);
   const [returnObservations, setReturnObservations] = useState([{ observation: '', severity: 'medium' }]);
   const [actionLoading, setActionLoading] = useState(false);
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) {
+      if (t === 'forwarded' || t === 'forwarded_to_ceo' || t === '1') {
+        setTabValue(1);
+      } else if (t === 'pending' || t === '0') {
+        setTabValue(0);
+      } else if (t === 'returned' || t === '2') {
+        setTabValue(2);
+      } else if (t === 'approved' || t === '3') {
+        setTabValue(3);
+      } else if (t === 'rejected' || t === '4') {
+        setTabValue(4);
+      }
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetchSettlements();
