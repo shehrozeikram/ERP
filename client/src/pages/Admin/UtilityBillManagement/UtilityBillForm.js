@@ -276,11 +276,24 @@ const UtilityBillForm = () => {
   const { id } = useParams();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const isCentralizedStoreBill = location.pathname.startsWith('/admin/centralized-store/bill');
+  const isFinanceBill = location.pathname.startsWith('/finance/accounts-payable');
+  const isProcurementBill = location.pathname.startsWith('/procurement/vendor-bills');
+  const isCentralizedStoreBill = location.pathname.startsWith('/admin/centralized-store/bill') || isFinanceBill || isProcurementBill;
   const isEdit = Boolean(id);
-  const backPath = isCentralizedStoreBill ? '/admin/centralized-store/bills' : '/admin/utility-bills';
+  const fromQuery = searchParams.get('from');
+  const backPath = fromQuery 
+    ? fromQuery 
+    : isFinanceBill 
+      ? '/finance/accounts-payable' 
+      : isProcurementBill 
+        ? '/procurement/vendor-bills' 
+        : isCentralizedStoreBill 
+          ? '/admin/centralized-store/bills' 
+          : '/admin/utility-bills';
   const defaultType = searchParams.get('type') || 'Electricity';
   const accountHeadOptions = ['President Personal', 'SGCHQ', 'Boly.pk', 'Usman Solar'];
+  const defaultMode = searchParams.get('mode') || (location.pathname.startsWith('/admin/centralized-store') ? 'store' : 'category');
+  const [billMode, setBillMode] = useState(defaultMode);
 
   const [formData, setFormData] = useState({
     accountHead: '',
@@ -864,20 +877,32 @@ const UtilityBillForm = () => {
 
       if (mode === 'submit') {
         await utilityBillService.submitUtilityBill(savedBill._id, { approverIds });
-        navigate(
-          isCentralizedStoreBill
-            ? `/admin/centralized-store/bills/${savedBill._id}`
-            : `/admin/utility-bills/${savedBill._id}`
-        );
+        if (isFinanceBill) {
+          navigate(`/finance/utility-bills/${savedBill._id}`);
+        } else if (isProcurementBill) {
+          navigate('/procurement/vendor-bills');
+        } else {
+          navigate(
+            isCentralizedStoreBill
+              ? `/admin/centralized-store/bills/${savedBill._id}`
+              : `/admin/utility-bills/${savedBill._id}`
+          );
+        }
         return;
       }
 
       if (internalApprovalComplete && isEdit) {
-        navigate(
-          isCentralizedStoreBill
-            ? `/admin/centralized-store/bills/${id}`
-            : `/admin/utility-bills/${id}`
-        );
+        if (isFinanceBill) {
+          navigate(`/finance/utility-bills/${id}`);
+        } else if (isProcurementBill) {
+          navigate('/procurement/vendor-bills');
+        } else {
+          navigate(
+            isCentralizedStoreBill
+              ? `/admin/centralized-store/bills/${id}`
+              : `/admin/utility-bills/${id}`
+          );
+        }
         return;
       }
 
@@ -988,11 +1013,13 @@ const UtilityBillForm = () => {
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} flexWrap="wrap" gap={2}>
+        <Box display="flex" alignItems="center" flexWrap="wrap" gap={2}>
           <Typography variant="h4" component="h1">
             {isCentralizedStoreBill
-              ? (isEdit ? 'Edit Centralized Store Bill' : 'Create Centralized Store Bill')
+              ? (isEdit 
+                  ? (isFinanceBill || isProcurementBill ? 'Edit Vendor Bill' : 'Edit Centralized Store Bill') 
+                  : (isFinanceBill || isProcurementBill ? 'Create Vendor Bill' : 'Create Centralized Store Bill'))
               : (isEdit ? 'Edit Utility Bill' : 'Create New Utility Bill')}
           </Typography>
         </Box>
@@ -1000,7 +1027,13 @@ const UtilityBillForm = () => {
           variant="outlined"
           onClick={() => navigate(backPath)}
         >
-          {isCentralizedStoreBill ? 'Back to Store Setup' : 'Back to Bills'}
+          {isFinanceBill 
+            ? 'Back to Accounts Payable' 
+            : isProcurementBill 
+              ? 'Back to Vendor Bills' 
+              : isCentralizedStoreBill 
+                ? 'Back to Store Setup' 
+                : 'Back to Bills'}
         </Button>
       </Box>
 
@@ -1068,9 +1101,11 @@ const UtilityBillForm = () => {
                       label="Use Centralized Store (vendor + line items)"
                     />
                   )}
-                  <Link component={RouterLink} to="/admin/centralized-store" variant="body2">
-                    Manage store setup
-                  </Link>
+                  {!isFinanceBill && !isProcurementBill && (
+                    <Link component={RouterLink} to="/admin/centralized-store" variant="body2">
+                      Manage store setup
+                    </Link>
+                  )}
                 </Stack>
               </Grid>
 

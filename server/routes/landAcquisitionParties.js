@@ -84,11 +84,10 @@ router.get('/parties', asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100000, Math.max(1, Number(req.query.limit) || 25));
 
-  if (!partyType) {
-    return res.status(400).json({ success: false, message: 'Party type is required' });
+  const filter = { isActive: true };
+  if (partyType) {
+    filter.partyType = partyType;
   }
-
-  const filter = { partyType, isActive: true };
   if (search) {
     filter.$or = [
       { name: { $regex: search, $options: 'i' } },

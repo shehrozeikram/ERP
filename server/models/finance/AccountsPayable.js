@@ -177,7 +177,7 @@ const accountsPayableSchema = new mongoose.Schema({
   // Payment terms
   paymentTerms: {
     type: String,
-    enum: ['net_15', 'net_30', 'net_45', 'net_60', 'due_on_receipt', 'custom'],
+    enum: ['net_15', 'net_30', 'net_45', 'net_60', 'due_on_receipt', 'custom', 'Cash', 'cash', 'Immediate', 'immediate'],
     default: 'net_30'
   },
   // Status tracking

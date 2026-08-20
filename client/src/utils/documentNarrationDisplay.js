@@ -4,35 +4,36 @@
 
 export const getBillNarrationDisplay = (bill) => {
   const notes = String(bill?.notes || '').trim();
-  if (notes) return notes;
+  if (notes && notes !== '—' && notes !== '-') return notes;
 
   const forWhat = String(bill?.forWhat || '').trim();
-  if (forWhat) return forWhat;
+  if (forWhat && forWhat !== '—' && forWhat !== '-') return forWhat;
 
   const description = String(bill?.description || '').trim();
-  if (description) return description;
+  if (description && description !== '—' && description !== '-') return description;
+
+  const lineItems = Array.isArray(bill?.lineItems) ? bill.lineItems : [];
+  const itemDescs = lineItems
+    .map((li) => String(li?.description || li?.itemName || '').trim())
+    .filter((d) => d && d !== '—' && d !== '-');
+  if (itemDescs.length === 1) return itemDescs[0];
+  if (itemDescs.length > 1) return itemDescs.join('; ');
 
   const billLines = Array.isArray(bill?.billLines) ? bill.billLines : [];
   if (billLines.length) {
     const lineTexts = billLines
       .map((line) => {
-        const parts = [line?.description, line?.itemName].filter((x) => String(x || '').trim());
+        const parts = [line?.description, line?.itemName].filter((x) => String(x || '').trim() && String(x).trim() !== '—');
         return parts.map((x) => String(x).trim()).join(' — ');
       })
-      .filter(Boolean);
+      .filter((d) => d && d !== '—' && d !== '-');
     if (lineTexts.length === 1) return lineTexts[0];
     if (lineTexts.length > 1) return lineTexts.join('; ');
   }
 
-  const lineItems = Array.isArray(bill?.lineItems) ? bill.lineItems : [];
-  const itemDescs = lineItems
-    .map((li) => String(li?.description || '').trim())
-    .filter(Boolean);
-  if (itemDescs.length === 1) return itemDescs[0];
-  if (itemDescs.length > 1) return itemDescs.join('; ');
-
   const fallback = String(bill?.internalNotes || '').trim();
-  return fallback || '—';
+  if (fallback && fallback !== '—' && fallback !== '-') return fallback;
+  return '—';
 };
 
 export const getCashApprovalNarrationDisplay = (ca) => {

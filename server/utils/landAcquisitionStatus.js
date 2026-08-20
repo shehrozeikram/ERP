@@ -1,13 +1,14 @@
 const LandMozaKhasraEntry = require('../models/tajResidencia/LandMozaKhasraEntry');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const LandPossession = require('../models/tajResidencia/LandPossession');
+const LandExchange = require('../models/tajResidencia/LandExchange');
 const { addAreas, subtractAreas, normalizeArea, toSarsais } = require('./landAreaUnits');
 const { khewatMongoFilter } = require('./landKhewatUtils');
 
 const areaByKhasra = (docs, lineKey, areaKey) => {
   const map = new Map();
   docs.forEach((doc) => {
-    (doc.lines || []).forEach((line) => {
+    (doc[lineKey] || []).forEach((line) => {
       const id = String(line.khasraEntry || '');
       if (!id) return;
       const patch = normalizeArea(line[areaKey]);
@@ -45,19 +46,36 @@ const buildMozaAcquisitionStatus = async (mozaId, { khewatNo, search } = {}) => 
     if (khewatFilter) Object.assign(khasraFilter, khewatFilter);
   }
 
-  const [khasras, registries, possessions] = await Promise.all([
+  const [khasras, registries, possessions, exchanges] = await Promise.all([
     LandMozaKhasraEntry.find(khasraFilter).sort({ srNo: 1 }).lean(),
     LandRegistry.find({ moza: mozaId, isActive: true }).lean(),
-    LandPossession.find({ moza: mozaId, isActive: true }).lean()
+    LandPossession.find({ moza: mozaId, isActive: true }).lean(),
+    LandExchange.find({
+      isActive: true,
+      $or: [
+        { moza: mozaId },
+        { 'outLandLines.moza': mozaId },
+        { 'inLandLines.moza': mozaId }
+      ]
+    }).lean()
   ]);
 
-  const registeredMap = areaByKhasra(registries, 'lines', 'acquiredArea');
+  const rawRegisteredMap = areaByKhasra(registries, 'lines', 'acquiredArea');
   const possessedMap = areaByKhasra(possessions, 'lines', 'possessedArea');
+  const exchangedOutMap = areaByKhasra(exchanges, 'outLandLines', 'surrenderedArea');
+  const exchangedInMap = areaByKhasra(exchanges, 'inLandLines', 'acquiredArea');
 
   let rows = khasras.map((entry) => {
     const id = String(entry._id);
     const baseline = normalizeArea(entry.landInKhasra);
-    const registered = registeredMap.get(id) || { kanal: 0, marla: 0, sarsai: 0 };
+    const rawRegistered = rawRegisteredMap.get(id) || { kanal: 0, marla: 0, sarsai: 0 };
+    const exchangedOut = exchangedOutMap.get(id) || { kanal: 0, marla: 0, sarsai: 0 };
+    const exchangedIn = exchangedInMap.get(id) || { kanal: 0, marla: 0, sarsai: 0 };
+
+    // Net Registered = (Registry Acquired - Exchanged Out) + Exchanged In
+    const afterOut = subtractAreas(rawRegistered, exchangedOut);
+    const registered = addAreas(afterOut, exchangedIn);
+
     const possessed = possessedMap.get(id) || { kanal: 0, marla: 0, sarsai: 0 };
     const { purchaseStatus, possessionStatus } = deriveStatus(baseline, registered, possessed);
 
@@ -68,6 +86,9 @@ const buildMozaAcquisitionStatus = async (mozaId, { khewatNo, search } = {}) => 
       khasraNo: entry.khasraNo,
       baseline,
       registered,
+      rawRegistered,
+      exchangedOut,
+      exchangedIn,
       possessed,
       remainingToRegister: subtractAreas(baseline, registered),
       remainingToPossess: subtractAreas(registered, possessed),

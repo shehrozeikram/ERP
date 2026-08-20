@@ -330,14 +330,48 @@ const UtilityBillDetails = () => {
     }
     return '—';
   };
-  const getStoreLineProductCode = (line) => {
+
+  const isCoaBill =
+    bill?.referenceType === 'manual' ||
+    bill?.module === 'finance' ||
+    (Boolean((bill?.billLines || bill?.lineItems || []).some((l) => l?.account || l?.accountNumber || l?.category)) &&
+      !bill?.useCentralizedStore &&
+      bill?.referenceType !== 'utility_bill');
+
+  const getStoreLineCategoryOrCode = (line) => {
+    if (isCoaBill) {
+      if (line?.category && String(line.category).trim() !== '' && String(line.category).trim() !== '—') {
+        return String(line.category).trim();
+      }
+      if (line?.accountName && String(line.accountName).trim() !== '') {
+        const num = line.accountNumber ? ` (${String(line.accountNumber).trim()})` : '';
+        return `${String(line.accountName).trim()}${num}`;
+      }
+      if (line?.account && typeof line.account === 'object' && line.account.name) {
+        const num = line.account.accountNumber ? ` (${String(line.account.accountNumber).trim()})` : '';
+        return `${String(line.account.name).trim()}${num}`;
+      }
+      if (line?.accountNumber && String(line.accountNumber).trim() !== '') {
+        return `Account ${String(line.accountNumber).trim()}`;
+      }
+      if (line?.categoryName && String(line.categoryName).trim() !== '') {
+        return String(line.categoryName).trim();
+      }
+      if (line?.itemCode && String(line.itemCode).trim() !== '—') {
+        return String(line.itemCode).trim();
+      }
+      return '—';
+    }
     const snap = displayValue(line?.itemCode);
     if (snap) return snap;
     const si = line?.storeItem;
     if (si && typeof si === 'object' && si.code) return String(si.code).trim();
     return '—';
   };
+
+  const getStoreLineProductCode = (line) => getStoreLineCategoryOrCode(line);
   const getStoreLineDescription = (line) => {
+    if (isCoaBill) return line?.description || line?.itemName || '—';
     const parts = [line?.itemName, line?.description].filter(Boolean);
     return parts.join(' — ') || '—';
   };
@@ -1062,8 +1096,8 @@ const UtilityBillDetails = () => {
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ width: '4%' }}>S. No</TableCell>
-                    <TableCell sx={{ width: '11%' }}>Product Code</TableCell>
-                    <TableCell sx={{ width: '22%' }}>Description</TableCell>
+                    <TableCell sx={{ width: isCoaBill ? '18%' : '11%' }}>{isCoaBill ? 'Category' : 'Product Code'}</TableCell>
+                    <TableCell sx={{ width: isCoaBill ? '25%' : '22%' }}>Description</TableCell>
                     <TableCell sx={{ width: '14%', minWidth: 120 }}>Attachments</TableCell>
                     <TableCell sx={{ width: '7%' }}>Units</TableCell>
                     <TableCell sx={{ width: '9%', textAlign: 'right' }}>Quantity</TableCell>
@@ -1079,7 +1113,7 @@ const UtilityBillDetails = () => {
                     return (
                       <TableRow key={line._id || line.storeItem || i}>
                         <TableCell sx={{ textAlign: 'center' }}>{i + 1}</TableCell>
-                        <TableCell sx={{ wordBreak: 'break-all', fontSize: 11 }}>{getStoreLineProductCode(line)}</TableCell>
+                        <TableCell sx={{ wordBreak: 'break-word', fontSize: 11, fontWeight: isCoaBill ? 600 : 400 }}>{getStoreLineProductCode(line)}</TableCell>
                         <TableCell sx={{ lineHeight: 1.35 }}>{getStoreLineDescription(line)}</TableCell>
                         <TableCell>
                           <LineAttachmentsView line={line} />

@@ -239,6 +239,33 @@ const AccountsPayable = () => {
     billDate: '',
     dueDate: ''
   });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [billToDelete, setBillToDelete] = useState(null);
+  const [deletingBill, setDeletingBill] = useState(false);
+
+  const handleOpenDelete = (bill) => {
+    setBillToDelete(bill);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!billToDelete) return;
+    try {
+      setDeletingBill(true);
+      const res = await api.delete(`/finance/accounts-payable/${billToDelete._id}`);
+      if (res.data?.success || res.status === 200) {
+        toast.success(`✓ Bill ${billToDelete.billNumber} deleted successfully`);
+        setDeleteDialogOpen(false);
+        setBillToDelete(null);
+        fetchAccountsPayable();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete bill');
+    } finally {
+      setDeletingBill(false);
+    }
+  };
+
   const [paymentData, setPaymentData] = useState({
     amount: 0,
     paymentMethod: 'bank_transfer',
@@ -277,8 +304,72 @@ const AccountsPayable = () => {
     vendor: '',
     startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
-    search: ''
+    search: '',
+    billType: ''
   });
+
+  const getBillTypeBadge = (bill) => {
+    if (bill.referenceType === 'utility_bill' || bill.module === 'taj_utilities') {
+      return (
+        <Chip
+          label="Centralized Store"
+          size="small"
+          color="secondary"
+          variant="outlined"
+          sx={{ fontWeight: 600, fontSize: '0.72rem' }}
+        />
+      );
+    }
+    if (bill.referenceType === 'purchase_order' || bill.referenceType === 'grn') {
+      return (
+        <Chip
+          label="PO / GRN"
+          size="small"
+          color="info"
+          variant="outlined"
+          sx={{ fontWeight: 600, fontSize: '0.72rem' }}
+        />
+      );
+    }
+    return (
+      <Chip
+        label="Chart of Accounts"
+        size="small"
+        color="primary"
+        variant="outlined"
+        sx={{ fontWeight: 600, fontSize: '0.72rem' }}
+      />
+    );
+  };
+
+  const getBillCompany = (bill) => {
+    if (bill.company && typeof bill.company === 'string' && bill.company.trim()) return bill.company;
+    if (bill.lineItems && Array.isArray(bill.lineItems)) {
+      const lineWithComp = bill.lineItems.find((l) => l.company && typeof l.company === 'string' && l.company.trim());
+      if (lineWithComp) return lineWithComp.company;
+    }
+    if (bill.companyId && typeof bill.companyId === 'object' && bill.companyId.name) return bill.companyId.name;
+    return '—';
+  };
+
+  const getBillProject = (bill) => {
+    if (bill.project && typeof bill.project === 'string' && bill.project.trim()) return bill.project;
+    if (bill.lineItems && Array.isArray(bill.lineItems)) {
+      const lineWithProj = bill.lineItems.find((l) => l.project && typeof l.project === 'string' && l.project.trim());
+      if (lineWithProj) return lineWithProj.project;
+    }
+    return '—';
+  };
+
+  const filteredBills = useMemo(() => {
+    if (!filters.billType) return bills;
+    return bills.filter((b) => {
+      if (filters.billType === 'store') return b.referenceType === 'utility_bill' || b.module === 'taj_utilities';
+      if (filters.billType === 'category') return b.referenceType === 'manual' || b.module === 'finance' || (!b.referenceType && b.lineItems?.length > 0);
+      if (filters.billType === 'po') return b.referenceType === 'purchase_order' || b.referenceType === 'grn';
+      return true;
+    });
+  }, [bills, filters.billType]);
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
@@ -984,7 +1075,7 @@ const AccountsPayable = () => {
 
         {/* Filters */}
         <Grid container spacing={2}>
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} sm={6} md={2}>
             <TextField
               fullWidth
               type="date"
@@ -995,7 +1086,7 @@ const AccountsPayable = () => {
               size="small"
             />
           </Grid>
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} sm={6} md={2}>
             <TextField
               fullWidth
               type="date"
@@ -1006,7 +1097,7 @@ const AccountsPayable = () => {
               size="small"
             />
           </Grid>
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} sm={6} md={2}>
             <FormControl fullWidth size="small">
               <InputLabel>Status</InputLabel>
               <Select
@@ -1025,7 +1116,22 @@ const AccountsPayable = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Bill Type</InputLabel>
+              <Select
+                value={filters.billType}
+                onChange={handleFilterChange('billType')}
+                label="Bill Type"
+              >
+                <MenuItem value="">All Bill Types</MenuItem>
+                <MenuItem value="category">Chart of Accounts</MenuItem>
+                <MenuItem value="store">Centralized Store</MenuItem>
+                <MenuItem value="po">PO / GRN</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
             <TextField
               fullWidth
               label="Vendor"
@@ -1035,7 +1141,7 @@ const AccountsPayable = () => {
               size="small"
             />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
             <TextField
               fullWidth
               label="Search"
@@ -1198,6 +1304,7 @@ const AccountsPayable = () => {
                 <TableRow>
                   <TableCell />
                   <TableCell>Bill #</TableCell>
+                  <TableCell>Bill Type</TableCell>
                   <TableCell>Vendor</TableCell>
                   <TableCell>Company</TableCell>
                   <TableCell>Project</TableCell>
@@ -1213,7 +1320,7 @@ const AccountsPayable = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {bills.map((bill) => {
+                {filteredBills.map((bill) => {
                   const days = calculateAge(bill.billDate);
                   const outstanding = getOutstanding(bill);
                   const grnSettlementRows = getLinkedGrnSettlementRows(bill);
@@ -1231,6 +1338,9 @@ const AccountsPayable = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
+                          {getBillTypeBadge(bill)}
+                        </TableCell>
+                        <TableCell>
                           <Box>
                             <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
                               {bill.vendorName || 'Unknown Vendor'}
@@ -1240,8 +1350,8 @@ const AccountsPayable = () => {
                             </Typography>
                           </Box>
                         </TableCell>
-                        <TableCell><Typography variant="body2">{bill.company || '—'}</Typography></TableCell>
-                        <TableCell><Typography variant="body2">{bill.project || '—'}</Typography></TableCell>
+                        <TableCell><Typography variant="body2" fontWeight={600}>{getBillCompany(bill)}</Typography></TableCell>
+                        <TableCell><Typography variant="body2">{getBillProject(bill)}</Typography></TableCell>
                         <NarrationTableCell text={getBillNarrationDisplay(bill)} />
                         <TableCell><Typography variant="body2">{formatDate(bill.billDate)}</Typography></TableCell>
                         <TableCell><Typography variant="body2">{formatDate(bill.dueDate)}</Typography></TableCell>
@@ -1262,17 +1372,29 @@ const AccountsPayable = () => {
                           <Chip label={`${days} days`} size="small" color={getAgingColor(days)} />
                         </TableCell>
                         <TableCell>
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon /></IconButton></Tooltip>
-                            <Tooltip title="Make Payment"><IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)} disabled={bill.status === 'paid'}><PaymentIcon /></IconButton></Tooltip>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon fontSize="small" /></IconButton></Tooltip>
+                            <Tooltip title="Make Payment"><IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)} disabled={bill.status === 'paid'}><PaymentIcon fontSize="small" /></IconButton></Tooltip>
                             <Tooltip title={canEditVendorBill(bill) ? 'Edit Bill' : 'Cannot edit after payment'}>
                               <span>
                                 <IconButton size="small" onClick={() => handleOpenEdit(bill)} disabled={!canEditVendorBill(bill)}>
-                                  <EditIcon />
+                                  <EditIcon fontSize="small" />
                                 </IconButton>
                               </span>
                             </Tooltip>
                             <Tooltip title="Print / Download Bill"><IconButton size="small" onClick={() => navigate(`/finance/bill-print/${bill._id}`)}><PrintIcon fontSize="small" /></IconButton></Tooltip>
+                            <Tooltip title={bill.amountPaid > 0 ? 'Cannot delete bill with recorded payments' : 'Delete Bill'}>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleOpenDelete(bill)}
+                                  disabled={bill.amountPaid > 0}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                           </Box>
                         </TableCell>
                       </TableRow>
@@ -1399,20 +1521,28 @@ const AccountsPayable = () => {
                       billDate: selectedBill.billDate,
                       createdAt: selectedBill.createdAt || selectedBill.billDate,
                       provider: selectedBill.vendorName || selectedBill.vendor?.name,
-                      location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
-                      notes: selectedBill.notes || selectedBill.internalNotes,
-                      billLines: (selectedBill.lineItems || []).map((line, idx) => ({
-                        ...line,
-                        itemName: line.description,
-                        itemCode: line.itemCode || 'N/A',
-                        amount: line.amount || (line.quantity * line.unitPrice),
-                        attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
-                      }))
+                      location: getBillCompany(selectedBill) !== '—' ? `${getBillCompany(selectedBill)}${getBillProject(selectedBill) !== '—' ? ` — ${getBillProject(selectedBill)}` : ''}` : (selectedBill.vendor?.address?.city || selectedBill.department || 'N/A'),
+                      notes: selectedBill.notes || selectedBill.internalNotes || getBillNarrationDisplay(selectedBill),
+                      forWhat: selectedBill.forWhat || getBillNarrationDisplay(selectedBill),
+                      billLines: (selectedBill.lineItems && selectedBill.lineItems.length > 0)
+                        ? selectedBill.lineItems.map((line, idx) => ({
+                            ...line,
+                            category: line.category || line.accountName || line.account?.name || (line.accountNumber ? `Account ${line.accountNumber}` : '—'),
+                            accountName: line.accountName || line.account?.name || '',
+                            accountNumber: line.accountNumber || line.account?.accountNumber || '',
+                            itemName: line.description || line.itemName || (line.accountNumber ? `Account ${line.accountNumber}` : 'Item'),
+                            description: line.description || line.itemName || '',
+                            itemCode: line.itemCode || line.accountNumber || '—',
+                            amount: line.amount || (line.quantity * line.unitPrice),
+                            attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
+                          }))
+                        : (selectedBill.billLines || [])
                     }}
                     showChargesSummary={true}
                   />
 
-                  {(() => {
+                  {/* Approval Authority Table — ONLY for Centralized Store / Utility Bills */}
+                  {(selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities') && (() => {
                     const getApprovalRows = () => {
                       const formatDateTime = (date) => {
                         if (!date) return '-';
@@ -2720,7 +2850,7 @@ const AccountsPayable = () => {
                 showChargesSummary={true}
               />
 
-              {(() => {
+              {(selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities') && (() => {
                 const getApprovalRows = () => {
                   const formatDateTime = (date) => {
                     if (!date) return '-';
@@ -2849,6 +2979,39 @@ const AccountsPayable = () => {
             onClick={handleUpdateBill}
           >
             Update Bill
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => !deletingBill && setDeleteDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700, color: 'error.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DeleteIcon /> Delete Bill
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1">
+            Are you sure you want to delete bill <strong>{billToDelete?.billNumber}</strong> ({billToDelete?.vendorName}) for <strong>{formatPKR(billToDelete?.totalAmount || 0)}</strong>?
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block' }}>
+            This will permanently remove the bill and its corresponding General Ledger journal entries.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deletingBill} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleConfirmDelete}
+            disabled={deletingBill}
+          >
+            {deletingBill ? 'Deleting...' : 'Delete Bill'}
           </Button>
         </DialogActions>
       </Dialog>

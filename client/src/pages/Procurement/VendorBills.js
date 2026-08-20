@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Typography, Grid, TextField, MenuItem, Button, Alert,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Checkbox,
-  Tabs, Tab, Chip, CircularProgress
+  Tabs, Tab, Chip, CircularProgress, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
+import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 
 const VendorBills = () => {
+  const navigate = useNavigate();
   const [tabIndex, setTabIndex] = useState(0);
   const [vendors, setVendors] = useState([]);
   const [vendorId, setVendorId] = useState('');
@@ -24,6 +27,30 @@ const VendorBills = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [billToDelete, setBillToDelete] = useState(null);
+  const [deletingBill, setDeletingBill] = useState(false);
+
+  const handleOpenDelete = (bill) => {
+    setBillToDelete(bill);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!billToDelete) return;
+    try {
+      setDeletingBill(true);
+      await api.delete(`/finance/accounts-payable/${billToDelete._id}`);
+      setSuccess(`✓ Bill ${billToDelete.billNumber} deleted successfully`);
+      setDeleteDialogOpen(false);
+      setBillToDelete(null);
+      loadCreatedBills(vendorId);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete bill');
+    } finally {
+      setDeletingBill(false);
+    }
+  };
 
   const loadGrns = useCallback(async (vId) => {
     try {
@@ -121,7 +148,16 @@ const VendorBills = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3, mb: 2 }}>
-        <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>Procurement GRN's & Bills</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>Procurement GRN's & Bills</Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => navigate('/procurement/vendor-bills/new')}
+          >
+            Create Bill
+          </Button>
+        </Box>
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
         {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
         <Grid container spacing={2}>
@@ -257,13 +293,14 @@ const VendorBills = () => {
                     <TableCell>Status</TableCell>
                     <TableCell align="right">Total Amount</TableCell>
                     <TableCell align="right">Balance Due</TableCell>
+                    <TableCell align="center">Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {billsLoading ? (
-                    <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} align="center"><CircularProgress size={24} /></TableCell></TableRow>
                   ) : createdBills.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} align="center">No vendor bills created yet</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} align="center">No vendor bills created yet</TableCell></TableRow>
                   ) : (
                     createdBills.map((b) => (
                       <TableRow key={b._id} hover>
@@ -285,6 +322,20 @@ const VendorBills = () => {
                             {formatPKR(b.balanceDue != null ? b.balanceDue : (b.totalAmount || 0))}
                           </Typography>
                         </TableCell>
+                        <TableCell align="center">
+                          <Tooltip title={b.amountPaid > 0 ? 'Cannot delete bill with recorded payments' : 'Delete Bill'}>
+                            <span>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleOpenDelete(b)}
+                                disabled={b.amountPaid > 0}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -294,6 +345,39 @@ const VendorBills = () => {
           </Box>
         )}
       </Paper>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => !deletingBill && setDeleteDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700, color: 'error.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DeleteIcon /> Delete Vendor Bill
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1">
+            Are you sure you want to delete bill <strong>{billToDelete?.billNumber}</strong> ({billToDelete?.vendorName || billToDelete?.supplierName}) for <strong>{formatPKR(billToDelete?.totalAmount || billToDelete?.amount || 0)}</strong>?
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block' }}>
+            This will permanently remove the bill and any linked General Ledger postings.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deletingBill} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleConfirmDelete}
+            disabled={deletingBill}
+          >
+            {deletingBill ? 'Deleting...' : 'Delete Bill'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

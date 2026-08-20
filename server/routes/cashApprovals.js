@@ -2015,8 +2015,10 @@ router.put('/:id/ceo-approve', authMiddleware, asyncHandler(async (req, res) => 
   ca.status = 'Pending Finance';
   ca.ceoApprovedBy = req.user.id;
   ca.ceoApprovedAt = ceoApprovedAt;
-  ca.ceoApprovalComments = ceoComments;
-  ca.ceoDigitalSignature = req.body.digitalSignature || '';
+  const effectiveSig = (req.body.digitalSignature && String(req.body.digitalSignature).trim()) ||
+    req.user.digitalSignature ||
+    (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email || 'CEO');
+  ca.ceoDigitalSignature = effectiveSig;
   upsertCaAuthorityApproval(ca, {
     key: 'ceoApproval',
     label: 'CEO',

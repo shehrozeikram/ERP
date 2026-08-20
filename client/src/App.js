@@ -170,6 +170,7 @@ import LocationManagement from './pages/Admin/StaffManagement/LocationManagement
 import UtilityBillDashboard from './pages/Admin/UtilityBillManagement/UtilityBillDashboard';
 import UtilityBillList from './pages/Admin/UtilityBillManagement/UtilityBillList';
 import UtilityBillForm from './pages/Admin/UtilityBillManagement/UtilityBillForm';
+import StandardVendorBillForm from './pages/Finance/StandardVendorBillForm';
 import UtilityBillDetails from './pages/Admin/UtilityBillManagement/UtilityBillDetails';
 import CentralizedStoreManagement from './pages/Admin/UtilityBillManagement/CentralizedStoreManagement';
 import CentralizedStoreBills from './pages/Admin/UtilityBillManagement/CentralizedStoreBills';
@@ -1107,6 +1108,14 @@ function App() {
               path="/finance/accounts-payable" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AccountsPayable /></ProtectedRoute>} 
             />
+            <Route 
+              path="/finance/accounts-payable/new" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "hr_manager"]}><StandardVendorBillForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/accounts-payable/bill/:id/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>} 
+            />
             <Route
               path="/finance/utility-bills/:id"
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><UtilityBillDetails /></ProtectedRoute>}
@@ -1477,6 +1486,14 @@ function App() {
             <Route
               path="/procurement/vendor-bills"
               element={<ProtectedRoute><VendorBills /></ProtectedRoute>}
+            />
+            <Route
+              path="/procurement/vendor-bills/new"
+              element={<ProtectedRoute><UtilityBillForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/procurement/vendor-bills/bill/:id/edit"
+              element={<ProtectedRoute><UtilityBillForm /></ProtectedRoute>}
             />
             {/* Store Submodule Routes */}
             <Route 
@@ -2117,6 +2134,14 @@ function App() {
             />
             <Route 
               path="/taj-residencia/land-acquisition/possession" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/exchange" 
+              element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/transfers" 
               element={<ProtectedRoute requiredRole={["super_admin", "taj_residencia_manager"]}><LandAcquisition /></ProtectedRoute>} 
             />
             <Route 

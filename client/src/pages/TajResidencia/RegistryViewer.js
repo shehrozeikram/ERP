@@ -43,21 +43,23 @@ const formatDate = (value) => {
 
 const RegistryViewer = () => {
   const [registries, setRegistries] = useState([]);
-  const [mozas, setMozas] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
   const [grandTotal, setGrandTotal] = useState(null);
+  const [exchangeTotals, setExchangeTotals] = useState(null);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [mozas, setMozas] = useState([]);
+  const [mozaFilter, setMozaFilter] = useState('');
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
-  const [mozaFilter, setMozaFilter] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [detailId, setDetailId] = useState(null);
+  const [detailRow, setDetailRow] = useState(null);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [detailId, setDetailId] = useState(null);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -87,6 +89,7 @@ const RegistryViewer = () => {
       setRegistries(payload?.registries || []);
       setTotal(payload?.pagination?.total || 0);
       setGrandTotal(payload?.grandTotal || null);
+      setExchangeTotals(payload?.exchangeTotals || null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load registries');
     } finally {
@@ -182,6 +185,8 @@ const RegistryViewer = () => {
         'Inteqal No': row.inteqalNo || '',
         'Dealer': row.dealer?.name || '',
         'Total Acquired': formatKMS(row.totalArea),
+        'Exchanged Out': formatKMS(row.exchangedOutArea),
+        'Total Acquired Holding': formatKMS(row.netRemainingArea),
         'Total Khasras': row.lines?.length || 0
       }));
 
@@ -199,8 +204,66 @@ const RegistryViewer = () => {
 
   return (
     <Box>
-
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {/* KPI Balance Banner factor in Land Exchanges */}
+      {grandTotal && (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            mb: 2.5,
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50'
+          }}
+        >
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} justifyContent="space-between">
+            <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap alignItems="center">
+              <Box>
+                <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">
+                  TOTAL REGISTERED
+                </Typography>
+                <Typography variant="subtitle1" fontWeight={800} color="primary.main">
+                  {formatKMS(grandTotal)}
+                </Typography>
+              </Box>
+
+              {exchangeTotals && (
+                <>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">
+                      EXCHANGED OUT (SURRENDERED)
+                    </Typography>
+                    <Typography variant="subtitle1" fontWeight={800} color="warning.dark">
+                      - {formatKMS(exchangeTotals.exchangedOut)}
+                    </Typography>
+                  </Box>
+
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">
+                      EXCHANGED IN (ACQUIRED)
+                    </Typography>
+                    <Typography variant="subtitle1" fontWeight={800} color="success.dark">
+                      + {formatKMS(exchangeTotals.exchangedIn)}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ pl: { sm: 1 }, borderLeft: { sm: '2px solid' }, borderColor: 'divider' }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={700} display="block">
+                      TOTAL ACQUIRED HOLDING
+                    </Typography>
+                    <Typography variant="subtitle1" fontWeight={900} color="text.primary">
+                      {formatKMS(exchangeTotals.netEffective)}
+                    </Typography>
+                  </Box>
+                </>
+              )}
+            </Stack>
+          </Stack>
+        </Paper>
+      )}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems={{ sm: 'center' }}>
         <TextField
@@ -230,28 +293,6 @@ const RegistryViewer = () => {
             <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
           ))}
         </TextField>
-
-        {grandTotal && (
-          <Box
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 0.75,
-              px: 2,
-              py: 0.75,
-              borderRadius: 2,
-              bgcolor: 'primary.main',
-              color: 'primary.contrastText',
-              boxShadow: 1
-            }}
-          >
-            <Typography variant="body2" sx={{ opacity: 0.85, fontWeight: 500 }}>Grand Total Acquired:</Typography>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: 0.5 }}>
-              {formatKMS(grandTotal)}
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.75 }}>(K-M-S)</Typography>
-          </Box>
-        )}
 
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="outlined" startIcon={exporting ? <CircularProgress size={20} /> : <DownloadIcon />} onClick={handleExport} disabled={exporting || loading}>
@@ -290,6 +331,11 @@ const RegistryViewer = () => {
                 <TableCell><strong>Purchaser</strong></TableCell>
                 <TableCell><strong>Dealer</strong></TableCell>
                 <TableCell><strong>Total Acquired</strong></TableCell>
+                <TableCell>
+                  <Tooltip title="Total effective acquired land holding in this registry after exchanges">
+                    <span><strong>Total Acquired Holding</strong></span>
+                  </Tooltip>
+                </TableCell>
                 <TableCell><strong>Registry Docs</strong></TableCell>
                 <TableCell><strong>Inteqal Docs</strong></TableCell>
                 <TableCell><strong>Lines</strong></TableCell>
@@ -297,101 +343,186 @@ const RegistryViewer = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {registries.map((row) => (
-                <TableRow key={row._id} hover>
-                  <TableCell>{formatDate(row.registryDate)}</TableCell>
-                  <TableCell><strong>{row.dealNo ? `#${row.dealNo}` : '—'}</strong></TableCell>
-                  <TableCell>{row.moza?.name || '—'}</TableCell>
-                  <TableCell>{row.khewatNo}</TableCell>
-                  <TableCell>{row.registryNo}</TableCell>
-                  <TableCell>{row.inteqalNo || '—'}</TableCell>
-                  <TableCell>{row.seller?.name || '—'}</TableCell>
-                  <TableCell>{row.purchaser?.name || '—'}</TableCell>
-                  <TableCell>{row.dealer?.name || '—'}</TableCell>
-                  <TableCell>{formatKMS(row.totalArea)}</TableCell>
-                  <TableCell>
-                    {(row.registryDocAttachments || []).length > 0 ? (
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                        {row.registryDocAttachments.map((att, i) => {
-                          const href = resolveUploadFileHref(att.path, att.mimetype);
-                          return href ? (
+              {registries.map((row) => {
+                const hasExchangeOut = row.exchangedOutArea && (row.exchangedOutArea.kanal > 0 || row.exchangedOutArea.marla > 0 || row.exchangedOutArea.sarsai > 0);
+                const hasExchangeIn = row.exchangedInArea && (row.exchangedInArea.kanal > 0 || row.exchangedInArea.marla > 0 || row.exchangedInArea.sarsai > 0);
+                const isFullyExchanged = row.netRemainingArea && row.netRemainingArea.kanal === 0 && row.netRemainingArea.marla === 0 && row.netRemainingArea.sarsai === 0;
+
+                return (
+                  <TableRow key={row._id} hover>
+                    <TableCell>{formatDate(row.registryDate)}</TableCell>
+                    <TableCell><strong>{row.dealNo ? `#${row.dealNo}` : '—'}</strong></TableCell>
+                    <TableCell>{row.moza?.name || '—'}</TableCell>
+                    <TableCell>{row.khewatNo}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={600}>
+                        {row.registryNo}
+                      </Typography>
+                      {row.isExchangeIn && (
+                        <Tooltip title={`Acquired into inventory via Land Exchange Ref ${row.exchangeRef}`}>
+                          <Chip
+                            label="Exchange In"
+                            size="small"
+                            color="success"
+                            variant="filled"
+                            sx={{ fontSize: '0.65rem', height: 18, mt: 0.5, fontWeight: 700 }}
+                          />
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                    <TableCell>{row.inteqalNo || '—'}</TableCell>
+                    <TableCell>{row.seller?.name || '—'}</TableCell>
+                    <TableCell>{row.purchaser?.name || '—'}</TableCell>
+                    <TableCell>{row.dealer?.name || '—'}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={600}>
+                        {formatKMS(row.totalArea)}
+                      </Typography>
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
+                        {hasExchangeOut && (
+                          <Tooltip
+                            title={
+                              row.exchanges?.filter(e => e.type === 'OUT')?.length
+                                ? `Exchanged out via: ${row.exchanges.filter(e => e.type === 'OUT').map((e) => `${e.exchangeRef} (${formatKMS(e.surrenderedArea)})`).join(', ')}`
+                                : 'Surrendered in Land Exchange'
+                            }
+                          >
                             <Chip
-                              key={att._id || i}
-                              icon={<AttachFile fontSize="small" />}
-                              label={att.originalName || `Doc ${i + 1}`}
-                              component="a"
-                              href={href}
-                              target="_blank"
-                              clickable
+                              label={`-${formatKMS(row.exchangedOutArea)} (Out)`}
                               size="small"
-                              color="primary"
+                              color="warning"
                               variant="outlined"
+                              sx={{ fontSize: '0.7rem', height: 20, fontWeight: 700 }}
                             />
-                          ) : (
-                            <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
-                          );
-                        })}
-                      </Stack>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">—</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {(row.inteqalDocAttachments || []).length > 0 ? (
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                        {row.inteqalDocAttachments.map((att, i) => {
-                          const href = resolveUploadFileHref(att.path, att.mimetype);
-                          return href ? (
+                          </Tooltip>
+                        )}
+                        {hasExchangeIn && (
+                          <Tooltip
+                            title={
+                              row.exchanges?.filter(e => e.type === 'IN')?.length
+                                ? `Exchanged in via: ${row.exchanges.filter(e => e.type === 'IN').map((e) => `${e.exchangeRef} (${formatKMS(e.acquiredArea)})`).join(', ')}`
+                                : 'Acquired in Land Exchange'
+                            }
+                          >
                             <Chip
-                              key={att._id || i}
-                              icon={<AttachFile fontSize="small" />}
-                              label={att.originalName || `Doc ${i + 1}`}
-                              component="a"
-                              href={href}
-                              target="_blank"
-                              clickable
+                              label={`+${formatKMS(row.exchangedInArea)} (In)`}
                               size="small"
-                              color="secondary"
+                              color="success"
                               variant="outlined"
+                              sx={{ fontSize: '0.7rem', height: 20, fontWeight: 700 }}
                             />
-                          ) : (
-                            <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
-                          );
-                        })}
+                          </Tooltip>
+                        )}
                       </Stack>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">—</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="View details">
-                      <IconButton size="small" onClick={() => setDetailId(row._id)}>
-                        <Visibility fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => openEdit(row)}>
-                        <Edit fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <span>
+                    </TableCell>
+                    <TableCell>
+                      <Typography
+                        variant="body2"
+                        fontWeight={700}
+                        color={isFullyExchanged ? 'error.main' : (hasExchangeOut || hasExchangeIn) ? 'primary.main' : 'text.primary'}
+                      >
+                        {formatKMS(row.netRemainingArea || row.totalArea)}
+                      </Typography>
+                      {isFullyExchanged && (
+                        <Chip label="Fully Exchanged" size="small" color="error" sx={{ fontSize: '0.65rem', height: 18, mt: 0.5 }} />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {(row.registryDocAttachments || []).length > 0 ? (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                          {row.registryDocAttachments.map((att, i) => {
+                            const href = resolveUploadFileHref(att.path, att.mimetype);
+                            return href ? (
+                              <Chip
+                                key={att._id || i}
+                                icon={<AttachFile fontSize="small" />}
+                                label={att.originalName || `Doc ${i + 1}`}
+                                component="a"
+                                href={href}
+                                target="_blank"
+                                clickable
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                            ) : (
+                              <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
+                            );
+                          })}
+                        </Stack>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {(row.inteqalDocAttachments || []).length > 0 ? (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                          {row.inteqalDocAttachments.map((att, i) => {
+                            const href = resolveUploadFileHref(att.path, att.mimetype);
+                            return href ? (
+                              <Chip
+                                key={att._id || i}
+                                icon={<AttachFile fontSize="small" />}
+                                label={att.originalName || `Doc ${i + 1}`}
+                                component="a"
+                                href={href}
+                                target="_blank"
+                                clickable
+                                size="small"
+                                color="secondary"
+                                variant="outlined"
+                              />
+                            ) : (
+                              <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
+                            );
+                          })}
+                        </Stack>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="View details">
                         <IconButton
                           size="small"
-                          color="error"
-                          onClick={() => handleDelete(row)}
-                          disabled={deletingId === row._id}
+                          onClick={() => {
+                            setDetailRow(row);
+                            setDetailId(row._id);
+                          }}
                         >
-                          {deletingId === row._id ? <CircularProgress size={16} /> : <Delete fontSize="small" />}
+                          <Visibility fontSize="small" />
                         </IconButton>
-                      </span>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
+                      </Tooltip>
+                      <Tooltip title={row.isExchangeIn ? 'Acquired in Exchange (Edit in Land Exchange tab)' : 'Edit'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={() => !row.isExchangeIn && openEdit(row)}
+                            disabled={Boolean(row.isExchangeIn)}
+                          >
+                            <Edit fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title={row.isExchangeIn ? 'Delete via Land Exchange tab' : 'Delete'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDelete(row)}
+                            disabled={Boolean(row.isExchangeIn) || deletingId === row._id}
+                          >
+                            {deletingId === row._id ? <CircularProgress size={16} /> : <Delete fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
           <TablePagination
@@ -419,8 +550,12 @@ const RegistryViewer = () => {
 
       <RegistryDetailDialog
         open={Boolean(detailId)}
-        onClose={() => setDetailId(null)}
+        onClose={() => {
+          setDetailId(null);
+          setDetailRow(null);
+        }}
         registryId={detailId}
+        registryData={detailRow}
       />
     </Box>
   );

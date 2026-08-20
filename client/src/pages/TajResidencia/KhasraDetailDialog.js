@@ -156,7 +156,18 @@ const KhasraDetailDialog = ({ open, onClose, khasra }) => {
                     <TableRow key={reg._id || idx} hover>
                       <TableCell>{formatDate(reg.registryDate)}</TableCell>
                       <TableCell><strong>{reg.dealNo ? `#${reg.dealNo}` : '—'}</strong></TableCell>
-                      <TableCell><strong>{reg.registryNo || '—'}</strong></TableCell>
+                      <TableCell>
+                        <strong>{reg.registryNo || '—'}</strong>
+                        {reg.isExchangeIn && (
+                          <Chip
+                            label="Exchange In"
+                            size="small"
+                            color="success"
+                            variant="filled"
+                            sx={{ fontSize: '0.65rem', height: 18, ml: 1, fontWeight: 700 }}
+                          />
+                        )}
+                      </TableCell>
                       <TableCell>{reg.inteqalNo || '—'}</TableCell>
                       <TableCell>{reg.seller?.name || '—'}</TableCell>
                       <TableCell>{reg.purchaser?.name || '—'}</TableCell>
@@ -201,6 +212,49 @@ const KhasraDetailDialog = ({ open, onClose, khasra }) => {
             </TableContainer>
           )}
         </Box>
+
+        {/* Section: Surrendered in Land Exchanges if any */}
+        {(khasra.exchangesOut || []).length > 0 && (
+          <Box sx={{ mb: 3 }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+              <Typography variant="subtitle1" fontWeight={700} color="warning.dark">
+                Surrendered in Land Exchanges
+              </Typography>
+              <Chip size="small" label={`${khasra.exchangesOut.length} records`} color="warning" variant="outlined" />
+            </Stack>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead sx={{ bgcolor: 'grey.100' }}>
+                  <TableRow>
+                    <TableCell><strong>Exchange Date</strong></TableCell>
+                    <TableCell><strong>Exchange Ref</strong></TableCell>
+                    <TableCell><strong>Party / Exchanger</strong></TableCell>
+                    <TableCell align="center"><strong>Surrendered Area</strong></TableCell>
+                    <TableCell><strong>Remarks</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {khasra.exchangesOut.map((exc, idx) => (
+                    <TableRow key={exc._id || idx} hover>
+                      <TableCell>{formatDate(exc.exchangeDate)}</TableCell>
+                      <TableCell><strong>{exc.exchangeRef}</strong></TableCell>
+                      <TableCell>{exc.party?.name || '—'}</TableCell>
+                      <TableCell align="center">
+                        <Chip
+                          label={`-${formatKMS(exc.surrenderedArea)}`}
+                          size="small"
+                          color="warning"
+                          sx={{ fontWeight: 700 }}
+                        />
+                      </TableCell>
+                      <TableCell>{exc.remarks || '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+        )}
 
         <Divider sx={{ my: 2 }} />
 

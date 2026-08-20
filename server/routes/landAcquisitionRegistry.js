@@ -117,7 +117,11 @@ const fetchRegisteredTotalsByKhasra = async (moza, excludeRegistryId) => {
     filter._id = { $ne: excludeRegistryId };
   }
 
-  const registries = await LandRegistry.find(filter).select('lines').lean();
+  const [registries, exchanges] = await Promise.all([
+    LandRegistry.find(filter).select('lines').lean(),
+    LandExchange.find({ isActive: true }).select('outLandLines inLandLines moza').lean()
+  ]);
+
   const totals = {};
 
   registries.forEach((doc) => {
@@ -125,6 +129,19 @@ const fetchRegisteredTotalsByKhasra = async (moza, excludeRegistryId) => {
       const id = String(line.khasraEntry || '');
       if (!id) return;
       totals[id] = addAreas(totals[id] || { kanal: 0, marla: 0, sarsai: 0 }, normalizeArea(line.acquiredArea));
+    });
+  });
+
+  exchanges.forEach((exc) => {
+    (exc.outLandLines || []).forEach((l) => {
+      const id = String(l.khasraEntry || '');
+      if (!id || !totals[id]) return;
+      totals[id] = subtractAreas(totals[id], normalizeArea(l.surrenderedArea));
+    });
+    (exc.inLandLines || []).forEach((l) => {
+      const id = String(l.khasraEntry || '');
+      if (!id) return;
+      totals[id] = addAreas(totals[id] || { kanal: 0, marla: 0, sarsai: 0 }, normalizeArea(l.acquiredArea));
     });
   });
 
@@ -239,6 +256,7 @@ const mapRegistry = (doc) => {
 };
 
 const LandTransfer = require('../models/tajResidencia/LandTransfer');
+const LandExchange = require('../models/tajResidencia/LandExchange');
 
 async function attachTransferDocsToRegistries(mappedRegistries = []) {
   if (!mappedRegistries.length) return mappedRegistries;
@@ -317,6 +335,130 @@ async function attachTransferDocsToRegistries(mappedRegistries = []) {
   });
 }
 
+async function attachExchangeDataToRegistries(mappedRegistries = []) {
+  if (!mappedRegistries.length) return mappedRegistries;
+
+  const exchanges = await LandExchange.find({ isActive: true })
+    .populate('party', 'name cnic phone')
+    .lean();
+
+  if (!exchanges.length) {
+    return mappedRegistries.map((reg) => ({
+      ...reg,
+      exchangedOutArea: { kanal: 0, marla: 0, sarsai: 0 },
+      netRemainingArea: reg.totalArea,
+      exchanges: [],
+      lines: (reg.lines || []).map((l) => ({
+        ...l,
+        exchangedOutArea: { kanal: 0, marla: 0, sarsai: 0 },
+        netRemainingArea: l.acquiredArea || { kanal: 0, marla: 0, sarsai: 0 }
+      }))
+    }));
+  }
+
+  return mappedRegistries.map((reg) => {
+    const regIdStr = String(reg._id);
+    const regNoLower = String(reg.registryNo || '').trim().toLowerCase();
+    const intNoLower = String(reg.inteqalNo || '').trim().toLowerCase();
+    const regMozaId = String(reg.moza?._id || reg.moza || '');
+
+    const matchedExchanges = [];
+    const outAreasList = [];
+
+    // Map each line of registry to compute per-khasra surrendered area
+    const updatedLines = (reg.lines || []).map((line) => {
+      const lineKhasra = String(line.khasraNo || '').trim();
+      const lineOutAreas = [];
+
+      exchanges.forEach((exc) => {
+        (exc.outLandLines || []).forEach((outL) => {
+          const outRegId = outL.registry ? String(outL.registry?._id || outL.registry) : null;
+          const outRegNo = String(outL.registryNo || '').trim().toLowerCase();
+          const outIntNo = String(outL.inteqalNo || '').trim().toLowerCase();
+          const outMozaId = String(outL.moza?._id || outL.moza || exc.moza?._id || exc.moza || '');
+
+          const isIdMatch = outRegId && outRegId === regIdStr;
+          const isMozaMatch = !outMozaId || !regMozaId || outMozaId === regMozaId;
+          const isStringMatch = isMozaMatch && (
+            (regNoLower && outRegNo && outRegNo === regNoLower) ||
+            (intNoLower && outIntNo && outIntNo === intNoLower)
+          );
+
+          const isRegMatch = isIdMatch || isStringMatch;
+
+          if (isRegMatch) {
+            const outKhasra = String(outL.khasraNo || '').trim();
+            if (!lineKhasra || !outKhasra || outKhasra === lineKhasra) {
+              const surrendered = normalizeArea(outL.surrenderedArea);
+              if (toSarsais(surrendered) > 0) {
+                lineOutAreas.push(surrendered);
+              }
+            }
+          }
+        });
+      });
+
+      const lineExchangedOut = addAreas(...lineOutAreas);
+      const lineAcquired = normalizeArea(line.acquiredArea);
+      const lineNet = subtractAreas(lineAcquired, lineExchangedOut);
+
+      return {
+        ...line,
+        exchangedOutArea: lineExchangedOut,
+        netRemainingArea: lineNet
+      };
+    });
+
+    // Compute total registry exchanged out
+    exchanges.forEach((exc) => {
+      (exc.outLandLines || []).forEach((outL) => {
+        const outRegId = outL.registry ? String(outL.registry?._id || outL.registry) : null;
+        const outRegNo = String(outL.registryNo || '').trim().toLowerCase();
+        const outIntNo = String(outL.inteqalNo || '').trim().toLowerCase();
+        const outMozaId = String(outL.moza?._id || outL.moza || exc.moza?._id || exc.moza || '');
+
+        const isIdMatch = outRegId && outRegId === regIdStr;
+        const isMozaMatch = !outMozaId || !regMozaId || outMozaId === regMozaId;
+        const isStringMatch = isMozaMatch && (
+          (regNoLower && outRegNo && outRegNo === regNoLower) ||
+          (intNoLower && outIntNo && outIntNo === intNoLower)
+        );
+
+        const isRegMatch = isIdMatch || isStringMatch;
+
+        if (isRegMatch) {
+          const surrendered = normalizeArea(outL.surrenderedArea);
+          if (toSarsais(surrendered) > 0) {
+            outAreasList.push(surrendered);
+            matchedExchanges.push({
+              _id: exc._id,
+              type: 'OUT',
+              exchangeRef: exc.exchangeRef,
+              exchangeDate: exc.exchangeDate,
+              partyName: exc.party?.name || '—',
+              khasraNo: outL.khasraNo,
+              surrenderedArea: surrendered,
+              remarks: outL.remarks || exc.remarks
+            });
+          }
+        }
+      });
+    });
+
+    const exchangedOutArea = addAreas(...outAreasList);
+    const regTotal = normalizeArea(reg.totalArea);
+    const netRemainingArea = subtractAreas(regTotal, exchangedOutArea);
+
+    return {
+      ...reg,
+      exchangedOutArea,
+      netRemainingArea,
+      exchanges: matchedExchanges,
+      lines: updatedLines
+    };
+  });
+}
+
 // GET /api/taj-residencia/land-acquisition/registries
 router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   const { moza, search = '', page = 1, limit = 50 } = req.query;
@@ -384,14 +526,130 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   const grandMarla = Math.floor(rem1 / SARSAI_PER_MARLA);
   const grandSarsai = rem1 % SARSAI_PER_MARLA;
 
-  const mapped = await attachTransferDocsToRegistries(rows.map(mapRegistry));
+  // Compute exchange aggregates for active filter
+  const excFilter = { isActive: true };
+  if (filter.moza) {
+    excFilter.$or = [
+      { moza: filter.moza },
+      { 'inLandLines.moza': filter.moza },
+      { 'outLandLines.moza': filter.moza }
+    ];
+  }
+  const activeExchanges = await LandExchange.find(excFilter)
+    .populate('party', 'name cnic phoneNumber')
+    .populate('moza', 'name slug')
+    .populate('inLandLines.moza', 'name slug')
+    .lean();
+
+  let excOutSarsais = 0;
+  let excInSarsais = 0;
+  activeExchanges.forEach((exc) => {
+    (exc.outLandLines || []).forEach((l) => {
+      excOutSarsais += toSarsais(normalizeArea(l.surrenderedArea));
+    });
+    (exc.inLandLines || []).forEach((l) => {
+      excInSarsais += toSarsais(normalizeArea(l.acquiredArea));
+    });
+  });
+
+  const netEffectiveSarsais = Math.max(0, totalSarsais - excOutSarsais + excInSarsais);
+
+  const mappedWithTransfers = await attachTransferDocsToRegistries(rows.map(mapRegistry));
+  const mapped = await attachExchangeDataToRegistries(mappedWithTransfers);
+
+  // Synthesize In Land exchange records into legal acquisition entries
+  const exchangeInRows = [];
+  activeExchanges.forEach((exc) => {
+    (exc.inLandLines || []).forEach((inL, idx) => {
+      const inMozaId = String(inL.moza?._id || inL.moza || exc.moza?._id || exc.moza || '');
+      if (filter.moza && inMozaId !== String(filter.moza)) {
+        return;
+      }
+
+      const inArea = normalizeArea(inL.acquiredArea);
+      if (toSarsais(inArea) === 0) return;
+
+      const regNo = inL.registryNo || `(Exch: ${exc.exchangeRef})`;
+      const inteqalNo = inL.inteqalNo || '—';
+      const khewatNo = inL.khewatNo || '—';
+      const khasraNo = inL.khasraNo || '—';
+
+      if (search && search.trim()) {
+        const clean = search.trim().toLowerCase();
+        const matches = String(exc.exchangeRef || '').toLowerCase().includes(clean) ||
+          String(regNo).toLowerCase().includes(clean) ||
+          String(inteqalNo).toLowerCase().includes(clean) ||
+          String(khewatNo).toLowerCase().includes(clean) ||
+          String(khasraNo).toLowerCase().includes(clean) ||
+          String(exc.party?.name || '').toLowerCase().includes(clean);
+        if (!matches) return;
+      }
+
+      exchangeInRows.push({
+        _id: `exchange-in-${exc._id}-${idx}`,
+        isExchangeIn: true,
+        exchangeId: exc._id,
+        exchangeRef: exc.exchangeRef,
+        dealNo: exc.dealNo,
+        registryDate: exc.exchangeDate,
+        moza: inL.moza || exc.moza,
+        khewatNo,
+        registryNo: regNo,
+        inteqalNo,
+        seller: exc.party,
+        purchaser: { name: 'Taj Residencia (Exchange In)' },
+        dealer: null,
+        totalArea: inArea,
+        exchangedOutArea: { kanal: 0, marla: 0, sarsai: 0 },
+        netRemainingArea: inArea,
+        lines: [{
+          _id: inL._id || `in-line-${idx}`,
+          khewatNo,
+          khasraNo,
+          khasraArea: inL.khasraArea || inArea,
+          acquiredArea: inArea,
+          landWithMalkiyat: inArea,
+          transferPercent: 100,
+          remarks: inL.remarks || `Acquired via Land Exchange ${exc.exchangeRef}`
+        }],
+        registryDocAttachments: (exc.attachments || []).map((att) => ({
+          ...att,
+          originalName: att.originalName || `Exchange Doc (${exc.exchangeRef})`
+        })),
+        inteqalDocAttachments: []
+      });
+    });
+  });
+
+  const combinedRegistries = [...mapped, ...exchangeInRows].sort((a, b) => {
+    const da = a.registryDate ? new Date(a.registryDate).getTime() : 0;
+    const db = b.registryDate ? new Date(b.registryDate).getTime() : 0;
+    return db - da;
+  });
 
   res.json({
     success: true,
     data: {
-      registries: mapped,
-      pagination: { page: pageNum, limit: limitNum, total },
-      grandTotal: { kanal: grandKanal, marla: grandMarla, sarsai: grandSarsai }
+      registries: combinedRegistries,
+      pagination: { page: pageNum, limit: limitNum, total: total + exchangeInRows.length },
+      grandTotal: { kanal: grandKanal, marla: grandMarla, sarsai: grandSarsai },
+      exchangeTotals: {
+        exchangedOut: {
+          kanal: Math.floor(excOutSarsais / SARSAIS_PER_KANAL),
+          marla: Math.floor((excOutSarsais % SARSAIS_PER_KANAL) / SARSAI_PER_MARLA),
+          sarsai: (excOutSarsais % SARSAIS_PER_KANAL) % SARSAI_PER_MARLA
+        },
+        exchangedIn: {
+          kanal: Math.floor(excInSarsais / SARSAIS_PER_KANAL),
+          marla: Math.floor((excInSarsais % SARSAIS_PER_KANAL) / SARSAI_PER_MARLA),
+          sarsai: (excInSarsais % SARSAIS_PER_KANAL) % SARSAI_PER_MARLA
+        },
+        netEffective: {
+          kanal: Math.floor(netEffectiveSarsais / SARSAIS_PER_KANAL),
+          marla: Math.floor((netEffectiveSarsais % SARSAIS_PER_KANAL) / SARSAI_PER_MARLA),
+          sarsai: (netEffectiveSarsais % SARSAIS_PER_KANAL) % SARSAI_PER_MARLA
+        }
+      }
     }
   });
 }));
@@ -424,7 +682,8 @@ router.get('/registries/:id', authMiddleware, asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Registry not found' });
   }
 
-  const mapped = await attachTransferDocsToRegistries([mapRegistry(registry)]);
+  const mappedWithTransfers = await attachTransferDocsToRegistries([mapRegistry(registry)]);
+  const mapped = await attachExchangeDataToRegistries(mappedWithTransfers);
   res.json({ success: true, data: mapped[0] });
 }));
 
@@ -711,13 +970,16 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
 
   const mozaIds = [...new Set(allKhasras.map((k) => String(k.moza?._id || k.moza)))];
 
-  const [registries, possessions] = await Promise.all([
+  const [registries, possessions, exchanges] = await Promise.all([
     LandRegistry.find({ moza: { $in: mozaIds }, isActive: true })
       .populate('seller', 'name cnic phoneNumber partyDate')
       .populate('purchaser', 'name cnic phoneNumber partyDate')
       .populate('dealer', 'name cnic phoneNumber partyDate')
       .lean(),
-    LandPossession.find({ moza: { $in: mozaIds }, isActive: true }).lean()
+    LandPossession.find({ moza: { $in: mozaIds }, isActive: true }).lean(),
+    LandExchange.find({ isActive: true })
+      .populate('party', 'name cnic phoneNumber')
+      .lean()
   ]);
 
   const registriesByKhasra = new Map();
@@ -748,6 +1010,70 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
       }
       if (!registriesByKhasra.has(kKey)) registriesByKhasra.set(kKey, []);
       registriesByKhasra.get(kKey).push(item);
+    });
+  });
+
+  const exchangesInByKhasra = new Map();
+  const exchangesOutByKhasra = new Map();
+
+  exchanges.forEach((exc) => {
+    // In Land (Acquired in exchange into khasra)
+    (exc.inLandLines || []).forEach((inL, idx) => {
+      const inArea = normalizeArea(inL.acquiredArea);
+      if (toSarsais(inArea) === 0) return;
+      const kId = inL.khasraEntry ? String(inL.khasraEntry) : '';
+      const mozaIdStr = String(inL.moza?._id || inL.moza || exc.moza?._id || exc.moza || '');
+      const kKey = `${mozaIdStr}_${String(inL.khewatNo || '').trim()}_${String(inL.khasraNo || '').trim()}`;
+
+      const inItem = {
+        _id: `exc-in-${exc._id}-${idx}`,
+        exchangeId: exc._id,
+        exchangeRef: exc.exchangeRef,
+        registryNo: inL.registryNo || `(Exch: ${exc.exchangeRef})`,
+        inteqalNo: inL.inteqalNo || '—',
+        dealNo: exc.dealNo,
+        exchangeDate: exc.exchangeDate,
+        seller: exc.party,
+        acquiredArea: inArea,
+        attachments: exc.attachments || [],
+        remarks: inL.remarks || `In Land from Exchange ${exc.exchangeRef}`
+      };
+
+      if (kId) {
+        if (!exchangesInByKhasra.has(kId)) exchangesInByKhasra.set(kId, []);
+        exchangesInByKhasra.get(kId).push(inItem);
+      }
+      if (!exchangesInByKhasra.has(kKey)) exchangesInByKhasra.set(kKey, []);
+      exchangesInByKhasra.get(kKey).push(inItem);
+    });
+
+    // Out Land (Surrendered in exchange from khasra)
+    (exc.outLandLines || []).forEach((outL, idx) => {
+      const outArea = normalizeArea(outL.surrenderedArea);
+      if (toSarsais(outArea) === 0) return;
+      const kId = outL.khasraEntry ? String(outL.khasraEntry) : '';
+      const mozaIdStr = String(outL.moza?._id || outL.moza || exc.moza?._id || exc.moza || '');
+      const kKey = `${mozaIdStr}_${String(outL.khewatNo || '').trim()}_${String(outL.khasraNo || '').trim()}`;
+
+      const outItem = {
+        _id: `exc-out-${exc._id}-${idx}`,
+        exchangeId: exc._id,
+        exchangeRef: exc.exchangeRef,
+        registryNo: outL.registryNo || '—',
+        inteqalNo: outL.inteqalNo || '—',
+        dealNo: exc.dealNo,
+        exchangeDate: exc.exchangeDate,
+        party: exc.party,
+        surrenderedArea: outArea,
+        remarks: outL.remarks || `Surrendered in Exchange ${exc.exchangeRef}`
+      };
+
+      if (kId) {
+        if (!exchangesOutByKhasra.has(kId)) exchangesOutByKhasra.set(kId, []);
+        exchangesOutByKhasra.get(kId).push(outItem);
+      }
+      if (!exchangesOutByKhasra.has(kKey)) exchangesOutByKhasra.set(kKey, []);
+      exchangesOutByKhasra.get(kKey).push(outItem);
     });
   });
 
@@ -788,11 +1114,24 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
     const regList = registriesByKhasra.get(id) || registriesByKhasra.get(fallbackKey) || [];
     const uniqueRegistries = Array.from(new Map(regList.map(r => [String(r._id) + JSON.stringify(r.acquiredArea), r])).values());
 
+    const excInList = exchangesInByKhasra.get(id) || exchangesInByKhasra.get(fallbackKey) || [];
+    const uniqueExcIn = Array.from(new Map(excInList.map(e => [String(e._id) + JSON.stringify(e.acquiredArea), e])).values());
+
+    const excOutList = exchangesOutByKhasra.get(id) || exchangesOutByKhasra.get(fallbackKey) || [];
+    const uniqueExcOut = Array.from(new Map(excOutList.map(e => [String(e._id) + JSON.stringify(e.surrenderedArea), e])).values());
+
     const posList = possessionsByKhasra.get(id) || possessionsByKhasra.get(fallbackKey) || [];
     const uniquePossessions = Array.from(new Map(posList.map(p => [String(p._id) + JSON.stringify(p.possessedArea), p])).values());
 
     const baseline = normalizeArea(entry.landInKhasra);
-    const registered = addAreas(...uniqueRegistries.map(r => r.acquiredArea));
+    const directPurchased = addAreas(...uniqueRegistries.map(r => r.acquiredArea));
+    const exchangedOut = addAreas(...uniqueExcOut.map(e => e.surrenderedArea));
+    const exchangedIn = addAreas(...uniqueExcIn.map(e => e.acquiredArea));
+
+    // Net Acquired in this Khasra = (Direct Purchased - Exchanged Out) + Exchanged In
+    const afterOut = subtractAreas(directPurchased, exchangedOut);
+    const registered = addAreas(afterOut, exchangedIn);
+
     const possessed = addAreas(...uniquePossessions.map(p => p.possessedArea));
     const remainingToRegister = subtractAreas(baseline, registered);
     const remainingToPossess = subtractAreas(registered, possessed);
@@ -802,6 +1141,27 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
     grandRemainingToRegister = addAreas(grandRemainingToRegister, remainingToRegister);
     grandPossessed = addAreas(grandPossessed, possessed);
     grandRemainingToPossess = addAreas(grandRemainingToPossess, remainingToPossess);
+
+    // Combine direct registries + In Land acquisitions for the khasra detail modal
+    const combinedRegistries = [
+      ...uniqueRegistries,
+      ...uniqueExcIn.map((e) => ({
+        _id: e._id,
+        isExchangeIn: true,
+        registryNo: e.registryNo,
+        inteqalNo: e.inteqalNo,
+        dealNo: e.dealNo,
+        registryDate: e.exchangeDate,
+        seller: e.seller,
+        purchaser: { name: 'Taj Residencia (Exchange In)' },
+        dealer: null,
+        acquiredArea: e.acquiredArea,
+        registryDocAttachments: e.attachments || [],
+        inteqalDocAttachments: [],
+        transferPercent: 100,
+        remarks: e.remarks
+      }))
+    ];
 
     return {
       _id: entry._id,
@@ -814,9 +1174,11 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
       remainingToRegister,
       totalPossessed: possessed,
       remainingToPossess,
-      registries: uniqueRegistries,
+      registries: combinedRegistries,
+      exchangesOut: uniqueExcOut,
+      exchangesIn: uniqueExcIn,
       possessions: uniquePossessions,
-      registriesCount: uniqueRegistries.length,
+      registriesCount: combinedRegistries.length,
       possessionsCount: uniquePossessions.length,
       remarks: entry.remarks
     };

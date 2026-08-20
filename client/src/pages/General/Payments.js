@@ -253,28 +253,75 @@ const Payments = () => {
     }
   };
 
+  const openApproveDialog = (settlement) => {
+    setApproveDialog({ open: true, settlement });
+    setApprovalSignature(user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : ''));
+    setApprovalComments('');
+    setApprovalAgree(false);
+  };
+
+  const openRejectDialog = (settlement) => {
+    setRejectDialog({ open: true, settlement });
+    setRejectionSignature(user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : ''));
+    setRejectionComments('');
+    setRejectionAgree(false);
+    setRejectObservations([{ observation: '', severity: 'medium' }]);
+  };
+
+  const openReturnDialog = (settlement) => {
+    setReturnDialog({ open: true, settlement });
+    setReturnSignature(user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : ''));
+    setReturnComments('');
+    setReturnAgree(false);
+    setReturnObservations([{ observation: '', severity: 'medium' }]);
+  };
+
   const handleForward = async () => {
     if (!approvalAgree) {
       toast.error('Please agree to terms');
       return;
     }
 
+    const isForwardedToCeo = approveDialog.settlement?.workflowStatus === 'Forwarded to CEO';
+    const isCashApproval = approveDialog.settlement?.isCashApproval;
+
+    if (isForwardedToCeo && !isCashApproval && !approvalSignature.trim()) {
+      toast.error('Please provide your digital signature to approve');
+      return;
+    }
+
+    const effectiveSignature = approvalSignature.trim() || user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || 'CEO');
+
     if (approveDialog.settlement?.isPurchaseOrder) {
       try {
         setActionLoading(true);
         setError(null);
-        await api.put(`/procurement/purchase-orders/${approveDialog.settlement._id}/forward-to-ceo`, {
-          comments: approvalComments
-        });
-        toast.success('Purchase order forwarded to CEO successfully');
+        if (isForwardedToCeo) {
+          const response = await api.put(`/procurement/purchase-orders/${approveDialog.settlement._id}/ceo-approve`, {
+            approvalComments,
+            digitalSignature: effectiveSignature
+          });
+          let successMessage = 'Purchase order approved by CEO successfully';
+          if (response.data?.sentToFinance) {
+            successMessage = 'Purchase order approved by CEO and sent to Finance (advance terms)';
+          } else if (response.data?.accountsPayableCreated) {
+            successMessage += ' and added to Accounts Payable';
+          }
+          toast.success(successMessage);
+        } else {
+          await api.put(`/procurement/purchase-orders/${approveDialog.settlement._id}/forward-to-ceo`, {
+            comments: approvalComments
+          });
+          toast.success('Purchase order forwarded to CEO successfully');
+        }
         setApproveDialog({ open: false, settlement: null });
         setApprovalComments('');
         setApprovalSignature('');
         setApprovalAgree(false);
         fetchSettlements();
       } catch (error) {
-        setError(error.response?.data?.message || 'Failed to forward purchase order');
-        toast.error('Failed to forward purchase order');
+        setError(error.response?.data?.message || 'Failed to process purchase order');
+        toast.error(error.response?.data?.message || 'Failed to process purchase order');
       } finally {
         setActionLoading(false);
       }
@@ -285,18 +332,27 @@ const Payments = () => {
       try {
         setActionLoading(true);
         setError(null);
-        await api.put(`/cash-approvals/${approveDialog.settlement._id}/forward-to-ceo`, {
-          comments: approvalComments
-        });
-        toast.success('Cash approval forwarded to CEO successfully');
+        if (isForwardedToCeo) {
+          await api.put(`/cash-approvals/${approveDialog.settlement._id}/ceo-approve`, {
+            comments: approvalComments,
+            approvalComments,
+            digitalSignature: effectiveSignature
+          });
+          toast.success('Cash approval approved by CEO and sent to Finance');
+        } else {
+          await api.put(`/cash-approvals/${approveDialog.settlement._id}/forward-to-ceo`, {
+            comments: approvalComments
+          });
+          toast.success('Cash approval forwarded to CEO successfully');
+        }
         setApproveDialog({ open: false, settlement: null });
         setApprovalComments('');
         setApprovalSignature('');
         setApprovalAgree(false);
         fetchSettlements();
       } catch (error) {
-        setError(error.response?.data?.message || 'Failed to forward cash approval');
-        toast.error(error.response?.data?.message || 'Failed to forward cash approval');
+        setError(error.response?.data?.message || 'Failed to process cash approval');
+        toast.error(error.response?.data?.message || 'Failed to process cash approval');
       } finally {
         setActionLoading(false);
       }
@@ -307,21 +363,32 @@ const Payments = () => {
       setActionLoading(true);
       setError(null);
       
-      // Forward to CEO by updating workflow status to "Forwarded to CEO"
-      await paymentSettlementService.updateWorkflowStatus(approveDialog.settlement._id, {
-        workflowStatus: 'Forwarded to CEO',
-        comments: approvalComments || 'Forwarded to CEO'
-      });
+      if (isForwardedToCeo) {
+        const response = await paymentSettlementService.approvePayment(approveDialog.settlement._id, {
+          comments: approvalComments || `Approved by CEO with digital signature: ${approvalSignature}`,
+          digitalSignature: approvalSignature
+        });
+        let successMessage = 'Payment approved successfully';
+        if (response.data?.accountsPayableCreated) {
+          successMessage += ' and added to Accounts Payable';
+        }
+        toast.success(successMessage);
+      } else {
+        await paymentSettlementService.updateWorkflowStatus(approveDialog.settlement._id, {
+          workflowStatus: 'Forwarded to CEO',
+          comments: approvalComments || 'Forwarded to CEO'
+        });
+        toast.success('Payment forwarded to CEO successfully');
+      }
       
-      toast.success('Payment forwarded to CEO successfully');
       setApproveDialog({ open: false, settlement: null });
       setApprovalComments('');
       setApprovalSignature('');
       setApprovalAgree(false);
       fetchSettlements();
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to forward payment');
-      toast.error('Failed to forward payment');
+      setError(error.response?.data?.message || 'Failed to process payment');
+      toast.error(error.response?.data?.message || 'Failed to process payment');
     } finally {
       setActionLoading(false);
     }
@@ -340,11 +407,17 @@ const Payments = () => {
         severity: obs.severity
       }));
 
+    const isForwardedToCeo = rejectDialog.settlement?.workflowStatus === 'Forwarded to CEO';
+
     if (rejectDialog.settlement?.isPurchaseOrder) {
       try {
         setActionLoading(true);
         setError(null);
-        await api.put(`/procurement/purchase-orders/${rejectDialog.settlement._id}/ceo-secretariat-reject`, {
+        const endpoint = isForwardedToCeo
+          ? `/procurement/purchase-orders/${rejectDialog.settlement._id}/ceo-reject`
+          : `/procurement/purchase-orders/${rejectDialog.settlement._id}/ceo-secretariat-reject`;
+
+        await api.put(endpoint, {
           rejectionComments,
           digitalSignature: rejectionSignature,
           observations: observations.length > 0 ? observations : undefined
@@ -358,7 +431,7 @@ const Payments = () => {
         fetchSettlements();
       } catch (error) {
         setError(error.response?.data?.message || 'Failed to reject purchase order');
-        toast.error('Failed to reject purchase order');
+        toast.error(error.response?.data?.message || 'Failed to reject purchase order');
       } finally {
         setActionLoading(false);
       }
@@ -369,7 +442,11 @@ const Payments = () => {
       try {
         setActionLoading(true);
         setError(null);
-        await api.put(`/cash-approvals/${rejectDialog.settlement._id}/ceo-secretariat-reject`, {
+        const endpoint = isForwardedToCeo
+          ? `/cash-approvals/${rejectDialog.settlement._id}/ceo-reject`
+          : `/cash-approvals/${rejectDialog.settlement._id}/ceo-secretariat-reject`;
+
+        await api.put(endpoint, {
           rejectionComments,
           comments: rejectionComments,
           digitalSignature: rejectionSignature,
@@ -410,7 +487,7 @@ const Payments = () => {
       fetchSettlements();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to reject payment');
-      toast.error('Failed to reject payment');
+      toast.error(error.response?.data?.message || 'Failed to reject payment');
     } finally {
       setActionLoading(false);
     }
@@ -429,16 +506,23 @@ const Payments = () => {
         severity: obs.severity
       }));
 
+    const isForwardedToCeo = returnDialog.settlement?.workflowStatus === 'Forwarded to CEO';
+
     if (returnDialog.settlement?.isPurchaseOrder) {
       try {
         setActionLoading(true);
         setError(null);
-        await api.put(`/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-secretariat-return`, {
+        const endpoint = isForwardedToCeo
+          ? `/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-return`
+          : `/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-secretariat-return`;
+
+        await api.put(endpoint, {
           returnComments,
+          comments: returnComments,
           digitalSignature: returnSignature,
           observations: observations.length > 0 ? observations : undefined
         });
-        toast.success('Purchase order returned to procurement successfully');
+        toast.success('Purchase order returned with observations successfully');
         setReturnDialog({ open: false, settlement: null });
         setReturnComments('');
         setReturnSignature('');
@@ -447,7 +531,7 @@ const Payments = () => {
         fetchSettlements();
       } catch (error) {
         setError(error.response?.data?.message || 'Failed to return purchase order');
-        toast.error('Failed to return purchase order');
+        toast.error(error.response?.data?.message || 'Failed to return purchase order');
       } finally {
         setActionLoading(false);
       }
@@ -458,17 +542,17 @@ const Payments = () => {
       try {
         setActionLoading(true);
         setError(null);
-        const obsText = observations.length > 0
-          ? observations.map((obs, idx) => `Observation ${idx + 1} (${obs.severity || 'medium'}): ${obs.observation}`).join('; ')
-          : '';
-        const mergedComments = obsText ? `${returnComments}. Observations: ${obsText}` : returnComments;
-        await api.put(`/cash-approvals/${returnDialog.settlement._id}/ceo-secretariat-return`, {
-          returnComments: mergedComments,
-          comments: mergedComments,
+        const endpoint = isForwardedToCeo
+          ? `/cash-approvals/${returnDialog.settlement._id}/ceo-return`
+          : `/cash-approvals/${returnDialog.settlement._id}/ceo-secretariat-return`;
+
+        await api.put(endpoint, {
+          comments: returnComments,
+          returnComments,
           digitalSignature: returnSignature,
           observations: observations.length > 0 ? observations : undefined
         });
-        toast.success('Cash approval returned to procurement successfully');
+        toast.success('Cash approval returned with observations successfully');
         setReturnDialog({ open: false, settlement: null });
         setReturnComments('');
         setReturnSignature('');
@@ -488,14 +572,7 @@ const Payments = () => {
       setActionLoading(true);
       setError(null);
       
-      // Build comments with observations
-      let returnCommentsText = `Returned from Payments with observations: ${returnComments}`;
-      if (observations.length > 0) {
-        const observationTexts = observations.map((obs, idx) => 
-          `Observation ${idx + 1} (${obs.severity || 'medium'}): ${obs.observation}`
-        ).join('; ');
-        returnCommentsText = `${returnCommentsText}. Observations: ${observationTexts}`;
-      }
+      let returnCommentsText = returnComments;
       if (returnSignature) {
         returnCommentsText = `${returnCommentsText} [Digital Signature: ${returnSignature}]`;
       }
@@ -515,7 +592,7 @@ const Payments = () => {
       fetchSettlements();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to return payment');
-      toast.error('Failed to return payment');
+      toast.error(error.response?.data?.message || 'Failed to return payment');
     } finally {
       setActionLoading(false);
     }
@@ -1566,50 +1643,85 @@ const Payments = () => {
                                                     <ViewIcon fontSize="small" />
                                                   </IconButton>
                                                 </Tooltip>
-                                                {/* Pending tab (tabValue === 0): Forward, Reject, Return with Observations */}
-                                                {tabValue === 0 && settlement.workflowStatus === 'Send to CEO Office' && (
-                                                  <>
-                                                    <Tooltip title="Forward to CEO">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="primary"
-                                                        onClick={() => setApproveDialog({ open: true, settlement })}
-                                                      >
-                                                        <ArrowForwardIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
-                                                    <Tooltip title="Reject">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="error"
-                                                        onClick={() => setRejectDialog({ open: true, settlement })}
-                                                      >
-                                                        <CancelIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
-                                                    <Tooltip title="Return with Observations">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="warning"
-                                                        onClick={() => setReturnDialog({ open: true, settlement })}
-                                                      >
-                                                        <WarningIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
-                                                  </>
-                                                )}
-                                                {/* Returned tab (tabValue === 2): Forward again when CEO returned */}
-                                                {tabValue === 2 && settlement.workflowStatus === 'Returned from CEO Office' && (
-                                                  <Tooltip title="Forward again to CEO">
-                                                    <IconButton
-                                                      size="small"
-                                                      color="primary"
-                                                      onClick={() => setApproveDialog({ open: true, settlement })}
-                                                    >
-                                                      <ArrowForwardIcon fontSize="small" />
-                                                    </IconButton>
-                                                  </Tooltip>
-                                                )}
+
+                                                 {/* Forwarded to CEO: CEO actions (Approve, Reject, Return with Observations) */}
+                                                 {settlement.workflowStatus === 'Forwarded to CEO' && (
+                                                   <>
+                                                     <Tooltip title="Approve (CEO)">
+                                                       <IconButton
+                                                         size="small"
+                                                         color="success"
+                                                         onClick={() => openApproveDialog(settlement)}
+                                                       >
+                                                         <CheckCircleIcon fontSize="small" />
+                                                       </IconButton>
+                                                     </Tooltip>
+                                                     <Tooltip title="Reject (CEO)">
+                                                       <IconButton
+                                                         size="small"
+                                                         color="error"
+                                                         onClick={() => openRejectDialog(settlement)}
+                                                       >
+                                                         <CancelIcon fontSize="small" />
+                                                       </IconButton>
+                                                     </Tooltip>
+                                                     <Tooltip title="Return with Observations (CEO)">
+                                                       <IconButton
+                                                         size="small"
+                                                         color="warning"
+                                                         onClick={() => openReturnDialog(settlement)}
+                                                       >
+                                                         <WarningIcon fontSize="small" />
+                                                       </IconButton>
+                                                     </Tooltip>
+                                                   </>
+                                                 )}
+
+                                                 {/* Send to CEO Office: Secretariat actions (Forward to CEO, Reject, Return with Observations) */}
+                                                 {settlement.workflowStatus === 'Send to CEO Office' && (
+                                                   <>
+                                                     <Tooltip title="Forward to CEO">
+                                                       <IconButton
+                                                         size="small"
+                                                         color="primary"
+                                                         onClick={() => openApproveDialog(settlement)}
+                                                       >
+                                                         <ArrowForwardIcon fontSize="small" />
+                                                       </IconButton>
+                                                     </Tooltip>
+                                                     <Tooltip title="Reject">
+                                                       <IconButton
+                                                         size="small"
+                                                         color="error"
+                                                         onClick={() => openRejectDialog(settlement)}
+                                                       >
+                                                         <CancelIcon fontSize="small" />
+                                                       </IconButton>
+                                                     </Tooltip>
+                                                     <Tooltip title="Return with Observations">
+                                                       <IconButton
+                                                         size="small"
+                                                         color="warning"
+                                                         onClick={() => openReturnDialog(settlement)}
+                                                       >
+                                                         <WarningIcon fontSize="small" />
+                                                       </IconButton>
+                                                     </Tooltip>
+                                                   </>
+                                                 )}
+
+                                                 {/* Returned from CEO Office: Forward again */}
+                                                 {settlement.workflowStatus === 'Returned from CEO Office' && (
+                                                   <Tooltip title="Forward again to CEO">
+                                                     <IconButton
+                                                       size="small"
+                                                       color="primary"
+                                                       onClick={() => openApproveDialog(settlement)}
+                                                     >
+                                                       <ArrowForwardIcon fontSize="small" />
+                                                     </IconButton>
+                                                   </Tooltip>
+                                                 )}
                                               </Stack>
                                             </TableCell>
                                           </TableRow>
@@ -2396,6 +2508,95 @@ const Payments = () => {
             )}
           </Box>
           <Box>
+            {/* View Dialog Quick Actions based on status */}
+            {viewDialog.settlement?.workflowStatus === 'Forwarded to CEO' && (
+              <>
+                <Button
+                  variant="contained"
+                  color="success"
+                  startIcon={<CheckCircleIcon />}
+                  onClick={() => {
+                    const item = viewDialog.settlement;
+                    setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                    openApproveDialog(item);
+                  }}
+                  sx={{ mr: 1 }}
+                >
+                  Approve (CEO)
+                </Button>
+                <Button
+                  variant="contained"
+                  color="error"
+                  startIcon={<CancelIcon />}
+                  onClick={() => {
+                    const item = viewDialog.settlement;
+                    setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                    openRejectDialog(item);
+                  }}
+                  sx={{ mr: 1 }}
+                >
+                  Reject (CEO)
+                </Button>
+                <Button
+                  variant="contained"
+                  color="warning"
+                  startIcon={<WarningIcon />}
+                  onClick={() => {
+                    const item = viewDialog.settlement;
+                    setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                    openReturnDialog(item);
+                  }}
+                  sx={{ mr: 1 }}
+                >
+                  Return with Observations
+                </Button>
+              </>
+            )}
+
+            {viewDialog.settlement?.workflowStatus === 'Send to CEO Office' && (
+              <>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<ArrowForwardIcon />}
+                  onClick={() => {
+                    const item = viewDialog.settlement;
+                    setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                    openApproveDialog(item);
+                  }}
+                  sx={{ mr: 1 }}
+                >
+                  Forward to CEO
+                </Button>
+                <Button
+                  variant="contained"
+                  color="error"
+                  startIcon={<CancelIcon />}
+                  onClick={() => {
+                    const item = viewDialog.settlement;
+                    setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                    openRejectDialog(item);
+                  }}
+                  sx={{ mr: 1 }}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="contained"
+                  color="warning"
+                  startIcon={<WarningIcon />}
+                  onClick={() => {
+                    const item = viewDialog.settlement;
+                    setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                    openReturnDialog(item);
+                  }}
+                  sx={{ mr: 1 }}
+                >
+                  Return with Observations
+                </Button>
+              </>
+            )}
+
             <Button 
               variant="outlined" 
               startIcon={<HistoryIcon />}
@@ -2506,17 +2707,35 @@ const Payments = () => {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Forward to CEO</DialogTitle>
+        <DialogTitle>
+          {approveDialog.settlement?.workflowStatus === 'Forwarded to CEO'
+            ? `Approve ${approveDialog.settlement?.isPurchaseOrder ? 'Purchase Order' : approveDialog.settlement?.isCashApproval ? 'Cash Approval' : 'Payment Settlement'}`
+            : 'Forward to CEO'}
+        </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to forward{' '}
+            {approveDialog.settlement?.workflowStatus === 'Forwarded to CEO'
+              ? 'You are about to give CEO approval for '
+              : 'You are about to forward '}
             {approveDialog.settlement?.isPurchaseOrder
               ? 'purchase order'
               : approveDialog.settlement?.isCashApproval
                 ? 'cash approval'
                 : 'payment settlement'}{' '}
-            to CEO: <strong>{approveDialog.settlement?.referenceNumber}</strong>
+            : <strong>{approveDialog.settlement?.referenceNumber}</strong>
           </Typography>
+
+          {approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' && !approveDialog.settlement?.isCashApproval && (
+            <TextField
+              fullWidth
+              label="Digital Signature (Required)"
+              value={approvalSignature}
+              onChange={(e) => setApprovalSignature(e.target.value)}
+              placeholder="Type your name as digital signature"
+              required
+              sx={{ mb: 2 }}
+            />
+          )}
           
           <TextField
             fullWidth
@@ -2536,11 +2755,17 @@ const Payments = () => {
               />
             }
             label={
-              approveDialog.settlement?.isPurchaseOrder
-                ? 'I confirm that I have reviewed all details and forward this purchase order to CEO'
-                : approveDialog.settlement?.isCashApproval
-                  ? 'I confirm that I have reviewed all details and forward this cash approval to CEO'
-                  : 'I confirm that I have reviewed all payment details and forward this payment settlement to CEO'
+              approveDialog.settlement?.workflowStatus === 'Forwarded to CEO'
+                ? (approveDialog.settlement?.isPurchaseOrder
+                    ? 'I confirm that I have reviewed all details and approve this purchase order as CEO'
+                    : approveDialog.settlement?.isCashApproval
+                      ? 'I confirm that I have reviewed all details and approve this cash approval as CEO'
+                      : 'I confirm that I have reviewed all payment details and approve this payment settlement as CEO')
+                : (approveDialog.settlement?.isPurchaseOrder
+                    ? 'I confirm that I have reviewed all details and forward this purchase order to CEO'
+                    : approveDialog.settlement?.isCashApproval
+                      ? 'I confirm that I have reviewed all details and forward this cash approval to CEO'
+                      : 'I confirm that I have reviewed all payment details and forward this payment settlement to CEO')
             }
           />
         </DialogContent>
@@ -2558,11 +2783,21 @@ const Payments = () => {
           <Button
             onClick={handleForward}
             variant="contained"
-            color="primary"
-            disabled={actionLoading || !approvalAgree}
-            startIcon={<ArrowForwardIcon />}
+            color={approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' ? 'success' : 'primary'}
+            disabled={
+              actionLoading ||
+              !approvalAgree ||
+              (approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' &&
+                !approveDialog.settlement?.isCashApproval &&
+                !approvalSignature.trim())
+            }
+            startIcon={approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' ? <CheckCircleIcon /> : <ArrowForwardIcon />}
           >
-            {actionLoading ? <CircularProgress size={20} /> : 'Forward to CEO'}
+            {actionLoading
+              ? <CircularProgress size={20} />
+              : approveDialog.settlement?.workflowStatus === 'Forwarded to CEO'
+                ? 'Approve'
+                : 'Forward to CEO'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2682,11 +2917,17 @@ const Payments = () => {
               />
             }
             label={
-              rejectDialog.settlement?.isPurchaseOrder
-                ? 'I confirm that I have reviewed all details and reject this purchase order from CEO Secretariat'
-                : rejectDialog.settlement?.isCashApproval
-                  ? 'I confirm that I have reviewed all details and reject this cash approval from CEO Secretariat'
-                  : 'I confirm that I have reviewed all payment details and reject this payment settlement'
+              rejectDialog.settlement?.workflowStatus === 'Forwarded to CEO'
+                ? (rejectDialog.settlement?.isPurchaseOrder
+                    ? 'I confirm that I have reviewed all details and reject this purchase order as CEO'
+                    : rejectDialog.settlement?.isCashApproval
+                      ? 'I confirm that I have reviewed all details and reject this cash approval as CEO'
+                      : 'I confirm that I have reviewed all payment details and reject this payment settlement as CEO')
+                : (rejectDialog.settlement?.isPurchaseOrder
+                    ? 'I confirm that I have reviewed all details and reject this purchase order from CEO Secretariat'
+                    : rejectDialog.settlement?.isCashApproval
+                      ? 'I confirm that I have reviewed all details and reject this cash approval from CEO Secretariat'
+                      : 'I confirm that I have reviewed all payment details and reject this payment settlement')
             }
           />
         </DialogContent>
@@ -2728,11 +2969,17 @@ const Payments = () => {
         fullWidth
       >
         <DialogTitle>
-          {returnDialog.settlement?.isPurchaseOrder
-            ? 'Return Purchase Order with Observations'
-            : returnDialog.settlement?.isCashApproval
-              ? 'Return Cash Approval with Observations'
-              : 'Return Payment with Observations'}
+          {returnDialog.settlement?.workflowStatus === 'Forwarded to CEO'
+            ? (returnDialog.settlement?.isPurchaseOrder
+                ? 'Return Purchase Order with Observations (CEO)'
+                : returnDialog.settlement?.isCashApproval
+                  ? 'Return Cash Approval with Observations (CEO)'
+                  : 'Return Payment with Observations (CEO)')
+            : (returnDialog.settlement?.isPurchaseOrder
+                ? 'Return Purchase Order with Observations'
+                : returnDialog.settlement?.isCashApproval
+                  ? 'Return Cash Approval with Observations'
+                  : 'Return Payment with Observations')}
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -2829,11 +3076,17 @@ const Payments = () => {
               />
             }
             label={
-              returnDialog.settlement?.isPurchaseOrder
-                ? 'I confirm that I have reviewed all details and return this purchase order with observations'
-                : returnDialog.settlement?.isCashApproval
-                  ? 'I confirm that I have reviewed all details and return this cash approval with observations'
-                  : 'I confirm that I have reviewed all payment details and return this payment settlement with observations'
+              returnDialog.settlement?.workflowStatus === 'Forwarded to CEO'
+                ? (returnDialog.settlement?.isPurchaseOrder
+                    ? 'I confirm that I have reviewed all details and return this purchase order with observations as CEO'
+                    : returnDialog.settlement?.isCashApproval
+                      ? 'I confirm that I have reviewed all details and return this cash approval with observations as CEO'
+                      : 'I confirm that I have reviewed all payment details and return this payment settlement with observations as CEO')
+                : (returnDialog.settlement?.isPurchaseOrder
+                    ? 'I confirm that I have reviewed all details and return this purchase order with observations'
+                    : returnDialog.settlement?.isCashApproval
+                      ? 'I confirm that I have reviewed all details and return this cash approval with observations'
+                      : 'I confirm that I have reviewed all payment details and return this payment settlement with observations')
             }
           />
         </DialogContent>

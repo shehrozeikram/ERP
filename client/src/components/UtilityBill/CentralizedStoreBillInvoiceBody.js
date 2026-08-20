@@ -20,6 +20,8 @@ import {
   getStoreInvoiceNarration,
   getStoreLineDescription,
   getStoreLineProductCode,
+  getStoreLineCategoryOrCode,
+  isChartOfAccountsBill,
   getVendorSupplierLine
 } from '../../utils/centralizedStoreBillDisplay';
 
@@ -42,6 +44,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
   if (!bill) return null;
   const lines = bill.billLines || [];
   const totalVal = getStoreInvoiceLinesTotal(bill);
+  const isCoa = isChartOfAccountsBill(bill);
 
   return (
     <>
@@ -126,8 +129,8 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: '4%' }}>S. No</TableCell>
-              <TableCell sx={{ width: '11%' }}>Product Code</TableCell>
-              <TableCell sx={{ width: '22%' }}>Description</TableCell>
+              <TableCell sx={{ width: isCoa ? '18%' : '11%' }}>{isCoa ? 'Category' : 'Product Code'}</TableCell>
+              <TableCell sx={{ width: isCoa ? '25%' : '22%' }}>Description</TableCell>
               <TableCell sx={{ width: '14%', minWidth: 120 }}>Attachments</TableCell>
               <TableCell sx={{ width: '7%' }}>Units</TableCell>
               <TableCell sx={{ width: '9%', textAlign: 'right' }}>Quantity</TableCell>
@@ -140,23 +143,28 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
           <TableBody>
             {lines.map((line, i) => {
               const amt = Number(line.amount) || 0;
-              const lineLabel = getStoreLineDescription(line);
+              const qty = Number(line.quantity) || 1;
+              const rate = Number(line.unitPrice) || amt / qty || amt;
+              const lineLabel = isCoa
+                ? (line.description || line.itemName || '—')
+                : getStoreLineDescription(line);
+              const categoryOrCode = getStoreLineCategoryOrCode(line, isCoa);
               return (
                 <TableRow key={line._id || line.storeItem || i}>
                   <TableCell sx={{ textAlign: 'center' }}>{i + 1}</TableCell>
-                  <TableCell sx={{ wordBreak: 'break-all', fontSize: 11 }}>
-                    {getStoreLineProductCode(line)}
+                  <TableCell sx={{ wordBreak: 'break-word', fontSize: 11, fontWeight: isCoa ? 600 : 400 }}>
+                    {categoryOrCode}
                   </TableCell>
                   <TableCell sx={{ lineHeight: 1.35 }}>{lineLabel}</TableCell>
                   <TableCell>
                     <LineAttachmentsView line={line} previewTitle={lineLabel} />
                   </TableCell>
-                  <TableCell sx={{ textAlign: 'center' }}>Nos</TableCell>
+                  <TableCell sx={{ textAlign: 'center' }}>{line.unit || (isCoa ? '—' : 'Nos')}</TableCell>
                   <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatDecimalPk(1)}
+                    {formatDecimalPk(qty)}
                   </TableCell>
                   <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {formatDecimalPk(amt)}
+                    {formatDecimalPk(rate)}
                   </TableCell>
                   <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {formatDecimalPk(amt)}

@@ -17,7 +17,8 @@ import {
   Typography,
   Button,
   Link,
-  Stack
+  Stack,
+  Chip
 } from '@mui/material';
 import { AttachFile } from '@mui/icons-material';
 import { getRegistry } from '../../services/landAcquisitionRegistryService';
@@ -47,15 +48,27 @@ const DetailField = ({ label, value }) => (
   </Box>
 );
 
-const RegistryDetailDialog = ({ open, onClose, registryId }) => {
+const RegistryDetailDialog = ({ open, onClose, registryId, registryData = null }) => {
   const [registry, setRegistry] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!open || !registryId) {
+    if (!open) {
       setRegistry(null);
       setError('');
+      return;
+    }
+
+    if (registryData) {
+      setRegistry(registryData);
+      setLoading(false);
+      setError('');
+      return;
+    }
+
+    if (!registryId || String(registryId).startsWith('exchange-in-')) {
+      setRegistry(null);
       return;
     }
 
@@ -78,7 +91,7 @@ const RegistryDetailDialog = ({ open, onClose, registryId }) => {
       });
 
     return () => { cancelled = true; };
-  }, [open, registryId]);
+  }, [open, registryId, registryData]);
 
   const lines = registry?.lines || [];
   const attachments = registry?.attachments || [];
@@ -124,15 +137,93 @@ const RegistryDetailDialog = ({ open, onClose, registryId }) => {
                 <DetailField label="Dealer" value={registry.dealer?.name || '—'} />
               </Grid>
               <Grid item xs={6} sm={4} md={3}>
-                <DetailField label="Total area" value={formatKMS(registry.totalArea)} />
+                <DetailField label="Total Registered Area" value={formatKMS(registry.totalArea)} />
+              </Grid>
+              <Grid item xs={6} sm={4} md={3}>
+                <DetailField
+                  label="Exchanged Out"
+                  value={
+                    registry.exchangedOutArea && (registry.exchangedOutArea.kanal > 0 || registry.exchangedOutArea.marla > 0 || registry.exchangedOutArea.sarsai > 0)
+                      ? `- ${formatKMS(registry.exchangedOutArea)}`
+                      : '0-0-0'
+                  }
+                />
+              </Grid>
+              <Grid item xs={6} sm={4} md={3}>
+                <DetailField
+                  label="Exchanged In"
+                  value={
+                    registry.exchangedInArea && (registry.exchangedInArea.kanal > 0 || registry.exchangedInArea.marla > 0 || registry.exchangedInArea.sarsai > 0)
+                      ? `+ ${formatKMS(registry.exchangedInArea)}`
+                      : '0-0-0'
+                  }
+                />
+              </Grid>
+              <Grid item xs={6} sm={4} md={3}>
+                <DetailField
+                  label="Total Acquired Holding"
+                  value={formatKMS(registry.netRemainingArea || registry.totalArea)}
+                />
               </Grid>
               <Grid item xs={6} sm={4} md={3}>
                 <DetailField label="Khasra lines" value={String(lines.length)} />
               </Grid>
             </Grid>
 
+            {/* Land Exchange Impact History if any */}
+            {registry.exchanges?.length > 0 && (
+              <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(237, 108, 2, 0.05)' : '#fffdfa', borderColor: 'primary.light' }}>
+                <Typography variant="subtitle2" fontWeight={700} color="primary.main" sx={{ mb: 1 }}>
+                  Land Exchanges Linked to this Registry ({registry.exchanges.length})
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Exchange Ref</strong></TableCell>
+                        <TableCell><strong>Type</strong></TableCell>
+                        <TableCell><strong>Date</strong></TableCell>
+                        <TableCell><strong>Counterparty</strong></TableCell>
+                        <TableCell><strong>Khasra</strong></TableCell>
+                        <TableCell align="right"><strong>Area Variance</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {registry.exchanges.map((exc, i) => (
+                        <TableRow key={exc._id || i}>
+                          <TableCell><strong>{exc.exchangeRef}</strong></TableCell>
+                          <TableCell>
+                            <Chip
+                              label={exc.type === 'IN' ? 'IN (Acquired)' : 'OUT (Surrendered)'}
+                              size="small"
+                              color={exc.type === 'IN' ? 'success' : 'warning'}
+                              sx={{ fontSize: '0.65rem', height: 20, fontWeight: 700 }}
+                            />
+                          </TableCell>
+                          <TableCell>{formatDate(exc.exchangeDate)}</TableCell>
+                          <TableCell>{exc.partyName}</TableCell>
+                          <TableCell>{exc.khasraNo || '—'}</TableCell>
+                          <TableCell
+                            align="right"
+                            sx={{
+                              fontWeight: 700,
+                              color: exc.type === 'IN' ? 'success.dark' : 'warning.dark'
+                            }}
+                          >
+                            {exc.type === 'IN'
+                              ? `+ ${formatKMS(exc.acquiredArea)}`
+                              : `- ${formatKMS(exc.surrenderedArea)}`}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Paper>
+            )}
+
             <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-              Khasra lines
+              Khasra lines & Total Acquired Holdings
             </Typography>
             <TableContainer component={Paper} variant="outlined">
               <Table size="small">
@@ -142,28 +233,45 @@ const RegistryDetailDialog = ({ open, onClose, registryId }) => {
                     <TableCell><strong>Khewat</strong></TableCell>
                     <TableCell><strong>Khasra</strong></TableCell>
                     <TableCell><strong>Khasra area</strong></TableCell>
-                    <TableCell><strong>Area in registry</strong></TableCell>
+                    <TableCell><strong>Original Registered</strong></TableCell>
+                    <TableCell><strong>Exchanged Out</strong></TableCell>
+                    <TableCell><strong>Exchanged In</strong></TableCell>
+                    <TableCell><strong>Total Acquired Holding</strong></TableCell>
                     <TableCell><strong>Total land owned</strong></TableCell>
                     <TableCell><strong>Transfer %</strong></TableCell>
                     <TableCell><strong>Remarks</strong></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {lines.map((line, idx) => (
-                    <TableRow key={line._id || idx}>
-                      <TableCell>{idx + 1}</TableCell>
-                      <TableCell>{line.khewatNo || '—'}</TableCell>
-                      <TableCell>{line.khasraNo || '—'}</TableCell>
-                      <TableCell>{formatKMS(line.khasraArea)}</TableCell>
-                      <TableCell>{formatKMS(line.acquiredArea)}</TableCell>
-                      <TableCell>{formatKMS(line.landWithMalkiyat)}</TableCell>
-                      <TableCell>{formatTransferPercent(line.transferPercent)}%</TableCell>
-                      <TableCell>{line.remarks || '—'}</TableCell>
-                    </TableRow>
-                  ))}
+                  {lines.map((line, idx) => {
+                    const hasOut = line.exchangedOutArea && (line.exchangedOutArea.kanal > 0 || line.exchangedOutArea.marla > 0 || line.exchangedOutArea.sarsai > 0);
+                    const hasIn = line.exchangedInArea && (line.exchangedInArea.kanal > 0 || line.exchangedInArea.marla > 0 || line.exchangedInArea.sarsai > 0);
+
+                    return (
+                      <TableRow key={line._id || idx}>
+                        <TableCell>{idx + 1}</TableCell>
+                        <TableCell>{line.khewatNo || '—'}</TableCell>
+                        <TableCell>{line.khasraNo || '—'}</TableCell>
+                        <TableCell>{formatKMS(line.khasraArea)}</TableCell>
+                        <TableCell>{formatKMS(line.acquiredArea)}</TableCell>
+                        <TableCell sx={{ color: hasOut ? 'warning.dark' : 'text.secondary', fontWeight: hasOut ? 700 : 400 }}>
+                          {hasOut ? `- ${formatKMS(line.exchangedOutArea)}` : '—'}
+                        </TableCell>
+                        <TableCell sx={{ color: hasIn ? 'success.dark' : 'text.secondary', fontWeight: hasIn ? 700 : 400 }}>
+                          {hasIn ? `+ ${formatKMS(line.exchangedInArea)}` : '—'}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: (hasOut || hasIn) ? 'primary.main' : 'text.primary' }}>
+                          {formatKMS(line.netRemainingArea || line.acquiredArea)}
+                        </TableCell>
+                        <TableCell>{formatKMS(line.landWithMalkiyat)}</TableCell>
+                        <TableCell>{formatTransferPercent(line.transferPercent)}%</TableCell>
+                        <TableCell>{line.remarks || '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                   {!lines.length && (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                      <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
                         No khasra lines recorded.
                       </TableCell>
                     </TableRow>

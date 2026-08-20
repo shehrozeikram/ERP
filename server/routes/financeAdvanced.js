@@ -41,6 +41,7 @@ const { seedChartOfAccountsForCompany } = require('../utils/companyChartOfAccoun
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
+const UtilityBill = require('../models/hr/UtilityBill');
 
 const cashApprovalFinanceAuthoritiesComplete = (ca) => {
   if (!ca) return false;
@@ -247,13 +248,6 @@ router.get('/accounts',
   authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'), 
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    let company = null;
-    try {
-      company = await requireCompanyFromRequest(req);
-    } catch (err) {
-      company = await findHistoricalCompany();
-      if (!company) throw err;
-    }
     const { 
       page = 1, 
       limit = 20, 
@@ -261,7 +255,8 @@ router.get('/accounts',
       category,
       department,
       module,
-      search 
+      search,
+      allCompanies 
     } = req.query;
 
     const baseQuery = { isActive: true };
@@ -280,7 +275,19 @@ router.get('/accounts',
       ];
     }
 
-    const query = companyQuery(baseQuery, company);
+    let query;
+    let company = null;
+    if (allCompanies === 'true' || req.query.companyId === 'all') {
+      query = baseQuery;
+    } else {
+      try {
+        company = await requireCompanyFromRequest(req);
+      } catch (err) {
+        company = await findHistoricalCompany();
+        if (!company) throw err;
+      }
+      query = companyQuery(baseQuery, company);
+    }
 
     // Auto-seed system accounts if the company has zero accounts seeded
     const companyQueryObj = companyQuery({ isActive: true }, company);
@@ -481,6 +488,89 @@ router.post('/accounts',
     res.status(201).json({
       success: true,
       message: 'Account created successfully',
+      data: account
+    });
+  })
+);
+
+// @route   PUT /api/finance/accounts/:id
+// @desc    Update account
+// @access  Private (Finance and Admin)
+router.put('/accounts/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('name').optional().trim().notEmpty().withMessage('Account name cannot be empty')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const account = await Account.findById(req.params.id);
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Account not found' });
+    }
+
+    const {
+      name,
+      accountNumber,
+      accountType,
+      category,
+      detailType,
+      type,
+      description,
+      parentAccount,
+      isSubaccount,
+      isSubAccount,
+      currency,
+      isActive,
+      notes
+    } = req.body;
+
+    if (name !== undefined) account.name = name.trim();
+    if (accountNumber !== undefined && String(accountNumber).trim() !== account.accountNumber) {
+      const existing = await Account.findOne({
+        _id: { $ne: account._id },
+        companyId: account.companyId,
+        accountNumber: String(accountNumber).trim()
+      });
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: `Account number "${String(accountNumber).trim()}" already exists for this company`
+        });
+      }
+      account.accountNumber = String(accountNumber).trim();
+    }
+    if (category || accountType) {
+      const cat = category || accountType;
+      account.category = cat;
+      const section = require('../config/accountDetailTypes').getSectionForAccountType(cat);
+      if (section) {
+        account.type = section === 'Income' ? 'Revenue' : section;
+      }
+    }
+    if (type !== undefined) account.type = type;
+    if (detailType !== undefined) account.detailType = detailType;
+    if (description !== undefined) account.description = description;
+    if (parentAccount !== undefined) account.parentAccount = parentAccount || null;
+    if (isSubaccount !== undefined || isSubAccount !== undefined) {
+      account.isSubAccount = Boolean(isSubaccount ?? isSubAccount);
+    }
+    if (currency !== undefined) account.currency = currency;
+    if (isActive !== undefined) account.isActive = Boolean(isActive);
+    if (notes !== undefined) account.notes = notes;
+
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Account updated successfully',
       data: account
     });
   })
@@ -2480,33 +2570,117 @@ router.post('/accounts-payable',
       });
     }
 
-    // Use FinanceHelper to create AP and post to GL (lineItems from form; same pattern as REF-FINAL-001)
+    // Use FinanceHelper to create AP and post to GL with account details
     const lineItems = (req.body.lineItems || []).map(li => ({
       description: li.description || 'Line item',
       quantity: Number(li.quantity) || 1,
-      unitPrice: Number(li.unitPrice) ?? Number(li.amount) ?? 0
+      unitPrice: Number(li.unitPrice) ?? Number(li.amount) ?? 0,
+      amount: (Number(li.quantity) || 1) * (Number(li.unitPrice) ?? Number(li.amount) ?? 0),
+      taxRate: Number(li.taxRate) || 0,
+      taxAmount: Number(li.taxAmount) || 0,
+      account: li.account || li.accountId || null,
+      accountNumber: li.accountNumber || '',
+      company: li.company || req.body.company || '',
+      project: li.project || req.body.project || ''
     })).filter(li => li.unitPrice >= 0);
+
+    const expenseJournalLines = lineItems
+      .filter(li => li.account || li.accountNumber)
+      .map(li => ({
+        account: li.account || null,
+        accountNumber: li.accountNumber || null,
+        debit: li.amount || (li.quantity * li.unitPrice),
+        description: li.description || `Expense — ${req.body.billNumber}`
+      }));
+
     const company = await resolveCompanyForFinanceRoute(req);
     const apEntry = await FinanceHelper.createAPFromBill({
       companyId: company._id,
+      company: req.body.company || '',
+      project: req.body.project || '',
       vendorName: req.body.vendor.name,
       vendorEmail: req.body.vendor.email || '',
-      vendorId: req.body.vendor.vendorId || null,
+      vendorId: req.body.vendor.vendorId || req.body.vendor._id || null,
       billNumber: req.body.billNumber,
+      vendorInvoiceNumber: req.body.vendorInvoiceNumber || '',
       billDate: req.body.billDate,
       dueDate: req.body.dueDate,
-      amount: req.body.totalAmount,
-      department: req.body.department || 'general',
-      module: 'general',
+      amount: Number(req.body.totalAmount) || 0,
+      paymentTerms: req.body.paymentTerms,
+      notes: req.body.notes || req.body.memo || lineItems.map(l => l.description).filter(Boolean).join('; ') || `Expense Bill — ${req.body.billNumber}`,
+      department: req.body.department || 'finance',
+      module: 'finance',
       referenceId: null,
+      referenceType: 'manual',
       lineItems: lineItems.length > 0 ? lineItems : undefined,
+      expenseJournalLines: expenseJournalLines.length > 0 ? expenseJournalLines : undefined,
+      multiLineExpenseJournal: expenseJournalLines.length > 0,
       createdBy: req.user._id
     });
+
+    if (Array.isArray(req.body.attachments) && req.body.attachments.length > 0 && apEntry) {
+      apEntry.attachments = req.body.attachments;
+      await apEntry.save();
+    }
 
     res.status(201).json({
       success: true,
       message: 'Bill created successfully',
       data: apEntry
+    });
+  })
+);
+
+// @route   DELETE /api/finance/accounts-payable/:id
+// @desc    Delete a bill from accounts payable
+// @access  Private (Finance and Admin)
+router.delete('/accounts-payable/:id',
+  authorize('super_admin', 'admin', 'finance_manager', 'general_manager'),
+  asyncHandler(async (req, res) => {
+    const bill = await AccountsPayable.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bill not found'
+      });
+    }
+
+    if (bill.amountPaid > 0 || (bill.payments && bill.payments.length > 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete a bill that has recorded payments. Please void/remove payments first.'
+      });
+    }
+
+    // Clean up Journal Entries associated with this bill
+    try {
+      await JournalEntry.deleteMany({
+        $or: [
+          { referenceId: bill._id },
+          { 'sourceDocument.id': bill._id },
+          { narration: { $regex: bill.billNumber, $options: 'i' } }
+        ]
+      });
+    } catch (jErr) {
+      console.warn('Could not clean up journal entries for deleted bill', jErr);
+    }
+
+    // If linked to utility bill, remove or update
+    if (bill.referenceType === 'utility_bill' && bill.referenceId) {
+      try {
+        await UtilityBill.findByIdAndUpdate(bill.referenceId, {
+          $set: { status: 'Draft' }
+        });
+      } catch (uErr) {
+        console.warn('Could not update linked utility bill', uErr);
+      }
+    }
+
+    await AccountsPayable.findByIdAndDelete(req.params.id);
+
+    res.json({
+      success: true,
+      message: `Bill ${bill.billNumber} deleted successfully`
     });
   })
 );

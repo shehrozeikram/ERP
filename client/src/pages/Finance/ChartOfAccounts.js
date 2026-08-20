@@ -34,7 +34,8 @@ import {
   DialogActions,
   Stack,
   Divider,
-  Pagination
+  Pagination,
+  Switch
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -46,7 +47,8 @@ import {
   Refresh as RefreshIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowRight as KeyboardArrowRightIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
@@ -257,6 +259,24 @@ const ChartOfAccounts = () => {
   const [accountToDelete, setAccountToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Edit Account state
+  const [editAccountDialog, setEditAccountDialog] = useState(false);
+  const [editingAccount, setEditingAccount] = useState(null);
+  const [editAccountForm, setEditAccountForm] = useState({
+    id: '',
+    accountNumber: '',
+    name: '',
+    section: '',
+    accountType: '',
+    detailType: '',
+    description: '',
+    parentAccount: '',
+    isSubaccount: false,
+    isActive: true
+  });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState('');
+
   useEffect(() => {
     if (!selectedCompanyId) return;
     fetchSummaryAccounts();
@@ -344,6 +364,72 @@ const ChartOfAccounts = () => {
 
   const closeNewAccountDialog = () => {
     setNewAccountDialog(false);
+  };
+
+  const openEditAccountDialog = (account) => {
+    setEditingAccount(account);
+    const cat = account.category || account.type;
+    let section = getSectionForAccountType(cat);
+    if (!section && account.type) {
+      section = account.type === 'Revenue' ? 'Income' : account.type;
+    }
+    setEditAccountForm({
+      id: account._id || account.id,
+      accountNumber: account.accountNumber || '',
+      name: account.name || '',
+      section: section || 'Asset',
+      accountType: cat || '',
+      detailType: account.detailType || '',
+      description: account.description || '',
+      parentAccount: account.parentAccount?._id || account.parentAccount || '',
+      isSubaccount: Boolean(account.isSubAccount || account.parentAccount),
+      isActive: account.isActive !== false
+    });
+    fetchDetailTypes();
+    setParentAccounts((accounts || []).filter((a) => a && (a._id || a.id) && (String(a._id || a.id) !== String(account._id || account.id)) && (a.name || a.accountNumber)));
+    fetchParentAccounts();
+    setEditError('');
+    setEditAccountDialog(true);
+  };
+
+  const closeEditAccountDialog = () => {
+    setEditAccountDialog(false);
+    setEditingAccount(null);
+    setEditError('');
+  };
+
+  const handleSaveEditAccount = async () => {
+    if (!editAccountForm.name.trim()) {
+      setEditError('Account name is required');
+      return;
+    }
+    if (!editAccountForm.accountNumber.trim()) {
+      setEditError('Account number is required');
+      return;
+    }
+    setEditSubmitting(true);
+    setEditError('');
+    try {
+      const payload = {
+        name: editAccountForm.name.trim(),
+        accountNumber: editAccountForm.accountNumber.trim(),
+        category: editAccountForm.accountType || undefined,
+        accountType: editAccountForm.accountType || undefined,
+        detailType: editAccountForm.detailType || undefined,
+        description: editAccountForm.description?.trim() || '',
+        parentAccount: editAccountForm.isSubaccount && editAccountForm.parentAccount ? editAccountForm.parentAccount : null,
+        isSubAccount: Boolean(editAccountForm.isSubaccount && editAccountForm.parentAccount),
+        isActive: editAccountForm.isActive
+      };
+      await api.put(`/finance/accounts/${editAccountForm.id}`, payload);
+      await fetchAccounts();
+      await fetchSummaryAccounts();
+      closeEditAccountDialog();
+    } catch (err) {
+      setEditError(err.response?.data?.message || 'Failed to update account');
+    } finally {
+      setEditSubmitting(false);
+    }
   };
 
   const getSectionForAccountType = (accountType) => {
@@ -638,6 +724,16 @@ const ChartOfAccounts = () => {
               >
                 Account history
               </Button>
+              <Tooltip title="Edit account">
+                <IconButton
+                  size="small"
+                  color="primary"
+                  onClick={() => openEditAccountDialog(account)}
+                  aria-label="Edit account"
+                >
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               {canDeleteAccount(account) ? (
                 <Tooltip title="Delete account">
                   <IconButton
@@ -1217,6 +1313,262 @@ const ChartOfAccounts = () => {
             sx={{ minWidth: 120 }}
           >
             {submitting ? 'Saving...' : 'Create account'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Account Dialog */}
+      <Dialog
+        open={editAccountDialog}
+        onClose={closeEditAccountDialog}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            minHeight: 520,
+            boxShadow: 24
+          }
+        }}
+      >
+        <DialogTitle
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            pt: 2.5,
+            px: 3,
+            pb: 2.5,
+            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+            borderBottom: '1px solid',
+            borderColor: 'divider'
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: theme.palette.primary.main, width: 40, height: 40 }}>
+              <EditIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" component="span" fontWeight={600}>
+                Edit Account
+              </Typography>
+              {editingAccount && (
+                <Typography variant="body2" color="text.secondary" display="block">
+                  {editingAccount.accountNumber} — {editingAccount.name}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+          <IconButton onClick={closeEditAccountDialog} size="small" sx={{ color: 'text.secondary' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3, pt: 3, overflow: 'visible' }}>
+          {editError && (
+            <Alert severity="error" sx={{ mb: 3 }} onClose={() => setEditError('')}>
+              {editError}
+            </Alert>
+          )}
+          <Box sx={{ pt: 1, overflow: 'visible' }}>
+            <Stack spacing={3}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Account Number"
+                    value={editAccountForm.accountNumber}
+                    onChange={(e) => setEditAccountForm((f) => ({ ...f, accountNumber: e.target.value }))}
+                    placeholder="e.g. 1001"
+                    size="medium"
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 } }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={8}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Account Name"
+                    value={editAccountForm.name}
+                    onChange={(e) => setEditAccountForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Cash in Hand"
+                    size="medium"
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 } }}
+                  />
+                </Grid>
+              </Grid>
+
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Account classification
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth required size="medium">
+                      <InputLabel>Section</InputLabel>
+                      <Select
+                        value={editAccountForm.section}
+                        label="Section"
+                        onChange={(e) =>
+                          setEditAccountForm((f) => ({
+                            ...f,
+                            section: e.target.value,
+                            accountType: '',
+                            detailType: ''
+                          }))
+                        }
+                        sx={{ borderRadius: 1.5 }}
+                      >
+                        <MenuItem value="">Select section</MenuItem>
+                        {['Asset', 'Liability', 'Equity', 'Income', 'Expense'].map((s) => (
+                          <MenuItem key={s} value={s}>
+                            {s}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth required size="medium">
+                      <InputLabel>Account type</InputLabel>
+                      <Select
+                        value={editAccountForm.accountType}
+                        label="Account type"
+                        onChange={(e) =>
+                          setEditAccountForm((f) => ({
+                            ...f,
+                            accountType: e.target.value,
+                            detailType: ''
+                          }))
+                        }
+                        disabled={!editAccountForm.section}
+                        sx={{ borderRadius: 1.5 }}
+                      >
+                        <MenuItem value="">Select type</MenuItem>
+                        {(accountTypesGrouped[editAccountForm.section] || []).map((t) => (
+                          <MenuItem key={t} value={t}>
+                            {t}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth size="medium">
+                      <InputLabel>Detail type</InputLabel>
+                      <Select
+                        value={editAccountForm.detailType}
+                        label="Detail type"
+                        onChange={(e) => setEditAccountForm((f) => ({ ...f, detailType: e.target.value }))}
+                        disabled={!editAccountForm.accountType}
+                        sx={{ borderRadius: 1.5 }}
+                      >
+                        <MenuItem value="">Select detail type</MenuItem>
+                        {(detailTypesByAccountType[editAccountForm.accountType] || []).map((d) => (
+                          <MenuItem key={d} value={d}>
+                            {d}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+              </Box>
+
+              <TextField
+                fullWidth
+                multiline
+                rows={2}
+                label="Description"
+                value={editAccountForm.description}
+                onChange={(e) => setEditAccountForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Optional description of this account"
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 } }}
+              />
+
+              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={editAccountForm.isSubaccount}
+                      onChange={(e) =>
+                        setEditAccountForm((f) => ({
+                          ...f,
+                          isSubaccount: e.target.checked,
+                          parentAccount: e.target.checked ? f.parentAccount : ''
+                        }))
+                      }
+                      color="primary"
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="body2" fontWeight={500}>
+                        Make this a subaccount
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Nest under a parent account for better reporting hierarchy
+                      </Typography>
+                    </Box>
+                  }
+                />
+                {editAccountForm.isSubaccount && (
+                  <Box sx={{ mt: 2, pl: 4 }}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Parent account</InputLabel>
+                      <Select
+                        value={editAccountForm.parentAccount}
+                        label="Parent account"
+                        onChange={(e) => setEditAccountForm((f) => ({ ...f, parentAccount: e.target.value }))}
+                        disabled={parentAccountsLoading}
+                      >
+                        <MenuItem value="">Select parent</MenuItem>
+                        {parentAccountOptions
+                          .filter((p) => String(p._id || p.id) !== String(editAccountForm.id))
+                          .map((a) => (
+                            <MenuItem key={a._id || a.id} value={a._id || a.id}>
+                              {a.accountNumber ? `${a.accountNumber} — ` : ''}
+                              {a.name}
+                            </MenuItem>
+                          ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                )}
+              </Box>
+
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, bgcolor: 'grey.50', borderRadius: 1.5 }}>
+                <Typography variant="body2" fontWeight={500}>
+                  Account Status
+                </Typography>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={editAccountForm.isActive}
+                      onChange={(e) => setEditAccountForm((f) => ({ ...f, isActive: e.target.checked }))}
+                      color="success"
+                    />
+                  }
+                  label={editAccountForm.isActive ? 'Active' : 'Inactive'}
+                />
+              </Box>
+            </Stack>
+          </Box>
+        </DialogContent>
+        <Divider />
+        <DialogActions sx={{ px: 3, py: 2.5, gap: 1.5, bgcolor: 'grey.50' }}>
+          <Button onClick={closeEditAccountDialog} size="medium">
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveEditAccount}
+            disabled={editSubmitting}
+            size="medium"
+            startIcon={editSubmitting ? null : <CheckIcon />}
+            sx={{ minWidth: 120 }}
+          >
+            {editSubmitting ? 'Saving...' : 'Save changes'}
           </Button>
         </DialogActions>
       </Dialog>

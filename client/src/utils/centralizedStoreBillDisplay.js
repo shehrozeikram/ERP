@@ -1,3 +1,5 @@
+import { getBillNarrationDisplay } from './documentNarrationDisplay';
+
 /** Shared formatters and line helpers for centralized store bills (detail + audit workflow). */
 
 export const displayBillValue = (v) =>
@@ -59,8 +61,42 @@ export const getStoreLineDescription = (line) => {
   return parts.join(' — ') || '—';
 };
 
-export const getStoreInvoiceNarration = (bill) =>
-  displayBillValue(bill?.notes) || displayBillValue(bill?.forWhat) || '—';
+export const isChartOfAccountsBill = (bill) => {
+  if (bill?.referenceType === 'utility_bill' || bill?.module === 'taj_utilities') return false;
+  if (bill?.useCentralizedStore) return false;
+  if (bill?.referenceType === 'manual' || bill?.module === 'finance') return true;
+  const lines = bill?.billLines || bill?.lineItems || [];
+  return lines.some((l) => l?.account || l?.accountNumber || l?.category);
+};
+
+export const getStoreLineCategoryOrCode = (line, isCoaBill) => {
+  if (isCoaBill) {
+    if (line?.category && String(line.category).trim() !== '' && String(line.category).trim() !== '—') {
+      return String(line.category).trim();
+    }
+    if (line?.accountName && String(line.accountName).trim() !== '') {
+      const num = line.accountNumber ? ` (${String(line.accountNumber).trim()})` : '';
+      return `${String(line.accountName).trim()}${num}`;
+    }
+    if (line?.account && typeof line.account === 'object' && line.account.name) {
+      const num = line.account.accountNumber ? ` (${String(line.account.accountNumber).trim()})` : '';
+      return `${String(line.account.name).trim()}${num}`;
+    }
+    if (line?.accountNumber && String(line.accountNumber).trim() !== '') {
+      return `Account ${String(line.accountNumber).trim()}`;
+    }
+    if (line?.categoryName && String(line.categoryName).trim() !== '') {
+      return String(line.categoryName).trim();
+    }
+    if (line?.itemCode && String(line.itemCode).trim() !== '—') {
+      return String(line.itemCode).trim();
+    }
+    return '—';
+  }
+  return getStoreLineProductCode(line);
+};
+
+export const getStoreInvoiceNarration = (bill) => getBillNarrationDisplay(bill);
 
 export const getStoreInvoiceLinesTotal = (bill) =>
   (bill?.billLines || []).reduce((s, l) => s + (Number(l?.amount) || 0), 0) || Number(bill?.amount) || 0;
