@@ -44,7 +44,6 @@ import {
   Close as CloseIcon,
   AttachMoney as AttachMoneyIcon,
   Print as PrintIcon,
-  Search as SearchIcon,
   Add as AddIcon,
   History as HistoryIcon,
   Refresh as RefreshIcon,
@@ -78,7 +77,6 @@ const ExecutiveCeoPaymentsSection = () => {
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
   const [filterTab, setFilterTab] = useState(0); // 0: All, 1: PO, 2: CA, 3: Settlement
-  const [searchQuery, setSearchQuery] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
   // Dialog states
@@ -213,16 +211,6 @@ const ExecutiveCeoPaymentsSection = () => {
     if (filterTab === 1 && !p.isPurchaseOrder) return false;
     if (filterTab === 2 && !p.isCashApproval) return false;
     if (filterTab === 3 && !p.isPaymentSettlement) return false;
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchRef = (p.displayRef || '').toLowerCase().includes(q);
-      const matchCompany = (getCompanyValue(p) || '').toLowerCase().includes(q);
-      const matchVendor = (p.displayVendor || '').toLowerCase().includes(q);
-      const matchNotes = (p.displayNotes || '').toLowerCase().includes(q);
-      const matchDept = (p.department || '').toLowerCase().includes(q);
-      return matchRef || matchCompany || matchVendor || matchNotes || matchDept;
-    }
     return true;
   });
 
@@ -895,6 +883,28 @@ const ExecutiveCeoPaymentsSection = () => {
     setReturnObservations([{ observation: '', severity: 'medium' }]);
   };
 
+  const openWorkflowHistory = async (item) => {
+    if (!item) return;
+    let fullDoc = item;
+    if (item.isPurchaseOrder && (!item.workflowHistory || item.workflowHistory.length === 0)) {
+      try {
+        const r = await api.get(`/procurement/purchase-orders/${item._id}`);
+        fullDoc = { ...item, ...(r.data?.data || {}) };
+      } catch (_) {}
+    } else if (item.isCashApproval && (!item.workflowHistory || item.workflowHistory.length === 0)) {
+      try {
+        const r = await api.get(`/cash-approvals/${item._id}`);
+        fullDoc = { ...item, ...(r.data?.data || {}) };
+      } catch (_) {}
+    } else if (item.isPaymentSettlement && (!item.workflowHistory || item.workflowHistory.length === 0)) {
+      try {
+        const r = await paymentSettlementService.getPaymentSettlement(item._id);
+        fullDoc = { ...item, ...(r.data?.data || r.data?.settlement || {}) };
+      } catch (_) {}
+    }
+    setWorkflowHistoryDialog({ open: true, settlement: fullDoc });
+  };
+
   // Submit Approval
   const handleApproveSubmit = async () => {
     if (!approvalAgree) {
@@ -1380,17 +1390,6 @@ const ExecutiveCeoPaymentsSection = () => {
             <Tab label={`Cash Approvals (${caItems.length})`} />
             <Tab label={`Settlements (${settlementItems.length})`} />
           </Tabs>
-
-          <TextField
-            size="small"
-            placeholder="Search by ref, vendor, notes..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: <SearchIcon fontSize="small" sx={{ color: 'text.secondary', mr: 1 }} />
-            }}
-            sx={{ width: { xs: '100%', sm: 260 }, bgcolor: 'background.paper', borderRadius: 2 }}
-          />
         </Box>
 
         {/* Content Table or Empty State */}
@@ -1442,7 +1441,7 @@ const ExecutiveCeoPaymentsSection = () => {
                   <TableCell align="right" sx={{ fontWeight: 700 }}>
                     Amount (PKR)
                   </TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, width: 220 }}>
+                  <TableCell align="center" sx={{ fontWeight: 700, width: 240 }}>
                     CEO Actions
                   </TableCell>
                 </TableRow>
@@ -1530,6 +1529,22 @@ const ExecutiveCeoPaymentsSection = () => {
                               }}
                             >
                               <ViewIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+
+                          {/* Workflow History */}
+                          <Tooltip title="See Workflow History">
+                            <IconButton
+                              size="small"
+                              color="info"
+                              onClick={() => openWorkflowHistory(item)}
+                              sx={{
+                                border: '1px solid rgba(2, 136, 209, 0.3)',
+                                bgcolor: alpha('#0288d1', 0.05),
+                                '&:hover': { bgcolor: alpha('#0288d1', 0.15) }
+                              }}
+                            >
+                              <HistoryIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
 
@@ -2224,7 +2239,7 @@ const ExecutiveCeoPaymentsSection = () => {
             <Button
               variant="outlined"
               startIcon={<HistoryIcon />}
-              onClick={() => setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement })}
+              onClick={() => openWorkflowHistory(viewDialog.settlement)}
               sx={{ minWidth: 150, mr: 1 }}
             >
               See Workflow History
@@ -2658,8 +2673,14 @@ const ExecutiveCeoPaymentsSection = () => {
         <WorkflowHistoryDialog
           open={workflowHistoryDialog.open}
           onClose={() => setWorkflowHistoryDialog({ open: false, settlement: null })}
-          history={workflowHistoryDialog.settlement?.workflowHistory || []}
-          title={`Workflow History: ${workflowHistoryDialog.settlement?.displayRef || ''}`}
+          document={workflowHistoryDialog.settlement}
+          documentType={
+            workflowHistoryDialog.settlement?.isPurchaseOrder || workflowHistoryDialog.settlement?.orderNumber
+              ? 'purchaseOrder'
+              : workflowHistoryDialog.settlement?.isCashApproval || workflowHistoryDialog.settlement?.caNumber
+              ? 'cashApproval'
+              : 'settlement'
+          }
         />
       )}
     </Card>
