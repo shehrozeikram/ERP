@@ -42,16 +42,11 @@ import {
   Cancel as CancelIcon,
   Warning as WarningIcon,
   Close as CloseIcon,
-  Payment as PaymentIcon,
-  Business as BusinessIcon,
-  Person as PersonIcon,
   AttachMoney as AttachMoneyIcon,
   Print as PrintIcon,
   Search as SearchIcon,
   Add as AddIcon,
-  Schedule as ScheduleIcon,
   History as HistoryIcon,
-  ArrowForward as ArrowForwardIcon,
   Refresh as RefreshIcon,
   VerifiedUser as VerifiedUserIcon,
   AccountBalanceWallet as WalletIcon,
@@ -65,13 +60,15 @@ import { useAuth } from '../../contexts/AuthContext';
 import paymentSettlementService from '../../services/paymentSettlementService';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, formatDateTime } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../WorkflowHistoryDialog';
+import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../common/DigitalSignatureImage';
 import CashApprovalDetailTabsView from '../Procurement/CashApprovalDetailTabsView';
 import CashApprovalGeneralDetailShell from '../CashApprovals/CashApprovalGeneralDetailShell';
 import { isGeneralModuleCashApproval } from '../CashApprovals/cashApprovalGeneralDocumentUtils';
 import ComparativeStatementView from '../Procurement/ComparativeStatementView';
+import { WorkflowAuditFeedbackPanel } from '../Admin/workflowAuditReturn';
 
 const ExecutiveCeoPaymentsSection = () => {
   const theme = useTheme();
@@ -96,6 +93,13 @@ const ExecutiveCeoPaymentsSection = () => {
     poGrns: [],
     poLinkedDocs: [],
     poAuditTab: 0
+  });
+
+  const [imageViewer, setImageViewer] = useState({
+    open: false,
+    imageUrl: '',
+    imageName: '',
+    isBlob: false
   });
 
   const [approveDialog, setApproveDialog] = useState({ open: false, settlement: null });
@@ -180,7 +184,6 @@ const ExecutiveCeoPaymentsSection = () => {
         }));
 
       const combined = [...forwardedPOs, ...forwardedCAs, ...forwardedSettlements];
-      // Sort newest first
       combined.sort((a, b) => new Date(b.displayDate || 0) - new Date(a.displayDate || 0));
 
       setPayments(combined);
@@ -222,6 +225,608 @@ const ExecutiveCeoPaymentsSection = () => {
     return true;
   });
 
+  // Helpers matching Payments.js
+  const formatDateForPrint = (date) => {
+    if (!date) return '';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const d = new Date(date);
+    return `${d.getDate()}-${months[d.getMonth()]}-${d.getFullYear()}`;
+  };
+
+  const formatDateForDocument = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      const day = date.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[date.getMonth()];
+      const year = date.getFullYear().toString().slice(-2);
+      return `${day}-${month}-${year}`;
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatNumber = (num) => {
+    if (num === null || num === undefined) return '0.00';
+    return parseFloat(num).toFixed(2);
+  };
+
+  const numberToWords = (num) => {
+    if (!num || num === 0) return 'Zero Rupees Only';
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+
+    const convert = (n) => {
+      if (n === 0) return '';
+      if (n < 10) return ones[n];
+      if (n < 20) return teens[n - 10];
+      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + convert(n % 100) : '');
+      if (n < 100000) return convert(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + convert(n % 1000) : '');
+      if (n < 10000000) return convert(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + convert(n % 100000) : '');
+      return convert(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + convert(n % 10000000) : '');
+    };
+
+    const amount = Math.floor(num);
+    const paise = Math.round((num - amount) * 100);
+    let result = convert(amount) + ' Rupees';
+    if (paise > 0) result += ' and ' + convert(paise) + ' Paise';
+    result += ' Only';
+    return result;
+  };
+
+  const getWorkflowStatusColor = (status) => {
+    switch (status) {
+      case 'Draft': return 'default';
+      case 'Send to CEO Office': return 'info';
+      case 'Forwarded to CEO': return 'warning';
+      case 'Approved by CEO': return 'success';
+      case 'Rejected by CEO': return 'error';
+      case 'Returned from CEO Office': return 'warning';
+      default: return 'default';
+    }
+  };
+
+  const userDisplayName = (u) => {
+    if (!u) return '';
+    return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || '';
+  };
+
+  // Full Audit / View Opener (identical to Payments.js)
+  const openView = async (settlement) => {
+    if (settlement.isPurchaseOrder) {
+      try {
+        const r = await api.get(`/procurement/purchase-orders/${settlement._id}`);
+        const d = r.data.data;
+        const [qRes, grnRes] = await Promise.all([
+          d?.indent?._id
+            ? api.get(`/procurement/quotations/by-indent/${d.indent._id}`).catch(() => ({ data: { data: [] } }))
+            : Promise.resolve({ data: { data: [] } }),
+          api.get('/procurement/goods-receive', { params: { purchaseOrder: d._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
+        ]);
+        const poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+        const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
+        const poLinkedDocs = [];
+        const pushDocs = (items = [], source = 'Attachment') => {
+          items.forEach((item, idx) => {
+            const url = item?.url || '';
+            const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+            if (!name && !url) return;
+            poLinkedDocs.push({
+              id: item?._id || `${source}-${idx}`,
+              source,
+              name,
+              url,
+              uploadedAt: item?.uploadedAt || null,
+              mimeType: item?.mimeType || ''
+            });
+          });
+        };
+        pushDocs(d?.attachments, 'PO Attachment');
+        pushDocs(d?.indent?.attachments, 'Indent Attachment');
+        poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
+        setViewDialog({
+          open: true,
+          settlement: d,
+          isPurchaseOrder: true,
+          isCashApproval: false,
+          poQuotations,
+          poGrns,
+          poLinkedDocs,
+          poAuditTab: 0
+        });
+      } catch (e) {
+        console.error('Error fetching purchase order details:', e);
+        setViewDialog({ open: true, settlement, isPurchaseOrder: true, isCashApproval: false, poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+      }
+    } else if (settlement.isCashApproval) {
+      try {
+        const r = await api.get(`/cash-approvals/${settlement._id}`);
+        const d = r.data?.data || settlement;
+        let quotations = [];
+        const linkedDocuments = [];
+        const pushDocs = (items = [], source = 'Attachment') => {
+          items.forEach((item, idx) => {
+            const url = item?.url || '';
+            const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+            if (!name && !url) return;
+            linkedDocuments.push({
+              id: item?._id || `${source}-${idx}`,
+              source,
+              name,
+              url,
+              uploadedAt: item?.uploadedAt || null,
+              mimeType: item?.mimeType || ''
+            });
+          });
+        };
+        if (d?.indent?._id) {
+          try {
+            const qRes = await api.get(`/procurement/quotations/by-indent/${d.indent._id}`);
+            if (qRes.data?.success && Array.isArray(qRes.data.data)) {
+              quotations = qRes.data.data;
+            }
+          } catch (_) { /* ignore */ }
+        }
+        pushDocs(d?.attachments, 'General Attachment');
+        pushDocs(d?.purchaseReceipts, 'Purchase Receipt');
+        pushDocs(d?.receiptAttachments, 'Settlement Receipt');
+        setViewDialog({ open: true, settlement: d, isPurchaseOrder: false, isCashApproval: true, quotations, caLinkedDocs: linkedDocuments, poAuditTab: 0 });
+      } catch (e) {
+        console.error('Error fetching cash approval details:', e);
+        setViewDialog({ open: true, settlement, isPurchaseOrder: false, isCashApproval: true, quotations: [], caLinkedDocs: [], poAuditTab: 0 });
+      }
+    } else {
+      try {
+        const response = await paymentSettlementService.getPaymentSettlement(settlement._id);
+        const settlementData = response.data.data || response.data;
+        if (settlementData.isPurchaseOrder || (settlementData.referenceNumber && settlementData.referenceNumber.startsWith('P'))) {
+          try {
+            let poResponse;
+            if (settlementData.isPurchaseOrder && settlement._id) {
+              poResponse = await api.get(`/procurement/purchase-orders/${settlement._id}`);
+            } else if (settlementData.referenceNumber) {
+              const searchResponse = await api.get(`/procurement/purchase-orders?search=${settlementData.referenceNumber}`);
+              if (searchResponse.data?.data?.length > 0) {
+                poResponse = await api.get(`/procurement/purchase-orders/${searchResponse.data.data[0]._id}`);
+              }
+            }
+            if (poResponse?.data?.success) {
+              const poData = poResponse.data.data;
+              const [qRes, grnRes] = await Promise.all([
+                poData?.indent?._id
+                  ? api.get(`/procurement/quotations/by-indent/${poData.indent._id}`).catch(() => ({ data: { data: [] } }))
+                  : Promise.resolve({ data: { data: [] } }),
+                api.get('/procurement/goods-receive', { params: { purchaseOrder: poData._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
+              ]);
+              const poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+              const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
+              const poLinkedDocs = [];
+              const pushDocs = (items = [], source = 'Attachment') => {
+                items.forEach((item, idx) => {
+                  const url = item?.url || '';
+                  const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
+                  if (!name && !url) return;
+                  poLinkedDocs.push({
+                    id: item?._id || `${source}-${idx}`,
+                    source,
+                    name,
+                    url,
+                    uploadedAt: item?.uploadedAt || null,
+                    mimeType: item?.mimeType || ''
+                  });
+                });
+              };
+              pushDocs(poData?.attachments, 'PO Attachment');
+              pushDocs(poData?.indent?.attachments, 'Indent Attachment');
+              poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
+              setViewDialog({
+                open: true,
+                settlement: poData,
+                isPurchaseOrder: true,
+                isCashApproval: false,
+                poQuotations,
+                poGrns,
+                poLinkedDocs,
+                poAuditTab: 0
+              });
+            } else {
+              setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false, isCashApproval: false });
+            }
+          } catch (poError) {
+            setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false, isCashApproval: false });
+          }
+        } else {
+          setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false, isCashApproval: false });
+        }
+      } catch (error) {
+        console.error('Error fetching settlement details:', error);
+        setViewDialog({ open: true, settlement, isPurchaseOrder: false, isCashApproval: false });
+      }
+    }
+  };
+
+  // Purchase Order View Component (identical to Payments.js)
+  const PurchaseOrderView = ({ poData }) => {
+    const observations = (poData?.auditObservations && poData.auditObservations.length > 0)
+      ? poData.auditObservations
+      : (poData?.auditRejectObservations || []).map((obs, idx) => ({
+          observation: typeof obs === 'object' ? obs.observation : obs,
+          severity: typeof obs === 'object' ? (obs.severity || 'medium') : 'medium',
+          addedBy: poData.auditRejectedBy,
+          addedAt: poData.auditRejectedAt,
+          answer: null,
+          answeredBy: null,
+          answeredAt: null,
+          resolved: false
+        }));
+    const hasObservations = Array.isArray(observations) && observations.length > 0;
+    const hasChangeSummary = poData?.resubmissionChangeSummary && String(poData.resubmissionChangeSummary).trim().length > 0;
+    const auth = poData?.approvalAuthorities || {};
+
+    return (
+      <Paper
+        sx={{
+          p: { xs: 3, sm: 3.5, md: 4 },
+          maxWidth: '210mm',
+          mx: 'auto',
+          backgroundColor: '#fff',
+          boxShadow: 'none',
+          width: '100%',
+          fontFamily: 'Arial, sans-serif',
+          '@media print': {
+            boxShadow: 'none',
+            p: 2.5,
+            maxWidth: '100%',
+            backgroundColor: '#fff',
+            mx: 0,
+            width: '100%',
+            pageBreakInside: 'avoid'
+          }
+        }}
+      >
+        <Typography
+          variant="h4"
+          fontWeight={700}
+          align="center"
+          sx={{
+            textTransform: 'uppercase',
+            mb: 3,
+            fontSize: { xs: '1.8rem', print: '1.6rem' },
+            letterSpacing: 1
+          }}
+        >
+          Purchase Order
+        </Typography>
+
+        {hasObservations && (
+          <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.warning.main, 0.08), border: '1px solid', borderColor: 'warning.main', borderRadius: 1 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: 'warning.dark', fontWeight: 'bold' }}>
+              Audit Observations &amp; Procurement Responses
+            </Typography>
+            {poData.auditReturnComments && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Return Comments:</Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                  {poData.auditReturnComments}
+                </Typography>
+              </Box>
+            )}
+            {poData.auditRejectionComments && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                  {poData.auditRejectionComments}
+                </Typography>
+              </Box>
+            )}
+            {hasChangeSummary && (
+              <Box sx={{ mb: 2, p: 1.5, bgcolor: alpha(theme.palette.info.main, 0.08), borderRadius: 1, border: '1px solid', borderColor: 'info.light' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, color: 'info.dark' }}>
+                  Changes made to PO by Procurement (on resubmission):
+                </Typography>
+                <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.875rem', m: 0 }}>
+                  {poData.resubmissionChangeSummary}
+                </Typography>
+              </Box>
+            )}
+            {observations.map((obs, index) => (
+              <Box key={obs._id || index} sx={{ mb: 2, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Observation {index + 1}</Typography>
+                  {obs.severity && (
+                    <Chip
+                      label={String(obs.severity).charAt(0).toUpperCase() + String(obs.severity).slice(1)}
+                      size="small"
+                      color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                    />
+                  )}
+                </Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                  Raised by Audit{obs.addedBy ? `: ${obs.addedBy?.firstName || ''} ${obs.addedBy?.lastName || ''}` : ''}
+                  {obs.addedAt ? ` on ${formatDate(obs.addedAt)}` : ''}
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: obs.answer ? 1.5 : 0 }}>{obs.observation}</Typography>
+                {obs.answer && (
+                  <Box sx={{ mt: 1.5, p: 1.5, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 1, border: '1px solid', borderColor: 'success.light' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5, color: 'success.dark' }}>
+                      Response from Procurement (edit / correction):
+                    </Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{obs.answer}</Typography>
+                    {obs.answeredBy && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                        Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                        {obs.answeredAt ? ` on ${formatDate(obs.answeredAt)}` : ''}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            ))}
+          </Box>
+        )}
+
+        <Box sx={{ mb: 2.5 }}>
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+            Residencia
+          </Typography>
+          <Typography sx={{ fontSize: '0.9rem', mb: 0.5 }}>
+            1st Avenue 18 4 Islamabad
+          </Typography>
+          <Typography sx={{ fontSize: '0.9rem' }}>
+            1. Het Sne 1-8. Islamabad.
+          </Typography>
+        </Box>
+
+        <Divider sx={{ my: 2.5, borderWidth: 1, borderColor: '#ccc' }} />
+
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
+          <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
+            <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+              {poData.vendor?.name || 'Vendor Name'}
+            </Typography>
+            <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>
+              {poData.vendor?.address || 'Vendor Address'}
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
+              <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
+              <Typography component="span">
+                Indent# {poData.indent?.indentNumber || 'N/A'} Dated. {poData.indent?.requestedDate ? formatDateForPrint(poData.indent.requestedDate) : 'N/A'}.
+                {poData.indent?.title && ` ${poData.indent.title}.`}
+                {poData.indent?.requestedBy && ` End User. ${poData.indent.requestedBy.firstName} ${poData.indent.requestedBy.lastName}`}
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>P.O No.:</Typography>
+              <Typography component="span">
+                {poData.orderNumber ? 
+                  (poData.orderNumber.startsWith('P') && !poData.orderNumber.includes('-')
+                    ? poData.orderNumber
+                    : 'P' + (poData.orderNumber.match(/\d+$/)?.[0] || poData.orderNumber.split('-').pop() || '').padStart(9, '0'))
+                  : 'N/A'}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
+              <Typography component="span">{formatDateForPrint(poData.orderDate)}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Date:</Typography>
+              <Typography component="span">{poData.expectedDeliveryDate ? formatDateForPrint(poData.expectedDeliveryDate) : '___________'}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
+              <Typography component="span">{poData.shippingAddress ? 
+                `${poData.shippingAddress.street || ''} ${poData.shippingAddress.city || ''}`.trim() || '___________' 
+                : '___________'}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
+              <Typography component="span">{poData.indent?.department?.name || '___________'}</Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Items Table */}
+        <Box sx={{ mb: 3 }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              border: '1px solid #000',
+              fontSize: '0.85rem',
+              fontFamily: 'Arial, sans-serif'
+            }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>Sr no</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Product</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '23%' }}>Description</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Specification</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Brand</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '11%' }}>Quantity Unit</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Rate</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {poData.items && poData.items.length > 0 ? (
+                poData.items.map((item, index) => (
+                  <tr key={index} style={{ border: '1px solid #000' }}>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>{index + 1}</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.productCode || poData.indent?.items?.[index]?.itemCode || `44-001-${String(index + 1).padStart(4, '0')}`}</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.description || poData.indent?.items?.[index]?.itemName || '___________'}</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.specification || poData.indent?.items?.[index]?.specification || '___________'}</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.brand || poData.indent?.items?.[index]?.brand || '___________'}</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>{item.quantity ? `${formatNumber(item.quantity)} ${item.unit || 'Nos'}` : '___________'}</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>{item.unitPrice ? formatNumber(item.unitPrice) : '___________'}</td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>{item.amount ? formatNumber(item.amount) : '___________'}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>No items</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </Box>
+
+        {/* Financial Summary */}
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+          <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
+              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Net Total:</Typography>
+              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
+              <Typography component="span">{formatNumber(poData.shippingCost || 0)}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic' }}>
+              Rupees {numberToWords(poData.totalAmount || 0)}
+            </Typography>
+          </Box>
+        </Box>
+
+        {/* Terms & Conditions */}
+        <Box sx={{ mb: 3, border: '1px solid #ccc', p: 2, fontSize: '0.9rem' }}>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, textDecoration: 'underline' }}>
+            TERMS & CONDITIONS
+          </Typography>
+          <Box sx={{ lineHeight: 1.8 }}>
+            <Typography sx={{ mb: 1, fontWeight: 600 }}>Main Terms & Conditions</Typography>
+            <Box sx={{ mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Payment Terms:</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>{poData.paymentTerms || '100% Advance Payment'}</Typography>
+            </Box>
+            <Box sx={{ mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Delivery Terms:</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>At-Site Delivery</Typography>
+            </Box>
+            <Box sx={{ mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Delivery Time.</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>Delivery within: {poData.quotation?.deliveryTime || '03 days'} of confirmed PO & Payment</Typography>
+            </Box>
+            <Typography sx={{ mb: 1 }}>Rates Are Exclusive Of all The Taxes</Typography>
+            {poData.vendor?.cnic && <Typography sx={{ mb: 1 }}>CNIC {poData.vendor.cnic}</Typography>}
+            {poData.vendor?.payeeName && <Typography>Payee Name: {poData.vendor.payeeName}</Typography>}
+          </Box>
+        </Box>
+
+        {/* Approval Progress */}
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
+            Approval Progress
+          </Typography>
+          {(() => {
+            const indent = poData?.indent || {};
+            const approvals = indent?.comparativeStatementApprovals || {};
+            const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
+              ? indent.comparativeApproval.approvers
+              : [];
+            const stepByUserId = new Map(
+              approvalSteps.map((s) => [String(s?.approver?._id || s?.approver || ''), s])
+            );
+            const personName = (u, fallback = '') => {
+              if (fallback && String(fallback).trim()) return String(fallback).trim();
+              if (u) {
+                const n = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim();
+                if (n) return n;
+                if (u?.email) return u.email;
+              }
+              return '—';
+            };
+            const rows = [
+              { key: 'preparedBy', label: 'Prepared By', user: approvals.preparedByUser, fallback: poData.approvalAuthorities?.preparedBy || approvals.preparedBy || auth.preparedBy || '' },
+              { key: 'managerProcurement', label: 'Manager Procurement', user: approvals.managerProcurementUser, fallback: poData.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || '' },
+              { key: 'chiefOperatingOfficer', label: 'Chief operating officer', user: null, fallback: poData.approvalAuthorities?.chiefOperatingOfficer || poData.approvalAuthorities?.verifiedBy || approvals.verifiedBy || auth.verifiedBy || '' },
+              { key: 'avpTaj', label: 'AVP Taj', user: null, fallback: poData.approvalAuthorities?.avpTaj || poData.approvalAuthorities?.authorisedRep || approvals.authorisedRep || auth.authorisedRep || '' },
+              ...(poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment ? [{ key: 'technicalDepartment', label: 'Technical Department', user: null, fallback: poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment || '' }] : []),
+              { key: 'preAuditInitial', label: 'Pre-Audit Initial Approval', directApproval: true, approver: poData.preAuditInitialApprovedBy || null, approvedAt: poData.preAuditInitialApprovedAt || null, fallback: '' },
+              { key: 'auditDirectorApproval', label: 'Audit Final Approval', directApproval: true, approver: poData.auditApprovedBy || null, approvedAt: poData.auditApprovedAt || null, fallback: '' },
+              { key: 'ceoSecretariatForward', label: 'CEO Secretariat', directApproval: true, approver: poData.ceoForwardedBy || null, approvedAt: poData.ceoForwardedAt || null, fallback: '' },
+              { key: 'ceoApproval', label: 'CEO Approval', directApproval: true, approver: poData.ceoApprovedBy || null, approvedAt: poData.ceoApprovedAt || null, fallback: '' }
+            ];
+            const authorityApprovals = Array.isArray(poData?.authorityApprovals) ? poData.authorityApprovals : [];
+            const byKey = new Map(authorityApprovals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
+            return (
+              <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Digital Signature</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Date & Time</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {rows.map((row) => {
+                      const uid = String(row?.user?._id || row?.user || '');
+                      const step = uid ? stepByUserId.get(uid) : null;
+                      const explicitApproval = row?.key ? byKey.get(row.key) : null;
+                      const approvalUser = row?.directApproval
+                        ? row.approver
+                        : (explicitApproval?.approver && typeof explicitApproval.approver === 'object'
+                          ? explicitApproval.approver
+                          : step?.approver && typeof step.approver === 'object'
+                            ? step.approver
+                            : row.user);
+                      const approvedAt = row?.directApproval
+                        ? (row.approvedAt || null)
+                        : (explicitApproval?.approvedAt || step?.actedAt || null);
+                      const isApproved = Boolean(approvedAt);
+                      const displayAuthorityName = explicitApproval?.approver
+                        ? ([explicitApproval.approver.firstName, explicitApproval.approver.lastName].filter(Boolean).join(' ').trim() || explicitApproval.approver.email || row.fallback || '—')
+                        : personName(approvalUser, row.fallback);
+                      return (
+                        <TableRow key={row.key || row.label}>
+                          <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
+                          <TableCell>{displayAuthorityName}</TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={isApproved ? 'Approved' : 'Pending'}
+                              color={isApproved ? 'success' : 'warning'}
+                              variant={isApproved ? 'filled' : 'outlined'}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {isApproved && approvalUser?.digitalSignature ? (
+                              <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
+                            ) : isApproved ? (
+                              <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">—</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>{formatDateTime(approvedAt)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            );
+          })()}
+          <ProcurementDigitalSignaturesRow purchaseOrder={poData} />
+        </Box>
+      </Paper>
+    );
+  };
+
   // Action Dialog Openers
   const openApprove = (item) => {
     setApproveDialog({ open: true, settlement: item });
@@ -253,129 +858,6 @@ const ExecutiveCeoPaymentsSection = () => {
     );
     setReturnAgree(false);
     setReturnObservations([{ observation: '', severity: 'medium' }]);
-  };
-
-  const openView = async (item) => {
-    if (item.isPurchaseOrder) {
-      try {
-        const fullPoRes = await api.get(`/procurement/purchase-orders/${item._id}`);
-        const poData = fullPoRes.data?.data || item;
-        let quotations = [];
-        let grns = [];
-        let linkedDocs = [];
-        if (poData.indent?._id) {
-          try {
-            const [qRes, gRes] = await Promise.all([
-              api.get(`/procurement/quotations?indent=${poData.indent._id}`),
-              api.get(`/procurement/grn?indent=${poData.indent._id}`).catch(() => ({ data: { data: [] } }))
-            ]);
-            quotations = qRes.data?.data || [];
-            grns = gRes.data?.data || [];
-          } catch (e) {
-            console.error('Error fetching PO linked docs:', e);
-          }
-        }
-        if (poData.supportingDocuments?.length) {
-          poData.supportingDocuments.forEach((doc, idx) => {
-            linkedDocs.push({
-              id: `po-doc-${idx}`,
-              source: 'PO Supporting Document',
-              name: doc.name || doc.originalName || 'Supporting Doc',
-              url: doc.url || doc.path,
-              uploadedAt: doc.uploadedAt || poData.createdAt
-            });
-          });
-        }
-        setViewDialog({
-          open: true,
-          settlement: poData,
-          isPurchaseOrder: true,
-          isCashApproval: false,
-          poQuotations: quotations,
-          poGrns: grns,
-          poLinkedDocs: linkedDocs,
-          poAuditTab: 0
-        });
-      } catch (err) {
-        setViewDialog({
-          open: true,
-          settlement: item,
-          isPurchaseOrder: true,
-          isCashApproval: false,
-          poQuotations: [],
-          poGrns: [],
-          poLinkedDocs: [],
-          poAuditTab: 0
-        });
-      }
-      return;
-    }
-
-    if (item.isCashApproval) {
-      try {
-        const fullCaRes = await api.get(`/cash-approvals/${item._id}`);
-        const caData = fullCaRes.data?.data || item;
-        let quotations = [];
-        let linkedDocs = [];
-        if (caData.indent?._id) {
-          try {
-            const qRes = await api.get(`/procurement/quotations?indent=${caData.indent._id}`);
-            quotations = qRes.data?.data || [];
-          } catch (e) {
-            console.error('Error fetching CA quotations:', e);
-          }
-        }
-        if (caData.supportingDocuments?.length) {
-          caData.supportingDocuments.forEach((doc, idx) => {
-            linkedDocs.push({
-              id: `ca-doc-${idx}`,
-              source: 'CA Supporting Document',
-              name: doc.name || doc.originalName || 'Supporting Doc',
-              url: doc.url || doc.path,
-              uploadedAt: doc.uploadedAt || caData.createdAt
-            });
-          });
-        }
-        setViewDialog({
-          open: true,
-          settlement: caData,
-          isPurchaseOrder: false,
-          isCashApproval: true,
-          quotations,
-          caLinkedDocs: linkedDocs,
-          poAuditTab: 0
-        });
-      } catch (err) {
-        setViewDialog({
-          open: true,
-          settlement: item,
-          isPurchaseOrder: false,
-          isCashApproval: true,
-          quotations: [],
-          caLinkedDocs: [],
-          poAuditTab: 0
-        });
-      }
-      return;
-    }
-
-    // Payment Settlement
-    try {
-      const fullRes = await paymentSettlementService.getPaymentSettlement(item._id);
-      setViewDialog({
-        open: true,
-        settlement: fullRes.data?.settlement || item,
-        isPurchaseOrder: false,
-        isCashApproval: false
-      });
-    } catch {
-      setViewDialog({
-        open: true,
-        settlement: item,
-        isPurchaseOrder: false,
-        isCashApproval: false
-      });
-    }
   };
 
   // Submit Approval
@@ -512,45 +994,75 @@ const ExecutiveCeoPaymentsSection = () => {
     }
   };
 
-  const formatDateForPrint = (dateString) => {
-    if (!dateString) return '—';
-    try {
-      return formatDate(dateString);
-    } catch {
-      return String(dateString);
-    }
-  };
-
-  const formatDateForDocument = (dateString) => {
-    if (!dateString) return 'N/A';
-    try {
-      const date = new Date(dateString);
-      const day = date.getDate();
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const month = monthNames[date.getMonth()];
-      const year = date.getFullYear().toString().slice(-2);
-      return `${day}-${month}-${year}`;
-    } catch {
-      return dateString;
-    }
-  };
-
   const handlePrint = () => {
     if (!viewDialog.settlement) return;
     const printWindow = window.open('', '_blank');
     const settlement = viewDialog.settlement;
+    const printDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Payment Record - ${settlement?.displayRef || settlement?._id || 'N/A'}</title>
-          <style>body { font-family: 'Times New Roman', serif; padding: 20px; }</style>
+          <title>Payment Settlement - ${settlement?.referenceNumber || settlement?._id || 'N/A'}</title>
+          <style>
+            body { font-family: 'Times New Roman', serif; padding: 20px; font-size: 14px; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .header h1 { margin: 0; font-size: 24px; font-weight: bold; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px; }
+            .info-item { display: flex; }
+            .info-label { font-weight: bold; width: 150px; }
+            .table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            .table th, .table td { border: 1px solid #000; padding: 8px; text-align: left; }
+            .table th { background-color: #f5f5f5; }
+            .total { text-align: right; font-weight: bold; margin-bottom: 40px; }
+            .signature-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 50px; }
+            .signature-box { border-top: 1px solid #000; padding-top: 10px; text-align: center; }
+          </style>
         </head>
         <body>
-          <h2>Payment Authorization Record: ${settlement?.displayRef || ''}</h2>
-          <p><strong>Vendor / Payee:</strong> ${settlement?.displayVendor || ''}</p>
-          <p><strong>Amount:</strong> ${formatPKR(settlement?.displayAmount || 0)}</p>
-          <p><strong>Department:</strong> ${settlement?.department || ''}</p>
+          <div class="header">
+            <h1>${settlement?.parentCompanyName || 'PAYMENT SETTLEMENT'}</h1>
+          </div>
+          <div class="info-grid">
+            <div class="info-item"><span class="info-label">SITE:</span><span>${settlement?.site || 'Head Office'}</span></div>
+            <div class="info-item"><span class="info-label">FROM:</span><span>${settlement?.fromDepartment || 'Administration'}</span></div>
+            <div class="info-item"><span class="info-label">CUSTODIAN:</span><span>${settlement?.custodian || 'N/A'}</span></div>
+            <div class="info-item"><span class="info-label">DATE:</span><span>${formatDateForDocument(settlement?.date)}</span></div>
+            <div class="info-item"><span class="info-label">DOCUMENT NO:</span><span>${settlement?.referenceNumber?.trim() || settlement?._id || 'N/A'}</span></div>
+            <div class="info-item"><span class="info-label">NOTE:</span><span>${settlement?.attachments && settlement.attachments.length > 0 ? 'All Supportings Attached' : 'No Attachments'}</span></div>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Reference No</th>
+                <th>To Whom Paid</th>
+                <th>For What</th>
+                <th style="text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>${formatDateForDocument(settlement?.date)}</td>
+                <td>${settlement?.referenceNumber?.trim() || settlement?._id || 'N/A'}</td>
+                <td>${settlement?.toWhomPaid || 'N/A'}</td>
+                <td>${settlement?.forWhat || 'N/A'}</td>
+                <td style="text-align: right;">${formatPKR(settlement?.amount)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="total">
+            <strong>Grand Total: ${formatPKR(settlement?.grandTotal || settlement?.amount || 0)}</strong>
+          </div>
+          <div class="signature-section">
+            <div class="signature-box"><div><strong>Prepared By:</strong></div><div>${settlement?.preparedBy || 'N/A'}</div></div>
+            <div class="signature-box"><div><strong>Verified By:</strong></div><div>${settlement?.verifiedBy || 'N/A'}</div></div>
+            <div class="signature-box"><div><strong>Approved by:</strong></div><div>${settlement?.approvedBy || 'N/A'}</div></div>
+          </div>
+          <div style="margin-top: 40px; font-size: 12px; color: #666;">
+            <p>Generated from SGC ERP System - CEO Executive Desk</p>
+            <p>Printed: ${printDate}</p>
+          </div>
         </body>
       </html>
     `);
@@ -688,15 +1200,7 @@ const ExecutiveCeoPaymentsSection = () => {
                 gap: 2
               }}
             >
-              <Avatar
-                sx={{
-                  bgcolor: alpha('#1976d2', 0.15),
-                  color: '#1976d2',
-                  width: 44,
-                  height: 44,
-                  borderRadius: 2.5
-                }}
-              >
+              <Avatar sx={{ bgcolor: alpha('#1976d2', 0.15), color: '#1976d2', width: 44, height: 44, borderRadius: 2.5 }}>
                 <AttachMoneyIcon />
               </Avatar>
               <Box>
@@ -727,15 +1231,7 @@ const ExecutiveCeoPaymentsSection = () => {
                 gap: 2
               }}
             >
-              <Avatar
-                sx={{
-                  bgcolor: alpha('#9c27b0', 0.15),
-                  color: '#9c27b0',
-                  width: 44,
-                  height: 44,
-                  borderRadius: 2.5
-                }}
-              >
+              <Avatar sx={{ bgcolor: alpha('#9c27b0', 0.15), color: '#9c27b0', width: 44, height: 44, borderRadius: 2.5 }}>
                 <ShoppingBagIcon />
               </Avatar>
               <Box>
@@ -766,15 +1262,7 @@ const ExecutiveCeoPaymentsSection = () => {
                 gap: 2
               }}
             >
-              <Avatar
-                sx={{
-                  bgcolor: alpha('#009688', 0.15),
-                  color: '#00796b',
-                  width: 44,
-                  height: 44,
-                  borderRadius: 2.5
-                }}
-              >
+              <Avatar sx={{ bgcolor: alpha('#009688', 0.15), color: '#00796b', width: 44, height: 44, borderRadius: 2.5 }}>
                 <WalletIcon />
               </Avatar>
               <Box>
@@ -805,15 +1293,7 @@ const ExecutiveCeoPaymentsSection = () => {
                 gap: 2
               }}
             >
-              <Avatar
-                sx={{
-                  bgcolor: alpha('#ef6c00', 0.15),
-                  color: '#ef6c00',
-                  width: 44,
-                  height: 44,
-                  borderRadius: 2.5
-                }}
-              >
+              <Avatar sx={{ bgcolor: alpha('#ef6c00', 0.15), color: '#ef6c00', width: 44, height: 44, borderRadius: 2.5 }}>
                 <ReceiptIcon />
               </Avatar>
               <Box>
@@ -1070,140 +1550,243 @@ const ExecutiveCeoPaymentsSection = () => {
       </CardContent>
 
       {/* ========================================================================= */}
-      {/* FULL DOCUMENT VIEW MODAL                                                 */}
+      {/* FULL DOCUMENT VIEW MODAL - EXACT SAME WHITE PAPER STYLE AS PAYMENTS.JS   */}
       {/* ========================================================================= */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog((prev) => ({ ...prev, open: false }))}
-        maxWidth="lg"
+        onClose={() =>
+          setViewDialog({
+            open: false,
+            settlement: null,
+            isPurchaseOrder: false,
+            isCashApproval: false,
+            quotations: [],
+            caLinkedDocs: [],
+            poQuotations: [],
+            poGrns: [],
+            poLinkedDocs: [],
+            poAuditTab: 0
+          })
+        }
+        maxWidth={(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? false : 'md'}
         fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 0,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+            background: '#ffffff',
+            ...((viewDialog.isPurchaseOrder || viewDialog.isCashApproval) && {
+              width: '90%',
+              maxWidth: '210mm',
+              maxHeight: '95vh',
+              '@media print': {
+                boxShadow: 'none',
+                maxWidth: '100%',
+                margin: 0,
+                height: '100%',
+                width: '100%',
+                maxHeight: '100%'
+              }
+            })
+          }
+        }}
       >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6" fontWeight={700}>
-            {viewDialog.isPurchaseOrder
-              ? `Purchase Order: ${viewDialog.settlement?.orderNumber || ''}`
-              : viewDialog.isCashApproval
-              ? `Cash Approval: ${viewDialog.settlement?.caNumber || ''}`
-              : `Payment Settlement: ${viewDialog.settlement?.referenceNumber || ''}`}
-          </Typography>
-          <IconButton onClick={() => setViewDialog((prev) => ({ ...prev, open: false }))}>
-            <CloseIcon />
-          </IconButton>
+        <DialogTitle
+          sx={{
+            p: 0,
+            m: 0,
+            '@media print': { display: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 'none' : 'block' }
+          }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              p: 2,
+              borderBottom: '1px solid #e0e0e0'
+            }}
+          >
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
+              {viewDialog.isPurchaseOrder
+                ? 'Purchase Order Details'
+                : viewDialog.isCashApproval
+                ? 'Cash Approval Details'
+                : 'PAYMENT SETTLEMENT'}
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {viewDialog.isPurchaseOrder && (
+                <Button
+                  variant="contained"
+                  startIcon={<PrintIcon />}
+                  onClick={() => window.print()}
+                  size="small"
+                  sx={{ '@media print': { display: 'none' } }}
+                >
+                  Print
+                </Button>
+              )}
+              <IconButton
+                size="small"
+                onClick={() =>
+                  setViewDialog({
+                    open: false,
+                    settlement: null,
+                    isPurchaseOrder: false,
+                    isCashApproval: false,
+                    quotations: [],
+                    caLinkedDocs: [],
+                    poQuotations: [],
+                    poGrns: [],
+                    poLinkedDocs: [],
+                    poAuditTab: 0
+                  })
+                }
+                sx={{ color: '#666', '@media print': { display: 'none' } }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          </Box>
         </DialogTitle>
-        <DialogContent dividers sx={{ p: 2, background: '#fff' }}>
+
+        <DialogContent
+          sx={{
+            p: 0,
+            background: '#ffffff',
+            overflow: 'auto',
+            '@media print': { p: 0, overflow: 'visible' }
+          }}
+        >
           {viewDialog.settlement && (
-            <Box>
+            <Box
+              sx={{
+                p: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 0 : 4,
+                background: '#ffffff',
+                fontFamily: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval)
+                  ? 'Arial, sans-serif'
+                  : '"Times New Roman", serif'
+              }}
+              className={(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 'print-content' : ''}
+            >
+              {/* Show Purchase Order view if it's a PO */}
               {viewDialog.isPurchaseOrder ? (
                 <>
                   <Tabs
                     value={viewDialog.poAuditTab ?? 0}
                     onChange={(_, v) => setViewDialog((prev) => ({ ...prev, poAuditTab: v }))}
-                    sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
+                    sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                    variant="scrollable"
+                    scrollButtons="auto"
                   >
-                    <Tab label="Indent / PR" />
+                    <Tab label="Indent" />
                     <Tab label="Purchase Order" />
                     <Tab label="Comparative Statement" />
                     <Tab label={`Quotations (${viewDialog.poQuotations?.length || 0})`} />
-                    <Tab label={`Attached Docs (${viewDialog.poLinkedDocs?.length || 0})`} />
+                    <Tab label={viewDialog.poGrns?.length > 0 ? `GRN(s) (${viewDialog.poGrns.length})` : 'GRN(s)'} />
+                    <Tab label={`Attached Documents (${viewDialog.poLinkedDocs?.length || 0})`} />
                   </Tabs>
 
-                  {/* PO Indent Tab */}
+                  {/* Tab 0: Indent */}
                   {viewDialog.poAuditTab === 0 && (
-                    <Box sx={{ p: 2 }}>
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
                       {!viewDialog.settlement?.indent ? (
-                        <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
-                          No linked Indent found.
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                          No indent linked with this PO.
                         </Typography>
                       ) : (
-                        <Paper sx={{ p: 3, border: '1px solid #e0e0e0', borderRadius: 2 }}>
-                          <Typography variant="h6" fontWeight={700} gutterBottom align="center">
+                        <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
                             Purchase Request Form
                           </Typography>
-                          <Grid container spacing={2} sx={{ mb: 2 }}>
-                            <Grid item xs={6}>
-                              <Typography variant="caption" color="text.secondary">PR Ref:</Typography>
-                              <Typography variant="body2" fontWeight={600}>{viewDialog.settlement.indent.erpRef || viewDialog.settlement.indent.indentNumber || '—'}</Typography>
-                            </Grid>
-                            <Grid item xs={6}>
-                              <Typography variant="caption" color="text.secondary">Department:</Typography>
-                              <Typography variant="body2" fontWeight={600}>{viewDialog.settlement.indent.department?.name || viewDialog.settlement.indent.department || '—'}</Typography>
-                            </Grid>
-                          </Grid>
-                          <Table size="small" sx={{ border: '1px solid #ddd' }}>
-                            <TableHead sx={{ bgcolor: 'grey.100' }}>
-                              <TableRow>
-                                <TableCell sx={{ fontWeight: 'bold' }}>#</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Item Name</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="center">Qty</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Purpose</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Est. Cost</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {(viewDialog.settlement.indent.items || []).map((it, idx) => (
-                                <TableRow key={idx}>
-                                  <TableCell>{idx + 1}</TableCell>
-                                  <TableCell>{it.itemName || '—'}</TableCell>
-                                  <TableCell align="center">{it.quantity ?? '—'}</TableCell>
-                                  <TableCell>{it.purpose || '—'}</TableCell>
-                                  <TableCell align="right">{it.estimatedCost != null ? formatPKR(it.estimatedCost) : '—'}</TableCell>
+                          {viewDialog.settlement.indent.title && (
+                            <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>
+                              {viewDialog.settlement.indent.title}
+                            </Typography>
+                          )}
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                            <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                            <Typography component="span" sx={{ ml: 1 }}>
+                              {viewDialog.settlement.indent.erpRef || 'PR #' + (viewDialog.settlement.indent.indentNumber?.split('-').pop() || '')}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Date:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.settlement.indent.requestedDate)}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Required Date:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.settlement.indent.requiredDate) || '—'}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Indent No.:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{viewDialog.settlement.indent.indentNumber || '—'}</Typography>
+                            </Box>
+                          </Box>
+                          <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Department:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>{viewDialog.settlement.indent.department?.name || viewDialog.settlement.indent.department || '—'}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Originator:</Typography>
+                              <Typography component="span" sx={{ ml: 1 }}>
+                                {viewDialog.settlement.indent.requestedBy?.firstName && viewDialog.settlement.indent.requestedBy?.lastName
+                                  ? `${viewDialog.settlement.indent.requestedBy.firstName} ${viewDialog.settlement.indent.requestedBy.lastName}`
+                                  : viewDialog.settlement.indent.requestedBy?.name || '—'}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Box sx={{ mb: 3 }}>
+                            <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S#</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Item Name</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="center">Qty</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Purpose</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Est. Cost</TableCell>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                              </TableHead>
+                              <TableBody>
+                                {(viewDialog.settlement.indent.items || []).map((item, idx) => (
+                                  <TableRow key={idx}>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity ?? '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.purpose || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </Box>
+                          {viewDialog.settlement.indent.justification && (
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                {viewDialog.settlement.indent.justification}
+                              </Typography>
+                            </Box>
+                          )}
                         </Paper>
                       )}
                     </Box>
                   )}
 
-                  {/* PO Details Tab */}
+                  {/* Tab 1: Purchase Order View */}
                   {viewDialog.poAuditTab === 1 && (
-                    <Box sx={{ p: 2 }}>
-                      <Paper sx={{ p: 3, border: '1px solid #e0e0e0', borderRadius: 2 }}>
-                        <Typography variant="h6" fontWeight={700} align="center" gutterBottom>
-                          PURCHASE ORDER
-                        </Typography>
-                        <Grid container spacing={2} sx={{ mb: 2 }}>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Order #:</Typography>
-                            <Typography variant="body2" fontWeight={700}>{viewDialog.settlement.orderNumber}</Typography>
-                          </Grid>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Vendor:</Typography>
-                            <Typography variant="body2" fontWeight={700}>{viewDialog.settlement.vendor?.name || '—'}</Typography>
-                          </Grid>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Total Amount:</Typography>
-                            <Typography variant="body2" fontWeight={800} color="primary">{formatPKR(viewDialog.settlement.totalAmount)}</Typography>
-                          </Grid>
-                        </Grid>
-                        <Table size="small" sx={{ border: '1px solid #ddd' }}>
-                          <TableHead sx={{ bgcolor: 'grey.100' }}>
-                            <TableRow>
-                              <TableCell sx={{ fontWeight: 'bold' }}>#</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }}>Item</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }} align="center">Qty</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }} align="right">Unit Price</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }} align="right">Total</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {(viewDialog.settlement.items || []).map((it, idx) => (
-                              <TableRow key={idx}>
-                                <TableCell>{idx + 1}</TableCell>
-                                <TableCell>{it.name || it.itemName || '—'}</TableCell>
-                                <TableCell align="center">{it.quantity}</TableCell>
-                                <TableCell align="right">{formatPKR(it.unitPrice)}</TableCell>
-                                <TableCell align="right">{formatPKR(it.totalPrice || it.quantity * it.unitPrice)}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </Paper>
-                    </Box>
+                    <PurchaseOrderView poData={viewDialog.settlement} />
                   )}
 
-                  {/* Comparative Statement Tab */}
+                  {/* Tab 2: Comparative Statement */}
                   {viewDialog.poAuditTab === 2 && (
                     <Box sx={{ p: 2, overflowX: 'auto' }}>
                       <ComparativeStatementView
@@ -1212,81 +1795,133 @@ const ExecutiveCeoPaymentsSection = () => {
                         approvalAuthority={viewDialog.settlement?.indent?.comparativeStatementApprovals || {}}
                         note={viewDialog.settlement?.indent?.notes ?? ''}
                         readOnly
-                        formatNumber={(n) => (n == null ? '0.00' : parseFloat(n).toFixed(2))}
+                        formatNumber={formatNumber}
                         loadingQuotations={false}
                         showPrintButton={false}
                       />
                     </Box>
                   )}
 
-                  {/* Quotations Tab */}
+                  {/* Tab 3: Quotations */}
                   {viewDialog.poAuditTab === 3 && (
                     <Box sx={{ p: 2 }}>
-                      {viewDialog.poQuotations?.length === 0 ? (
-                        <Typography color="text.secondary" align="center">No quotations recorded.</Typography>
+                      {(!viewDialog.poQuotations || viewDialog.poQuotations.length === 0) ? (
+                        <Typography color="text.secondary">No quotations linked with this PO.</Typography>
                       ) : (
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Vendor</TableCell>
-                              <TableCell align="right">Quoted Amount</TableCell>
-                              <TableCell>Terms</TableCell>
-                              <TableCell align="center">Status</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {viewDialog.poQuotations.map((q, idx) => (
-                              <TableRow key={idx}>
-                                <TableCell>{q.vendor?.name || '—'}</TableCell>
-                                <TableCell align="right">{formatPKR(q.totalAmount || 0)}</TableCell>
-                                <TableCell>{q.paymentTerms || '—'}</TableCell>
-                                <TableCell align="center">
-                                  <Chip label={q.status || 'Received'} size="small" />
-                                </TableCell>
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>#</TableCell>
+                                <TableCell>Quotation No</TableCell>
+                                <TableCell>Vendor</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell align="right">Total</TableCell>
+                                <TableCell>Status</TableCell>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.poQuotations.map((q, idx) => (
+                                <TableRow key={q._id || idx}>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell>{q.quotationNumber || q.quotationRef || '—'}</TableCell>
+                                  <TableCell>{q.vendor?.name || '—'}</TableCell>
+                                  <TableCell>{formatDateForDocument(q.quotationDate || q.createdAt)}</TableCell>
+                                  <TableCell align="right">{formatPKR(q.totalAmount || 0)}</TableCell>
+                                  <TableCell>
+                                    <Chip label={q.status || 'Received'} size="small" />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
                       )}
                     </Box>
                   )}
 
-                  {/* Attached Docs */}
+                  {/* Tab 4: GRNs */}
                   {viewDialog.poAuditTab === 4 && (
                     <Box sx={{ p: 2 }}>
-                      {viewDialog.poLinkedDocs?.length === 0 ? (
-                        <Typography color="text.secondary" align="center">No attachments available.</Typography>
+                      {(!viewDialog.poGrns || viewDialog.poGrns.length === 0) ? (
+                        <Typography color="text.secondary">No Goods Receipt Notes (GRN) created yet.</Typography>
                       ) : (
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Doc Name</TableCell>
-                              <TableCell>Source</TableCell>
-                              <TableCell align="right">Action</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {viewDialog.poLinkedDocs.map((d, idx) => (
-                              <TableRow key={idx}>
-                                <TableCell>{d.name}</TableCell>
-                                <TableCell>{d.source}</TableCell>
-                                <TableCell align="right">
-                                  {d.url && (
-                                    <Button size="small" variant="outlined" onClick={() => window.open(d.url, '_blank')}>
-                                      View
-                                    </Button>
-                                  )}
-                                </TableCell>
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>#</TableCell>
+                                <TableCell>GRN Number</TableCell>
+                                <TableCell>Received Date</TableCell>
+                                <TableCell>Received By</TableCell>
+                                <TableCell>Status</TableCell>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.poGrns.map((grn, idx) => (
+                                <TableRow key={grn._id || idx}>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell>{grn.receiveNumber || grn.grnNumber || '—'}</TableCell>
+                                  <TableCell>{formatDateForDocument(grn.receivedDate || grn.createdAt)}</TableCell>
+                                  <TableCell>{grn.receivedBy?.name || grn.receivedBy?.firstName || '—'}</TableCell>
+                                  <TableCell>
+                                    <Chip label={grn.status || 'Received'} size="small" />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Tab 5: Attached Documents (Full list with Open action) */}
+                  {viewDialog.poAuditTab === 5 && (
+                    <Box sx={{ p: 2 }}>
+                      {(!viewDialog.poLinkedDocs || viewDialog.poLinkedDocs.length === 0) ? (
+                        <Typography color="text.secondary">No attached documents found.</Typography>
+                      ) : (
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>#</TableCell>
+                                <TableCell>Source</TableCell>
+                                <TableCell>Document</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell align="right">Action</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {viewDialog.poLinkedDocs.map((doc, idx) => (
+                                <TableRow key={doc.id || idx}>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell>{doc.source || 'Attachment'}</TableCell>
+                                  <TableCell>{doc.name || 'Document'}</TableCell>
+                                  <TableCell>{doc.uploadedAt ? formatDateForDocument(doc.uploadedAt) : '—'}</TableCell>
+                                  <TableCell align="right">
+                                    {doc.url ? (
+                                      <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
+                                        Open
+                                      </Button>
+                                    ) : '—'}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
                       )}
                     </Box>
                   )}
                 </>
               ) : viewDialog.isCashApproval && isGeneralModuleCashApproval(viewDialog.settlement) ? (
-                <CashApprovalGeneralDetailShell embedded hideBack ca={viewDialog.settlement} />
+                <CashApprovalGeneralDetailShell
+                  embedded
+                  hideBack
+                  ca={viewDialog.settlement}
+                />
               ) : viewDialog.isCashApproval ? (
                 <CashApprovalDetailTabsView
                   cashApproval={viewDialog.settlement}
@@ -1296,59 +1931,226 @@ const ExecutiveCeoPaymentsSection = () => {
                   linkedDocs={viewDialog.caLinkedDocs || []}
                 />
               ) : (
-                /* Payment Settlement View */
-                <Box sx={{ p: 2 }}>
-                  <Typography variant="h6" fontWeight={700} align="center" gutterBottom>
-                    {viewDialog.settlement.parentCompanyName || 'PAYMENT SETTLEMENT'}
-                  </Typography>
-                  <Grid container spacing={2} sx={{ mb: 2 }}>
-                    <Grid item xs={4}>
-                      <Typography variant="caption" color="text.secondary">Document #:</Typography>
-                      <Typography variant="body2" fontWeight={700}>{viewDialog.settlement.referenceNumber || '—'}</Typography>
+                <>
+                  {/* Payment Settlement View */}
+                  <Box sx={{ mb: 3, borderBottom: '2px solid #000', pb: 2 }}>
+                    <Typography variant="h5" sx={{ fontWeight: 700, textAlign: 'center', mb: 3, fontSize: '24px', letterSpacing: '1px' }}>
+                      {viewDialog.settlement.parentCompanyName || 'PAYMENT SETTLEMENT'}
+                    </Typography>
+                    
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>SITE:</Typography>
+                        <Typography variant="body2">{viewDialog.settlement.site || 'Head Office'}</Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>FROM:</Typography>
+                        <Typography variant="body2">{viewDialog.settlement.fromDepartment || 'Administration'}</Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>CUSTODIAN:</Typography>
+                        <Typography variant="body2">{viewDialog.settlement.custodian || 'N/A'}</Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>DATE:</Typography>
+                        <Typography variant="body2">{formatDateForDocument(viewDialog.settlement.date)}</Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>DOCUMENT NUMBER:</Typography>
+                        <Typography variant="body2">{viewDialog.settlement.referenceNumber?.trim() || viewDialog.settlement._id || 'N/A'}</Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>NOTE:</Typography>
+                        <Typography variant="body2">
+                          {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 
+                            ? 'All Supportings Attached' 
+                            : 'No Attachments'}
+                        </Typography>
+                      </Grid>
                     </Grid>
-                    <Grid item xs={4}>
-                      <Typography variant="caption" color="text.secondary">Payee:</Typography>
-                      <Typography variant="body2" fontWeight={700}>{viewDialog.settlement.toWhomPaid || '—'}</Typography>
+                  </Box>
+
+                  {/* Transaction Details Table */}
+                  <Box sx={{ mb: 3 }}>
+                    <TableContainer component={Paper} sx={{ boxShadow: 'none', border: '1px solid #000' }}>
+                      <Table>
+                        <TableHead>
+                          <TableRow sx={{ background: '#f5f5f5' }}>
+                            <TableCell sx={{ border: '1px solid #000', fontWeight: 700, py: 1.5, fontSize: '13px' }}>Date</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', fontWeight: 700, py: 1.5, fontSize: '13px' }}>Reference No</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', fontWeight: 700, py: 1.5, fontSize: '13px' }}>To Whom Paid</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', fontWeight: 700, py: 1.5, fontSize: '13px' }}>For What</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', fontWeight: 700, py: 1.5, fontSize: '13px', textAlign: 'right' }}>Amount</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          <TableRow>
+                            <TableCell sx={{ border: '1px solid #000', py: 2, fontSize: '13px' }}>{formatDateForDocument(viewDialog.settlement.date)}</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', py: 2, fontSize: '13px' }}>{viewDialog.settlement.referenceNumber?.trim() || viewDialog.settlement._id || 'N/A'}</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', py: 2, fontSize: '13px' }}>{viewDialog.settlement.toWhomPaid || 'N/A'}</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', py: 2, fontSize: '13px', whiteSpace: 'pre-wrap' }}>{viewDialog.settlement.forWhat || 'N/A'}</TableCell>
+                            <TableCell sx={{ border: '1px solid #000', py: 2, fontSize: '13px', textAlign: 'right', fontWeight: 600 }}>{formatPKR(viewDialog.settlement.amount)}</TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+
+                  {/* Grand Total */}
+                  <Box sx={{ mb: 4, display: 'flex', justifyContent: 'flex-end' }}>
+                    <Box sx={{ border: '2px solid #000', p: 2, minWidth: '250px', background: '#f9f9f9' }}>
+                      <Typography variant="h6" sx={{ fontWeight: 700, textAlign: 'right', fontSize: '18px' }}>
+                        Grand Total: {formatPKR(viewDialog.settlement.grandTotal || viewDialog.settlement.amount || 0)}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Approval Section */}
+                  <Box sx={{ mt: 4, borderTop: '1px solid #000', pt: 3 }}>
+                    <Grid container spacing={4}>
+                      <Grid item xs={4}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 2, fontSize: '13px', textDecoration: 'underline' }}>Prepared By:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, fontSize: '13px' }}>{viewDialog.settlement.preparedBy || 'N/A'}</Typography>
+                          <Typography variant="body2" sx={{ fontSize: '12px', color: '#666' }}>{viewDialog.settlement.preparedByDesignation || 'Not specified'}</Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={4}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 2, fontSize: '13px', textDecoration: 'underline' }}>Verified By:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, fontSize: '13px' }}>{viewDialog.settlement.verifiedBy || 'N/A'}</Typography>
+                          <Typography variant="body2" sx={{ fontSize: '12px', color: '#666' }}>{viewDialog.settlement.verifiedByDesignation || 'Not specified'}</Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={4}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 2, fontSize: '13px', textDecoration: 'underline' }}>Approved by:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, fontSize: '13px' }}>{viewDialog.settlement.approvedBy || 'N/A'}</Typography>
+                          <Typography variant="body2" sx={{ fontSize: '12px', color: '#666' }}>{viewDialog.settlement.approvedByDesignation || 'Not specified'}</Typography>
+                        </Box>
+                      </Grid>
                     </Grid>
-                    <Grid item xs={4}>
-                      <Typography variant="caption" color="text.secondary">Amount:</Typography>
-                      <Typography variant="body2" fontWeight={800} color="primary">{formatPKR(viewDialog.settlement.grandTotal || viewDialog.settlement.amount || 0)}</Typography>
-                    </Grid>
-                  </Grid>
-                  <Typography variant="body2" sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    {viewDialog.settlement.forWhat || viewDialog.settlement.notes || 'No additional remarks'}
-                  </Typography>
-                </Box>
+                  </Box>
+
+                  <Box sx={{ mt: 4 }}>
+                    <WorkflowAuditFeedbackPanel
+                      document={viewDialog.settlement}
+                      formatDateTime={formatDateTime}
+                      userDisplayName={userDisplayName}
+                      visualVariant="settlement"
+                      returnedAuditStatus="Returned from CEO Office"
+                    />
+                  </Box>
+
+                  {/* Document Attachments Section (Identical with ImageViewer trigger) */}
+                  {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 && (
+                    <Box sx={{ mt: 4, borderTop: '1px solid #000', pt: 3 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700, mb: 2, fontSize: '14px', textDecoration: 'underline' }}>
+                        ATTACHMENTS ({viewDialog.settlement.attachments.length}):
+                      </Typography>
+                      <Box sx={{ border: '1px solid #000', p: 2 }}>
+                        <Grid container spacing={1}>
+                          {viewDialog.settlement.attachments.map((attachment, index) => {
+                            const attachmentUrl = paymentSettlementService.getAttachmentUrl(viewDialog.settlement._id, attachment._id);
+                            const isImage = attachment.mimeType && attachment.mimeType.startsWith('image/');
+                            const isPdf = attachment.mimeType === 'application/pdf';
+                            
+                            return (
+                              <Grid item xs={12} key={attachment._id || index}>
+                                <Box 
+                                  sx={{ 
+                                    p: 1.5, 
+                                    border: '1px solid #ccc', 
+                                    cursor: 'pointer', 
+                                    transition: 'all 0.2s', 
+                                    '&:hover': { borderColor: '#000', background: '#f5f5f5' } 
+                                  }}
+                                  onClick={async () => {
+                                    if (isImage) {
+                                      try {
+                                        const blobUrl = await paymentSettlementService.getAttachmentBlobUrl(viewDialog.settlement._id, attachment._id);
+                                        setImageViewer({
+                                          open: true,
+                                          imageUrl: blobUrl,
+                                          imageName: attachment.originalName,
+                                          isBlob: true
+                                        });
+                                      } catch (error) {
+                                        toast.error('Failed to load image');
+                                      }
+                                    } else if (isPdf) {
+                                      window.open(attachmentUrl, '_blank');
+                                    } else {
+                                      const link = document.createElement('a');
+                                      link.href = attachmentUrl;
+                                      link.download = attachment.originalName;
+                                      link.target = '_blank';
+                                      document.body.appendChild(link);
+                                      link.click();
+                                      document.body.removeChild(link);
+                                    }
+                                  }}
+                                >
+                                  <Typography variant="body2" sx={{ fontSize: '12px', fontWeight: 500 }}>
+                                    {index + 1}. {attachment.originalName}
+                                  </Typography>
+                                </Box>
+                              </Grid>
+                            );
+                          })}
+                        </Grid>
+                      </Box>
+                    </Box>
+                  )}
+                </>
               )}
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2, display: 'flex', justifyContent: 'space-between' }}>
+
+        <DialogActions
+          sx={{
+            p: 2,
+            borderTop: '1px solid #e0e0e0',
+            background: '#f9f9f9',
+            justifyContent: 'space-between',
+            '@media print': { display: 'none' }
+          }}
+        >
           <Box>
-            <Button
-              variant="outlined"
-              startIcon={<HistoryIcon />}
-              onClick={() => {
-                setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement });
-              }}
-              sx={{ mr: 1 }}
-            >
-              Workflow History
-            </Button>
-            <Button variant="outlined" onClick={() => setViewDialog((prev) => ({ ...prev, open: false }))}>
-              Close
-            </Button>
+            {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && (
+              <>
+                <Chip
+                  label={viewDialog.settlement?.workflowStatus || 'Draft'}
+                  color={getWorkflowStatusColor(viewDialog.settlement?.workflowStatus || 'Draft')}
+                  size="small"
+                  sx={{ mr: 1 }}
+                />
+                <Chip
+                  label={viewDialog.settlement?.paymentType}
+                  variant="outlined"
+                  size="small"
+                />
+              </>
+            )}
+            {viewDialog.isCashApproval && (
+              <Chip
+                label={viewDialog.settlement?.status || 'Draft'}
+                color={getWorkflowStatusColor(viewDialog.settlement?.status || 'Draft')}
+                size="small"
+              />
+            )}
           </Box>
 
-          <Stack direction="row" spacing={1}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <Button
               variant="contained"
               color="success"
               startIcon={<CheckCircleIcon />}
               onClick={() => {
-                const it = viewDialog.settlement;
+                const itemToApprove = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
-                openApprove(it);
+                openApprove(itemToApprove);
               }}
             >
               Approve (CEO)
@@ -1358,26 +2160,199 @@ const ExecutiveCeoPaymentsSection = () => {
               color="error"
               startIcon={<CancelIcon />}
               onClick={() => {
-                const it = viewDialog.settlement;
+                const itemToReject = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
-                openReject(it);
+                openReject(itemToReject);
               }}
             >
-              Reject
+              Reject (CEO)
             </Button>
             <Button
               variant="contained"
               color="warning"
               startIcon={<WarningIcon />}
               onClick={() => {
-                const it = viewDialog.settlement;
+                const itemToReturn = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
-                openReturn(it);
+                openReturn(itemToReturn);
               }}
             >
-              Return
+              Return with Observations
             </Button>
-          </Stack>
+            <Button
+              variant="outlined"
+              startIcon={<HistoryIcon />}
+              onClick={() => setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement })}
+              sx={{ minWidth: 150, mr: 1 }}
+            >
+              See Workflow History
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() =>
+                setViewDialog({
+                  open: false,
+                  settlement: null,
+                  isPurchaseOrder: false,
+                  isCashApproval: false,
+                  quotations: [],
+                  caLinkedDocs: [],
+                  poQuotations: [],
+                  poGrns: [],
+                  poLinkedDocs: [],
+                  poAuditTab: 0
+                })
+              }
+              sx={{ minWidth: 80, mr: 1 }}
+            >
+              Close
+            </Button>
+            {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && (
+              <Button
+                variant="outlined"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                sx={{ minWidth: 100 }}
+              >
+                Print
+              </Button>
+            )}
+          </Box>
+        </DialogActions>
+      </Dialog>
+
+      {/* Print Styles for Purchase Order / Cash Approval Dialog */}
+      {(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) && (
+        <Box
+          component="style"
+          dangerouslySetInnerHTML={{
+            __html: `
+              @media print {
+                @page {
+                  size: A4;
+                  margin: 15mm;
+                }
+                body * {
+                  visibility: hidden;
+                }
+                .MuiDialog-container,
+                .MuiDialog-container *,
+                .MuiDialog-paper,
+                .MuiDialog-paper *,
+                .print-content,
+                .print-content * {
+                  visibility: visible;
+                }
+                .MuiDialog-container {
+                  position: absolute !important;
+                  left: 0 !important;
+                  top: 0 !important;
+                  width: 100% !important;
+                  height: 100% !important;
+                  display: block !important;
+                  padding: 0 !important;
+                  margin: 0 !important;
+                  overflow: visible !important;
+                }
+                .MuiDialog-paper {
+                  box-shadow: none !important;
+                  margin: 0 !important;
+                  max-width: 100% !important;
+                  width: 100% !important;
+                  height: auto !important;
+                  max-height: none !important;
+                  position: relative !important;
+                  transform: none !important;
+                  overflow: visible !important;
+                }
+                .MuiDialogContent-root {
+                  overflow: visible !important;
+                  padding: 0 !important;
+                  height: auto !important;
+                  max-height: none !important;
+                  margin: 0 !important;
+                }
+                .MuiDialogTitle-root {
+                  display: none !important;
+                }
+                .MuiDialogActions-root {
+                  display: none !important;
+                }
+                .MuiBackdrop-root {
+                  display: none !important;
+                }
+                .MuiPaper-root {
+                  box-shadow: none !important;
+                }
+              }
+            `
+          }}
+        />
+      )}
+
+      {/* Image Viewer Dialog */}
+      <Dialog
+        open={imageViewer.open}
+        onClose={() => {
+          if (imageViewer.isBlob && imageViewer.imageUrl) {
+            URL.revokeObjectURL(imageViewer.imageUrl);
+          }
+          setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
+        }}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">{imageViewer.imageName}</Typography>
+          <IconButton
+            onClick={() => {
+              if (imageViewer.isBlob && imageViewer.imageUrl) {
+                URL.revokeObjectURL(imageViewer.imageUrl);
+              }
+              setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', p: 2 }}>
+          {imageViewer.imageUrl && (
+            <img
+              src={imageViewer.imageUrl}
+              alt={imageViewer.imageName}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '70vh',
+                objectFit: 'contain'
+              }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              if (imageViewer.isBlob && imageViewer.imageUrl) {
+                URL.revokeObjectURL(imageViewer.imageUrl);
+              }
+              setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
+            }}
+          >
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const link = document.createElement('a');
+              link.href = imageViewer.imageUrl;
+              link.download = imageViewer.imageName;
+              link.target = '_blank';
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }}
+          >
+            Download
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -1401,7 +2376,6 @@ const ExecutiveCeoPaymentsSection = () => {
             <strong>{approveDialog.settlement?.displayVendor}</strong>.
           </Typography>
 
-          {/* Digital Signature only shown for PO / Settlement, auto-applied for Cash Approval */}
           {!approveDialog.settlement?.isCashApproval && (
             <TextField
               fullWidth
