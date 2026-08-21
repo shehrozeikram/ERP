@@ -608,6 +608,7 @@ export const MODULES = {
     roles: ['super_admin', 'admin', 'finance_manager', 'tcm_manager', 'developer'],
     subItems: [
       { name: 'Finance Dashboard', path: '/finance' },
+      { name: 'Voucher Center', path: '/finance/vouchers', icon: 'ReceiptLong' },
 
       // ── CUSTOMERS (AR) ──────────────────────────────────────────────────────
       {
@@ -656,8 +657,7 @@ export const MODULES = {
           { name: 'Bank Statement Import',path: '/finance/bank-statement-import'},
           { name: 'Bank Reconciliation',  path: '/finance/bank-reconciliation'  },
           { name: 'Opening Balances',     path: '/finance/opening-balances'     },
-          { name: 'Year-End Closing',     path: '/finance/year-end-closing'     },
-          { name: 'Vouchers',             path: '/finance/vouchers'              },
+          { name: 'Year-End Closing',     path: '/finance/year-end-closing'     }
         ]
       },
 

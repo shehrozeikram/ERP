@@ -160,6 +160,7 @@ const optionalAuth = async (req, res, next) => {
 const ROLE_TO_MODULE_MAP = {
   'hr_manager': 'hr',
   'finance_manager': 'finance',
+  'recovery_manager': 'finance',
   'procurement_manager': 'procurement',
   /** Dedicated DC QA login (legacy user.role); maps to procurement for RBAC module checks. */
   'store_qa': 'procurement',

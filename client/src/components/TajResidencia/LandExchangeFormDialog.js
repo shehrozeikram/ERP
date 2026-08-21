@@ -317,101 +317,136 @@ export default function LandExchangeFormDialog({
   const handleOutLineChange = (index, field, value) => {
     setOutLandLines((prev) => {
       const updated = [...prev];
+      const current = { ...updated[index] };
 
-      if (field === 'registryId') {
-        const reg = registries.find((r) => String(r._id) === String(value));
-        if (reg) {
-          const regMoza = reg.moza?._id || reg.moza || '';
-          if (regMoza) loadKhasrasForMoza(regMoza);
+      if (field === 'moza') {
+        current.moza = value;
+        current.khasraNo = '';
+        current.khasraEntry = '';
+        current.registryId = '';
+        current.registryNo = '';
+        current.inteqalNo = '';
+        current.khewatNo = '';
+        current.khasraArea = emptyArea();
+        current.surrenderedArea = emptyArea();
+        if (value) loadKhasrasForMoza(value);
+        updated[index] = current;
+        return updated;
+      } else if (field === 'khasraNo') {
+        current.khasraNo = value;
 
-          // If registry has multiple khasra lines, expand all of them into separate Out Land lines
-          if (reg.lines && reg.lines.length > 1) {
-            const newLines = reg.lines.map((l) => ({
-              id: Math.random().toString(36).substring(2, 9),
-              registryId: reg._id,
-              registryNo: reg.registryNo || '',
-              inteqalNo: reg.inteqalNo || '',
-              moza: regMoza,
-              khasraEntry: l.khasraEntry?._id || l.khasraEntry || '',
-              khewatNo: l.khewatNo || reg.khewatNo || '',
-              khasraNo: l.khasraNo || '',
-              khasraArea: l.khasraArea || l.landOfKhasra || emptyArea(),
-              surrenderedArea: l.acquiredArea || emptyArea(),
-              remarks: l.remarks || ''
-            }));
+        // Find Khasra metadata from Moza khasras
+        const khasras = mozaKhasrasMap[current.moza] || [];
+        const match = khasras.find((k) => String(k.khasraNo).trim() === String(value).trim());
+        const defaultKhewat = match?.khewatNo || '';
+        const defaultKhasraArea = match?.landInKhasra || emptyArea();
+        const defaultKhasraEntry = match?._id || '';
 
-            // Replace the current line at index with all the registry's khasra lines
-            updated.splice(index, 1, ...newLines);
-            return updated;
-          } else if (reg.lines && reg.lines.length === 1) {
-            const firstL = reg.lines[0];
-            const line = {
-              ...updated[index],
-              registryId: reg._id,
-              registryNo: reg.registryNo || '',
-              inteqalNo: reg.inteqalNo || '',
-              moza: regMoza,
-              khasraEntry: firstL.khasraEntry?._id || firstL.khasraEntry || '',
-              khewatNo: firstL.khewatNo || reg.khewatNo || '',
-              khasraNo: firstL.khasraNo || '',
-              khasraArea: firstL.khasraArea || firstL.landOfKhasra || emptyArea(),
-              surrenderedArea: firstL.acquiredArea || emptyArea()
-            };
-            updated[index] = line;
-            return updated;
-          } else {
-            const line = {
-              ...updated[index],
-              registryId: reg._id,
-              registryNo: reg.registryNo || '',
-              inteqalNo: reg.inteqalNo || '',
-              moza: regMoza,
-              khewatNo: reg.khewatNo || ''
-            };
-            updated[index] = line;
-            return updated;
-          }
+        // Find all unique registries created under this Moza and Khasra
+        const matchingRegs = [];
+        const seenRegIds = new Set();
+
+        if (value && current.moza) {
+          registries.forEach((r) => {
+            const rMozaId = r.moza?._id || r.moza || '';
+            if (String(rMozaId) === String(current.moza)) {
+              if (Array.isArray(r.lines)) {
+                // Find matching line in registry for this khasra
+                const matchedLine = r.lines.find((rl) => String(rl.khasraNo).trim() === String(value).trim());
+                if (matchedLine && !seenRegIds.has(String(r._id))) {
+                  seenRegIds.add(String(r._id));
+                  matchingRegs.push({
+                    registry: r,
+                    regLine: matchedLine
+                  });
+                }
+              }
+            }
+          });
+        }
+
+        if (matchingRegs.length > 1) {
+          // If this khasra appears in more than one registry, expand all of them into separate lines
+          const expandedLines = matchingRegs.map(({ registry: r, regLine: rl }) => ({
+            id: Math.random().toString(36).substring(2, 9),
+            moza: current.moza,
+            khasraNo: value,
+            khasraEntry: rl.khasraEntry?._id || rl.khasraEntry || defaultKhasraEntry,
+            registryId: r._id,
+            registryNo: r.registryNo || '',
+            inteqalNo: r.inteqalNo || '',
+            khewatNo: rl.khewatNo || r.khewatNo || defaultKhewat,
+            khasraArea: rl.khasraArea || rl.landOfKhasra || defaultKhasraArea,
+            surrenderedArea: rl.acquiredArea || emptyArea(),
+            remarks: current.remarks || ''
+          }));
+          updated.splice(index, 1, ...expandedLines);
+          return updated;
+        } else if (matchingRegs.length === 1) {
+          const { registry: r, regLine: rl } = matchingRegs[0];
+          current.registryId = r._id;
+          current.registryNo = r.registryNo || '';
+          current.inteqalNo = r.inteqalNo || '';
+          current.khasraEntry = rl.khasraEntry?._id || rl.khasraEntry || defaultKhasraEntry;
+          current.khewatNo = rl.khewatNo || r.khewatNo || defaultKhewat;
+          current.khasraArea = rl.khasraArea || rl.landOfKhasra || defaultKhasraArea;
+          current.surrenderedArea = rl.acquiredArea || emptyArea();
+          updated[index] = current;
+          return updated;
         } else {
-          // Cleared registry selection
-          updated[index] = {
-            ...updated[index],
-            registryId: '',
-            registryNo: '',
-            inteqalNo: ''
-          };
+          // No registry found for this khasra yet
+          current.registryId = '';
+          current.registryNo = '';
+          current.inteqalNo = '';
+          current.khasraEntry = defaultKhasraEntry;
+          current.khewatNo = defaultKhewat;
+          current.khasraArea = defaultKhasraArea;
+          current.surrenderedArea = defaultKhasraArea;
+          updated[index] = current;
           return updated;
         }
-      }
+      } else if (field === 'registryId') {
+        current.registryId = value;
+        const reg = registries.find((r) => String(r._id) === String(value));
+        if (reg) {
+          current.registryNo = reg.registryNo || '';
+          current.inteqalNo = reg.inteqalNo || '';
+          if (reg.khewatNo && !current.khewatNo) {
+            current.khewatNo = reg.khewatNo;
+          }
 
-      const line = { ...updated[index], [field]: value };
-
-      if (field === 'moza' && value) {
-        loadKhasrasForMoza(value);
-      }
-
-      if (field === 'khasraNo') {
-        const selectedReg = registries.find((r) => String(r._id) === String(line.registryId));
-        if (selectedReg && selectedReg.lines?.length > 0) {
-          const regLine = selectedReg.lines.find((sl) => String(sl.khasraNo).trim() === String(value).trim());
-          if (regLine) {
-            line.khewatNo = regLine.khewatNo || line.khewatNo;
-            line.khasraEntry = regLine.khasraEntry?._id || regLine.khasraEntry || line.khasraEntry;
-            line.khasraArea = regLine.khasraArea || regLine.landOfKhasra || line.khasraArea;
-            line.surrenderedArea = regLine.acquiredArea || line.surrenderedArea;
+          // If a specific khasra was selected, match its line in the registry
+          if (current.khasraNo && reg.lines?.length > 0) {
+            const regLine = reg.lines.find((sl) => String(sl.khasraNo).trim() === String(current.khasraNo).trim());
+            if (regLine) {
+              if (regLine.khewatNo) current.khewatNo = regLine.khewatNo;
+              if (regLine.khasraEntry) current.khasraEntry = regLine.khasraEntry?._id || regLine.khasraEntry;
+              if (regLine.khasraArea || regLine.landOfKhasra) {
+                current.khasraArea = regLine.khasraArea || regLine.landOfKhasra;
+              }
+              if (regLine.acquiredArea) {
+                current.surrenderedArea = regLine.acquiredArea;
+              }
+            }
+          } else if (reg.lines?.length === 1) {
+            const firstL = reg.lines[0];
+            if (!current.khasraNo) current.khasraNo = firstL.khasraNo || '';
+            current.khasraEntry = firstL.khasraEntry?._id || firstL.khasraEntry || current.khasraEntry;
+            current.khewatNo = firstL.khewatNo || reg.khewatNo || current.khewatNo;
+            current.khasraArea = firstL.khasraArea || firstL.landOfKhasra || current.khasraArea;
+            current.surrenderedArea = firstL.acquiredArea || current.surrenderedArea;
           }
         } else {
-          const khasras = mozaKhasrasMap[line.moza] || [];
-          const match = khasras.find((k) => String(k.khasraNo).trim() === String(value).trim());
-          if (match) {
-            line.khasraEntry = match._id;
-            if (!line.khewatNo) line.khewatNo = match.khewatNo || '';
-            line.khasraArea = match.landInKhasra || line.khasraArea;
-          }
+          current.registryNo = '';
+          current.inteqalNo = '';
         }
+        updated[index] = current;
+        return updated;
+      } else {
+        current[field] = value;
+        updated[index] = current;
+        return updated;
       }
-
-      updated[index] = line;
-      return updated;
     });
   };
 
@@ -741,27 +776,8 @@ export default function LandExchangeFormDialog({
                               </Stack>
 
                               <Grid container spacing={1.5}>
-                                <Grid item xs={12}>
-                                  <TextField
-                                    select
-                                    fullWidth
-                                    size="small"
-                                    label="Source Registry (Optional)"
-                                    value={line.registryId || ''}
-                                    onChange={(e) => handleOutLineChange(idx, 'registryId', e.target.value)}
-                                    helperText={registries.length ? `${registries.length} registries available` : ''}
-                                  >
-                                    <MenuItem value="">
-                                      <em>— Manual / None —</em>
-                                    </MenuItem>
-                                    {registries.map((r) => (
-                                      <MenuItem key={r._id} value={r._id}>
-                                        Reg #{r.registryNo || '—'} {r.inteqalNo ? `(Inteqal: ${r.inteqalNo})` : ''} — {formatKMS(r.totalArea)} {r.moza?.name ? `[${r.moza.name}]` : ''}
-                                      </MenuItem>
-                                    ))}
-                                  </TextField>
-                                </Grid>
-                                <Grid item xs={6}>
+                                {/* 1. Moza */}
+                                <Grid item xs={12} sm={6}>
                                   <TextField
                                     select
                                     fullWidth
@@ -776,48 +792,21 @@ export default function LandExchangeFormDialog({
                                     ))}
                                   </TextField>
                                 </Grid>
-                                <Grid item xs={6}>
-                                  <TextField
-                                    fullWidth
-                                    size="small"
-                                    label="Khewat No."
-                                    value={line.khewatNo}
-                                    onChange={(e) => handleOutLineChange(idx, 'khewatNo', e.target.value)}
-                                  />
-                                </Grid>
-                                <Grid item xs={6}>
-                                  {selectedReg?.lines?.length > 0 ? (
-                                    <TextField
-                                      select
-                                      fullWidth
-                                      size="small"
-                                      label="Khasra No."
-                                      value={line.khasraNo || ''}
-                                      onChange={(e) => {
-                                        const kNo = e.target.value;
-                                        const matchedLine = selectedReg.lines.find((sl) => String(sl.khasraNo) === String(kNo));
-                                        handleOutLineChange(idx, 'khasraNo', kNo);
-                                        if (matchedLine) {
-                                          if (matchedLine.khewatNo) handleOutLineChange(idx, 'khewatNo', matchedLine.khewatNo);
-                                          if (matchedLine.acquiredArea) handleOutLineChange(idx, 'surrenderedArea', matchedLine.acquiredArea);
-                                        }
-                                      }}
-                                    >
-                                      <MenuItem value=""><em>Select Khasra</em></MenuItem>
-                                      {selectedReg.lines.map((sl, i) => (
-                                        <MenuItem key={sl._id || i} value={sl.khasraNo}>
-                                          Khasra {sl.khasraNo} (Khewat: {sl.khewatNo || '—'}, Area: {formatKMS(sl.acquiredArea)})
-                                        </MenuItem>
-                                      ))}
-                                    </TextField>
-                                  ) : currentMozaKhasras.length > 0 ? (
+
+                                {/* 2. Khasra No. (From selected Moza) */}
+                                <Grid item xs={12} sm={6}>
+                                  {currentMozaKhasras.length > 0 ? (
                                     <Autocomplete
                                       freeSolo
                                       size="small"
                                       options={currentMozaKhasras.map((k) => String(k.khasraNo))}
                                       value={line.khasraNo || ''}
                                       onChange={(_, val) => handleOutLineChange(idx, 'khasraNo', val || '')}
-                                      onInputChange={(_, val) => handleOutLineChange(idx, 'khasraNo', val || '')}
+                                      onInputChange={(_, val) => {
+                                        if (val !== line.khasraNo) {
+                                          handleOutLineChange(idx, 'khasraNo', val || '');
+                                        }
+                                      }}
                                       renderInput={(params) => (
                                         <TextField {...params} label="Khasra No." placeholder="Select or type khasra" />
                                       )}
@@ -827,20 +816,119 @@ export default function LandExchangeFormDialog({
                                       fullWidth
                                       size="small"
                                       label="Khasra No."
-                                      value={line.khasraNo}
+                                      value={line.khasraNo || ''}
                                       onChange={(e) => handleOutLineChange(idx, 'khasraNo', e.target.value)}
+                                      placeholder={line.moza ? 'Enter khasra number' : 'Select Moza first'}
                                     />
                                   )}
                                 </Grid>
-                                <Grid item xs={6}>
-                                  <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                                      Surrendered Area (K-M-S)
-                                    </Typography>
-                                    <AreaInputGroup
-                                      value={line.surrenderedArea}
-                                      onChange={(val) => handleOutLineChange(idx, 'surrenderedArea', val)}
-                                    />
+
+                                {/* 3. Source Registry (Filtered by selected Moza & Khasra) */}
+                                <Grid item xs={12}>
+                                  {(() => {
+                                    // Filter registries matching this line's Moza and Khasra
+                                    const matchingRegistries = registries.filter((r) => {
+                                      const rMozaId = r.moza?._id || r.moza || '';
+                                      if (line.moza && String(rMozaId) !== String(line.moza)) return false;
+                                      if (line.khasraNo && Array.isArray(r.lines)) {
+                                        const hasKhasra = r.lines.some(
+                                          (rl) => String(rl.khasraNo).trim() === String(line.khasraNo).trim()
+                                        );
+                                        if (!hasKhasra) return false;
+                                      }
+                                      return true;
+                                    });
+
+                                    // Fallback to all registries if no specific filter matches or not selected yet
+                                    const displayRegistries = matchingRegistries.length > 0
+                                      ? matchingRegistries
+                                      : (line.moza ? registries.filter((r) => String(r.moza?._id || r.moza) === String(line.moza)) : registries);
+
+                                    return (
+                                      <TextField
+                                        select
+                                        fullWidth
+                                        size="small"
+                                        label="Source Registry"
+                                        value={line.registryId || ''}
+                                        onChange={(e) => handleOutLineChange(idx, 'registryId', e.target.value)}
+                                        helperText={
+                                          line.khasraNo
+                                            ? `${matchingRegistries.length} registry/registries created in Khasra ${line.khasraNo}`
+                                            : line.moza
+                                              ? `${displayRegistries.length} registries in selected Moza`
+                                              : `${registries.length} total registries available`
+                                        }
+                                      >
+                                        <MenuItem value="">
+                                          <em>— Select / Manual —</em>
+                                        </MenuItem>
+                                        {displayRegistries.map((r) => {
+                                          const matchedLine = line.khasraNo && r.lines
+                                            ? r.lines.find((rl) => String(rl.khasraNo).trim() === String(line.khasraNo).trim())
+                                            : null;
+                                          const areaText = matchedLine ? formatKMS(matchedLine.acquiredArea) : formatKMS(r.totalArea);
+
+                                          return (
+                                            <MenuItem key={r._id} value={r._id}>
+                                              Reg #{r.registryNo || '—'} {r.inteqalNo ? `(Inteqal: ${r.inteqalNo})` : ''} — {areaText} {r.moza?.name ? `[${r.moza.name}]` : ''} {matchedLine ? `(Khasra ${matchedLine.khasraNo})` : ''}
+                                            </MenuItem>
+                                          );
+                                        })}
+                                      </TextField>
+                                    );
+                                  })()}
+                                </Grid>
+
+                                {/* 4. Registry Details Row: Registry No., Inteqal No., Khewat No. */}
+                                <Grid item xs={12} sm={4}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Registry No."
+                                    value={line.registryNo || ''}
+                                    onChange={(e) => handleOutLineChange(idx, 'registryNo', e.target.value)}
+                                    placeholder="e.g. 1052"
+                                  />
+                                </Grid>
+                                <Grid item xs={12} sm={4}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Inteqal No."
+                                    value={line.inteqalNo || ''}
+                                    onChange={(e) => handleOutLineChange(idx, 'inteqalNo', e.target.value)}
+                                    placeholder="e.g. 54"
+                                  />
+                                </Grid>
+                                <Grid item xs={12} sm={4}>
+                                  <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Khewat No."
+                                    value={line.khewatNo || ''}
+                                    onChange={(e) => handleOutLineChange(idx, 'khewatNo', e.target.value)}
+                                    placeholder="e.g. 12/1"
+                                  />
+                                </Grid>
+
+                                {/* 5. Surrendered Area */}
+                                <Grid item xs={12}>
+                                  <Box sx={{ p: 1, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : '#fbfbfb', borderRadius: 1.5, border: '1px dashed', borderColor: 'divider' }}>
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between">
+                                      <Box>
+                                        <Typography variant="caption" fontWeight={600} color="text.secondary" display="block">
+                                          Surrendered Area (Kanal - Marla - Sarsai)
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                          Total Khasra Area: {formatKMS(line.khasraArea)}
+                                        </Typography>
+                                      </Box>
+                                      <AreaInputGroup
+                                        value={line.surrenderedArea}
+                                        onChange={(val) => handleOutLineChange(idx, 'surrenderedArea', val)}
+                                      />
+                                    </Stack>
                                   </Box>
                                 </Grid>
                               </Grid>

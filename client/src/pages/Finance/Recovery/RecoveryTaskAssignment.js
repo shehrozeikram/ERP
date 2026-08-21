@@ -467,12 +467,6 @@ const RecoveryTaskAssignment = () => {
   );
   const combinedRows = [
     ...sectorRules
-      .filter((r) => {
-        const assignedToId = r.assignedTo?._id || r.assignedTo || '';
-        // Must match taskScopeKeys format for sector tasks: sector|assignedTo|sector||
-        const key = `sector|${assignedToId}|${r.sector || ''}||`;
-        return !taskScopeKeys.has(key);
-      })
       .map((r) => ({
         kind: 'rule',
         id: r._id,
@@ -493,13 +487,6 @@ const RecoveryTaskAssignment = () => {
         assignedDate: formatAssignedDate(r.createdAt)
       })),
     ...slabRules
-      .filter((r) => {
-        const assignedToId = r.assignedTo?._id || r.assignedTo || '';
-        const min = r.minAmount ?? 0;
-        const max = r.maxAmount ?? null;
-        const key = `slab|${assignedToId}|${r.sector || ''}|${min}|${max}`;
-        return !taskScopeKeys.has(key);
-      })
       .map((r) => ({
         kind: 'rule',
         id: r._id,

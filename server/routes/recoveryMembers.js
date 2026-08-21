@@ -14,7 +14,7 @@ const router = express.Router();
 // @access  Private (Finance and Admin)
 router.get(
   '/eligible-employees',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     // Find Recovery-related departments (name contains "Recovery")
     const recoveryDepts = await Department.find({
@@ -65,7 +65,7 @@ router.get(
 // @access  Private (Finance and Admin)
 router.get(
   '/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { search, isActive } = req.query;
     const query = {};
@@ -109,7 +109,7 @@ router.get(
 // @access  Private (Finance and Admin)
 router.post(
   '/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   [
     body('employee').isMongoId().withMessage('Valid employee is required'),
     body('notes').optional().trim(),
@@ -168,7 +168,7 @@ router.post(
 // @access  Private (Finance and Admin)
 router.put(
   '/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   [
     body('notes').optional().trim(),
     body('isActive').optional().isBoolean()
@@ -217,7 +217,7 @@ router.put(
 // @access  Private (Finance and Admin)
 router.delete(
   '/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({

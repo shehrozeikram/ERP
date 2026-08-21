@@ -78,14 +78,25 @@ router.get(
       .populate({ path: 'createdBy', select: 'firstName lastName employeeId' })
       .sort({ type: 1, sector: 1, minAmount: 1 });
 
-    // Keep displayed progress in sync with real completed assignment counts.
+    // Keep displayed progress in sync with real completed assignment counts for this rule
     for (const rule of rules) {
-      const completed = await countCompletedAssignmentsByRuleScope({
+      const scopeQuery = buildRuleScopeQuery({
         type: rule.type,
         sector: rule.sector,
         minAmount: rule.minAmount,
         maxAmount: rule.maxAmount
       });
+      // Count records that were completed since this rule was created or marked completed
+      const ruleCreatedAt = rule.createdAt ? new Date(rule.createdAt) : null;
+      const completedQuery = {
+        ...scopeQuery,
+        taskStatus: 'completed'
+      };
+      if (ruleCreatedAt) {
+        completedQuery.taskCompletedAt = { $gte: ruleCreatedAt };
+      }
+
+      const completed = await RecoveryAssignment.countDocuments(completedQuery);
 
       const nextProgress = rule.targetCount != null && rule.targetCount > 0
         ? Math.min(100, Math.round((completed / rule.targetCount) * 100))
@@ -99,6 +110,8 @@ router.get(
           else nextStatus = 'pending';
         } else if (completed > 0 && rule.status === 'pending') {
           nextStatus = 'in_progress';
+        } else if (completed === 0 && (rule.status === 'in_progress' || rule.status === 'completed')) {
+          nextStatus = 'pending';
         }
       }
 
@@ -124,7 +137,7 @@ router.get(
 // POST /api/finance/recovery-task-rules
 router.post(
   '/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { type, assignedTo, sector, minAmount, maxAmount, action, targetCount } = req.body;
 
@@ -207,7 +220,7 @@ router.post(
 // PUT /api/finance/recovery-task-rules/:id
 router.put(
   '/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { type, assignedTo, sector, minAmount, maxAmount, isActive, action, status, completedCount, progressPercent, targetCount } = req.body;
     const rule = await RecoveryTaskAssignmentRule.findById(req.params.id);
@@ -257,7 +270,7 @@ router.put(
 // DELETE /api/finance/recovery-task-rules/:id
 router.delete(
   '/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const rule = await RecoveryTaskAssignmentRule.findById(req.params.id);
     if (!rule) {
@@ -287,11 +300,11 @@ router.delete(
 // Compute target count for a slab scope using RecoveryAssignment data
 router.get(
   '/slab-target-count',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { sector, minAmount, maxAmount } = req.query;
 
-    const min = Number(minAmount);
+    const min = minAmount !== undefined && minAmount !== null && minAmount !== '' ? Number(minAmount) : 0;
     const max = maxAmount !== undefined && maxAmount !== null && maxAmount !== '' ? Number(maxAmount) : null;
     if (isNaN(min) || min < 0) {
       return res.status(400).json({
@@ -311,7 +324,9 @@ router.get(
       currentlyDue: amountCond
     };
     if (sector && String(sector).trim()) {
-      query.sector = String(sector).trim();
+      const trimmed = String(sector).trim();
+      const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.sector = new RegExp(`^${escaped}$`, 'i');
     }
 
     const count = await RecoveryAssignment.countDocuments(query);

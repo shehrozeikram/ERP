@@ -26,6 +26,9 @@ const {
   MY_TASKS_ACTIVE_STATUS_FILTER,
   buildScopeQueryFromRecoveryTask
 } = require('../utils/recoveryAssignmentUnassign');
+const {
+  userHasRecoveryTaskAssignmentUnrestrictedAccess
+} = require('../middleware/recoveryTaskAssignmentListAccess');
 const { executeRecoveryWhatsAppSend } = require('../utils/recoveryWhatsAppSend');
 const { decorateWithERPData } = require('../utils/erpIntegration');
 
@@ -246,7 +249,7 @@ const recoveryImportUpload = multer({
 // @access  Private (same roles as recovery)
 router.get(
   '/my-tasks',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 50, search, sector, status, unread, dueSort, recoveryTaskId, recoveryRuleId } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
@@ -279,9 +282,19 @@ router.get(
     const dueDir = dueSort === 'asc' ? 1 : -1;
     const dueSortObj = sortByDue ? { currentlyDue: dueDir, sortOrder: 1, orderCode: 1 } : { sortOrder: 1, orderCode: 1 };
 
-    // Super admin and admin: only assignments that are assigned to some recovery member (any rule)
-    if (req.user.role === 'super_admin' || req.user.role === 'developer' || req.user.role === 'admin') {
-      const allRules = await RecoveryTaskAssignmentRule.find({ isActive: true })
+    // Super admin, admin, recovery_manager, developer: see all assignments assigned to any recovery member (oversight)
+    const isManagerOversight =
+      req.user.role === 'super_admin' ||
+      req.user.role === 'developer' ||
+      req.user.role === 'admin' ||
+      userHasRecoveryTaskAssignmentUnrestrictedAccess(req);
+
+    if (isManagerOversight) {
+      let ruleFilter = { isActive: true };
+      if (req.query.memberId && String(req.query.memberId).trim()) {
+        ruleFilter.assignedTo = String(req.query.memberId).trim();
+      }
+      const allRules = await RecoveryTaskAssignmentRule.find(ruleFilter)
         .sort({ createdAt: -1 })
         .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
         .lean();
@@ -554,7 +567,7 @@ router.get(
 // @access  Private (Finance and Admin)
 router.get(
   '/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 50, search, sector, status, unread, memberId, dueSort } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
@@ -676,7 +689,7 @@ const EDITABLE_FIELDS = [
 // @access  Private (Finance and Admin)
 router.post(
   '/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const doc = {};
     EDITABLE_FIELDS.forEach((key) => {
@@ -707,7 +720,7 @@ router.post(
 // @access  Private (Finance and Admin)
 router.put(
   '/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const assignment = await RecoveryAssignment.findById(req.params.id);
     if (!assignment) return res.status(404).json({ success: false, message: 'Assignment not found' });
@@ -738,7 +751,7 @@ router.put(
 // @access  Private (Finance and Admin)
 router.post(
   '/import',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { records } = req.body;
     if (!Array.isArray(records) || records.length === 0) {
@@ -777,7 +790,7 @@ router.post(
 // @access  Private (Finance and Admin)
 router.post(
   '/import-latest',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     let wb;
     try {
@@ -827,7 +840,7 @@ router.post(
 // @access  Private (Finance and Admin)
 router.post(
   '/import-file',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   recoveryImportUpload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) {
@@ -885,7 +898,7 @@ router.post(
 // @access  Private (Finance and Admin)
 router.get(
   '/import-format',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const format = {
       columns: [
@@ -1155,7 +1168,7 @@ async function getUnreadNormalizedPhoneSetForUser(userId, candidateNormalizedPho
 // @access  Private
 router.get(
   '/whatsapp-incoming/numbers-with-messages',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const userId = resolveAuthUserObjectId(req);
     const countsMap = await getUnreadMessageCountsByNormalizedPhone(userId, null);
@@ -1173,7 +1186,7 @@ router.get(
 // @access  Private
 router.post(
   '/whatsapp-incoming/mark-read',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     let phone = (req.body.phone && String(req.body.phone).replace(/\D/g, '').trim()) || '';
     if (!phone) {
@@ -1201,7 +1214,7 @@ router.post(
 // @access  Private
 router.get(
   '/whatsapp-incoming',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     let phone = (req.query.from && String(req.query.from).replace(/\D/g, '').trim()) || '';
     if (!phone) {
@@ -1238,7 +1251,7 @@ router.get(
 // @access  Private
 router.delete(
   '/whatsapp-message/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -1414,7 +1427,7 @@ router.post(
 // @access  Private
 router.post(
   '/send-whatsapp',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const result = await executeRecoveryWhatsAppSend(req.body, req.user);
     if (!result.ok) {
@@ -1429,7 +1442,7 @@ router.post(
 // @access  Private
 router.post(
   '/send-whatsapp-batch',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (items.length === 0) {
@@ -1472,7 +1485,7 @@ router.post(
 // @access  Private
 router.put(
   '/:id/feedback',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const assignment = await RecoveryAssignment.findById(req.params.id);
     if (!assignment) return res.status(404).json({ success: false, message: 'Assignment not found' });
@@ -1514,7 +1527,7 @@ router.put(
 // @access  Private (Finance and Admin)
 router.get(
   '/stats',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const completedTaskFilters =
       req.query.completedTaskFilters === 'true' || req.query.completedTaskFilters === '1';
@@ -1555,7 +1568,7 @@ router.get(
 // @access  Private (Finance and Admin)
 router.get(
   '/completed-tasks',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 50, search, sector, status, dueSort } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -1626,7 +1639,7 @@ router.get(
 // @access  Private
 router.put(
   '/:id/complete',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const assignment = await RecoveryAssignment.findById(req.params.id);
     if (!assignment) return res.status(404).json({ success: false, message: 'Assignment not found' });

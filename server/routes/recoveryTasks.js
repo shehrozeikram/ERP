@@ -73,10 +73,58 @@ router.get(
     const tasks = await RecoveryTask.find(query)
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .populate({ path: 'createdBy', select: 'firstName lastName employeeId' })
-      .sort({ createdAt: -1, startDate: -1 })
-      .lean();
+      .sort({ createdAt: -1, startDate: -1 });
 
-    const data = tasks.map((t) => ({ ...t, progress: getProgress(t) }));
+    const now = new Date();
+    for (const task of tasks) {
+      const scopeQuery = buildTaskScopeQuery({
+        scopeType: task.scopeType,
+        sector: task.sector,
+        minAmount: task.minAmount,
+        maxAmount: task.maxAmount
+      });
+      const completedQuery = {
+        ...scopeQuery,
+        taskStatus: 'completed'
+      };
+      if (task.startDate) {
+        completedQuery.taskCompletedAt = { $gte: new Date(task.startDate) };
+      }
+
+      const completed = await RecoveryAssignment.countDocuments(completedQuery);
+      const nextProgress = task.targetCount != null && task.targetCount > 0
+        ? Math.min(100, Math.round((completed / task.targetCount) * 100))
+        : Math.min(100, Math.max(0, Number(task.progressPercent) || 0));
+
+      let nextStatus = task.status;
+      if (task.status !== 'cancelled') {
+        if (task.targetCount != null && task.targetCount > 0) {
+          if (completed >= task.targetCount) nextStatus = 'completed';
+          else if (task.endDate && new Date(task.endDate) < now) nextStatus = 'completed';
+          else if (completed > 0) nextStatus = 'in_progress';
+          else nextStatus = 'pending';
+        } else if (task.endDate && new Date(task.endDate) < now) {
+          nextStatus = 'completed';
+        } else if (completed > 0 && task.status === 'pending') {
+          nextStatus = 'in_progress';
+        }
+      }
+
+      const needsSave =
+        Number(task.completedCount || 0) !== Number(completed || 0) ||
+        Number(task.progressPercent || 0) !== Number(nextProgress || 0) ||
+        String(task.status || '') !== String(nextStatus || '');
+
+      if (needsSave) {
+        task.completedCount = completed;
+        task.progressPercent = nextProgress;
+        task.status = nextStatus;
+        await task.save();
+      }
+    }
+
+    const leanTasks = tasks.map((t) => (t.toObject ? t.toObject() : t));
+    const data = leanTasks.map((t) => ({ ...t, progress: getProgress(t) }));
     res.json({ success: true, data });
   })
 );
@@ -84,7 +132,7 @@ router.get(
 // POST /api/finance/recovery-tasks
 router.post(
   '/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const { title, assignedTo, scopeType, sector, minAmount, maxAmount, startDate, endDate, targetCount, notes, action } = req.body;
 
@@ -175,7 +223,7 @@ router.post(
 // PUT /api/finance/recovery-tasks/:id
 router.put(
   '/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const task = await RecoveryTask.findById(req.params.id);
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
@@ -269,7 +317,7 @@ router.put(
 // DELETE /api/finance/recovery-tasks/:id
 router.delete(
   '/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'recovery_manager'),
   asyncHandler(async (req, res) => {
     const task = await RecoveryTask.findById(req.params.id);
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });

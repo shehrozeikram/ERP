@@ -38,7 +38,8 @@ import {
   InsertDriveFile as FileIcon,
   Description as DescriptionIcon,
   Print as PrintIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Add as AddIcon
 } from '@mui/icons-material';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -163,6 +164,33 @@ const Vouchers = () => {
   });
   const [attachDlg, setAttachDlg] = useState({ open: false, entry: null, uploading: false });
   const [attachError, setAttachError] = useState('');
+  
+  const [newVoucherDialog, setNewVoucherDialog] = useState(false);
+  const [selectedNewVoucherType, setSelectedNewVoucherType] = useState('');
+
+  const handleCreateVoucher = () => {
+    if (!selectedNewVoucherType) return;
+    
+    switch (selectedNewVoucherType) {
+      case 'purchase_bill':
+        navigate('/finance/accounts-payable/new');
+        break;
+      case 'payment_voucher':
+        navigate('/finance/vendor-payments');
+        break;
+      case 'receipt_voucher':
+        navigate('/finance/customer-payments');
+        break;
+      case 'journal_voucher':
+        navigate('/finance/journal-entries/new');
+        break;
+      case 'vendor_advance':
+        navigate('/finance/vendor-advance');
+        break;
+      default:
+        break;
+    }
+  };
 
   const handleOpenVoucherDocs = async (voucherRow) => {
     setViewDialog({
@@ -483,9 +511,18 @@ const Vouchers = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <VoucherIcon color="primary" />
-            <Typography variant="h5" fontWeight={700}>Vouchers</Typography>
+            <Typography variant="h5" fontWeight={700}>Voucher Center</Typography>
           </Box>
-          <FinanceCompanySelector minWidth={280} showHelper={false} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <FinanceCompanySelector minWidth={280} showHelper={false} />
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setNewVoucherDialog(true)}
+            >
+              New Voucher
+            </Button>
+          </Box>
         </Box>
       </Paper>
 
@@ -798,15 +835,52 @@ const Vouchers = () => {
           <Button
             variant="outlined"
             startIcon={attachDlg.uploading ? <CircularProgress size={16} /> : <UploadIcon />}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={attachDlg.uploading || isCaVoucherWorkflowLocked(attachDlg.entry)}
+            component="label"
+            disabled={attachDlg.uploading}
           >
-            {attachDlg.uploading ? 'Uploading…' : 'Upload image / file'}
+            Upload Document
+            <input type="file" hidden onChange={handleFileUpload} accept=".pdf,.png,.jpg,.jpeg" />
           </Button>
-          <Button onClick={closeAttachDlg}>Close</Button>
+          <Button variant="contained" onClick={closeAttachDlg}>Close</Button>
         </DialogActions>
       </Dialog>
-
+      
+      <Dialog open={newVoucherDialog} onClose={() => setNewVoucherDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          <Typography fontWeight={700}>Create New Voucher</Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ pt: 1 }}>
+            <TextField
+              select
+              fullWidth
+              label="Select Voucher Type"
+              value={selectedNewVoucherType}
+              onChange={(e) => setSelectedNewVoucherType(e.target.value)}
+            >
+              <MenuItem value="purchase_bill">Purchase Bill (PB)</MenuItem>
+              <MenuItem value="payment_voucher">Payment Voucher (PV)</MenuItem>
+              <MenuItem value="receipt_voucher">Receipt Voucher (RV)</MenuItem>
+              <MenuItem value="vendor_advance">Vendor Advance (VA)</MenuItem>
+              <MenuItem value="journal_voucher">Journal Voucher (JV)</MenuItem>
+            </TextField>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+              Select the type of voucher you wish to create. This will redirect you to the corresponding financial form.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewVoucherDialog(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleCreateVoucher} 
+            disabled={!selectedNewVoucherType}
+          >
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
       <Dialog
         open={clearanceDialog.open}
         onClose={closeClearanceDialog}

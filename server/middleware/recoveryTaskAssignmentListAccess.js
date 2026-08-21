@@ -69,16 +69,14 @@ function userHasRecoveryTaskAssignmentUnrestrictedAccess(req) {
  * Field agents: active RecoveryMember without unrestricted role → only rows where assignedTo = their member id.
  */
 const recoveryTaskAssignmentListAccess = asyncHandler(async (req, res, next) => {
-  const selfMember = await getActiveRecoveryMemberForUser(req);
   const unrestricted = userHasRecoveryTaskAssignmentUnrestrictedAccess(req);
-
-  if (selfMember && !unrestricted) {
-    req.recoveryTaskAssignmentListScope = 'self';
-    req.recoveryTaskAssignmentSelfMemberId = selfMember._id;
+  if (unrestricted) {
+    req.recoveryTaskAssignmentListScope = 'all';
     return next();
   }
 
-  const allowedAll = await tryAuthorize(req, 'super_admin', 'admin', 'finance_manager');
+  const selfMember = await getActiveRecoveryMemberForUser(req);
+  const allowedAll = await tryAuthorize(req, 'super_admin', 'admin', 'finance_manager', 'recovery_manager');
   if (allowedAll) {
     req.recoveryTaskAssignmentListScope = 'all';
     return next();
@@ -98,5 +96,6 @@ const recoveryTaskAssignmentListAccess = asyncHandler(async (req, res, next) => 
 
 module.exports = {
   recoveryTaskAssignmentListAccess,
+  userHasRecoveryTaskAssignmentUnrestrictedAccess,
   getActiveRecoveryMemberForUser
 };

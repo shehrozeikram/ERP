@@ -24,6 +24,25 @@ export const statusKeyForParcel = (mouzaSlug, khasraNo) => {
   return `${mouzaSlug}:${normalizeKhasraNo(khasraNo)}`;
 };
 
+export const MAP_MOZA_ALIASES = {
+  'kaak': ['kak', 'kaak'],
+  'rupa': ['ropa', 'rupa', 'chak-rupa'],
+  'sheikhpur': ['sheikhpur'],
+  'lakhu': ['lakhu'],
+  'narhala': ['narhala']
+};
+
+export const getErpSlugsForMapMoza = (mapMoza, erpMozas = []) => {
+  if (!mapMoza) return [];
+  const normalizedMapMoza = String(mapMoza).toLowerCase().trim();
+  const allowedPrefixes = MAP_MOZA_ALIASES[normalizedMapMoza] || [normalizedMapMoza];
+  
+  return erpMozas
+    .map(m => typeof m === 'string' ? m : m?.slug)
+    .filter(Boolean)
+    .filter(slug => allowedPrefixes.some(prefix => slug.startsWith(`${prefix}-`) || slug === prefix));
+};
+
 export const hasRegisteredArea = (statusRow) => {
   if (!statusRow) return false;
   const { kanal = 0, marla = 0, sarsai = 0 } = statusRow.registered || {};
@@ -135,16 +154,23 @@ export const buildStatusLookups = (statusMap = {}) => {
 };
 
 /** Resolve ERP status for a khasra label (optionally scoped to one mouza). */
-export const resolveStatusForKhasra = (khasraNo, mouzaFilter, statusMap, mozas = [], lookups = null) => {
+export const resolveStatusForKhasra = (khasraNo, mapMozaOrFilter, statusMap, mozas = [], lookups = null) => {
   const k = normalizeKhasraNo(khasraNo);
   if (!k) return null;
 
   const maps = lookups || buildStatusLookups(statusMap);
   const tryKey = (slug) => maps.byKhasra[`${slug}:${k}`] || maps.exact[`${slug}:${k}`] || maps.exact[`${slug}:${khasraNo}`];
 
-  if (mouzaFilter && mouzaFilter !== 'all') {
-    const status = tryKey(mouzaFilter);
-    return status ? { status, mouza: mouzaFilter } : null;
+  if (mapMozaOrFilter && mapMozaOrFilter !== 'all') {
+    let status = tryKey(mapMozaOrFilter);
+    if (status) return { status, mouza: mapMozaOrFilter };
+
+    const matchingSlugs = getErpSlugsForMapMoza(mapMozaOrFilter, mozas);
+    for (const slug of matchingSlugs) {
+      status = tryKey(slug);
+      if (status) return { status, mouza: slug };
+    }
+    return null;
   }
 
   for (const moza of mozas) {

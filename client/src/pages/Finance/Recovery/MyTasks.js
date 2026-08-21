@@ -274,14 +274,10 @@ const MyTasks = () => {
         return;
       }
 
-      const newestId = sorted[0]._id;
-      const addedTask = sorted.length > taskCountRef.current;
       taskCountRef.current = sorted.length;
-
       setSelectedTaskId((prev) => {
-        if (userChoseAllTasksRef.current && prev === '' && !selectedRuleIdRef.current) return '';
-        if (!prev || addedTask) return newestId;
-        if (!sorted.some((t) => t._id === prev)) return newestId;
+        if (!prev) return '';
+        if (!sorted.some((t) => t._id === prev)) return '';
         return prev;
       });
     } catch {

@@ -44,7 +44,8 @@ import {
   possessionCoverageFraction,
   registryCoverageFraction,
   resolveStatusForKhasra,
-  strokeForStatus
+  strokeForStatus,
+  getErpSlugsForMapMoza
 } from '../../utils/lathaMapStatus';
 import { clipPolygonBottomFraction, clipPolygonTopFraction } from '../../utils/lathaMapGeometry';
 import { formatKMS, normalizeArea } from '../../utils/landAreaUnits';
@@ -532,11 +533,16 @@ const LathaMapViewer = () => {
 
   const parcelBelongsToMouza = useCallback((parcel, slug) => {
     if (!slug || slug === 'all') return true;
-    if (parcel.moza) return parcel.moza === slug;
+    if (parcel.moza) {
+      if (parcel.moza === slug) return true;
+      const matchingSlugs = getErpSlugsForMapMoza(parcel.moza, mozas);
+      if (matchingSlugs.includes(slug)) return true;
+      return false;
+    }
     const khasraSet = mouzaKhasraSets[slug];
     if (!khasraSet?.size) return Boolean(getResolvedStatusForMouza(parcel, slug));
     return khasraSet.has(normalizeKhasraNo(parcel.k));
-  }, [mouzaKhasraSets, getResolvedStatusForMouza]);
+  }, [mouzaKhasraSets, getResolvedStatusForMouza, mozas]);
 
   const getResolvedStatus = useCallback(
     (point) => resolveStatusForKhasra(

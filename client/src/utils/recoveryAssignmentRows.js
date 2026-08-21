@@ -102,11 +102,6 @@ export function buildRecoveryAssignmentRows(rules = [], tasks = []) {
 
   const rows = [
     ...sectorRules
-      .filter((r) => {
-        const assignedToId = r.assignedTo?._id || r.assignedTo || '';
-        const key = `sector|${assignedToId}|${r.sector || ''}||`;
-        return !taskScopeKeys.has(key);
-      })
       .map((r) => ({
         kind: 'rule',
         id: r._id,
@@ -129,13 +124,6 @@ export function buildRecoveryAssignmentRows(rules = [], tasks = []) {
         sortAt: new Date(r.createdAt || 0).getTime()
       })),
     ...slabRules
-      .filter((r) => {
-        const assignedToId = r.assignedTo?._id || r.assignedTo || '';
-        const min = r.minAmount ?? 0;
-        const max = r.maxAmount ?? null;
-        const key = `slab|${assignedToId}|${r.sector || ''}|${min}|${max}`;
-        return !taskScopeKeys.has(key);
-      })
       .map((r) => ({
         kind: 'rule',
         id: r._id,
