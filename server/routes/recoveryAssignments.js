@@ -478,6 +478,9 @@ router.get(
           }
         }
       }
+    } else if (recoveryTaskFilter?.scopeQuery) {
+      orConditions.length = 0;
+      orConditions.push(recoveryTaskFilter.scopeQuery);
     }
 
     if (orConditions.length === 0) {
