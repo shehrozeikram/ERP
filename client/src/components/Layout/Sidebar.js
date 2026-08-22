@@ -17,7 +17,8 @@ import {
   alpha,
   Tooltip,
   Snackbar,
-  Alert
+  Alert,
+  IconButton
 } from '@mui/material';
 import {
   Dashboard,
@@ -40,7 +41,8 @@ import {
   Folder,
   QrCode2 as QrCodeIcon,
   Chat as ChatIcon,
-  DeveloperMode as DeveloperModeIcon
+  DeveloperMode as DeveloperModeIcon,
+  MenuOpen as MenuOpenIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -49,6 +51,7 @@ import NotificationService from '../../services/notificationService';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
 import { fetchTeamKpiWorksheets } from '../../services/kpiWorksheetService';
+import { useSidebar } from '../../contexts/SidebarContext';
 
 const drawerWidth = 280;
 
@@ -93,6 +96,7 @@ const Sidebar = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const { getModuleCount, markModuleAsRead } = useNotifications();
+  const { sidebarOpen, setSidebarOpen } = useSidebar();
 
   useEffect(() => {
     let cancelled = false;
@@ -906,12 +910,18 @@ const Sidebar = () => {
 
   return (
     <Drawer
-      variant="permanent"
+      variant={isMobile ? 'temporary' : 'persistent'}
+      open={sidebarOpen}
+      onClose={() => setSidebarOpen(false)}
       className="app-print-hide"
       sx={{
-        width: drawerWidth,
+        width: sidebarOpen ? drawerWidth : 0,
         flexShrink: 0,
         height: '100vh',
+        transition: theme.transitions.create(['width', 'margin'], {
+          easing: theme.transitions.easing.sharp,
+          duration: theme.transitions.duration.enteringScreen,
+        }),
         '& .MuiDrawer-paper': {
           width: drawerWidth,
           height: '100vh',
@@ -921,7 +931,11 @@ const Sidebar = () => {
           bgcolor: 'background.paper',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          transition: theme.transitions.create('transform', {
+            easing: theme.transitions.easing.sharp,
+            duration: theme.transitions.duration.enteringScreen,
+          }),
         },
       }}
     >
@@ -932,12 +946,23 @@ const Sidebar = () => {
           borderBottom: '1px solid',
           borderColor: 'divider',
           bgcolor: 'primary.main',
-          color: 'primary.contrastText'
+          color: 'primary.contrastText',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
         }}
       >
-        <Typography variant="h6" noWrap component="div">
+        <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 700 }}>
           SGC ERP System
         </Typography>
+        <IconButton
+          size="small"
+          onClick={() => setSidebarOpen(false)}
+          sx={{ color: 'primary.contrastText' }}
+          aria-label="collapse sidebar"
+        >
+          <MenuOpenIcon fontSize="small" />
+        </IconButton>
       </Box>
 
       {/* User Info - Fixed Position */}

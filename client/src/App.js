@@ -4,6 +4,7 @@ import { Box, CircularProgress, Typography, Button } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 import { FinanceCompanyProvider } from './context/FinanceCompanyContext';
+import { SidebarProvider } from './contexts/SidebarContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
 // Layout Components
@@ -548,12 +549,13 @@ function App() {
   return (
     <DataProvider>
       <FinanceCompanyProvider>
-      <Layout>
-        <Sidebar />
-        <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-          <Header />
-          <ChatFloatingButton />
-          <Box component="main" className="app-main-print" sx={{ flexGrow: 1, p: 3 }}>
+        <SidebarProvider>
+          <Layout>
+            <Sidebar />
+            <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
+              <Header />
+              <ChatFloatingButton />
+              <Box component="main" className="app-main-print" sx={{ flexGrow: 1, p: 3, minWidth: 0 }}>
             <Suspense fallback={lazyPageFallback}>
               <Routes>
               {/* Dashboard */}
@@ -2302,10 +2304,11 @@ function App() {
             </Suspense>
           </Box>
         </Box>
-      </Layout>
+          </Layout>
+        </SidebarProvider>
       </FinanceCompanyProvider>
     </DataProvider>
     );
 }
 
-export default App; 
+export default App;

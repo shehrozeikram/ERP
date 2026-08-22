@@ -17,12 +17,15 @@ import {
   Notifications as NotificationsIcon,
   Settings,
   Logout,
-  Person
+  Person,
+  Menu as MenuIcon,
+  MenuOpen as MenuOpenIcon
 } from '@mui/icons-material';
 import { styled, alpha } from '@mui/material/styles';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../../contexts/NotificationContext';
+import { useSidebar } from '../../contexts/SidebarContext';
 import Notifications from '../Notifications/Notifications';
 import AnnouncementBar from '../common/AnnouncementBar';
 
@@ -72,6 +75,7 @@ const Header = () => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
   const { getUnreadCount } = useNotifications();
+  const { sidebarOpen, toggleSidebar } = useSidebar();
 
   const unreadCount = getUnreadCount();
 
@@ -119,6 +123,17 @@ const Header = () => {
     >
       <AnnouncementBar />
       <Toolbar>
+        {/* Toggle Sidebar Button */}
+        <IconButton
+          edge="start"
+          color="inherit"
+          aria-label="toggle sidebar"
+          onClick={toggleSidebar}
+          sx={{ mr: 1.5 }}
+        >
+          {sidebarOpen ? <MenuOpenIcon /> : <MenuIcon />}
+        </IconButton>
+
         {/* Search Bar */}
         <SearchWrapper>
           <SearchIconWrapper>
