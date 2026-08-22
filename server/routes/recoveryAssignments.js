@@ -317,7 +317,8 @@ router.get(
       });
 
       if (recoveryRuleId && String(recoveryRuleId).trim()) {
-        const targetRule = allRules.find((r) => String(r._id) === String(recoveryRuleId).trim());
+        const targetRule = allRules.find((r) => String(r._id) === String(recoveryRuleId).trim()) ||
+          await RecoveryTaskAssignmentRule.findById(String(recoveryRuleId).trim()).lean();
         if (targetRule) {
           orConditions.length = 0; // Clear other conditions
           if (targetRule.type === 'sector') {
@@ -334,6 +335,9 @@ router.get(
             }
           }
         }
+      } else if (recoveryTaskFilter?.scopeQuery) {
+        orConditions.length = 0;
+        orConditions.push(recoveryTaskFilter.scopeQuery);
       }
 
       if (orConditions.length === 0) {
@@ -461,7 +465,8 @@ router.get(
     });
 
     if (recoveryRuleId && String(recoveryRuleId).trim()) {
-      const targetRule = rules.find((r) => String(r._id) === String(recoveryRuleId).trim());
+      const targetRule = rules.find((r) => String(r._id) === String(recoveryRuleId).trim()) ||
+        await RecoveryTaskAssignmentRule.findById(String(recoveryRuleId).trim()).lean();
       if (targetRule) {
         orConditions.length = 0; // Clear other conditions
         if (targetRule.type === 'sector') {
