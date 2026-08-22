@@ -348,7 +348,13 @@ router.get(
         });
       }
 
-      let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER });
+      const isSpecificSelection = Boolean(
+        (recoveryRuleId && String(recoveryRuleId).trim()) ||
+        (recoveryTaskId && String(recoveryTaskId).trim())
+      );
+      const activeStatusFilter = isSpecificSelection ? { $nin: ['unassigned'] } : MY_TASKS_ACTIVE_STATUS_FILTER;
+
+      let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: activeStatusFilter });
       if (search && search.trim()) {
         const searchRegex = { $regex: search.trim(), $options: 'i' };
         query.$and = (query.$and || []).concat([
@@ -496,7 +502,13 @@ router.get(
       });
     }
 
-    let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER });
+    const isSpecificSelection = Boolean(
+      (recoveryRuleId && String(recoveryRuleId).trim()) ||
+      (recoveryTaskId && String(recoveryTaskId).trim())
+    );
+    const activeStatusFilter = isSpecificSelection ? { $nin: ['unassigned'] } : MY_TASKS_ACTIVE_STATUS_FILTER;
+
+    let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: activeStatusFilter });
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       query.$and = (query.$and || []).concat([
