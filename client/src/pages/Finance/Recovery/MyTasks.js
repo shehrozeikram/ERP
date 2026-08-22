@@ -178,7 +178,7 @@ const MyTasks = () => {
     try {
       setLoading(true);
       setNotRecoveryMember(false);
-      const ruleFilter = selectedRuleId ? rules.find((r) => r._id === selectedRuleId) : null;
+      const ruleFilter = selectedRuleId ? rules.find((r) => String(r._id) === String(selectedRuleId)) : null;
       const params = {
         ...pagination.getApiParams(),
         ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
@@ -187,7 +187,7 @@ const MyTasks = () => {
         ...(unreadFilter === 'unread' && { unread: 'true' }),
         ...(dueSort && { dueSort }),
         ...(selectedTaskId && !ruleFilter && { recoveryTaskId: selectedTaskId }),
-        ...(ruleFilter && { recoveryRuleId: ruleFilter._id })
+        ...(selectedRuleId && { recoveryRuleId: selectedRuleId })
       };
       const res = await fetchMyRecoveryTasks(params);
       const data = res.data?.data || [];
@@ -275,30 +275,24 @@ const MyTasks = () => {
       }
 
       if (rulesList.length > 0 || sorted.length > 0) {
-        setSelectedRuleId((prevRule) => {
-          setSelectedTaskId((prevTask) => {
-            if (!userChoseAllTasksRef.current && !prevRule && !prevTask) {
-              const allItems = buildRecoveryAssignmentRows(rulesList, sorted);
-              if (allItems.length > 0) {
-                const latest = allItems[0];
-                if (latest.kind === 'task') return latest.id;
-                else {
-                  // Will be set by outer setSelectedRuleId
-                }
-              }
-            }
-            if (prevTask && !sorted.some((t) => t._id === prevTask)) return '';
-            return prevTask;
-          });
-          if (!userChoseAllTasksRef.current && !prevRule && !selectedTaskId) {
-            const allItems = buildRecoveryAssignmentRows(rulesList, sorted);
-            if (allItems.length > 0 && allItems[0].kind === 'rule') {
-              return allItems[0].id;
+        if (!userChoseAllTasksRef.current && !selectedRuleId && !selectedTaskId) {
+          const allItems = buildRecoveryAssignmentRows(rulesList, sorted);
+          if (allItems.length > 0) {
+            const latest = allItems[0];
+            if (latest.kind === 'rule') {
+              setSelectedRuleId(latest.id);
+            } else if (latest.kind === 'task') {
+              setSelectedTaskId(latest.id);
             }
           }
-          if (prevRule && !rulesList.some((r) => r._id === prevRule)) return '';
-          return prevRule;
-        });
+        } else {
+          if (selectedTaskId && !sorted.some((t) => t._id === selectedTaskId)) {
+            setSelectedTaskId('');
+          }
+          if (selectedRuleId && !rulesList.some((r) => r._id === selectedRuleId)) {
+            setSelectedRuleId('');
+          }
+        }
       }
     } catch {
       setTasks([]);
