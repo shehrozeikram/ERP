@@ -14,7 +14,10 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Typography
+  Typography,
+  TextField,
+  Autocomplete,
+  InputAdornment
 } from '@mui/material';
 import {
   ZoomIn as ZoomInIcon,
@@ -23,7 +26,8 @@ import {
   Fullscreen as FullscreenIcon,
   Layers as LayersIcon,
   Map as MapIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Search as SearchIcon
 } from '@mui/icons-material';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -128,7 +132,7 @@ const MapBounds = ({ bounds }) => {
           [bounds.south, bounds.west],
           [bounds.north, bounds.east]
         ],
-        { padding: [24, 24], animate: false }
+        { padding: [50, 50], animate: false }
       );
     });
   }, [bounds, map]);
@@ -152,7 +156,8 @@ const KhasraParcelLayer = ({
   getStyle,
   onParcelClick,
   getLabelClass,
-  getTooltipLabel
+  getTooltipLabel,
+  selectedParcelId
 }) => {
   const map = useMap();
   const layerRef = useRef(null);
@@ -160,11 +165,13 @@ const KhasraParcelLayer = ({
   const clickRef = useRef(onParcelClick);
   const labelClassRef = useRef(getLabelClass);
   const tooltipRef = useRef(getTooltipLabel);
+  const selectedIdRef = useRef(selectedParcelId);
 
   styleRef.current = getStyle;
   clickRef.current = onParcelClick;
   labelClassRef.current = getLabelClass;
   tooltipRef.current = getTooltipLabel;
+  selectedIdRef.current = selectedParcelId;
 
   useEffect(() => {
     if (!data?.features?.length) return undefined;
@@ -185,15 +192,14 @@ const KhasraParcelLayer = ({
 
         const label = String(feature.properties?.k || '');
         const moza = feature.properties?.moza || null;
-        const labelClass = labelClassRef.current(feature.properties?.k, moza);
         const tooltipLabel = tooltipRef.current?.(feature.properties?.k, moza) || `Khasra ${label}`;
-        const isTracked = labelClass.includes('--registered') || labelClass.includes('--possessed');
+        const isSelected = selectedIdRef.current === parcel.id;
 
-        if (isTracked) {
-          leafletLayer.bindTooltip(tooltipLabel, {
+        if (isSelected) {
+          leafletLayer.bindTooltip(label, {
             permanent: true,
             direction: 'center',
-            className: labelClass,
+            className: 'latha-khasra-label latha-khasra-label--selected',
             opacity: 1
           });
         } else {
@@ -228,16 +234,16 @@ const KhasraParcelLayer = ({
 
       const khasraNo = leafletLayer.feature.properties?.k;
       const moza = leafletLayer.feature.properties?.moza || null;
-      const labelClass = labelClassRef.current(khasraNo, moza);
+      const fId = parcelIdForFeature(leafletLayer.feature);
+      const isSelected = selectedParcelId === fId;
       const tooltipLabel = tooltipRef.current(khasraNo, moza) || `Khasra ${khasraNo}`;
-      const isTracked = labelClass.includes('--registered') || labelClass.includes('--possessed');
 
       leafletLayer.unbindTooltip();
-      if (isTracked) {
-        leafletLayer.bindTooltip(tooltipLabel, {
+      if (isSelected) {
+        leafletLayer.bindTooltip(String(khasraNo || ''), {
           permanent: true,
           direction: 'center',
-          className: labelClass,
+          className: 'latha-khasra-label latha-khasra-label--selected',
           opacity: 1
         });
       } else {
@@ -248,7 +254,7 @@ const KhasraParcelLayer = ({
         });
       }
     });
-  }, [getTooltipLabel, getLabelClass]);
+  }, [getTooltipLabel, selectedParcelId]);
 
   return null;
 };
@@ -648,7 +654,7 @@ const LathaMapViewer = () => {
         runWhenMapReady(map, (readyMap) => {
           readyMap.fitBounds(
             [[south, west], [north, east]],
-            { padding: [24, 24], animate: true }
+            { padding: [50, 50], animate: true, maxZoom: 16 }
           );
         });
         return;
@@ -659,12 +665,12 @@ const LathaMapViewer = () => {
       runWhenMapReady(map, (readyMap) => {
         if (visibleParcels.length === 1) {
           const [parcel] = visibleParcels;
-          readyMap.setView([parcel.lat, parcel.lng], 17, { animate: false });
+          readyMap.setView([parcel.lat, parcel.lng], 17, { animate: true });
           return;
         }
 
         const bounds = L.latLngBounds(visibleParcels.map((parcel) => [parcel.lat, parcel.lng]));
-        readyMap.fitBounds(bounds, { padding: [48, 48], maxZoom: 17, animate: false });
+        readyMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17, animate: true });
       });
     }, 150);
 
@@ -855,6 +861,67 @@ const LathaMapViewer = () => {
     L.DomEvent.stopPropagation(event);
     setSelectedParcel((prev) => (prev?.id === parcel.id ? null : parcel));
   }, []);
+
+  const searchKhasraOptions = useMemo(() => {
+    const map = new Map();
+    const candidateParcels = mouzaFilter === 'all'
+      ? parcels
+      : parcels.filter((p) => parcelBelongsToMouza(p, mouzaFilter));
+
+    candidateParcels.forEach((p) => {
+      if (!p.k) return;
+      const mozaLabel = p.moza ? (MOUZA_LABELS[p.moza] || p.moza) : (mouzaFilter !== 'all' ? (MOUZA_LABELS[mouzaFilter] || mouzaFilter) : 'Taj Residencia');
+      const label = `Khasra ${p.k} (${mozaLabel})`;
+      if (!map.has(p.id)) {
+        map.set(p.id, {
+          id: p.id,
+          label,
+          k: p.k,
+          moza: p.moza || (mouzaFilter !== 'all' ? mouzaFilter : null),
+          parcel: p
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const numA = parseFloat(a.k) || 0;
+      const numB = parseFloat(b.k) || 0;
+      if (numA !== numB) return numA - numB;
+      return a.label.localeCompare(b.label);
+    });
+  }, [parcels, mouzaFilter, parcelBelongsToMouza]);
+
+  const handleSelectSearchKhasra = useCallback((selectedOption) => {
+    if (!selectedOption?.parcel) return;
+    const { parcel } = selectedOption;
+    setSelectedParcel(parcel);
+
+    // If the parcel belongs to a mouza different from current filter (except all), ensure mouza is aligned
+    if (parcel.moza && mouzaFilter !== 'all' && parcel.moza !== mouzaFilter) {
+      setMouzaFilter(parcel.moza);
+    }
+
+    const map = mapRef.current;
+    if (!map || !isMapUsable(map)) return;
+
+    if (parcel.lat && parcel.lng) {
+      if (parcel.feature?.geometry) {
+        try {
+          const geoLayer = L.geoJSON(parcel.feature);
+          const bounds = geoLayer.getBounds();
+          map.flyToBounds(bounds, {
+            padding: [80, 80],
+            maxZoom: 18,
+            duration: 1.2
+          });
+        } catch {
+          map.flyTo([parcel.lat, parcel.lng], 18, { duration: 1.2 });
+        }
+      } else {
+        map.flyTo([parcel.lat, parcel.lng], 18, { duration: 1.2 });
+      }
+    }
+  }, [mouzaFilter]);
 
   const getKhasraLabelClass = useCallback((khasraNo, parcelMoza = null) => {
     const resolved = resolveStatusForKhasra(
@@ -1156,6 +1223,47 @@ const LathaMapViewer = () => {
             >
               Focus possession
             </Button>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Mouza</InputLabel>
+              <Select
+                value={mouzaFilter}
+                label="Mouza"
+                onChange={(e) => {
+                  setMouzaFilter(e.target.value);
+                  setSelectedParcel(null);
+                }}
+              >
+                <MenuItem value="all">All Mouzas</MenuItem>
+                {mouzaChips.map((slug) => (
+                  <MenuItem key={slug} value={slug}>
+                    {MOUZA_LABELS[slug] || slug}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Autocomplete
+              size="small"
+              options={searchKhasraOptions}
+              getOptionLabel={(option) => option.label || `Khasra ${option.k}`}
+              isOptionEqualToValue={(option, val) => option.id === val.id}
+              onChange={(_, value) => handleSelectSearchKhasra(value)}
+              value={searchKhasraOptions.find((o) => o.id === selectedParcel?.id) || null}
+              sx={{ minWidth: { xs: 180, sm: 240 } }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={mouzaFilter !== 'all' ? `Khasra in ${MOUZA_LABELS[mouzaFilter] || mouzaFilter}...` : "Search Khasra (e.g. 245)..."}
+                  InputProps={{
+                    ...params.InputProps,
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" color="action" />
+                      </InputAdornment>
+                    )
+                  }}
+                />
+              )}
+            />
             <Button
               size="small"
               variant={baseLayer === 'satellite' ? 'contained' : 'outlined'}
@@ -1235,7 +1343,7 @@ const LathaMapViewer = () => {
         ref={containerRef}
         sx={{
           position: 'relative',
-          height: { xs: '58vh', md: '70vh' },
+          height: { xs: '65vh', md: '78vh' },
           '&:fullscreen': { height: '100vh !important', width: '100vw !important' },
           '&:-webkit-full-screen': { height: '100vh !important', width: '100vw !important' },
           bgcolor: '#1a1a1a',
@@ -1250,26 +1358,37 @@ const LathaMapViewer = () => {
             background: 'transparent',
             border: 'none',
             boxShadow: 'none',
-            color: 'rgba(255,255,255,0.75)',
-            fontWeight: 600,
-            fontSize: '10px',
+            color: 'rgba(255,255,255,0.85)',
+            fontWeight: 700,
+            fontSize: '11px',
             lineHeight: 1.2,
             whiteSpace: 'pre-line',
             textAlign: 'center',
             textShadow: '0 0 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)',
             pointerEvents: 'none'
           },
+          '& .latha-khasra-label--selected': {
+            background: 'rgba(0, 0, 0, 0.88) !important',
+            border: '2px solid #FFD54F !important',
+            borderRadius: '6px !important',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.6) !important',
+            color: '#FFF9C4 !important',
+            fontWeight: 900,
+            fontSize: '13px !important',
+            padding: '3px 8px !important',
+            textShadow: '0 1px 3px rgba(0,0,0,0.95) !important'
+          },
           '& .latha-khasra-label--registered': {
-            color: '#fff',
+            color: '#90CAF9',
             fontWeight: 800,
-            fontSize: '11px',
-            textShadow: '0 0 4px rgba(13,71,161,0.95), 0 0 2px rgba(0,0,0,0.95)'
+            fontSize: '12px',
+            textShadow: '0 0 5px rgba(13,71,161,0.95), 0 0 2px rgba(0,0,0,0.95)'
           },
           '& .latha-khasra-label--possessed': {
-            color: '#fff',
+            color: '#A5D6A7',
             fontWeight: 800,
-            fontSize: '11px',
-            textShadow: '0 0 4px rgba(27,94,32,0.95), 0 0 2px rgba(0,0,0,0.95)'
+            fontSize: '12px',
+            textShadow: '0 0 5px rgba(27,94,32,0.95), 0 0 2px rgba(0,0,0,0.95)'
           }
         }}
       >
@@ -1431,6 +1550,7 @@ const LathaMapViewer = () => {
                 onParcelClick={handleParcelClick}
                 getLabelClass={getKhasraLabelClass}
                 getTooltipLabel={getTooltipLabel}
+                selectedParcelId={selectedParcel?.id || null}
               />
             )}
             {lines && (
