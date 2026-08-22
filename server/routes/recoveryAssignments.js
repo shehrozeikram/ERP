@@ -27,7 +27,8 @@ const {
   buildScopeQueryFromRecoveryTask
 } = require('../utils/recoveryAssignmentUnassign');
 const {
-  userHasRecoveryTaskAssignmentUnrestrictedAccess
+  userHasRecoveryTaskAssignmentUnrestrictedAccess,
+  getActiveRecoveryMemberForUser
 } = require('../middleware/recoveryTaskAssignmentListAccess');
 const { executeRecoveryWhatsAppSend } = require('../utils/recoveryWhatsAppSend');
 const { decorateWithERPData } = require('../utils/erpIntegration');
@@ -121,10 +122,7 @@ function isTaskAssignedToMember(record, memberId, sectorRules, slabRules) {
 
 /** True when the logged-in user is linked to an active RecoveryMember (field agent). */
 async function userIsActiveRecoveryMember(req) {
-  if (!req.user?.employeeId) return false;
-  const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
-  if (!employee) return false;
-  const rm = await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean();
+  const rm = await getActiveRecoveryMemberForUser(req);
   return !!rm;
 }
 
@@ -405,17 +403,7 @@ router.get(
       });
     }
 
-    const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
-    if (!employee) {
-      return res.json({
-        success: true,
-        data: [],
-        pagination: { page: 1, limit: Math.min(RECOVERY_LIST_MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 50)), total: 0 },
-        notRecoveryMember: true
-      });
-    }
-
-    const recoveryMember = await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean();
+    const recoveryMember = await getActiveRecoveryMemberForUser(req);
     if (!recoveryMember) {
       return res.json({
         success: true,
@@ -1500,8 +1488,7 @@ router.put(
 
     const isAdmin = req.user.role === 'super_admin' || req.user.role === 'developer' || req.user.role === 'admin';
     if (!isAdmin && assignedToMember) {
-      const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
-      const recoveryMember = employee ? await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean() : null;
+      const recoveryMember = await getActiveRecoveryMemberForUser(req);
       if (!recoveryMember) {
         return res.status(403).json({ success: false, message: 'You can only update feedback for your assigned tasks' });
       }
@@ -1653,8 +1640,7 @@ router.put(
 
     const isAdmin = req.user.role === 'super_admin' || req.user.role === 'developer' || req.user.role === 'admin';
     if (!isAdmin && assignedToMember) {
-      const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
-      const recoveryMember = employee ? await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean() : null;
+      const recoveryMember = await getActiveRecoveryMemberForUser(req);
       if (!recoveryMember) {
         return res.status(403).json({ success: false, message: 'You can only complete your assigned tasks' });
       }

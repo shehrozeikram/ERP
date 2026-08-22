@@ -3,6 +3,8 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const LandMoza = require('../models/tajResidencia/LandMoza');
 const LandRegistry = require('../models/tajResidencia/LandRegistry');
 const LandPossession = require('../models/tajResidencia/LandPossession');
+const LandPurchase = require('../models/tajResidencia/LandPurchase');
+const LandTransfer = require('../models/tajResidencia/LandTransfer');
 const { buildMozaAcquisitionStatus, deriveStatus } = require('../utils/landAcquisitionStatus');
 const { addAreas, normalizeArea, toSarsais, subtractAreas } = require('../utils/landAreaUnits');
 
@@ -171,33 +173,56 @@ router.get('/map-status', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/taj-residencia/land-acquisition/map-status/party-khasras/:partyId
-const LandPurchase = require('../models/tajResidencia/LandPurchase');
 router.get('/map-status/party-khasras/:partyId', asyncHandler(async (req, res) => {
   const { partyId } = req.params;
   
-  const purchases = await LandPurchase.find({
-    $or: [
-      { seller: partyId },
-      { purchaser: partyId },
-      { dealer: partyId }
-    ],
-    isActive: true
-  }).populate('moza', 'slug').lean();
+  const [purchases, registries, transfers] = await Promise.all([
+    LandPurchase.find({
+      $or: [
+        { seller: partyId },
+        { purchaser: partyId },
+        { dealer: partyId }
+      ],
+      isActive: true
+    }).populate('moza', 'slug').lean(),
+    LandRegistry.find({
+      $or: [
+        { seller: partyId },
+        { purchaser: partyId },
+        { dealer: partyId }
+      ],
+      isActive: true
+    }).populate('moza', 'slug').lean(),
+    LandTransfer.find({
+      $or: [
+        { seller: partyId },
+        { purchaser: partyId }
+      ]
+    }).populate('moza', 'slug').lean()
+  ]);
 
   const khasras = [];
   
-  purchases.forEach((purchase) => {
-    if (!purchase.moza || !purchase.moza.slug) return;
-    (purchase.lines || []).forEach((line) => {
-      if (line.khasraNo) {
-        khasras.push(`${purchase.moza.slug}:${normalizeKhasraNo(line.khasraNo)}`);
-      }
+  const collect = (items) => {
+    (items || []).forEach((item) => {
+      const slug = item?.moza?.slug || '';
+      (item?.lines || []).forEach((line) => {
+        if (line?.khasraNo) {
+          const normK = normalizeKhasraNo(line.khasraNo);
+          if (slug) khasras.push(`${slug}:${normK}`);
+          khasras.push(normK);
+        }
+      });
     });
-  });
+  };
+
+  collect(purchases);
+  collect(registries);
+  collect(transfers);
 
   res.json({
     success: true,
-    data: [...new Set(khasras)] // Return unique status keys
+    data: [...new Set(khasras)] // Return unique keys and numbers
   });
 }));
 

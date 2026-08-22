@@ -54,8 +54,7 @@ import {
 import { clipPolygonBottomFraction, clipPolygonTopFraction } from '../../utils/lathaMapGeometry';
 import { formatKMS, normalizeArea } from '../../utils/landAreaUnits';
 import {
-  buildMouzaLineHighlightIndex,
-  classifyLineFeature,
+  buildMouzaOuterBoundaryGeoJson,
   getMouzaHighlightColor
 } from '../../utils/lathaMapLineHighlight';
 
@@ -86,7 +85,13 @@ const SATELLITE_URL =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const STREET_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-const isMapUsable = (map) => Boolean(map?.getContainer?.() && map._loaded);
+const isMapUsable = (map) => Boolean(
+  map
+  && map._loaded
+  && map._mapPane
+  && map.getContainer?.()
+  && map.getPanes?.()?.mapPane
+);
 
 const safeRemoveLayer = (map, layer) => {
   if (!layer || !isMapUsable(map)) return;
@@ -113,11 +118,17 @@ const safeRestyleGeoJsonLayer = (map, layer, styleFn) => {
 const runWhenMapReady = (map, fn) => {
   if (!map) return;
   if (isMapUsable(map)) {
-    fn(map);
+    try {
+      fn(map);
+    } catch {}
     return;
   }
   map.whenReady(() => {
-    if (isMapUsable(map)) fn(map);
+    if (isMapUsable(map)) {
+      try {
+        fn(map);
+      } catch {}
+    }
   });
 };
 
@@ -127,13 +138,15 @@ const MapBounds = ({ bounds }) => {
   useEffect(() => {
     if (!bounds) return;
     runWhenMapReady(map, (readyMap) => {
-      readyMap.fitBounds(
-        [
-          [bounds.south, bounds.west],
-          [bounds.north, bounds.east]
-        ],
-        { padding: [50, 50], animate: false }
-      );
+      try {
+        readyMap.fitBounds(
+          [
+            [bounds.south, bounds.west],
+            [bounds.north, bounds.east]
+          ],
+          { padding: [50, 50], animate: false }
+        );
+      } catch {}
     });
   }, [bounds, map]);
 
@@ -157,7 +170,9 @@ const KhasraParcelLayer = ({
   onParcelClick,
   getLabelClass,
   getTooltipLabel,
-  selectedParcelId
+  selectedParcelId,
+  partyFilterId,
+  isParcelInPartyTarget
 }) => {
   const map = useMap();
   const layerRef = useRef(null);
@@ -166,12 +181,16 @@ const KhasraParcelLayer = ({
   const labelClassRef = useRef(getLabelClass);
   const tooltipRef = useRef(getTooltipLabel);
   const selectedIdRef = useRef(selectedParcelId);
+  const partyFilterIdRef = useRef(partyFilterId);
+  const isPartyTargetRef = useRef(isParcelInPartyTarget);
 
   styleRef.current = getStyle;
   clickRef.current = onParcelClick;
   labelClassRef.current = getLabelClass;
   tooltipRef.current = getTooltipLabel;
   selectedIdRef.current = selectedParcelId;
+  partyFilterIdRef.current = partyFilterId;
+  isPartyTargetRef.current = isParcelInPartyTarget;
 
   useEffect(() => {
     if (!data?.features?.length) return undefined;
@@ -194,12 +213,20 @@ const KhasraParcelLayer = ({
         const moza = feature.properties?.moza || null;
         const tooltipLabel = tooltipRef.current?.(feature.properties?.k, moza) || `Khasra ${label}`;
         const isSelected = selectedIdRef.current === parcel.id;
+        const isPartyMatch = Boolean(partyFilterIdRef.current && isPartyTargetRef.current?.(feature.properties?.k, moza));
 
         if (isSelected) {
           leafletLayer.bindTooltip(label, {
             permanent: true,
             direction: 'center',
             className: 'latha-khasra-label latha-khasra-label--selected',
+            opacity: 1
+          });
+        } else if (isPartyMatch) {
+          leafletLayer.bindTooltip(label, {
+            permanent: true,
+            direction: 'center',
+            className: 'latha-khasra-label latha-khasra-label--party',
             opacity: 1
           });
         } else {
@@ -236,6 +263,7 @@ const KhasraParcelLayer = ({
       const moza = leafletLayer.feature.properties?.moza || null;
       const fId = parcelIdForFeature(leafletLayer.feature);
       const isSelected = selectedParcelId === fId;
+      const isPartyMatch = Boolean(partyFilterId && isParcelInPartyTarget?.(khasraNo, moza));
       const tooltipLabel = tooltipRef.current(khasraNo, moza) || `Khasra ${khasraNo}`;
 
       leafletLayer.unbindTooltip();
@@ -246,6 +274,13 @@ const KhasraParcelLayer = ({
           className: 'latha-khasra-label latha-khasra-label--selected',
           opacity: 1
         });
+      } else if (isPartyMatch) {
+        leafletLayer.bindTooltip(String(khasraNo || ''), {
+          permanent: true,
+          direction: 'center',
+          className: 'latha-khasra-label latha-khasra-label--party',
+          opacity: 1
+        });
       } else {
         leafletLayer.bindTooltip(tooltipLabel, {
           sticky: true,
@@ -254,7 +289,7 @@ const KhasraParcelLayer = ({
         });
       }
     });
-  }, [getTooltipLabel, selectedParcelId]);
+  }, [getTooltipLabel, selectedParcelId, partyFilterId, isParcelInPartyTarget]);
 
   return null;
 };
@@ -368,12 +403,11 @@ const LathaMapViewer = () => {
   const [partyKhasras, setPartyKhasras] = useState([]);
 
   useEffect(() => {
-    if (!partyRoleFilter) {
-      setPartyList([]);
-      setPartyFilterId('');
-      return;
+    const params = { isActive: true };
+    if (partyRoleFilter && partyRoleFilter !== 'all') {
+      params.type = partyRoleFilter;
     }
-    landAcquisitionPartyService.getParties({ type: partyRoleFilter, isActive: true })
+    landAcquisitionPartyService.getParties(params)
       .then((res) => {
         if (res.success) setPartyList(res.data);
       })
@@ -387,10 +421,28 @@ const LathaMapViewer = () => {
     }
     getPartyKhasras(partyFilterId)
       .then((res) => {
-        if (res.success) setPartyKhasras(res.data);
+        if (res.success && Array.isArray(res.data)) {
+          setPartyKhasras(res.data);
+          
+          // Animate camera to fit party's khasras
+          const matched = parcels.filter((p) => {
+            const norm = normalizeKhasraNo(p.k);
+            return res.data.includes(norm) || (p.moza && res.data.includes(`${p.moza}:${norm}`));
+          });
+
+          if (matched.length > 0 && mapRef.current && isMapUsable(mapRef.current)) {
+            const map = mapRef.current;
+            if (matched.length === 1) {
+              map.flyTo([matched[0].lat, matched[0].lng], 17, { duration: 1.2 });
+            } else {
+              const bounds = L.latLngBounds(matched.map((p) => [p.lat, p.lng]));
+              map.flyToBounds(bounds, { padding: [50, 50], maxZoom: 17, duration: 1.2 });
+            }
+          }
+        }
       })
       .catch((err) => console.error('Failed to load party khasras:', err));
-  }, [partyFilterId]);
+  }, [partyFilterId, parcels]);
   const [showRegistryLayer, setShowRegistryLayer] = useState(true);
   const [showPossessionLayer, setShowPossessionLayer] = useState(true);
   const [selectedParcel, setSelectedParcel] = useState(null);
@@ -632,13 +684,27 @@ const LathaMapViewer = () => {
     return next;
   }, [parcels, mouzaFilter, parcelBelongsToMouza]);
 
+  const allMouzaBoundariesGeoJson = useMemo(() => {
+    if (mouzaFilter !== 'all' || !mouzaChips?.length) return [];
+    
+    return mouzaChips.map((slug) => {
+      const mouzaParcels = parcels.filter((p) => parcelBelongsToMouza(p, slug));
+      const boundaryGeoJson = buildMouzaOuterBoundaryGeoJson(mouzaParcels);
+      return {
+        slug,
+        color: getMouzaHighlightColor(slug),
+        geoJson: boundaryGeoJson
+      };
+    }).filter((item) => item.geoJson.features.length > 0);
+  }, [mouzaFilter, mouzaChips, parcels, parcelBelongsToMouza]);
+
   const mouzaHighlightParcels = useMemo(() => {
     if (mouzaFilter === 'all') return [];
     return parcels.filter((parcel) => parcelBelongsToMouza(parcel, mouzaFilter));
   }, [parcels, mouzaFilter, parcelBelongsToMouza]);
 
-  const mouzaLineIndex = useMemo(
-    () => (mouzaFilter === 'all' ? null : buildMouzaLineHighlightIndex(mouzaHighlightParcels)),
+  const mouzaOuterBoundaryGeoJson = useMemo(
+    () => (mouzaFilter === 'all' ? null : buildMouzaOuterBoundaryGeoJson(mouzaHighlightParcels)),
     [mouzaFilter, mouzaHighlightParcels]
   );
 
@@ -652,10 +718,16 @@ const LathaMapViewer = () => {
       if (mouzaFilter === 'all') {
         const { south, west, north, east } = mapIndex.bounds;
         runWhenMapReady(map, (readyMap) => {
-          readyMap.fitBounds(
-            [[south, west], [north, east]],
-            { padding: [50, 50], animate: true, maxZoom: 16 }
-          );
+          try {
+            readyMap.flyToBounds(
+              [[south, west], [north, east]],
+              { padding: [50, 50], duration: 1.2, maxZoom: 16 }
+            );
+          } catch {
+            try {
+              readyMap.fitBounds([[south, west], [north, east]], { padding: [50, 50] });
+            } catch {}
+          }
         });
         return;
       }
@@ -663,14 +735,21 @@ const LathaMapViewer = () => {
       if (visibleParcels.length === 0) return;
 
       runWhenMapReady(map, (readyMap) => {
-        if (visibleParcels.length === 1) {
-          const [parcel] = visibleParcels;
-          readyMap.setView([parcel.lat, parcel.lng], 17, { animate: true });
-          return;
-        }
+        try {
+          if (visibleParcels.length === 1) {
+            const [parcel] = visibleParcels;
+            readyMap.flyTo([parcel.lat, parcel.lng], 17, { duration: 1.2 });
+            return;
+          }
 
-        const bounds = L.latLngBounds(visibleParcels.map((parcel) => [parcel.lat, parcel.lng]));
-        readyMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17, animate: true });
+          const bounds = L.latLngBounds(visibleParcels.map((parcel) => [parcel.lat, parcel.lng]));
+          readyMap.flyToBounds(bounds, { padding: [50, 50], maxZoom: 17, duration: 1.2 });
+        } catch {
+          try {
+            const bounds = L.latLngBounds(visibleParcels.map((parcel) => [parcel.lat, parcel.lng]));
+            readyMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+          } catch {}
+        }
       });
     }, 150);
 
@@ -803,44 +882,19 @@ const LathaMapViewer = () => {
     });
   }, [parcels, getResolvedStatus, matchesPossessionLayer]);
 
-  const lineStyle = useCallback((feature) => {
-    if (mouzaFilter === 'all') {
-      return {
-        color: '#f5f5f5',
-        weight: 1,
-        opacity: 0.85
-      };
-    }
+  const lineStyle = useCallback(() => ({
+    color: 'rgba(200, 200, 200, 0.35)',
+    weight: 0.75,
+    opacity: 0.5
+  }), []);
 
-    const { onMouza, isBoundary } = classifyLineFeature(feature, mouzaLineIndex);
-    const mouzaColor = getMouzaHighlightColor(mouzaFilter);
-
-    if (!onMouza) {
-      return {
-        color: 'rgba(60, 60, 60, 0.35)',
-        weight: 0.5,
-        opacity: 0.12
-      };
-    }
-
-    if (isBoundary) {
-      return {
-        color: '#FFEB3B',
-        weight: 5,
-        opacity: 1,
-        lineCap: 'round',
-        lineJoin: 'round'
-      };
-    }
-
-    return {
-      color: mouzaColor,
-      weight: 2.75,
-      opacity: 0.98,
-      lineCap: 'round',
-      lineJoin: 'round'
-    };
-  }, [mouzaFilter, mouzaLineIndex]);
+  const outerBoundaryStyle = useCallback(() => ({
+    color: getMouzaHighlightColor(mouzaFilter), // Uses the distinct Mouza color (e.g. Cerulean Blue, Forest Green, Royal Indigo)
+    weight: 3.5,
+    opacity: 1,
+    lineCap: 'round',
+    lineJoin: 'round'
+  }), [mouzaFilter]);
 
   const openFullscreen = useCallback(() => {
     const node = containerRef.current;
@@ -985,6 +1039,32 @@ const LathaMapViewer = () => {
     matchesPossessionLayer
   ]);
 
+  const isParcelInPartyTarget = useCallback((khasraNo, parcelMoza) => {
+    if (!partyFilterId) return true;
+    if (!partyKhasras || partyKhasras.length === 0) return false;
+    const normK = normalizeKhasraNo(khasraNo);
+    if (!normK) return false;
+
+    // Check raw khasra number match
+    if (partyKhasras.includes(normK)) return true;
+
+    // Check with explicit moza or active mouza filter
+    const mozasToCheck = [
+      parcelMoza,
+      mouzaFilter !== 'all' ? mouzaFilter : null
+    ].filter(Boolean);
+
+    for (const m of mozasToCheck) {
+      if (partyKhasras.includes(`${m}:${normK}`)) return true;
+      const erpSlugs = getErpSlugsForMapMoza(m, mozas);
+      for (const slug of erpSlugs) {
+        if (partyKhasras.includes(`${slug}:${normK}`)) return true;
+      }
+    }
+
+    return false;
+  }, [partyFilterId, partyKhasras, mouzaFilter, mozas]);
+
   const parcelStyle = useCallback((feature) => {
     const parcel = {
       id: parcelIdForFeature(feature),
@@ -1004,9 +1084,7 @@ const LathaMapViewer = () => {
     const mouzaActive = mouzaFilter !== 'all';
     const mouzaColor = getMouzaHighlightColor(mouzaFilter);
 
-    const actualMoza = parcel.moza || (mouzaFilter === 'all' ? null : mouzaFilter);
-    const parcelKey = actualMoza ? `${actualMoza}:${normalizeKhasraNo(parcel.k)}` : null;
-    const isPartyTarget = partyFilterId ? partyKhasras.includes(parcelKey) : true;
+    const isPartyTarget = isParcelInPartyTarget(parcel.k, parcel.moza);
 
     if (!isPartyTarget) {
       return {
@@ -1019,12 +1097,26 @@ const LathaMapViewer = () => {
     }
 
     if (!highlighted) {
+      if (mouzaActive) {
+        return {
+          color: mouzaColor,
+          fillColor: mouzaColor,
+          fillOpacity: isSelected ? 0.45 : 0.08,
+          weight: isSelected ? 3 : 1.4,
+          opacity: 0.95
+        };
+      }
+
+      // In "All mouzas" mode, color each parcel by its own mouza
+      const resolvedMouza = resolved?.mouza || parcel.moza || 'unknown';
+      const autoColor = getMouzaHighlightColor(resolvedMouza);
+
       return {
-        color: mouzaActive ? mouzaColor : 'rgba(120,120,120,0.35)',
-        fillColor: mouzaActive ? 'rgba(41, 182, 246, 0.08)' : 'rgba(224, 224, 224, 0.2)',
-        fillOpacity: isSelected ? 0.45 : (mouzaActive ? 0.18 : 0.1),
-        weight: isSelected ? 4 : (mouzaActive ? 2.25 : 1),
-        opacity: mouzaActive ? 0.95 : 0.65
+        color: autoColor,
+        fillColor: autoColor,
+        fillOpacity: isSelected ? 0.4 : 0.08,
+        weight: isSelected ? 3 : 0.9,
+        opacity: 0.75
       };
     }
 
@@ -1032,7 +1124,7 @@ const LathaMapViewer = () => {
       color: strokeForStatus(statusRow, isSelected),
       fillColor: 'transparent',
       fillOpacity: 0,
-      weight: isSelected ? 3 : 2,
+      weight: isSelected ? 2.5 : 1.5,
       opacity: 1
     };
   }, [
@@ -1043,17 +1135,14 @@ const LathaMapViewer = () => {
     selectedParcel,
     anyErpLayerOn,
     matchesActiveLayer,
-    partyFilterId,
-    partyKhasras
+    isParcelInPartyTarget
   ]);
 
   const registryFillStyle = useCallback((feature) => {
     const featureId = parcelIdForFeature(feature);
     const isSelected = selectedParcel?.id === featureId;
 
-    const actualMoza = feature?.properties?.moza || (mouzaFilter === 'all' ? null : mouzaFilter);
-    const parcelKey = actualMoza ? `${actualMoza}:${normalizeKhasraNo(feature?.properties?.k)}` : null;
-    const isPartyTarget = partyFilterId ? partyKhasras.includes(parcelKey) : true;
+    const isPartyTarget = isParcelInPartyTarget(feature?.properties?.k, feature?.properties?.moza);
 
     if (!isPartyTarget) {
       return {
@@ -1072,7 +1161,7 @@ const LathaMapViewer = () => {
       weight: 1,
       opacity: 0.95
     };
-  }, [selectedParcel, mouzaFilter, partyFilterId, partyKhasras]);
+  }, [selectedParcel, isParcelInPartyTarget]);
 
   const possessionFillStyle = useCallback((feature) => {
     const resolved = resolveStatusForKhasra(
@@ -1086,9 +1175,7 @@ const LathaMapViewer = () => {
     const featureId = parcelIdForFeature(feature);
     const isSelected = selectedParcel?.id === featureId;
 
-    const actualMoza = feature?.properties?.moza || (mouzaFilter === 'all' ? null : mouzaFilter);
-    const parcelKey = actualMoza ? `${actualMoza}:${normalizeKhasraNo(feature?.properties?.k)}` : null;
-    const isPartyTarget = partyFilterId ? partyKhasras.includes(parcelKey) : true;
+    const isPartyTarget = isParcelInPartyTarget(feature?.properties?.k, feature?.properties?.moza);
 
     if (!isPartyTarget) {
       return {
@@ -1107,7 +1194,7 @@ const LathaMapViewer = () => {
       weight: 1,
       opacity: 0.95
     };
-  }, [statusMap, mozas, statusLookups, selectedParcel, mouzaFilter, partyFilterId, partyKhasras]);
+  }, [statusMap, mozas, statusLookups, selectedParcel, mouzaFilter, isParcelInPartyTarget]);
 
   const closeDetail = () => {
     setSelectedParcel(null);
@@ -1378,6 +1465,17 @@ const LathaMapViewer = () => {
             padding: '3px 8px !important',
             textShadow: '0 1px 3px rgba(0,0,0,0.95) !important'
           },
+          '& .latha-khasra-label--party': {
+            background: 'rgba(13, 71, 161, 0.88) !important',
+            border: '1.5px solid #90CAF9 !important',
+            borderRadius: '4px !important',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.5) !important',
+            color: '#FFFFFF !important',
+            fontWeight: 800,
+            fontSize: '11px !important',
+            padding: '2px 6px !important',
+            textShadow: '0 1px 2px rgba(0,0,0,0.9) !important'
+          },
           '& .latha-khasra-label--registered': {
             color: '#90CAF9',
             fontWeight: 800,
@@ -1458,37 +1556,60 @@ const LathaMapViewer = () => {
           }}
         >
           <Paper elevation={3} sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5, bgcolor: 'rgba(255, 255, 255, 0.95)' }}>
-            <Typography variant="subtitle2" fontWeight={600}>Filter by Party</Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="subtitle2" fontWeight={600}>Filter by Party</Typography>
+              {(partyFilterId || partyRoleFilter) && (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setPartyRoleFilter('');
+                    setPartyFilterId('');
+                    setPartyKhasras([]);
+                    resetView();
+                  }}
+                  sx={{ p: 0, minWidth: 'auto', fontSize: '0.75rem' }}
+                >
+                  Reset
+                </Button>
+              )}
+            </Box>
             <FormControl size="small" fullWidth>
               <InputLabel>Role</InputLabel>
               <Select
                 value={partyRoleFilter}
                 label="Role"
-                onChange={(e) => setPartyRoleFilter(e.target.value)}
+                onChange={(e) => {
+                  setPartyRoleFilter(e.target.value);
+                  setPartyFilterId('');
+                  setPartyKhasras([]);
+                }}
                 MenuProps={{ disablePortal: true }}
               >
-                <MenuItem value=""><em>None</em></MenuItem>
+                <MenuItem value="">All Roles</MenuItem>
                 <MenuItem value="seller">Seller</MenuItem>
                 <MenuItem value="buyer">Buyer</MenuItem>
                 <MenuItem value="dealer">Agent / Dealer</MenuItem>
               </Select>
             </FormControl>
-            {partyRoleFilter && (
-              <FormControl size="small" fullWidth>
-                <InputLabel>Select Party</InputLabel>
-                <Select
-                  value={partyFilterId}
-                  label="Select Party"
-                  onChange={(e) => setPartyFilterId(e.target.value)}
-                  MenuProps={{ disablePortal: true }}
-                >
-                  <MenuItem value=""><em>None</em></MenuItem>
-                  {partyList.map((p) => (
-                    <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
+            <FormControl size="small" fullWidth>
+              <InputLabel>Select Party</InputLabel>
+              <Select
+                value={partyFilterId}
+                label="Select Party"
+                onChange={(e) => {
+                  setPartyFilterId(e.target.value);
+                  if (!e.target.value) {
+                    setPartyKhasras([]);
+                  }
+                }}
+                MenuProps={{ disablePortal: true }}
+              >
+                <MenuItem value=""><em>All Parties (Show All)</em></MenuItem>
+                {partyList.map((p) => (
+                  <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             {partyFilterId && partyKhasras && (
               <Typography variant="caption" color="primary" fontWeight={600}>
                 {partyKhasras.length} khasras found
@@ -1551,6 +1672,8 @@ const LathaMapViewer = () => {
                 getLabelClass={getKhasraLabelClass}
                 getTooltipLabel={getTooltipLabel}
                 selectedParcelId={selectedParcel?.id || null}
+                partyFilterId={partyFilterId}
+                isParcelInPartyTarget={isParcelInPartyTarget}
               />
             )}
             {lines && (
@@ -1559,6 +1682,26 @@ const LathaMapViewer = () => {
                 getStyle={lineStyle}
               />
             )}
+            {mouzaOuterBoundaryGeoJson && mouzaOuterBoundaryGeoJson.features.length > 0 && (
+              <KhasraLineLayer
+                key={`mouza-border-${mouzaFilter}`}
+                data={mouzaOuterBoundaryGeoJson}
+                getStyle={outerBoundaryStyle}
+              />
+            )}
+            {mouzaFilter === 'all' && allMouzaBoundariesGeoJson.map((item) => (
+              <KhasraLineLayer
+                key={`mouza-all-border-${item.slug}`}
+                data={item.geoJson}
+                getStyle={() => ({
+                  color: item.color,
+                  weight: 3,
+                  opacity: 0.95,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+                })}
+              />
+            ))}
           </MapContainer>
         )}
 
