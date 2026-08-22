@@ -337,6 +337,7 @@ export const buildGeneralCashApprovalPrintHtml = (ca) => {
         <th>S.No</th><th>Item</th><th>Description</th><th>Location</th><th>Unit</th><th>Qty</th><th>Rate</th><th>Net Amount</th>
       </tr></thead><tbody>${rows}
       <tr><td colspan="7" class="r"><b>Sub Total</b></td><td class="r"><b>${formatDecimalPk(linesTotal)}</b></td></tr>
+      ${Number(ca.discountAmount) > 0 ? `<tr><td colspan="7" class="r"><b>Discount</b></td><td class="r"><b>-${formatDecimalPk(ca.discountAmount)}</b></td></tr>` : ''}
       </tbody></table>
       <p class="total">Net Total: ${formatDecimalPk(ca.totalAmount || linesTotal)}</p>
       <table><thead><tr><th>Authority</th><th>Name</th><th>Signature</th><th>Date &amp; Time</th></tr></thead>

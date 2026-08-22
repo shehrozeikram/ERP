@@ -2308,7 +2308,8 @@ router.post('/accounts-payable/advance-payment',
       referenceId,
       createdBy: req.user._id,
       financeApprovalAuthorities,
-      companyId: req.body.companyId || req.user?.companyId || null
+      companyId: req.body.companyId || req.user?.companyId || null,
+      categoryLines: req.body.categoryLines || []
     });
 
     const message =

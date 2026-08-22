@@ -1206,6 +1206,7 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
       requestingDepartment: body.requestingDepartment ?? ca.requestingDepartment,
       advanceTo: body.advanceTo ?? ca.advanceTo?._id ?? ca.advanceTo,
       advanceToName: body.advanceToName ?? ca.advanceToName,
+      discountAmount: body.discountAmount !== undefined ? Number(body.discountAmount) || 0 : ca.discountAmount,
       shippingCost: body.shippingCost ?? ca.shippingCost,
       items: body.items ?? ca.items
     };
@@ -1257,6 +1258,7 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
         advanceToEmployee: ca.advanceToEmployee?._id || ca.advanceToEmployee,
         advanceGlAccount: ca.advanceGlAccount?._id || ca.advanceGlAccount,
         items: ca.items,
+        discountAmount: ca.discountAmount,
         shippingCost: ca.shippingCost,
         approverIds,
         skipApproverIds
@@ -1369,6 +1371,7 @@ router.put('/:id/submit', authMiddleware, asyncHandler(async (req, res) => {
     advanceToEmployee: ca.advanceToEmployee?._id || ca.advanceToEmployee,
     advanceGlAccount: ca.advanceGlAccount?._id || ca.advanceGlAccount,
     items: ca.items,
+    discountAmount: ca.discountAmount,
     shippingCost: ca.shippingCost,
     approverIds,
     skipApproverIds

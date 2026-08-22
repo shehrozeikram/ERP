@@ -91,8 +91,9 @@ const resolveGeneralCashApprovalTotals = (payload) => {
   const items = (payload.items || []).map(normalizeLineItem);
   const subtotal = round2(items.reduce((s, li) => s + (li.amount || 0), 0));
   const shippingCost = round2(payload.shippingCost || 0);
-  const totalAmount = round2(subtotal + shippingCost);
-  return { items, subtotal, taxAmount: 0, discountAmount: 0, shippingCost, totalAmount };
+  const discountAmount = Math.max(0, round2(payload.discountAmount || 0));
+  const totalAmount = Math.max(0, round2(subtotal + shippingCost - discountAmount));
+  return { items, subtotal, taxAmount: 0, discountAmount, shippingCost, totalAmount };
 };
 
 const validateGeneralCashApprovalPayload = (payload, { forSubmit = false } = {}) => {

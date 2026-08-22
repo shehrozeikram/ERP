@@ -929,7 +929,8 @@ const FinanceHelper = {
     referenceType = 'advance',
     referenceId = null,
     financeApprovalAuthorities = null,
-    companyId: optsCompanyId = null
+    companyId: optsCompanyId = null,
+    categoryLines = []
   }) => {
     const amount_ = Math.round((Number(amount) || 0) * 100) / 100;
     if (amount_ <= 0) throw new Error('Advance amount must be greater than zero');
@@ -983,6 +984,7 @@ const FinanceHelper = {
       module,
       referenceType,
       referenceId,
+      categoryLines: Array.isArray(categoryLines) ? categoryLines : [],
       voucherWorkflowStatus: 'pending_authority',
       financeApprovalAuthorities: {
         accountsOfficerUser: createdBy,
@@ -999,8 +1001,38 @@ const FinanceHelper = {
       }]
     });
 
+    const validCategoryLines = Array.isArray(categoryLines)
+      ? categoryLines.filter((l) => Number(l.amount) > 0)
+      : [];
+
+    let debitLines = [];
+    if (validCategoryLines.length > 0) {
+      for (const cl of validCategoryLines) {
+        let lineAcc = cl.account ? await A.map(cl.account) : null;
+        if (!lineAcc && cl.accountNumber) {
+          lineAcc = await A.resolve(cl.accountNumber);
+        }
+        if (!lineAcc) {
+          lineAcc = advAccount;
+        }
+        debitLines.push({
+          account: lineAcc._id,
+          description: cl.description || `Advance / ${lineAcc.name || 'Expense'} - ${vendorName || 'Vendor'}`,
+          debit: Math.round((Number(cl.amount) || 0) * 100) / 100,
+          department
+        });
+      }
+    } else {
+      debitLines.push({
+        account: advAccount._id,
+        description: `Advance to ${vendorName || 'Vendor'}`,
+        debit: amount_,
+        department
+      });
+    }
+
     const linePayload = [
-      { account: advAccount._id, description: `Advance to ${vendorName || 'Vendor'}`, debit: amount_, department },
+      ...debitLines,
       { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${advance.reference})`, credit: amount_, department }
     ];
 

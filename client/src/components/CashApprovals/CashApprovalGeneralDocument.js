@@ -195,23 +195,41 @@ const CashApprovalGeneralDocument = ({ ca, elevation = 2, sx = {} }) => {
       </TableContainer>
 
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, mb: 1 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            width: 280,
-            fontWeight: 800,
-            fontSize: 13,
-            borderBottom: '3px double',
-            borderColor: 'grey.900',
-            pb: 0.5
-          }}
-        >
-          <Typography component="span">Net Total</Typography>
-          <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-            {formatDecimalPk(ca.totalAmount || linesTotal)}
-          </Typography>
-        </Box>
+        <Stack spacing={0.5} sx={{ width: 280 }}>
+          {Number(ca.discountAmount) > 0 && (
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontWeight: 600,
+                fontSize: 13,
+                color: 'text.secondary',
+                pb: 0.5
+              }}
+            >
+              <Typography component="span" variant="body2">Discount</Typography>
+              <Typography component="span" variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                -{formatDecimalPk(ca.discountAmount)}
+              </Typography>
+            </Box>
+          )}
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontWeight: 800,
+              fontSize: 13,
+              borderBottom: '3px double',
+              borderColor: 'grey.900',
+              pb: 0.5
+            }}
+          >
+            <Typography component="span">Net Total</Typography>
+            <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatDecimalPk(ca.totalAmount || linesTotal)}
+            </Typography>
+          </Box>
+        </Stack>
       </Box>
 
       {ca.notes && (

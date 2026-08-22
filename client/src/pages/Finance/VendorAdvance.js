@@ -24,7 +24,11 @@ import {
   CircularProgress,
   Tooltip,
   IconButton,
-  Divider
+  Divider,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  DialogActions
 } from '@mui/material';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
@@ -32,6 +36,10 @@ import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import PrintIcon from '@mui/icons-material/Print';
 import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import CopyIcon from '@mui/icons-material/ContentCopy';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -49,6 +57,14 @@ import QuotationDetailView from '../../components/Procurement/QuotationDetailVie
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { numberToWords } from '../../utils/numberToWords';
 import toast from 'react-hot-toast';
+
+const emptyCategoryLine = () => ({
+  id: Date.now() + Math.random(),
+  account: null,
+  description: '',
+  amount: '',
+  project: ''
+});
 
 const formatDateForPrint = (date) => {
   if (!date) return '—';
@@ -84,6 +100,25 @@ const VendorAdvance = () => {
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [queuePrefillPoId, setQueuePrefillPoId] = useState(null);
   const [queuePrefillSnapshot, setQueuePrefillSnapshot] = useState(null);
+
+  // Category details (Expense & Chart of Accounts categories)
+  const [categoryLines, setCategoryLines] = useState([emptyCategoryLine(), emptyCategoryLine()]);
+  const [categoryAccordionOpen, setCategoryAccordionOpen] = useState(true);
+  const [accounts, setAccounts] = useState([]);
+  const [projectsList, setProjectsList] = useState([]);
+
+  // Quick Add COA Account Dialog
+  const [newAccountDialog, setNewAccountDialog] = useState(false);
+  const [newAccountRowIndex, setNewAccountRowIndex] = useState(null);
+  const [newAccountForm, setNewAccountForm] = useState({
+    name: '',
+    accountNumber: '',
+    type: 'Expense',
+    category: 'Operating Expenses',
+    description: ''
+  });
+  const [creatingAccount, setCreatingAccount] = useState(false);
+
   const [form, setForm] = useState({
     amount: '',
     paymentMethod: 'bank_transfer',
@@ -228,6 +263,121 @@ const VendorAdvance = () => {
       .catch(() => setBankAccounts([]));
   }, [selectedCompanyId]);
 
+  // Load COA Accounts & Projects
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMaster = async () => {
+      try {
+        const [accRes, hrProjRes, pmProjRes] = await Promise.all([
+          api.get('/finance/accounts', {
+            params: { limit: 5000, ...(selectedCompanyId ? { companyId: selectedCompanyId } : { allCompanies: 'true' }) }
+          }).catch(() => ({ data: { data: [] } })),
+          api.get('/hr/projects', { params: { limit: 1000 } }).catch(() => ({ data: { data: [] } })),
+          api.get('/project-management/projects', { params: { limit: 1000 } }).catch(() => ({ data: { data: { projects: [] } } }))
+        ]);
+
+        const aList = accRes.data?.data?.accounts || accRes.data?.accounts || accRes.data?.data || [];
+        if (!cancelled) setAccounts(Array.isArray(aList) ? aList : []);
+
+        const hrList = Array.isArray(hrProjRes.data?.data) ? hrProjRes.data.data : [];
+        const pmList = Array.isArray(pmProjRes.data?.data?.projects) ? pmProjRes.data.data.projects : (Array.isArray(pmProjRes.data?.data) ? pmProjRes.data.data : []);
+        const combinedProjects = [...hrList, ...pmList];
+        const uniqueProjects = Array.from(new Map(combinedProjects.map((p) => [p.name || p.title, p])).values())
+          .filter((p) => p && (p.name || p.title));
+        if (!cancelled) setProjectsList(uniqueProjects);
+      } catch (err) {
+        console.error('Failed to load accounts/projects for vendor advance', err);
+      }
+    };
+    fetchMaster();
+    return () => { cancelled = true; };
+  }, [selectedCompanyId]);
+
+  const expenseAccounts = useMemo(() => {
+    return [...accounts].sort((a, b) => {
+      if (a.type === 'Expense' && b.type !== 'Expense') return -1;
+      if (b.type === 'Expense' && a.type !== 'Expense') return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }, [accounts]);
+
+  // Category Line Operations
+  const handleCategoryLineChange = (index, field, value) => {
+    setCategoryLines((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const addCategoryLine = () => {
+    setCategoryLines((prev) => [...prev, emptyCategoryLine()]);
+  };
+
+  const removeCategoryLine = (index) => {
+    setCategoryLines((prev) => {
+      if (prev.length <= 1) return [emptyCategoryLine()];
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const duplicateCategoryLine = (index) => {
+    setCategoryLines((prev) => {
+      const lineToCopy = prev[index];
+      const next = [...prev];
+      next.splice(index + 1, 0, { ...lineToCopy, id: Date.now() + Math.random() });
+      return next;
+    });
+  };
+
+  const clearAllCategoryLines = () => {
+    setCategoryLines([emptyCategoryLine(), emptyCategoryLine()]);
+  };
+
+  const categoryTotal = useMemo(() => {
+    return categoryLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  }, [categoryLines]);
+
+  // Quick Add COA Account Dialog handlers
+  const handleOpenAddAccount = (rowIndex) => {
+    setNewAccountRowIndex(rowIndex);
+    setNewAccountForm({
+      name: '',
+      accountNumber: String(6000 + Math.floor(Math.random() * 900)),
+      type: 'Expense',
+      category: 'Operating Expenses',
+      description: ''
+    });
+    setNewAccountDialog(true);
+  };
+
+  const handleSaveNewAccount = async () => {
+    if (!newAccountForm.name.trim() || !newAccountForm.accountNumber.trim()) {
+      toast.error('Account name and number are required');
+      return;
+    }
+    try {
+      setCreatingAccount(true);
+      const res = await api.post('/finance/accounts', {
+        ...newAccountForm,
+        companyId: selectedCompanyId || undefined
+      });
+      const created = res.data?.data?.account || res.data?.data || res.data?.account;
+      if (created) {
+        toast.success(`Account "${created.name}" created!`);
+        setAccounts((prev) => [...prev, created]);
+        if (newAccountRowIndex !== null) {
+          handleCategoryLineChange(newAccountRowIndex, 'account', created);
+        }
+        setNewAccountDialog(false);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create account');
+    } finally {
+      setCreatingAccount(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -355,11 +505,17 @@ const VendorAdvance = () => {
       toast.error('Select a vendor');
       return;
     }
-    const amount = Number(form.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error('Enter a valid advance amount');
+    if (!categoryTotal || categoryTotal <= 0) {
+      toast.error('Please enter at least one category line with a positive amount in Category details');
       return;
     }
+
+    const filledWithoutAccount = categoryLines.find((l) => Number(l.amount) > 0 && !l.account);
+    if (filledWithoutAccount) {
+      toast.error('Please select a Chart of Accounts category for all filled lines');
+      return;
+    }
+
     if (!finAuth.accountsManagerUser || !finAuth.financeControllerUser) {
       toast.error('Select Sr Manager Accounts and GM Finance (required for every vendor advance).');
       return;
@@ -377,13 +533,23 @@ const VendorAdvance = () => {
       ? new Date(`${form.paymentDate}T12:00:00`).toISOString()
       : new Date().toISOString();
 
+    const validCategoryLines = categoryLines
+      .filter((l) => Number(l.amount) > 0)
+      .map((l) => ({
+        account: l.account?._id || null,
+        accountNumber: l.account?.accountNumber || '',
+        description: l.description || l.account?.name || 'Category line item',
+        amount: Number(l.amount),
+        project: l.project || ''
+      }));
+
     setSubmitting(true);
     try {
       const body = {
         vendorName: selectedVendor.name,
         vendorEmail: selectedVendor.email || '',
         vendorId: selectedVendor._id,
-        amount,
+        amount: categoryTotal,
         paymentMethod: form.paymentMethod,
         bankAccountId: form.bankAccountId,
         reference: ref,
@@ -394,7 +560,8 @@ const VendorAdvance = () => {
           accountsManagerUser: finAuth.accountsManagerUser._id,
           financeControllerUser: finAuth.financeControllerUser._id
         },
-        companyId: selectedCompanyId
+        companyId: selectedCompanyId,
+        categoryLines: validCategoryLines
       };
       const res = await api.post('/finance/accounts-payable/advance-payment', body);
       if (res.data?.success) {
@@ -406,6 +573,7 @@ const VendorAdvance = () => {
           reference: '',
           paymentDate: new Date().toISOString().split('T')[0]
         });
+        setCategoryLines([emptyCategoryLine(), emptyCategoryLine()]);
         setSelectedPo(null);
         setFinAuth({
           accountsManagerUser: null,
@@ -440,13 +608,19 @@ const VendorAdvance = () => {
       totalAmount: row.totalAmount
     });
     setQueuePrefillPoId(row._id);
+    setCategoryLines([
+      {
+        ...emptyCategoryLine(),
+        amount: String(row.remainingAdvanceDue > 0 ? row.remainingAdvanceDue : '')
+      },
+      emptyCategoryLine()
+    ]);
     setForm((f) => ({
       ...f,
-      amount: String(row.remainingAdvanceDue > 0 ? row.remainingAdvanceDue : ''),
       reference: ''
     }));
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    toast.success('Vendor and amount filled — confirm PO link and submit when ready.');
+    toast.success('Vendor and amount filled — select Chart of Accounts category and submit when ready.');
   };
 
   const showRelatedAdvanceInHistory = (row) => {
@@ -630,18 +804,8 @@ const VendorAdvance = () => {
                   </Alert>
                 </Grid>
               ) : null}
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  required
-                  label="Amount (PKR)"
-                  type="number"
-                  value={form.amount}
-                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                  inputProps={{ min: 0.01, step: 0.01 }}
-                />
-              </Grid>
-              <Grid item xs={12} md={3}>
+
+              <Grid item xs={12} md={4}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Payment method</InputLabel>
                   <Select
@@ -656,7 +820,7 @@ const VendorAdvance = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} md={4}>
                 <FormControl fullWidth size="small" required disabled={bankAccounts.length === 0}>
                   <InputLabel id="vendor-advance-pay-from-label">Pay from account</InputLabel>
                   <Select
@@ -682,7 +846,7 @@ const VendorAdvance = () => {
                   </Typography>
                 ) : null}
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Payment date"
@@ -701,6 +865,180 @@ const VendorAdvance = () => {
                   placeholder="Bank ref, TT #, or leave blank to auto-generate"
                 />
               </Grid>
+
+              {/* Collapsible Section: Category Details (Chart of Accounts) */}
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }} />
+                <Accordion
+                  expanded={categoryAccordionOpen}
+                  onChange={(_, expanded) => setCategoryAccordionOpen(expanded)}
+                  elevation={0}
+                  sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '8px !important', mb: 1 }}
+                >
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>Category details</span>
+                      <Chip label={`${categoryLines.filter((l) => Number(l.amount) > 0).length} lines`} size="small" variant="outlined" />
+                      <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                        (Expense &amp; Chart of Accounts categories)
+                      </Typography>
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ p: 0 }}>
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead sx={{ backgroundColor: 'action.hover' }}>
+                          <TableRow>
+                            <TableCell sx={{ width: 45, fontWeight: 700 }}>#</TableCell>
+                            <TableCell sx={{ minWidth: 260, fontWeight: 700 }}>CATEGORY (CHART OF ACCOUNTS)</TableCell>
+                            <TableCell sx={{ minWidth: 240, fontWeight: 700 }}>DESCRIPTION</TableCell>
+                            <TableCell sx={{ width: 160, fontWeight: 700 }} align="right">AMOUNT (PKR)</TableCell>
+                            <TableCell sx={{ minWidth: 180, fontWeight: 700 }}>CUSTOMER / PROJECT</TableCell>
+                            <TableCell sx={{ width: 90, fontWeight: 700 }} align="center">ACTIONS</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {categoryLines.map((row, idx) => (
+                            <TableRow key={row.id} hover>
+                              {/* Line Number */}
+                              <TableCell sx={{ fontWeight: 600, color: 'text.secondary' }}>{idx + 1}</TableCell>
+
+                              {/* Category Dropdown */}
+                              <TableCell>
+                                <Autocomplete
+                                  options={expenseAccounts}
+                                  getOptionLabel={(o) => {
+                                    if (o?.__isNewOption) return '+ Add new account';
+                                    return o?.name ? `${o.name} (${o.accountNumber || ''})` : '';
+                                  }}
+                                  value={row.account}
+                                  onChange={(_, val) => {
+                                    if (val?.__isNewOption) {
+                                      handleOpenAddAccount(idx);
+                                    } else {
+                                      handleCategoryLineChange(idx, 'account', val);
+                                    }
+                                  }}
+                                  isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
+                                  filterOptions={(opts, state) => {
+                                    const filtered = opts.filter((opt) =>
+                                      (opt.name || '').toLowerCase().includes(state.inputValue.toLowerCase()) ||
+                                      (opt.accountNumber || '').includes(state.inputValue)
+                                    );
+                                    return [{ __isNewOption: true }, ...filtered];
+                                  }}
+                                  renderOption={(props, option) => {
+                                    if (option.__isNewOption) {
+                                      return (
+                                        <li {...props} key="add-new" style={{ color: '#1976d2', fontWeight: 600, borderBottom: '1px solid #e0e0e0' }}>
+                                          <AddIcon fontSize="small" sx={{ mr: 1 }} /> + Add new
+                                        </li>
+                                      );
+                                    }
+                                    return (
+                                      <li {...props} key={option._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span>{option.name} <Typography component="span" variant="caption" color="text.secondary">({option.accountNumber})</Typography></span>
+                                        <Chip label={option.type || 'Expense'} size="small" variant="outlined" sx={{ height: 20, fontSize: 10, fontStyle: 'italic' }} />
+                                      </li>
+                                    );
+                                  }}
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      size="small"
+                                      placeholder="Select expense category"
+                                      fullWidth
+                                    />
+                                  )}
+                                />
+                              </TableCell>
+
+                              {/* Description */}
+                              <TableCell>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  placeholder="Description"
+                                  value={row.description}
+                                  onChange={(e) => handleCategoryLineChange(idx, 'description', e.target.value)}
+                                />
+                              </TableCell>
+
+                              {/* Amount */}
+                              <TableCell align="right">
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  type="number"
+                                  placeholder="0.00"
+                                  value={row.amount}
+                                  onChange={(e) => handleCategoryLineChange(idx, 'amount', e.target.value)}
+                                  inputProps={{ min: 0, step: 0.01, style: { textAlign: 'right' } }}
+                                />
+                              </TableCell>
+
+                              {/* Customer / Project */}
+                              <TableCell>
+                                <Autocomplete
+                                  options={projectsList}
+                                  getOptionLabel={(p) => (typeof p === 'string' ? p : (p?.name || p?.title || ''))}
+                                  value={projectsList.find((p) => (p.name || p.title) === row.project || p._id === row.project) || (row.project ? { name: row.project } : null)}
+                                  onChange={(_, val) => handleCategoryLineChange(idx, 'project', typeof val === 'string' ? val : (val?.name || val?.title || ''))}
+                                  isOptionEqualToValue={(a, b) => {
+                                    const aVal = typeof a === 'string' ? a : (a?.name || a?.title || a?._id || '');
+                                    const bVal = typeof b === 'string' ? b : (b?.name || b?.title || b?._id || '');
+                                    return aVal === bVal;
+                                  }}
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      size="small"
+                                      placeholder="Customer / Project"
+                                      fullWidth
+                                    />
+                                  )}
+                                />
+                              </TableCell>
+
+                              {/* Actions */}
+                              <TableCell align="center">
+                                <Stack direction="row" spacing={0.5} justifyContent="center">
+                                  <Tooltip title="Duplicate row">
+                                    <IconButton size="small" onClick={() => duplicateCategoryLine(idx)}>
+                                      <CopyIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete row">
+                                    <IconButton size="small" color="error" onClick={() => removeCategoryLine(idx)}>
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+
+                    {/* Table Action Buttons & Total Advance Summary */}
+                    <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+                      <Box sx={{ display: 'flex', gap: 1.5 }}>
+                        <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={addCategoryLine}>
+                          Add lines
+                        </Button>
+                        <Button variant="text" size="small" color="inherit" onClick={clearAllCategoryLines}>
+                          Clear all lines
+                        </Button>
+                      </Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'primary.main', fontSize: '1rem' }}>
+                        Total Advance: {formatPKR(categoryTotal)}
+                      </Typography>
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              </Grid>
+
               <Grid item xs={12}>
                 <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
                   Finance voucher signatures (required)
@@ -738,6 +1076,7 @@ const VendorAdvance = () => {
                           || !finAuth.financeControllerUser
                           || bankAccounts.length === 0
                           || !form.bankAccountId
+                          || categoryTotal <= 0
                         }
                         size="large"
                       >
@@ -749,7 +1088,7 @@ const VendorAdvance = () => {
                   <Button
                     type="submit"
                     variant="contained"
-                    disabled={submitting || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending) || bankAccounts.length === 0 || !form.bankAccountId}
+                    disabled={submitting || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending) || bankAccounts.length === 0 || !form.bankAccountId || categoryTotal <= 0}
                     size="large"
                   >
                     {submitting ? 'Posting…' : 'Record vendor advance'}
@@ -1592,6 +1931,74 @@ const VendorAdvance = () => {
             </Box>
           ) : null}
         </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Quick Add Chart of Accounts Account */}
+      <Dialog open={newAccountDialog} onClose={() => setNewAccountDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Add New Chart of Accounts Category</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              label="Account Name"
+              required
+              fullWidth
+              size="small"
+              placeholder="e.g. Advance / Expense category name"
+              value={newAccountForm.name}
+              onChange={(e) => setNewAccountForm((p) => ({ ...p, name: e.target.value }))}
+            />
+            <TextField
+              label="Account Number / Code"
+              required
+              fullWidth
+              size="small"
+              value={newAccountForm.accountNumber}
+              onChange={(e) => setNewAccountForm((p) => ({ ...p, accountNumber: e.target.value }))}
+            />
+            <FormControl fullWidth size="small">
+              <InputLabel>Account Type</InputLabel>
+              <Select
+                value={newAccountForm.type}
+                label="Account Type"
+                onChange={(e) => setNewAccountForm((p) => ({ ...p, type: e.target.value }))}
+              >
+                <MenuItem value="Expense">Expense</MenuItem>
+                <MenuItem value="Asset">Asset</MenuItem>
+                <MenuItem value="Liability">Liability</MenuItem>
+                <MenuItem value="Equity">Equity</MenuItem>
+                <MenuItem value="Revenue">Revenue</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Category"
+              fullWidth
+              size="small"
+              value={newAccountForm.category}
+              onChange={(e) => setNewAccountForm((p) => ({ ...p, category: e.target.value }))}
+            />
+            <TextField
+              label="Description"
+              multiline
+              rows={2}
+              fullWidth
+              size="small"
+              value={newAccountForm.description}
+              onChange={(e) => setNewAccountForm((p) => ({ ...p, description: e.target.value }))}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setNewAccountDialog(false)} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveNewAccount}
+            variant="contained"
+            disabled={creatingAccount || !newAccountForm.name.trim() || !newAccountForm.accountNumber.trim()}
+          >
+            {creatingAccount ? 'Saving...' : 'Save & Select'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

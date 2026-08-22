@@ -18,6 +18,15 @@ const vendorAdvanceSchema = new mongoose.Schema({
       appliedAt: { type: Date, default: Date.now }
     }
   ],
+  categoryLines: [
+    {
+      account: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
+      accountNumber: { type: String, trim: true },
+      description: { type: String, trim: true },
+      amount: { type: Number, min: 0 },
+      project: { type: String, trim: true }
+    }
+  ],
   paymentMethod: {
     type: String,
     enum: ['cash', 'check', 'cheque', 'credit_card', 'bank_transfer', 'bank', 'ach', 'other'],

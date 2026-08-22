@@ -21,7 +21,8 @@ import {
   InputLabel,
   Select,
   Chip,
-  TableContainer
+  TableContainer,
+  Divider
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -114,7 +115,8 @@ const GeneralCashApprovalForm = () => {
     requestingDepartment: user?.department || '',
     priority: 'Urgent',
     approvalDate: new Date().toISOString().split('T')[0],
-    expectedPurchaseDate: ''
+    expectedPurchaseDate: '',
+    discountAmount: 0
   });
   const [advanceEmployee, setAdvanceEmployee] = useState(null);
   const [advanceEmployeeOptions, setAdvanceEmployeeOptions] = useState([]);
@@ -237,7 +239,8 @@ const GeneralCashApprovalForm = () => {
           approvalDate: ca.approvalDate ? new Date(ca.approvalDate).toISOString().split('T')[0] : '',
           expectedPurchaseDate: ca.expectedPurchaseDate
             ? new Date(ca.expectedPurchaseDate).toISOString().split('T')[0]
-            : ''
+            : '',
+          discountAmount: ca.discountAmount || 0
         });
         setLoadedDeptApproval(ca.departmentApprovalStatus || 'Draft');
         if (ca.advanceToEmployee) {
@@ -331,6 +334,7 @@ const GeneralCashApprovalForm = () => {
     fd.append('priority', header.priority);
     fd.append('approvalDate', header.approvalDate);
     if (header.expectedPurchaseDate) fd.append('expectedPurchaseDate', header.expectedPurchaseDate);
+    fd.append('discountAmount', String(header.discountAmount || 0));
     if (advanceEmployee?._id) {
       fd.append('advanceToEmployee', advanceEmployee._id);
       if (advanceEmployee.advanceAccount?._id) {
@@ -667,10 +671,43 @@ const GeneralCashApprovalForm = () => {
           </TableBody>
         </Table>
 
-        <Button startIcon={<AddIcon />} onClick={addLine} sx={{ mb: 2 }}>Add item</Button>
-        <Typography variant="subtitle1" align="right" fontWeight={600} sx={{ mb: 3 }}>
-          Grand total: PKR {linesTotal.toFixed(2)}
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+          <Button startIcon={<AddIcon />} onClick={addLine}>Add item</Button>
+
+          <Box sx={{ minWidth: 260, ml: 'auto' }}>
+            <Stack spacing={1}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2" color="text.secondary">Subtotal:</Typography>
+                <Typography variant="body2" fontWeight={600}>PKR {linesTotal.toFixed(2)}</Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
+                <Typography variant="body2" color="text.secondary">Discount:</Typography>
+                <TextField
+                  size="small"
+                  type="number"
+                  placeholder="0.00"
+                  value={header.discountAmount || ''}
+                  onChange={(e) => {
+                    const val = Math.max(0, parseFloat(e.target.value) || 0);
+                    setHeader((prev) => ({ ...prev, discountAmount: val }));
+                  }}
+                  inputProps={{ min: 0, step: 'any', style: { textAlign: 'right' } }}
+                  sx={{ width: 140 }}
+                />
+              </Box>
+
+              <Divider sx={{ my: 0.5 }} />
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="subtitle1" fontWeight={700}>Net Total:</Typography>
+                <Typography variant="subtitle1" fontWeight={700} color="primary.main">
+                  PKR {Math.max(0, linesTotal - (Number(header.discountAmount) || 0)).toFixed(2)}
+                </Typography>
+              </Box>
+            </Stack>
+          </Box>
+        </Box>
 
         {showApprovals && (
           <>
