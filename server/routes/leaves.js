@@ -1413,9 +1413,12 @@ router.post('/import',
         }
 
         // Calculate total days
-        const diffMs = Math.max(0, endDate.getTime() - startDate.getTime());
-        let totalDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-        if (totalDays === 0) totalDays = 1;
+        let totalDays = Number(row['No of Days '] || row['No of Days'] || row['Days']);
+        if (!totalDays || isNaN(totalDays)) {
+          const diffMs = Math.max(0, endDate.getTime() - startDate.getTime());
+          totalDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1;
+        }
+        if (totalDays <= 0) totalDays = 1;
 
         // Calculate Work Year based on employee's Date of Joining (joiningDate || hireDate)
         const joinDateObj = new Date(employee.joiningDate || employee.hireDate || employee.createdAt || '2023-01-01');
@@ -1520,7 +1523,8 @@ router.post('/import',
           // If duplicate key error, find existing and update fields
           const existing = await LeaveBalance.findOne({
             employee: balDoc.employee,
-            $or: [{ year: balDoc.year }, { workYear: balDoc.workYear }]
+            year: balDoc.year,
+            workYear: balDoc.workYear
           });
           if (existing) {
             existing.annual.used = (existing.annual.used || 0) + balDoc.annual.used;
