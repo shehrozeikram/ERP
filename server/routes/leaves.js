@@ -10,6 +10,7 @@ const Employee = require('../models/hr/Employee');
 const LeaveBalance = require('../models/hr/LeaveBalance');
 const LeaveManagementService = require('../services/leaveManagementService');
 const LeaveIntegrationService = require('../services/leaveIntegrationService');
+const CarryForwardService = require('../services/carryForwardService');
 const AnniversaryLeaveScheduler = require('../services/anniversaryLeaveScheduler');
 const multer = require('multer');
 const path = require('path');
@@ -1377,8 +1378,8 @@ router.post('/import',
         const empIdInput = row['Employee ID'] !== undefined ? String(row['Employee ID']).trim() : null;
         const firstNameInput = row['First Name'] ? String(row['First Name']).trim() : '';
         const payCodeInput = row['Pay Code'] || 'Casual Leave';
-        const startTimeRaw = row['Start Time'];
-        const endTimeRaw = row['End Time'];
+        const startTimeRaw = row['Start Time'] || row['Start'];
+        const endTimeRaw = row['End Time'] || row['End'];
         const reasonInput = row['Apply Reason'] || 'Imported Leave Record';
 
         if (!startTimeRaw || !endTimeRaw) {
@@ -1463,13 +1464,14 @@ router.post('/import',
         let balance = balancesToSave.get(balKey) || balanceMap.get(balKey) || balanceMap.get(`${employee._id.toString()}_wy_${workYearIndex}`);
 
         if (!balance) {
+          const allocation = LeaveBalance.calculateAnniversaryAllocation(workYearIndex, employee.leaveConfig);
           balance = new LeaveBalance({
             employee: employee._id,
             year: startYear,
             workYear: workYearIndex,
-            annual: { allocated: 20, used: 0, remaining: 20 },
-            sick: { allocated: 10, used: 0, remaining: 10 },
-            casual: { allocated: 10, used: 0, remaining: 10 }
+            annual: { allocated: allocation.annual, used: 0, remaining: allocation.annual },
+            sick: { allocated: allocation.sick, used: 0, remaining: allocation.sick },
+            casual: { allocated: allocation.casual, used: 0, remaining: allocation.casual }
           });
           balanceMap.set(balKey, balance);
         }
@@ -1508,7 +1510,9 @@ router.post('/import',
     }
 
     // Bulk save updated LeaveBalances with duplicate key safety
+    const updatedEmployeeIds = new Set();
     for (const balDoc of balancesToSave.values()) {
+      updatedEmployeeIds.add(balDoc.employee.toString());
       try {
         await balDoc.save();
       } catch (saveErr) {
@@ -1525,6 +1529,15 @@ router.post('/import',
             await existing.save();
           }
         }
+      }
+    }
+
+    // Recalculate carry forward for all affected employees to enforce 40-day caps
+    for (const empIdStr of updatedEmployeeIds) {
+      try {
+        await CarryForwardService.recalculateCarryForward(empIdStr);
+      } catch (cfErr) {
+        console.error(`Error recalculating carry forward for ${empIdStr}:`, cfErr);
       }
     }
 

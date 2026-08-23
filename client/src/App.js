@@ -552,10 +552,10 @@ function App() {
         <SidebarProvider>
           <Layout>
             <Sidebar />
-            <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
               <Header />
               <ChatFloatingButton />
-              <Box component="main" className="app-main-print" sx={{ flexGrow: 1, p: 3, minWidth: 0 }}>
+              <Box component="main" className="app-main-print" sx={{ flexGrow: 1, p: 3 }}>
             <Suspense fallback={lazyPageFallback}>
               <Routes>
               {/* Dashboard */}
