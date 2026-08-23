@@ -13,7 +13,7 @@ const User = require('../models/User');
 async function runMassImport() {
   console.log('🚀 Starting Mass Leave Import...');
   try {
-    const uri = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL || 'mongodb://admin:9d6a1b546b2933c59aff1db8366a19df7c0773f546dff638@127.0.0.1:27017/sgc_erp?authSource=admin';
+    const uri = 'mongodb://admin:9d6a1b546b2933c59aff1db8366a19df7c0773f546dff638@127.0.0.1:27017/sgc_erp?authSource=admin';
     console.log(`🔗 Connecting to MongoDB...`);
     await mongoose.connect(uri, { family: 4 });
     console.log('✅ Connected to MongoDB');
