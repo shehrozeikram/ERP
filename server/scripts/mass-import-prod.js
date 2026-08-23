@@ -38,7 +38,7 @@ async function runMassImport() {
 
     // 4. Send POST request to API
     console.log('📤 Sending import request to API. This may take a few minutes...');
-    const port = process.env.PORT || 3000;
+    const port = 3000;
     const response = await axios.post(`http://127.0.0.1:${port}/api/leaves/import`, form, {
       headers: {
         ...form.getHeaders(),
