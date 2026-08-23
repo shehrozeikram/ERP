@@ -1296,9 +1296,13 @@ router.post('/import',
 
     const xlsx = require('xlsx');
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
-    const sheetName = workbook.SheetNames[0];
-    const rawData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
+    let rawData = [];
+    workbook.SheetNames.forEach(sheetName => {
+      const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      if (sheetData && sheetData.length > 0) {
+        rawData = rawData.concat(sheetData);
+      }
+    });
     if (!rawData || rawData.length === 0) {
       return res.status(400).json({ success: false, message: 'Excel file is empty' });
     }
