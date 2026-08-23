@@ -16,7 +16,7 @@ async function runMassImport() {
     // 1. Connect to DB
     const uri = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL || 'mongodb://127.0.0.1:27017/sgc_erp';
     console.log(`🔗 Connecting to MongoDB...`);
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, { family: 4 });
     console.log('✅ Connected to MongoDB');
 
     // 2. Find admin user and generate token
