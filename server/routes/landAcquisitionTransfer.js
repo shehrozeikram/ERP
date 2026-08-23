@@ -708,7 +708,16 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
     const mozaId = String(r.moza?._id || r.moza);
     const mozaName = r.moza?.name || 'Unknown';
     if (!registryMozaMap[mozaId]) registryMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
-    registryMozaMap[mozaId].totalSarsais += toSarsaisLocal(r.totalArea);
+    
+    let registrySarsais = 0;
+    if (r.lines && r.lines.length > 0) {
+      for (const line of r.lines) {
+        registrySarsais += toSarsaisLocal(line.acquiredArea);
+      }
+    } else {
+      registrySarsais = toSarsaisLocal(r.totalArea);
+    }
+    registryMozaMap[mozaId].totalSarsais += registrySarsais;
   }
 
   const registryMozaRows = Object.values(registryMozaMap).map((m) => {
@@ -732,18 +741,33 @@ router.get('/reports/land-summary', asyncHandler(async (req, res) => {
   for (const pos of possessions) {
     const mozaId = String(pos.moza?._id || pos.moza);
     const mozaName = pos.moza?.name || 'Unknown';
-    const sarsais = toSarsaisLocal(pos.totalArea);
+    const isDocRegistered = !!(pos.registry || (pos.lines && pos.lines.some(l => l.registry)));
 
-    if (!pos.registry && !(pos.lines && pos.lines.some(l => l.registry))) {
-      // Unregistered possession
-      if (!unregisteredPossessionMozaMap[mozaId]) unregisteredPossessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
-      unregisteredPossessionMozaMap[mozaId].totalSarsais += sarsais;
-      totalUnregisteredPossessedSarsais += sarsais;
+    if (pos.lines && pos.lines.length > 0) {
+      for (const line of pos.lines) {
+        const lineSars = toSarsaisLocal(line.possessedArea);
+        const isRegistered = !!(pos.registry || line.registry);
+        if (isRegistered) {
+          if (!possessionMozaMap[mozaId]) possessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+          possessionMozaMap[mozaId].totalSarsais += lineSars;
+          totalPossessedSarsais += lineSars;
+        } else {
+          if (!unregisteredPossessionMozaMap[mozaId]) unregisteredPossessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+          unregisteredPossessionMozaMap[mozaId].totalSarsais += lineSars;
+          totalUnregisteredPossessedSarsais += lineSars;
+        }
+      }
     } else {
-      // Registered possession
-      if (!possessionMozaMap[mozaId]) possessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
-      possessionMozaMap[mozaId].totalSarsais += sarsais;
-      totalPossessedSarsais += sarsais;
+      const fallbackSars = toSarsaisLocal(pos.totalArea);
+      if (isDocRegistered) {
+        if (!possessionMozaMap[mozaId]) possessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+        possessionMozaMap[mozaId].totalSarsais += fallbackSars;
+        totalPossessedSarsais += fallbackSars;
+      } else {
+        if (!unregisteredPossessionMozaMap[mozaId]) unregisteredPossessionMozaMap[mozaId] = { mozaName, totalSarsais: 0 };
+        unregisteredPossessionMozaMap[mozaId].totalSarsais += fallbackSars;
+        totalUnregisteredPossessedSarsais += fallbackSars;
+      }
     }
   }
 
