@@ -77,7 +77,7 @@ const hasModuleAccess = (roleDoc, moduleKey) => {
 
 const hasProcurementAccess = (user) => {
   if (!user) return false;
-  if (['super_admin', 'admin', 'procurement_manager'].includes(user.role)) return true;
+  if (['super_admin', 'admin', 'developer', 'procurement_manager'].includes(user.role)) return true;
 
   if (hasProcurementModuleAccess(user.roleRef)) return true;
   if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasProcurementModuleAccess(roleDoc))) return true;
@@ -308,7 +308,7 @@ const getAssignedIndentIdsForUser = async (userId) => {
 
 const canManageProcurementAssignments = (user) => {
   if (!user) return false;
-  if (['super_admin', 'admin', 'procurement_manager'].includes(user.role)) return true;
+  if (['super_admin', 'admin', 'developer', 'procurement_manager'].includes(user.role)) return true;
   if (userHasRoleName(user, PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES)) return true;
   if (user.canAssignProcurementTasks === true) return true;
 
@@ -462,6 +462,7 @@ const procurementAssigneeId = (indent) => {
 /** Assignment manager OR the user this requisition is assigned to may operate it in procurement workflows. */
 const canOperateAssignedProcurementRequisition = (user, indent) => {
   if (!user?.id || !indent) return false;
+  if (['super_admin', 'developer'].includes(user.role)) return true;
   if (canManageProcurementAssignments(user)) return true;
   const aid = procurementAssigneeId(indent);
   return Boolean(aid && aid === String(user.id));
@@ -477,7 +478,7 @@ const isAuditReadRole = (user) => {
 /** Read-only access to quotations by indent (GET) for exec / audit / procurement / authority approvers */
 const canViewQuotationsByIndentRead = (user, indent) => {
   if (!user?.id || !indent) return false;
-  if (['super_admin', 'admin', 'procurement_manager', 'finance_manager'].includes(user.role)) return true;
+  if (['super_admin', 'admin', 'developer', 'procurement_manager', 'finance_manager'].includes(user.role)) return true;
   if (hasProcurementAccess(user)) return true;
   if (canOperateAssignedProcurementRequisition(user, indent)) return true;
   if (isAuditReadRole(user)) return true;
@@ -5900,6 +5901,84 @@ router.post('/requisitions/:id/comparative-reject',
   })
 );
 
+// @route   DELETE /api/procurement/requisitions/:id/comparative-statement
+// @desc    Developer option to delete / reset comparative statement for a requisition and reset related quotations to Received status
+// @access  Private (Developer only)
+router.delete('/requisitions/:id/comparative-statement',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    if (req.user.role !== 'developer' && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only developer can delete / reset comparative statements.'
+      });
+    }
+
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Requisition not found' });
+    }
+
+    // Reset comparative approval object
+    indent.comparativeApproval = {
+      status: 'not_configured',
+      approvers: [],
+      submittedBy: null,
+      submittedAt: null,
+      rejectedBy: null,
+      rejectedAt: null,
+      rejectionObservation: '',
+      rejectionObservations: []
+    };
+
+    // Reset comparative statement authority approvals if present
+    indent.comparativeStatementApprovals = {
+      preparedByUser: null,
+      procurementManagerUser: null,
+      auditOfficerUser: null,
+      financeDirectorUser: null,
+      cooUser: null,
+      ceoUser: null
+    };
+
+    // Reset split PO assignments
+    indent.splitPOAssignments = {};
+    indent.updatedBy = req.user.id;
+
+    pushIndentWorkflowHistory(indent, {
+      fromStatus: 'Comparative Statement: Active',
+      toStatus: 'Comparative Statement: Deleted / Reset',
+      changedBy: req.user.id,
+      comments: 'Comparative statement was deleted/reset by developer. All related quotations reset to Received.',
+      module: 'Procurement'
+    });
+
+    await indent.save();
+
+    // Reset all related quotations to status 'Received'
+    await Quotation.updateMany(
+      { indent: indent._id },
+      {
+        $set: {
+          status: 'Received',
+          updatedBy: req.user.id
+        }
+      }
+    );
+
+    const updatedIndent = await Indent.findById(indent._id)
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
+      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Comparative statement deleted successfully and all quotations reset to Received.',
+      data: updatedIndent
+    });
+  })
+);
+
 // @route   PUT/POST /api/procurement/requisitions/:id/reject
 // @desc    Reject requisition in procurement stage with observation
 // @access  Private (Assignment manager only)
@@ -6326,9 +6405,9 @@ router.get('/quotations/by-indent/:indentId',
 
 // @route   GET /api/procurement/quotations
 // @desc    Get all quotations with pagination and filters
-// @access  Private (Procurement and Admin)
+// @access  Private (Procurement, Admin, Developer)
 router.get('/quotations', 
-  authorize('super_admin', 'admin', 'procurement_manager'), 
+  authorize('super_admin', 'admin', 'developer', 'procurement_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 

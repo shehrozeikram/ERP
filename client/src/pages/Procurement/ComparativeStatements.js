@@ -17,7 +17,8 @@ import {
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon
+  CheckCircle as CheckCircleIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
@@ -73,6 +74,7 @@ const ComparativeStatements = () => {
   const [rejectObservation, setRejectObservation] = useState('');
   const [resolutionNote, setResolutionNote] = useState('');
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [deletingComparative, setDeletingComparative] = useState(false);
   const authoritySearchDebounceRef = useRef(null);
 
   // Load requisitions on component mount
@@ -468,6 +470,40 @@ const ComparativeStatements = () => {
     }
   };
 
+  const handleDeleteComparativeStatement = async () => {
+    if (!selectedRequisition?._id) return;
+    const confirmed = window.confirm(
+      'Are you sure you want to DELETE/RESET the Comparative Statement for this requisition?\n\n' +
+      '• All comparative approvers & approvals will be reset.\n' +
+      '• All related quotations will be reset back to "Received" status.\n\n' +
+      'This action is exclusively for developers / super admin.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingComparative(true);
+      setError('');
+      const res = await api.delete(`/procurement/requisitions/${selectedRequisition._id}/comparative-statement`);
+      setSuccess(res.data?.message || 'Comparative statement deleted and quotations reset to Received.');
+
+      // Reload quotations
+      const quoteRes = await api.get(`/procurement/quotations/by-indent/${selectedRequisition._id}`);
+      if (quoteRes.data?.success) {
+        setQuotations(quoteRes.data.data || []);
+      }
+
+      // Update selected requisition state
+      if (res.data?.data) {
+        setSelectedRequisition(res.data.data);
+      }
+      await loadRequisitions();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete comparative statement');
+    } finally {
+      setDeletingComparative(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3, mb: 3 }}>
@@ -475,14 +511,28 @@ const ComparativeStatements = () => {
           <Typography variant="h5" fontWeight={600}>
             Comparative Statements
           </Typography>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={loadRequisitions}
-            disabled={loading}
-          >
-            Refresh
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+            {(user?.role === 'developer' || user?.role === 'super_admin') && selectedRequisition && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={deletingComparative ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
+                onClick={handleDeleteComparativeStatement}
+                disabled={deletingComparative}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
+              >
+                {deletingComparative ? 'Deleting…' : 'Delete Comparative (Developer)'}
+              </Button>
+            )}
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={loadRequisitions}
+              disabled={loading}
+            >
+              Refresh
+            </Button>
+          </Box>
         </Box>
 
         {error && (

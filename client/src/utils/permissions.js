@@ -815,7 +815,7 @@ export const MODULES = {
     path: '/procurement',
     icon: 'ShoppingCart',
     description: 'Procurement management',
-    roles: ['super_admin', 'admin', 'procurement_manager'],
+    roles: ['super_admin', 'admin', 'developer', 'procurement_manager'],
     subItems: [
       { name: 'Procurement Dashboard', path: '/procurement' },
       { name: 'Procurement Requisitions', path: '/procurement/requisitions' },
