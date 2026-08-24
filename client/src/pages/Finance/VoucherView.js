@@ -239,6 +239,14 @@ const VoucherView = () => {
         setApprovalMsg('Authority approval recorded. Voucher posts to the ledger when all three have approved.');
         return;
       }
+      if (entry?.referenceType === 'manual' && entry?.financeApprovalAuthorities?.financeControllerUser) {
+        await api.put(`/finance/journal-entries/${entry._id}/finance-approve`, {
+          comments: 'Approved from Voucher page'
+        });
+        await reloadEntry();
+        setApprovalMsg('Authority approval recorded. Voucher posts when all authorities have approved.');
+        return;
+      }
     } catch (e) {
       setApprovalMsg(e?.response?.data?.message || 'Approval failed.');
     }
@@ -282,16 +290,24 @@ const VoucherView = () => {
         setApprovalMsg('Authority rejection recorded. Draft voucher cancelled.');
         return;
       }
+      if (entry?.referenceType === 'manual' && entry?.financeApprovalAuthorities?.financeControllerUser) {
+        await api.put(`/finance/journal-entries/${entry._id}/finance-reject`, { comments });
+        await reloadEntry();
+        setApprovalMsg('Journal entry rejected and marked cancelled.');
+        return;
+      }
     } catch (e) {
       setApprovalMsg(e?.response?.data?.message || 'Rejection failed.');
     }
   };
 
-  const financeAuthorityDoc = apPaymentApp || payrollPeriodPaymentApp || vendorAdvanceDoc || cashApproval;
-  const pendingAuthorityVoucher =
+  const isManualJV = entry?.referenceType === 'manual';
+  const financeAuthorityDoc = isManualJV ? null : (apPaymentApp || payrollPeriodPaymentApp || vendorAdvanceDoc || cashApproval);
+  const pendingAuthorityVoucher = !isManualJV && (
     (apPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
     || (payrollPeriodPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
-    || (vendorAdvanceDoc?.voucherWorkflowStatus === 'pending_authority' && entry?.status === 'draft');
+    || (vendorAdvanceDoc?.voucherWorkflowStatus === 'pending_authority' && entry?.status === 'draft')
+  );
 
   const authoritySlots = useMemo(() => {
     if (payrollPeriodPaymentApp) {
@@ -450,21 +466,7 @@ const VoucherView = () => {
         </Table>
 
         <Box sx={{ mt: 4 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
-            Finance Document Approval Authority
-          </Typography>
-          {approvalMsg ? (
-            <Alert severity={approvalMsg.toLowerCase().includes('failed') ? 'error' : 'success'} sx={{ mb: 1.5 }}>
-              {approvalMsg}
-            </Alert>
-          ) : null}
-          {payrollPeriodPaymentApp?.workflowStatus === 'draft' ? (
-            <Alert severity="info" sx={{ mb: 1.5 }}>
-              This payroll BPV is still a <strong>draft</strong>. Submit it from Payroll — Finance when ready, or delete the draft from there.
-              It is not yet in the GM Finance approval queue.
-            </Alert>
-          ) : null}
-          {entry?.status === 'draft' && entry?.referenceType === 'manual' ? (
+          {isManualJV && entry?.status === 'draft' ? (
             <Alert 
               severity="info" 
               sx={{ mb: 2 }}
@@ -490,104 +492,123 @@ const VoucherView = () => {
               This manual journal entry is in <strong>Draft</strong> status and has not been posted to the ledger.
             </Alert>
           ) : null}
-          {pendingAuthorityVoucher ? (
-            <Alert severity="warning" sx={{ mb: 1.5 }}>
-              This voucher is <strong>draft</strong> until all finance authorities approve.
-              {apPaymentApp
-                ? ' The related vendor bill stays unpaid until final approval.'
-                : payrollPeriodPaymentApp
-                  ? ' Company payroll for this BPV stays unpaid until GM Finance approves. Sr Manager Accounts is already approved on submission.'
-                  : ' General ledger and account balances update only after final approval.'}
-            </Alert>
-          ) : null}
-          {apPaymentApp?.accountsPayableId ? (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Bill: <strong>{apPaymentApp.billNumber || apPaymentApp.accountsPayableId?.billNumber || '—'}</strong>
-              {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}
-            </Typography>
-          ) : null}
-          {payrollPeriodPaymentApp ? (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Company: <strong>{payrollPeriodPaymentApp.companyName || '—'}</strong>
-              {' · '}Period: <strong>{payrollPeriodPaymentApp.periodLabel || '—'}</strong>
-              {' · '}{payrollPeriodPaymentApp.employeeCount || 0} employees
-              {' · '}Payment: {formatPKR(payrollPeriodPaymentApp.amount || 0)}
-            </Typography>
-          ) : null}
-          {payrollPeriodPaymentApp?.rejectionObservation ? (
-            <Alert severity="error" sx={{ mb: 1.5 }}>
-              Rejection observation: {payrollPeriodPaymentApp.rejectionObservation}
-            </Alert>
-          ) : null}
-          {myPendingAuthorityLabels.length > 0 ? (
-            <Box className="app-print-hide" sx={{ mb: 1.5 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
-                Your pending authority:
-              </Typography>
-              <Typography component="span" variant="body2" fontWeight={600} sx={{ mr: 1.5 }}>
-                {myPendingAuthorityLabels.join(', ')}
-              </Typography>
-              <Button size="small" variant="contained" color="success" onClick={approveMyAuthorityFromVoucher}>
-                Approve from Voucher
-              </Button>
-              <Button size="small" variant="contained" color="error" onClick={rejectMyAuthorityFromVoucher} sx={{ ml: 1 }}>
-                Reject from Voucher
-              </Button>
-            </Box>
-          ) : null}
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Date &amp; Time</TableCell>
-                <TableCell sx={{ fontWeight: 700 }} align="center">Digital Signature</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {(() => {
-                const approvals = Array.isArray(financeAuthorityDoc?.financeAuthorityApprovals) ? financeAuthorityDoc.financeAuthorityApprovals : [];
-                const byKey = new Map(approvals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
 
-                return authoritySlots.map((slot) => {
-                  const approval = byKey.get(slot.key);
-                  const assigned = financeAuthorityDoc?.financeApprovalAuthorities?.[slot.key] || null;
-                  const approver = approval?.approver || assigned || null;
-                  const decision = approval ? String(approval.decision || 'approved').toLowerCase() : 'pending';
-                  const approvedAt = approval?.approvedAt || null;
-                  const approverName = approver
-                    ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
-                    : '—';
+          {!isManualJV && financeAuthorityDoc ? (
+            <>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
+                Finance Document Approval Authority
+              </Typography>
+              {approvalMsg ? (
+                <Alert severity={approvalMsg.toLowerCase().includes('failed') ? 'error' : 'success'} sx={{ mb: 1.5 }}>
+                  {approvalMsg}
+                </Alert>
+              ) : null}
+              {payrollPeriodPaymentApp?.workflowStatus === 'draft' ? (
+                <Alert severity="info" sx={{ mb: 1.5 }}>
+                  This payroll BPV is still a <strong>draft</strong>. Submit it from Payroll — Finance when ready, or delete the draft from there.
+                  It is not yet in the GM Finance approval queue.
+                </Alert>
+              ) : null}
+              {pendingAuthorityVoucher ? (
+                <Alert severity="warning" sx={{ mb: 1.5 }}>
+                  This voucher is <strong>draft</strong> until all finance authorities approve.
+                  {apPaymentApp
+                    ? ' The related vendor bill stays unpaid until final approval.'
+                    : payrollPeriodPaymentApp
+                      ? ' Company payroll for this BPV stays unpaid until GM Finance approves. Sr Manager Accounts is already approved on submission.'
+                      : ' General ledger and account balances update only after final approval.'}
+                </Alert>
+              ) : null}
+              {apPaymentApp?.accountsPayableId ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Bill: <strong>{apPaymentApp.billNumber || apPaymentApp.accountsPayableId?.billNumber || '—'}</strong>
+                  {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}
+                </Typography>
+              ) : null}
+              {payrollPeriodPaymentApp ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Company: <strong>{payrollPeriodPaymentApp.companyName || '—'}</strong>
+                  {' · '}Period: <strong>{payrollPeriodPaymentApp.periodLabel || '—'}</strong>
+                  {' · '}{payrollPeriodPaymentApp.employeeCount || 0} employees
+                  {' · '}Payment: {formatPKR(payrollPeriodPaymentApp.amount || 0)}
+                </Typography>
+              ) : null}
+              {payrollPeriodPaymentApp?.rejectionObservation ? (
+                <Alert severity="error" sx={{ mb: 1.5 }}>
+                  Rejection observation: {payrollPeriodPaymentApp.rejectionObservation}
+                </Alert>
+              ) : null}
+              {myPendingAuthorityLabels.length > 0 ? (
+                <Box className="app-print-hide" sx={{ mb: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+                    Your pending authority:
+                  </Typography>
+                  <Typography component="span" variant="body2" fontWeight={600} sx={{ mr: 1.5 }}>
+                    {myPendingAuthorityLabels.join(', ')}
+                  </Typography>
+                  <Button size="small" variant="contained" color="success" onClick={approveMyAuthorityFromVoucher}>
+                    Approve from Voucher
+                  </Button>
+                  <Button size="small" variant="contained" color="error" onClick={rejectMyAuthorityFromVoucher} sx={{ ml: 1 }}>
+                    Reject from Voucher
+                  </Button>
+                </Box>
+              ) : null}
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Date &amp; Time</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }} align="center">Digital Signature</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {(() => {
+                    const approvals = Array.isArray(financeAuthorityDoc?.financeAuthorityApprovals) ? financeAuthorityDoc.financeAuthorityApprovals : [];
+                    const byKey = new Map(approvals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
 
-                  return (
-                    <TableRow key={slot.key}>
-                      <TableCell>{slot.label}</TableCell>
-                      <TableCell>{approverName}</TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={decision === 'rejected' ? 'Rejected' : (decision === 'approved' ? 'Approved' : 'Pending')}
-                          color={decision === 'rejected' ? 'error' : (decision === 'approved' ? 'success' : 'warning')}
-                          variant={decision === 'approved' || decision === 'rejected' ? 'filled' : 'outlined'}
-                        />
-                      </TableCell>
-                      <TableCell>{approvedAt ? new Date(approvedAt).toLocaleString() : '—'}</TableCell>
-                      <TableCell align="center">
-                        {decision === 'approved' && approver?.digitalSignature ? (
-                          <DigitalSignatureImage userOrPath={approver} alt={`${slot.label} signature`} />
-                        ) : decision === 'approved' ? (
-                          <Typography variant="caption" color="text.secondary">No signature on file</Typography>
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">—</Typography>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                });
-              })()}
-            </TableBody>
-          </Table>
+                    return authoritySlots.map((slot) => {
+                      const approval = byKey.get(slot.key);
+                      const assigned = financeAuthorityDoc?.financeApprovalAuthorities?.[slot.key] || null;
+                      const approver = approval?.approver || assigned || null;
+                      const decision = approval ? String(approval.decision || 'approved').toLowerCase() : 'pending';
+                      const approvedAt = approval?.approvedAt || null;
+                      const approverName = approver
+                        ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
+                        : '—';
+
+                      return (
+                        <TableRow key={slot.key}>
+                          <TableCell>{slot.label}</TableCell>
+                          <TableCell>{approverName}</TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={decision === 'rejected' ? 'Rejected' : (decision === 'approved' ? 'Approved' : 'Pending')}
+                              color={decision === 'rejected' ? 'error' : (decision === 'approved' ? 'success' : 'warning')}
+                              variant={decision === 'approved' || decision === 'rejected' ? 'filled' : 'outlined'}
+                            />
+                          </TableCell>
+                          <TableCell>{approvedAt ? new Date(approvedAt).toLocaleString() : '—'}</TableCell>
+                          <TableCell align="center">
+                            {decision === 'approved' && approver?.digitalSignature ? (
+                              <DigitalSignatureImage userOrPath={approver} alt={`${slot.label} signature`} />
+                            ) : decision === 'approved' ? (
+                              <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">—</Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                  })()}
+                </TableBody>
+              </Table>
+            </>
+          ) : null}
         </Box>
       </Paper>
     </Box>

@@ -996,6 +996,91 @@ router.post('/journal-entries',
   })
 );
 
+// @route   PUT /api/finance/journal-entries/:id
+// @desc    Update/edit a journal entry (draft only)
+// @access  Private (Finance and Admin)
+router.put('/journal-entries/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('description').trim().notEmpty().withMessage('Description is required'),
+    body('department').isMongoId().withMessage('Valid department ID is required'),
+    body('module').optional(),
+    body('project').optional().custom((val) => {
+      if (val === '' || val === null || val === undefined) return true;
+      return require('mongoose').Types.ObjectId.isValid(val);
+    }).withMessage('Valid project ID is required'),
+    body('lines').isArray({ min: 2 }).withMessage('At least 2 lines are required'),
+    body('lines.*.account').isMongoId().withMessage('Valid account is required for each line'),
+    body('lines.*.debit').isFloat({ min: 0 }).withMessage('Debit amount must be non-negative'),
+    body('lines.*.credit').isFloat({ min: 0 }).withMessage('Credit amount must be non-negative')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) {
+      return res.status(404).json({
+        success: false,
+        message: 'Journal entry not found'
+      });
+    }
+
+    if (entry.status !== 'draft') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only draft journal entries can be edited'
+      });
+    }
+
+    const company = await requireCompanyFromRequest(req);
+    const accountIds = (req.body.lines || []).map((line) => line.account).filter(Boolean);
+    const matchedAccounts = await Account.countDocuments({
+      _id: { $in: accountIds },
+      companyId: company._id,
+      isActive: true
+    });
+    if (matchedAccounts !== accountIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'All journal lines must use accounts from the selected finance company'
+      });
+    }
+
+    entry.description = req.body.description;
+    entry.department = req.body.department;
+    entry.module = req.body.module || 'general';
+    entry.reference = req.body.reference || '';
+    entry.referenceId = req.body.referenceId === '' ? null : (req.body.referenceId || entry.referenceId);
+    entry.project = req.body.project === '' ? null : (req.body.project || null);
+    if (req.body.date) {
+      entry.date = new Date(req.body.date);
+    }
+    if (req.body.lines) {
+      entry.lines = req.body.lines.map((line) => {
+        const newLine = { ...line };
+        if (newLine.department === '') newLine.department = null;
+        if (newLine.costCenter === '') newLine.costCenter = null;
+        return newLine;
+      });
+    }
+
+    await entry.save();
+
+    res.json({
+      success: true,
+      message: 'Journal entry updated successfully',
+      data: entry
+    });
+  })
+);
+
 // @route   PUT /api/finance/journal-entries/:id/post
 // @desc    Post a journal entry
 // @access  Private (Finance and Admin)
@@ -1027,6 +1112,128 @@ router.put('/journal-entries/:id/post',
     res.json({
       success: true,
       message: 'Journal entry posted successfully',
+      data: entry
+    });
+  })
+);
+
+// @route   PUT /api/finance/journal-entries/:id/finance-approve
+// @desc    Record authority approval for manual journal entries
+// @access  Private (Finance and Admin)
+router.put('/journal-entries/:id/finance-approve',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
+    if (entry.status !== 'draft') {
+      return res.status(400).json({
+        success: false,
+        message: 'Authority approval only applies to draft journal entries'
+      });
+    }
+    const slots = getRequiredFinanceAuthoritySlots(entry);
+    if (!slots.length) {
+      return res.status(400).json({ success: false, message: 'Finance approval authorities are not configured on this entry' });
+    }
+    const matchedSlots = matchUserToFinanceSlots(slots, req.user);
+    if (!matchedSlots.length) {
+      return res.status(403).json({ success: false, message: 'Your user is not assigned as a finance authority for this entry' });
+    }
+    const approvals = Array.isArray(entry.financeAuthorityApprovals) ? [...entry.financeAuthorityApprovals] : [];
+    const approvedKeys = new Set(
+      approvals
+        .filter((a) => String(a?.decision || 'approved').trim() !== 'rejected')
+        .map((a) => String(a?.authorityKey || '').trim())
+        .filter(Boolean)
+    );
+    const pendingMatchedSlots = matchedSlots.filter((slot) => !approvedKeys.has(slot.key));
+    if (!pendingMatchedSlots.length) {
+      return res.status(400).json({ success: false, message: 'You have already approved your assigned finance authority slot' });
+    }
+    const now = new Date();
+    pendingMatchedSlots.forEach((slot) => {
+      approvals.push({
+        authorityKey: slot.key,
+        authorityLabel: slot.label,
+        approver: req.user._id,
+        decision: 'approved',
+        approvedAt: now,
+        comments: req.body?.comments || ''
+      });
+    });
+    entry.financeAuthorityApprovals = approvals;
+    await entry.save();
+
+    const requiredKeys = new Set(slots.map((s) => s.key));
+    const approvedNow = new Set(
+      entry.financeAuthorityApprovals
+        .filter((a) => String(a?.decision || 'approved').trim() !== 'rejected')
+        .map((a) => String(a?.authorityKey || '').trim())
+        .filter(Boolean)
+    );
+    const remaining = [...requiredKeys].filter((k) => !approvedNow.has(k)).length;
+
+    if (remaining === 0) {
+      // Auto-post when fully signed
+      await entry.post(req.user._id);
+      try {
+        await FinanceHelper.postToGeneralLedger(entry._id);
+      } catch (glErr) {
+        console.warn('[Journal post via auth] GL post skipped:', glErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: remaining === 0 ? 'Journal entry fully approved and posted' : 'Approval recorded successfully',
+      data: entry
+    });
+  })
+);
+
+// @route   PUT /api/finance/journal-entries/:id/finance-reject
+// @desc    Record authority rejection for manual journal entries
+// @access  Private (Finance and Admin)
+router.put('/journal-entries/:id/finance-reject',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
+    if (entry.status !== 'draft') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only draft journal entries can be rejected'
+      });
+    }
+    const slots = getRequiredFinanceAuthoritySlots(entry);
+    const matchedSlots = matchUserToFinanceSlots(slots, req.user);
+    if (!matchedSlots.length) {
+      return res.status(403).json({ success: false, message: 'Your user is not assigned as a finance authority for this entry' });
+    }
+    const comments = req.body?.comments || '';
+    if (!comments.trim()) {
+      return res.status(400).json({ success: false, message: 'Observation comments are required for rejection' });
+    }
+
+    // Cancel / reject the entry
+    entry.status = 'cancelled';
+    const approvals = Array.isArray(entry.financeAuthorityApprovals) ? [...entry.financeAuthorityApprovals] : [];
+    matchedSlots.forEach((slot) => {
+      approvals.push({
+        authorityKey: slot.key,
+        authorityLabel: slot.label,
+        approver: req.user._id,
+        decision: 'rejected',
+        approvedAt: new Date(),
+        comments
+      });
+    });
+    entry.financeAuthorityApprovals = approvals;
+    await entry.save();
+
+    res.json({
+      success: true,
+      message: 'Journal entry rejected and marked cancelled',
       data: entry
     });
   })

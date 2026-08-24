@@ -44,6 +44,8 @@ import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
+import { useAuth } from '../../contexts/AuthContext';
+
 
 const JournalEntryForm = () => {
   const navigate = useNavigate();
@@ -51,6 +53,7 @@ const JournalEntryForm = () => {
   const theme = useTheme();
   const isEdit = Boolean(id);
   const { selectedCompanyId } = useFinanceCompany();
+  const { user } = useAuth();
   
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -60,6 +63,11 @@ const JournalEntryForm = () => {
     project: '',
     referenceId: '',
     referenceType: 'manual',
+    financeApprovalAuthorities: {
+      accountsOfficerUser: null,
+      accountsManagerUser: null,
+      financeControllerUser: null
+    },
     lines: [
       { account: '', description: '', debit: 0, credit: 0, department: '' },
       { account: '', description: '', debit: 0, credit: 0, department: '' }
@@ -73,6 +81,7 @@ const JournalEntryForm = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
 
   useEffect(() => {
     fetchDepartments();
@@ -144,6 +153,7 @@ const JournalEntryForm = () => {
         }));
         setFormData({ 
           ...entry, 
+          date: entry.date ? new Date(entry.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
           department: entry.department?._id || entry.department || '',
           project: entry.project?._id || entry.project || '',
           lines: normalizedLines 
@@ -687,6 +697,7 @@ const JournalEntryForm = () => {
                 </Box>
               </Grid>
             </Grid>
+            
 
             {/* Action Buttons */}
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 4, pt: 3, borderTop: `1px solid ${theme.palette.divider}` }}>

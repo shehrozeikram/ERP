@@ -162,6 +162,19 @@ const journalEntrySchema = new mongoose.Schema({
     ref: 'User'
   },
   approvalDate: Date,
+  financeApprovalAuthorities: {
+    accountsOfficerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    accountsManagerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    financeControllerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  },
+  financeAuthorityApprovals: [{
+    authorityKey: { type: String, trim: true },
+    authorityLabel: { type: String, trim: true },
+    approver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    decision: { type: String, enum: ['approved', 'rejected'], default: 'approved' },
+    approvedAt: { type: Date, default: Date.now },
+    comments: { type: String, trim: true }
+  }],
   postedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
