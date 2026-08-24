@@ -132,6 +132,66 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
   });
   const [creatingAccount, setCreatingAccount] = useState(false);
 
+  // Quick Add Vendor Dialog
+  const [openAddVendor, setOpenAddVendor] = useState(false);
+  const [newVendorForm, setNewVendorForm] = useState({
+    name: '',
+    contactPerson: '',
+    phone: '',
+    email: '',
+    address: '',
+    paymentTerms: 'Cash',
+    vendorCategory: '',
+    notes: ''
+  });
+  const [creatingVendor, setCreatingVendor] = useState(false);
+
+  const handleSaveNewVendor = async (e) => {
+    e.preventDefault();
+    if (!newVendorForm.name.trim()) return;
+    try {
+      setCreatingVendor(true);
+      const res = await api.post('/procurement/vendors/quick', newVendorForm);
+      if (res.data.success) {
+        const createdVendor = res.data.data;
+        // Update local list
+        setVendors((prev) => [createdVendor, ...prev]);
+        // Set selection
+        setSelectedVendor(createdVendor);
+        
+        // Auto-fill mailing address and payment terms
+        const parts = [
+          createdVendor.name,
+          createdVendor.address && createdVendor.address !== '—' ? createdVendor.address : null,
+          createdVendor.phone && createdVendor.phone !== '—' ? `Phone: ${createdVendor.phone}` : null,
+          createdVendor.email && !createdVendor.email.includes('@sgc.local') ? `Email: ${createdVendor.email}` : null
+        ].filter(Boolean);
+        setMailingAddress(parts.join('\n'));
+        if (createdVendor.paymentTerms) {
+          setPaymentTerms(createdVendor.paymentTerms);
+        }
+
+        // Reset
+        setNewVendorForm({
+          name: '',
+          contactPerson: '',
+          phone: '',
+          email: '',
+          address: '',
+          paymentTerms: 'Cash',
+          vendorCategory: '',
+          notes: ''
+        });
+        setOpenAddVendor(false);
+      }
+    } catch (err) {
+      console.error('Error quick creating vendor:', err);
+      alert(err.response?.data?.message || 'Failed to create vendor');
+    } finally {
+      setCreatingVendor(false);
+    }
+  };
+
   // Form submitting
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -519,6 +579,28 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
                   onChange={handleVendorChange}
                   loading={loadingMaster}
                   isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
+                  sx={{ flexGrow: 1 }}
+                  PaperComponent={({ children }) => (
+                    <Paper>
+                      {children}
+                      <Divider />
+                      <Box sx={{ p: 0.5 }}>
+                        <Button
+                          fullWidth
+                          color="primary"
+                          size="small"
+                          startIcon={<AddIcon />}
+                          sx={{ justifyContent: 'flex-start', py: 0.75 }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setOpenAddVendor(true);
+                          }}
+                        >
+                          Add Vendor
+                        </Button>
+                      </Box>
+                    </Paper>
+                  )}
                   renderInput={(params) => (
                     <TextField
                       {...params}
@@ -1092,6 +1174,113 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
             disabled={creatingAccount || !newAccountForm.name.trim()}
           >
             {creatingAccount ? 'Saving...' : 'Save & Select'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Quick Add Vendor */}
+      <Dialog open={openAddVendor} onClose={() => setOpenAddVendor(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Add New Vendor</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              label="Vendor Name"
+              required
+              fullWidth
+              size="small"
+              placeholder="e.g. Sardar Cement Ltd"
+              value={newVendorForm.name}
+              onChange={(e) => setNewVendorForm((p) => ({ ...p, name: e.target.value }))}
+            />
+            <TextField
+              label="Contact Person"
+              fullWidth
+              size="small"
+              placeholder="e.g. Muhammad Ali"
+              value={newVendorForm.contactPerson}
+              onChange={(e) => setNewVendorForm((p) => ({ ...p, contactPerson: e.target.value }))}
+            />
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Phone"
+                  fullWidth
+                  size="small"
+                  placeholder="e.g. +92 300 1234567"
+                  value={newVendorForm.phone}
+                  onChange={(e) => setNewVendorForm((p) => ({ ...p, phone: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Email"
+                  type="email"
+                  fullWidth
+                  size="small"
+                  placeholder="e.g. ali@sardarcement.com"
+                  value={newVendorForm.email}
+                  onChange={(e) => setNewVendorForm((p) => ({ ...p, email: e.target.value }))}
+                />
+              </Grid>
+            </Grid>
+            <TextField
+              label="Address"
+              fullWidth
+              size="small"
+              placeholder="e.g. Sector G-8, Islamabad"
+              value={newVendorForm.address}
+              onChange={(e) => setNewVendorForm((p) => ({ ...p, address: e.target.value }))}
+            />
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Payment Terms</InputLabel>
+                  <Select
+                    value={newVendorForm.paymentTerms}
+                    label="Payment Terms"
+                    onChange={(e) => setNewVendorForm((p) => ({ ...p, paymentTerms: e.target.value }))}
+                  >
+                    <MenuItem value="Cash">Cash</MenuItem>
+                    <MenuItem value="net_15">Net 15</MenuItem>
+                    <MenuItem value="net_30">Net 30</MenuItem>
+                    <MenuItem value="net_45">Net 45</MenuItem>
+                    <MenuItem value="net_60">Net 60</MenuItem>
+                    <MenuItem value="due_on_receipt">Due on Receipt</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Vendor Category"
+                  fullWidth
+                  size="small"
+                  placeholder="e.g. Construction Materials"
+                  value={newVendorForm.vendorCategory}
+                  onChange={(e) => setNewVendorForm((p) => ({ ...p, vendorCategory: e.target.value }))}
+                />
+              </Grid>
+            </Grid>
+            <TextField
+              label="Notes"
+              multiline
+              rows={2}
+              fullWidth
+              size="small"
+              value={newVendorForm.notes}
+              onChange={(e) => setNewVendorForm((p) => ({ ...p, notes: e.target.value }))}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setOpenAddVendor(false)} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveNewVendor}
+            variant="contained"
+            disabled={creatingVendor || !newVendorForm.name.trim()}
+          >
+            {creatingVendor ? 'Saving...' : 'Save & Select'}
           </Button>
         </DialogActions>
       </Dialog>

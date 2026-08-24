@@ -288,6 +288,9 @@ const FinanceHelper = {
           throw new Error(`Account not found for GL posting: ${accountRef}`);
         }
 
+        const rawDept = line.department || entry.department;
+        const resolvedDeptString = await FinanceHelper.resolveDepartmentStringFromId(rawDept);
+
         ledgerEntries.push({
           companyId: entry.companyId || currentAccount.companyId || null,
           journalEntry: entry._id,
@@ -298,7 +301,7 @@ const FinanceHelper = {
           description: line.description || entry.description,
           debit: line.debit,
           credit: line.credit,
-          department: line.department || entry.department,
+          department: resolvedDeptString,
           module: entry.module,
           referenceId: entry.referenceId,
           referenceType: entry.referenceType,
@@ -345,6 +348,78 @@ const FinanceHelper = {
     return journalEntry;
   },
 
+  resolveDepartment: async (deptInput) => {
+    if (!deptInput) return null;
+    if (mongoose.Types.ObjectId.isValid(String(deptInput))) {
+      return new mongoose.Types.ObjectId(String(deptInput));
+    }
+    try {
+      const Department = mongoose.model('Department');
+      const inputStr = String(deptInput).trim();
+      
+      const mapping = {
+        'finance': 'Finance',
+        'procurement': 'Procurement',
+        'hr': 'Human Resources',
+        'human resources': 'Human Resources',
+        'admin': 'Administration',
+        'administration': 'Administration',
+        'sales': 'Sales',
+        'marketing': 'Marketing',
+        'operations': 'Operations',
+        'customer service': 'Customer Service',
+        'crm': 'CRM'
+      };
+
+      const targetName = mapping[inputStr.toLowerCase()] || inputStr;
+      const dept = await Department.findOne({
+        name: { $regex: new RegExp(`^${targetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+      }).select('_id').lean();
+
+      if (dept) return dept._id;
+
+      const anyDept = await Department.findOne({
+        name: { $regex: new RegExp(`^${inputStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+      }).select('_id').lean();
+
+      if (anyDept) return anyDept._id;
+
+      // Fallback to first active department
+      const firstDept = await Department.findOne({ isActive: true }).select('_id').lean();
+      return firstDept ? firstDept._id : null;
+    } catch (e) {
+      console.warn('Failed to resolve department:', e);
+      return null;
+    }
+  },
+
+  resolveDepartmentStringFromId: async (deptId) => {
+    if (!deptId) return 'general';
+    try {
+      const Department = mongoose.model('Department');
+      const dept = await Department.findById(deptId).select('name').lean();
+      if (!dept) return 'general';
+      const name = String(dept.name).trim().toLowerCase();
+      
+      const mapping = {
+        'finance': 'finance',
+        'procurement': 'procurement',
+        'human resources': 'hr',
+        'hr': 'hr',
+        'administration': 'admin',
+        'admin': 'admin',
+        'sales': 'sales',
+        'audit': 'audit',
+        'general': 'general'
+      };
+      
+      return mapping[name] || 'general';
+    } catch (e) {
+      console.warn('Failed to resolve department string from ID:', e);
+      return 'general';
+    }
+  },
+
   /**
    * Create a balanced Journal Entry and post it.
    * Validates that the posting date falls within an open fiscal period (if periods are defined).
@@ -366,9 +441,26 @@ const FinanceHelper = {
         journalId = await FinanceHelper.resolveJournal(data.journalCode);
       }
 
+      // Resolve department to ObjectId
+      const resolvedDeptId = await FinanceHelper.resolveDepartment(data.department);
+      
+      // Resolve line departments to ObjectIds
+      const resolvedLines = [];
+      if (Array.isArray(data.lines)) {
+        for (const line of data.lines) {
+          const lineDeptId = await FinanceHelper.resolveDepartment(line.department || data.department);
+          resolvedLines.push({
+            ...line,
+            department: lineDeptId
+          });
+        }
+      }
+
       const journalEntry = new JournalEntry({
         ...data,
         journal: journalId,
+        department: resolvedDeptId,
+        lines: resolvedLines,
         date: postingDate,
         status: 'posted',
         postedBy: data.createdBy,

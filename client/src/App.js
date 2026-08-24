@@ -1096,7 +1096,7 @@ function App() {
             />
             <Route 
               path="/finance/journal-entries/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><JournalEntryForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VoucherView /></ProtectedRoute>} 
             />
             <Route 
               path="/finance/journal-entries/:id/edit" 

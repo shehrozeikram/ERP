@@ -46,7 +46,8 @@ import {
   CloudUpload as UploadIcon,
   Delete as DeleteIcon,
   GetApp as DownloadIcon,
-  InsertDriveFile as FileIcon
+  InsertDriveFile as FileIcon,
+  CheckCircle as PostIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -346,6 +347,25 @@ const JournalEntriesList = () => {
                             <EditIcon />
                           </IconButton>
                         </Tooltip>
+                        {entry.status === 'draft' && (
+                          <Tooltip title="Post to Ledger">
+                            <IconButton 
+                              size="small" 
+                              color="primary"
+                              onClick={async () => {
+                                if (!window.confirm('Are you sure you want to post this journal entry to the ledger?')) return;
+                                try {
+                                  await api.put(`/finance/journal-entries/${entry._id}/post`);
+                                  window.location.reload();
+                                } catch (e) {
+                                  alert(e.response?.data?.message || 'Posting failed');
+                                }
+                              }}
+                            >
+                              <PostIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {entry.status === 'posted' && !entry.isReversed && (
                           <Tooltip title="Reverse Entry">
                             <IconButton

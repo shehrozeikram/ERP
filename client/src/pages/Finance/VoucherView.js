@@ -63,7 +63,7 @@ const resolveVoucherTitle = (entry) => {
   const series = String(entry?.voucherSeries || '').trim().toUpperCase();
   if (series && VOUCHER_SERIES_TITLES[series]) return VOUCHER_SERIES_TITLES[series];
   if (series === 'BPV' || entry?.module === 'payroll') return VOUCHER_SERIES_TITLES.BPV;
-  return 'Finance Voucher';
+  return 'Journal Voucher';
 };
 
 const VoucherView = () => {
@@ -355,7 +355,7 @@ const VoucherView = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box className="app-print-hide" sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-        <Button variant="outlined" startIcon={<BackIcon />} onClick={() => navigate('/finance/vouchers')}>
+        <Button variant="outlined" startIcon={<BackIcon />} onClick={() => navigate(-1)}>
           Back
         </Button>
         <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
@@ -462,6 +462,32 @@ const VoucherView = () => {
             <Alert severity="info" sx={{ mb: 1.5 }}>
               This payroll BPV is still a <strong>draft</strong>. Submit it from Payroll — Finance when ready, or delete the draft from there.
               It is not yet in the GM Finance approval queue.
+            </Alert>
+          ) : null}
+          {entry?.status === 'draft' && entry?.referenceType === 'manual' ? (
+            <Alert 
+              severity="info" 
+              sx={{ mb: 2 }}
+              action={
+                <Button 
+                  color="primary" 
+                  variant="contained"
+                  size="small" 
+                  onClick={async () => {
+                    if (!window.confirm('Are you sure you want to post this manual journal entry to the ledger?')) return;
+                    try {
+                      await api.put(`/finance/journal-entries/${entry._id}/post`);
+                      window.location.reload();
+                    } catch (e) {
+                      alert(e.response?.data?.message || 'Posting failed');
+                    }
+                  }}
+                >
+                  Post to Ledger
+                </Button>
+              }
+            >
+              This manual journal entry is in <strong>Draft</strong> status and has not been posted to the ledger.
             </Alert>
           ) : null}
           {pendingAuthorityVoucher ? (
