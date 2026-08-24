@@ -2096,6 +2096,7 @@ router.get('/accounts-payable/:id',
       .populate('payeeEmployee', 'firstName lastName employeeId')
       .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
       .populate('observations.addedBy', 'firstName lastName email')
+      .populate('lineItems.account')
       .lean();
     if (!bill) {
       return res.status(404).json({
