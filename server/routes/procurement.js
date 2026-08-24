@@ -6551,6 +6551,30 @@ router.post('/quotations', [
   });
   const normalizedSupplementaryFields = normalizeQuotationSupplementaryFields(req.body);
 
+  if (['Finalized', 'Shortlisted'].includes(req.body.status)) {
+    const existingActiveQuote = await Quotation.findOne({
+      indent: req.body.indent,
+      status: { $in: ['Finalized', 'Shortlisted'] }
+    });
+    if (existingActiveQuote) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot create quotation as ${req.body.status.toLowerCase()}: Quotation ${existingActiveQuote.quotationNumber} is already ${existingActiveQuote.status.toLowerCase()} for this requisition.`
+      });
+    }
+
+    const existingPO = await PurchaseOrder.findOne({
+      indent: req.body.indent,
+      status: { $ne: 'Cancelled' }
+    });
+    if (existingPO) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot create quotation as ${req.body.status.toLowerCase()}: A Purchase Order (${existingPO.poNumber}) has already been created for this requisition.`
+      });
+    }
+  }
+
   const quotation = new Quotation({
     ...req.body,
     ...normalizedSupplementaryFields,
@@ -6621,6 +6645,36 @@ router.put('/quotations/:id', [
       success: false,
       message: 'Cannot edit finalized quotations'
     });
+  }
+
+  // Prevent multiple finalized / shortlisted quotations or finalizing if PO already exists
+  if (['Finalized', 'Shortlisted'].includes(req.body.status) && quotation.status !== req.body.status) {
+    const indentId = quotation.indent?._id || quotation.indent;
+    if (indentId) {
+      const existingActiveQuote = await Quotation.findOne({
+        indent: indentId,
+        _id: { $ne: quotation._id },
+        status: { $in: ['Finalized', 'Shortlisted'] }
+      });
+      if (existingActiveQuote) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot mark quotation as ${req.body.status.toLowerCase()}: Quotation ${existingActiveQuote.quotationNumber} is already ${existingActiveQuote.status.toLowerCase()} for this requisition.`
+        });
+      }
+
+      const existingPO = await PurchaseOrder.findOne({
+        indent: indentId,
+        quotation: { $ne: quotation._id },
+        status: { $ne: 'Cancelled' }
+      });
+      if (existingPO) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot mark quotation as ${req.body.status.toLowerCase()}: A Purchase Order (${existingPO.poNumber}) has already been created for this requisition.`
+        });
+      }
+    }
   }
 
   // If items are being updated, recalculate amounts
@@ -6741,9 +6795,9 @@ router.put('/quotations/:id', [
 
 // @route   DELETE /api/procurement/quotations/:id
 // @desc    Delete quotation
-// @access  Private (Admin only)
+// @access  Private (Procurement and Admin)
 router.delete('/quotations/:id', 
-  authorize('super_admin', 'admin'), 
+  authorize('super_admin', 'admin', 'procurement_manager'), 
   asyncHandler(async (req, res) => {
     const quotation = await Quotation.findById(req.params.id);
     
@@ -6759,6 +6813,17 @@ router.delete('/quotations/:id',
       return res.status(400).json({
         success: false,
         message: 'Cannot delete finalized quotations'
+      });
+    }
+
+    const existingPO = await PurchaseOrder.findOne({
+      quotation: quotation._id,
+      status: { $ne: 'Cancelled' }
+    });
+    if (existingPO) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete quotation: linked to Purchase Order ${existingPO.poNumber}`
       });
     }
 

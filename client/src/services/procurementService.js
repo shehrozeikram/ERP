@@ -68,6 +68,10 @@ const procurementService = {
     const response = await api.put(`/procurement/quotations/${id}`, data);
     return response.data;
   },
+  deleteQuotation: async (id) => {
+    const response = await api.delete(`/procurement/quotations/${id}`);
+    return response.data;
+  },
   createPOFromQuotation: async (id) => {
     const response = await api.post(`/procurement/quotations/${id}/create-po`);
     return response.data;

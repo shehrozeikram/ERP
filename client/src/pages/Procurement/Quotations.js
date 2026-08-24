@@ -305,23 +305,44 @@ const Quotations = () => {
     return parseFloat(num).toFixed(2);
   };
 
-  const handleFinalize = async (id) => {
+  const handleDelete = (id) => {
+    setDeleteDialog({ open: true, id });
+  };
+
+  const handleFinalize = async (id, groupQuotes = []) => {
+    // Check if another quote in this group is already finalized or shortlisted
+    const otherActive = (groupQuotes || []).find(
+      (q) => q._id !== id && ['Finalized', 'Shortlisted'].includes(q.status)
+    );
+    if (otherActive) {
+      setError(`Cannot finalize: Quotation ${otherActive.quotationNumber} is already ${otherActive.status.toLowerCase()} for this requisition.`);
+      return;
+    }
+
     try {
+      setLoading(true);
       const response = await procurementService.updateQuotation(id, { status: 'Finalized' });
-      setSuccess(response.data?.message || 'Quotation finalized successfully. Use Create PO to create Purchase Order.');
+      setSuccess(response.message || response.data?.message || 'Quotation finalized successfully. Use Create PO to create Purchase Order.');
       loadQuotations();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to finalize quotation');
+    } finally {
+      setLoading(false);
     }
   };
 
   const confirmDelete = async () => {
+    if (!deleteDialog.id) return;
     try {
-      // Note: Delete endpoint might not exist, adjust as needed
-      setError('Delete functionality not yet implemented');
+      setLoading(true);
+      const response = await procurementService.deleteQuotation(deleteDialog.id);
+      setSuccess(response?.message || 'Quotation deleted successfully');
       setDeleteDialog({ open: false, id: null });
+      loadQuotations();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete quotation');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -675,44 +696,69 @@ const Quotations = () => {
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {group.quotations.map((quote) => (
-                            <TableRow key={quote._id} hover>
-                              <TableCell>{quote.quotationNumber}</TableCell>
-                              <TableCell>{quote.vendor?.name || '-'}</TableCell>
-                              <TableCell>{formatPKR(quote.totalAmount)}</TableCell>
-                              <TableCell>{formatDate(quote.quotationDate)}</TableCell>
-                              <TableCell>
-                                <Chip
-                                  label={quote.status}
-                                  color={getStatusColor(quote.status)}
-                                  size="small"
-                                />
-                              </TableCell>
-                              <TableCell align="center">
-                                <Tooltip title="View Details">
-                                  <IconButton size="small" onClick={() => handleView(quote)}>
-                                    <ViewIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                {quote.status !== 'Finalized' && quote.status !== 'Rejected' && (
-                                  <>
-                                    <Tooltip title="Finalize">
+                          {group.quotations.map((quote) => {
+                            const otherActiveQuote = group.quotations.find(
+                              (q) => q._id !== quote._id && ['Finalized', 'Shortlisted'].includes(q.status)
+                            );
+                            const groupHasPO = (group.indent?.items || []).some((it) => (it.orderedQuantity || 0) > 0) ||
+                              group.quotations.some((q) => q._id !== quote._id && (q.items || []).some((it) => (it.orderedQuantity || 0) > 0));
+                            const isBlockedByOther = Boolean(otherActiveQuote || groupHasPO);
+                            const blockReason = otherActiveQuote
+                              ? `Quotation ${otherActiveQuote.quotationNumber} is already ${otherActiveQuote.status.toLowerCase()} for this requisition`
+                              : (groupHasPO ? 'A Purchase Order has already been created for this requisition' : '');
+
+                            return (
+                              <TableRow key={quote._id} hover>
+                                <TableCell>{quote.quotationNumber}</TableCell>
+                                <TableCell>{quote.vendor?.name || '-'}</TableCell>
+                                <TableCell>{formatPKR(quote.totalAmount)}</TableCell>
+                                <TableCell>{formatDate(quote.quotationDate)}</TableCell>
+                                <TableCell>
+                                  <Chip
+                                    label={quote.status}
+                                    color={getStatusColor(quote.status)}
+                                    size="small"
+                                  />
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Tooltip title="View Details">
+                                    <IconButton size="small" onClick={() => handleView(quote)}>
+                                      <ViewIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  {quote.status !== 'Finalized' && quote.status !== 'Rejected' && (
+                                    <>
+                                      <Tooltip title={isBlockedByOther ? `Cannot finalize: ${blockReason}` : "Finalize"}>
+                                        <span>
+                                          <IconButton
+                                            size="small"
+                                            color="success"
+                                            disabled={isBlockedByOther}
+                                            onClick={() => handleFinalize(quote._id, group.quotations)}
+                                          >
+                                            <ApproveIcon fontSize="small" />
+                                          </IconButton>
+                                        </span>
+                                      </Tooltip>
+                                      <Tooltip title="Edit (Negotiating purpose only)">
+                                        <IconButton size="small" onClick={() => handleEdit(quote)}>
+                                          <EditIcon fontSize="small" />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </>
+                                  )}
+                                  {quote.status !== 'Finalized' && (
+                                    <Tooltip title="Delete">
                                       <IconButton
                                         size="small"
-                                        color="success"
-                                        onClick={() => handleFinalize(quote._id)}
+                                        color="error"
+                                        onClick={() => handleDelete(quote._id)}
                                       >
-                                        <ApproveIcon fontSize="small" />
+                                        <DeleteIcon fontSize="small" />
                                       </IconButton>
                                     </Tooltip>
-                                    <Tooltip title="Edit (Negotiating purpose only)">
-                                      <IconButton size="small" onClick={() => handleEdit(quote)}>
-                                        <EditIcon fontSize="small" />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </>
-                                )}
-                                {quote.status === 'Finalized' && (() => {
+                                  )}
+                                  {quote.status === 'Finalized' && (() => {
                                   const indentItems = group.indent?.items || [];
                                   const quoteItems = quote.items || [];
                                   const isFullyOrdered = quoteItems.length > 0 && quoteItems.every((qItem, qIdx) => {
@@ -764,7 +810,8 @@ const Quotations = () => {
                                 })()}
                               </TableCell>
                             </TableRow>
-                          ))}
+                          );
+                        })}
                         </TableBody>
                       </Table>
                     </TableContainer>
@@ -912,8 +959,34 @@ const Quotations = () => {
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
             >
               <MenuItem value="Received">Received</MenuItem>
-              <MenuItem value="Shortlisted">Shortlisted</MenuItem>
-              <MenuItem value="Finalized">Finalized</MenuItem>
+              <MenuItem 
+                value="Shortlisted"
+                disabled={(() => {
+                  if (!formData.indent) return false;
+                  const indentId = typeof formData.indent === 'object' ? formData.indent._id : formData.indent;
+                  const otherQuotes = quotations.filter(q => {
+                    const qIndentId = typeof q.indent === 'object' ? q.indent?._id : q.indent;
+                    return qIndentId === indentId && q._id !== formDialog.data?._id;
+                  });
+                  return otherQuotes.some(q => ['Shortlisted', 'Finalized'].includes(q.status));
+                })()}
+              >
+                Shortlisted
+              </MenuItem>
+              <MenuItem 
+                value="Finalized"
+                disabled={(() => {
+                  if (!formData.indent) return false;
+                  const indentId = typeof formData.indent === 'object' ? formData.indent._id : formData.indent;
+                  const otherQuotes = quotations.filter(q => {
+                    const qIndentId = typeof q.indent === 'object' ? q.indent?._id : q.indent;
+                    return qIndentId === indentId && q._id !== formDialog.data?._id;
+                  });
+                  return otherQuotes.some(q => ['Shortlisted', 'Finalized'].includes(q.status));
+                })()}
+              >
+                Finalized
+              </MenuItem>
               <MenuItem value="Rejected">Rejected</MenuItem>
             </TextField>
             
