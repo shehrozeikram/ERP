@@ -40,16 +40,20 @@ const journalEntrySchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Description cannot exceed 500 characters']
   },
-  // Department and module integration
+  // Department and project integration
   department: {
-    type: String,
-    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
     required: [true, 'Department is required']
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
-    required: [true, 'Module is required']
+    required: false
+  },
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project',
+    default: null
   },
   referenceId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -98,9 +102,9 @@ const journalEntrySchema = new mongoose.Schema({
       }
     },
     department: {
-      type: String,
-      enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
-      default: 'general'
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Department',
+      default: null
     },
     // Analytic / cost-center tagging on each line for cost-center P&L reporting
     costCenter: {

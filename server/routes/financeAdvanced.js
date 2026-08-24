@@ -713,6 +713,8 @@ router.get('/journal-entries',
         .populate('lines.account', 'accountNumber name type')
         .populate('createdBy', 'firstName lastName')
         .populate('approvedBy', 'firstName lastName')
+        .populate('department', 'name code')
+        .populate('project', 'name code')
         .sort({ date: -1, entryNumber: -1 })
         .skip(skip)
         .limit(parseInt(limit)),
@@ -752,7 +754,9 @@ router.get('/journal-entries/:id',
       .populate('companyId', 'name companyCode')
       .populate('lines.account', 'accountNumber name type category')
       .populate('createdBy', 'firstName lastName')
-      .populate('approvedBy', 'firstName lastName');
+      .populate('approvedBy', 'firstName lastName')
+      .populate('department', 'name code')
+      .populate('project', 'name code');
 
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
 
@@ -925,8 +929,12 @@ router.post('/journal-entries',
   authorize('super_admin', 'admin', 'finance_manager'),
   [
     body('description').trim().notEmpty().withMessage('Description is required'),
-    body('department').isIn(['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general']).withMessage('Valid department is required'),
-    body('module').isIn(['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities']).withMessage('Valid module is required'),
+    body('department').isMongoId().withMessage('Valid department ID is required'),
+    body('module').optional(),
+    body('project').optional().custom((val) => {
+      if (val === '' || val === null || val === undefined) return true;
+      return require('mongoose').Types.ObjectId.isValid(val);
+    }).withMessage('Valid project ID is required'),
     body('lines').isArray({ min: 2 }).withMessage('At least 2 lines are required'),
     body('lines.*.account').isMongoId().withMessage('Valid account is required for each line'),
     body('lines.*.debit').isFloat({ min: 0 }).withMessage('Debit amount must be non-negative'),
@@ -961,6 +969,21 @@ router.post('/journal-entries',
       companyId: company._id,
       createdBy: req.user._id
     };
+
+    if (entryData.referenceId === '') {
+      entryData.referenceId = null;
+    }
+    if (entryData.project === '') {
+      entryData.project = null;
+    }
+    if (entryData.lines) {
+      entryData.lines = entryData.lines.map(line => {
+        const newLine = { ...line };
+        if (newLine.department === '') newLine.department = null;
+        if (newLine.costCenter === '') newLine.costCenter = null;
+        return newLine;
+      });
+    }
 
     const entry = new JournalEntry(entryData);
     await entry.save();

@@ -26,7 +26,8 @@ import {
   TableHead,
   TableRow,
   Chip,
-  Avatar
+  Avatar,
+  Autocomplete
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -55,21 +56,28 @@ const JournalEntryForm = () => {
     date: new Date().toISOString().split('T')[0],
     reference: '',
     description: '',
-    department: 'general',
-    module: 'general',
+    department: '',
+    project: '',
     referenceId: '',
     referenceType: 'manual',
     lines: [
-      { account: '', description: '', debit: 0, credit: 0, department: 'general' },
-      { account: '', description: '', debit: 0, credit: 0, department: 'general' }
+      { account: '', description: '', debit: 0, credit: 0, department: '' },
+      { account: '', description: '', debit: 0, credit: 0, department: '' }
     ]
   });
 
   const [accounts, setAccounts] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    fetchDepartments();
+    fetchProjects();
+  }, []);
 
   useEffect(() => {
     if (selectedCompanyId) {
@@ -80,6 +88,28 @@ const JournalEntryForm = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch fns are stable for this form lifecycle
   }, [isEdit, id, selectedCompanyId]);
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await api.get('/indents/departments');
+      if (response.data.success) {
+        setDepartments(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error fetching departments:', err);
+    }
+  };
+
+  const fetchProjects = async () => {
+    try {
+      const response = await api.get('/projects');
+      if (response.data.success) {
+        setProjects(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error fetching projects:', err);
+    }
+  };
 
   const fetchAccounts = async () => {
     try {
@@ -109,9 +139,15 @@ const JournalEntryForm = () => {
         const normalizedLines = (entry.lines || []).map(line => ({
           ...line,
           account: line.account?._id || line.account || '',
+          department: line.department?._id || line.department || '',
           _accountObj: line.account // preserve full object for display
         }));
-        setFormData({ ...entry, lines: normalizedLines });
+        setFormData({ 
+          ...entry, 
+          department: entry.department?._id || entry.department || '',
+          project: entry.project?._id || entry.project || '',
+          lines: normalizedLines 
+        });
       }
     } catch (error) {
       console.error('Error fetching journal entry:', error);
@@ -139,10 +175,19 @@ const JournalEntryForm = () => {
     }));
   };
 
+  const handleLineChangeValue = (index, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      lines: prev.lines.map((line, i) => 
+        i === index ? { ...line, [field]: value } : line
+      )
+    }));
+  };
+
   const addLine = () => {
     setFormData(prev => ({
       ...prev,
-      lines: [...prev.lines, { account: '', description: '', debit: 0, credit: 0, department: 'general' }]
+      lines: [...prev.lines, { account: '', description: '', debit: 0, credit: 0, department: '' }]
     }));
   };
 
@@ -217,7 +262,11 @@ const JournalEntryForm = () => {
       setSaving(true);
       setError('');
       
-      const payload = { ...formData, companyId: selectedCompanyId };
+      const payload = { 
+        ...formData, 
+        companyId: selectedCompanyId,
+        module: formData.module || 'general' 
+      };
       const response = isEdit 
         ? await api.put(`/finance/journal-entries/${id}`, payload)
         : await api.post('/finance/journal-entries', payload);
@@ -453,36 +502,29 @@ const JournalEntryForm = () => {
                     onChange={handleInputChange('department')}
                     label="Department"
                   >
-                    <MenuItem value="general">General</MenuItem>
-                    <MenuItem value="hr">HR</MenuItem>
-                    <MenuItem value="admin">Admin</MenuItem>
-                    <MenuItem value="procurement">Procurement</MenuItem>
-                    <MenuItem value="sales">Sales</MenuItem>
-                    <MenuItem value="finance">Finance</MenuItem>
-                    <MenuItem value="audit">Audit</MenuItem>
-                    <MenuItem value="finance">Finance</MenuItem>
-                    <MenuItem value="taj_utilities">Taj Utilities</MenuItem>
+                    {departments.map((dept) => (
+                      <MenuItem key={dept._id} value={dept._id}>
+                        {dept.name} ({dept.code})
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
 
               <Grid item xs={12} md={3}>
-                <FormControl fullWidth required>
-                  <InputLabel>Module</InputLabel>
+                <FormControl fullWidth>
+                  <InputLabel>Project</InputLabel>
                   <Select
-                    value={formData.module}
-                    onChange={handleInputChange('module')}
-                    label="Module"
+                    value={formData.project || ''}
+                    onChange={handleInputChange('project')}
+                    label="Project"
                   >
-                    <MenuItem value="general">General</MenuItem>
-                    <MenuItem value="payroll">Payroll</MenuItem>
-                    <MenuItem value="procurement">Procurement</MenuItem>
-                    <MenuItem value="sales">Sales</MenuItem>
-                    <MenuItem value="hr">HR</MenuItem>
-                    <MenuItem value="admin">Admin</MenuItem>
-                    <MenuItem value="audit">Audit</MenuItem>
-                    <MenuItem value="finance">Finance</MenuItem>
-                    <MenuItem value="taj_utilities">Taj Utilities</MenuItem>
+                    <MenuItem value=""><em>None</em></MenuItem>
+                    {projects.map((proj) => (
+                      <MenuItem key={proj._id} value={proj._id}>
+                        {proj.name} ({proj.code || proj.projectId})
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
@@ -522,7 +564,7 @@ const JournalEntryForm = () => {
                   <Table>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Account</TableCell>
+                        <TableCell sx={{ width: 300 }}>Account</TableCell>
                         <TableCell>Description</TableCell>
                         <TableCell align="right">Debit</TableCell>
                         <TableCell align="right">Credit</TableCell>
@@ -534,22 +576,18 @@ const JournalEntryForm = () => {
                       {formData.lines.map((line, index) => (
                         <TableRow key={index}>
                           <TableCell>
-                            <FormControl fullWidth required>
-                              <Select
-                                value={line.account}
-                                onChange={handleLineChange(index, 'account')}
-                                displayEmpty
-                              >
-                                <MenuItem value="" disabled>
-                                  Select Account
-                                </MenuItem>
-                                {accounts.map((account) => (
-                                  <MenuItem key={account._id} value={account._id}>
-                                    {account.accountNumber} - {account.name}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
+                            <Autocomplete
+                              size="small"
+                              options={accounts}
+                              getOptionLabel={(option) => option ? `${option.accountNumber} — ${option.name}` : ''}
+                              value={accounts.find(a => a._id === line.account) || null}
+                              onChange={(_, newValue) => {
+                                handleLineChangeValue(index, 'account', newValue ? newValue._id : '');
+                              }}
+                              isOptionEqualToValue={(option, val) => option?._id === val?._id}
+                              renderInput={(params) => <TextField {...params} label="Select Account" variant="outlined" required size="small" />}
+                              fullWidth
+                            />
                           </TableCell>
                           <TableCell>
                             <TextField
@@ -581,16 +619,15 @@ const JournalEntryForm = () => {
                           <TableCell>
                             <FormControl fullWidth size="small">
                               <Select
-                                value={line.department}
+                                value={line.department || ''}
                                 onChange={handleLineChange(index, 'department')}
                               >
-                                <MenuItem value="general">General</MenuItem>
-                                <MenuItem value="hr">HR</MenuItem>
-                                <MenuItem value="admin">Admin</MenuItem>
-                                <MenuItem value="procurement">Procurement</MenuItem>
-                                <MenuItem value="sales">Sales</MenuItem>
-                                <MenuItem value="finance">Finance</MenuItem>
-                                <MenuItem value="audit">Audit</MenuItem>
+                                <MenuItem value=""><em>None</em></MenuItem>
+                                {departments.map((dept) => (
+                                  <MenuItem key={dept._id} value={dept._id}>
+                                    {dept.name}
+                                  </MenuItem>
+                                ))}
                               </Select>
                             </FormControl>
                           </TableCell>

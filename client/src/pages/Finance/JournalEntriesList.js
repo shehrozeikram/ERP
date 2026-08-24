@@ -143,6 +143,7 @@ const JournalEntriesList = () => {
   };
 
   const getDepartmentIcon = (department) => {
+    const deptKey = typeof department === 'object' ? (department?.code || '').toLowerCase() : (department || '').toLowerCase();
     const iconMap = {
       'hr': <PeopleIcon />,
       'admin': <AdminIcon />,
@@ -152,10 +153,11 @@ const JournalEntriesList = () => {
       'audit': <SecurityIcon />,
       'general': <AccountBalanceIcon />
     };
-    return iconMap[department] || <AccountBalanceIcon />;
+    return iconMap[deptKey] || <AccountBalanceIcon />;
   };
 
   const getDepartmentColor = (department) => {
+    const deptKey = typeof department === 'object' ? (department?.code || '').toLowerCase() : (department || '').toLowerCase();
     const colorMap = {
       'hr': 'primary',
       'admin': 'secondary',
@@ -165,7 +167,7 @@ const JournalEntriesList = () => {
       'audit': 'error',
       'general': 'default'
     };
-    return colorMap[department] || 'default';
+    return colorMap[deptKey] || 'default';
   };
 
   const getStatusColor = (status) => {
@@ -277,7 +279,7 @@ const JournalEntriesList = () => {
                   <TableCell>Entry Number</TableCell>
                   <TableCell>Description</TableCell>
                   <TableCell>Department</TableCell>
-                  <TableCell>Module</TableCell>
+                  <TableCell>Project</TableCell>
                   <TableCell align="right">Total Amount</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Actions</TableCell>
@@ -303,7 +305,7 @@ const JournalEntriesList = () => {
                     </TableCell>
                     <TableCell>
                       <Chip 
-                        label={entry.department?.toUpperCase() || 'GENERAL'} 
+                        label={typeof entry.department === 'object' ? entry.department.name : (entry.department?.toUpperCase() || 'GENERAL')} 
                         size="small" 
                         color={getDepartmentColor(entry.department)}
                         icon={getDepartmentIcon(entry.department)}
@@ -311,7 +313,7 @@ const JournalEntriesList = () => {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" color="textSecondary">
-                        {entry.module?.toUpperCase() || 'GENERAL'}
+                        {entry.project ? (entry.project.name || entry.project.code) : (entry.module?.toUpperCase() || '—')}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
