@@ -173,6 +173,10 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  orderDiscount: {
+    type: Number,
+    default: 0
+  },
   shippingCost: {
     type: Number,
     default: 0
@@ -322,7 +326,7 @@ purchaseOrderSchema.pre('save', async function(next) {
     
     this.discountAmount = this.items.reduce((sum, item) => sum + (item.discount || 0), 0);
     
-    this.totalAmount = this.subtotal + this.taxAmount + (this.shippingCost || 0);
+    this.totalAmount = this.subtotal + this.taxAmount + (this.shippingCost || 0) - (this.orderDiscount || 0);
   }
   
   next();

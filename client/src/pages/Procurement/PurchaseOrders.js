@@ -307,6 +307,7 @@ const PurchaseOrders = () => {
           priority: 'Medium',
           items: filteredItems.length > 0 ? filteredItems : [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
           shippingCost: 0,
+          orderDiscount: 0,
           paymentTerms: q.paymentTerms || '',
           notes: q.notes ? `From quotation ${q.quotationNumber || ''}. ${q.notes}` : `Created from quotation ${q.quotationNumber || ''}`,
           internalNotes: q.indent?.indentNumber ? `Source: Quotation ${q.quotationNumber || ''}, Indent: ${q.indent.indentNumber}` : ''
@@ -402,6 +403,7 @@ const PurchaseOrders = () => {
       priority: 'Medium',
       items: [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
       shippingCost: 0,
+      orderDiscount: 0,
       paymentTerms: '',
       notes: '',
       internalNotes: ''
@@ -420,7 +422,8 @@ const PurchaseOrders = () => {
         vendor: fullOrder.vendor?._id || fullOrder.vendor,
         orderDate: fullOrder.orderDate ? new Date(fullOrder.orderDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         expectedDeliveryDate: fullOrder.expectedDeliveryDate ? new Date(fullOrder.expectedDeliveryDate).toISOString().split('T')[0] : '',
-        deliveryAddress: fullOrder.deliveryAddress || ''
+        deliveryAddress: fullOrder.deliveryAddress || '',
+        orderDiscount: fullOrder.orderDiscount || 0,
       });
       const approvals = fullOrder.approvalAuthorities || {};
       setApprovalAuthority({
@@ -451,7 +454,8 @@ const PurchaseOrders = () => {
         vendor: order.vendor?._id || order.vendor,
         orderDate: order.orderDate ? new Date(order.orderDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         expectedDeliveryDate: order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toISOString().split('T')[0] : '',
-        deliveryAddress: order.deliveryAddress || ''
+        deliveryAddress: order.deliveryAddress || '',
+        orderDiscount: order.orderDiscount || 0,
       });
       const approvals = order.approvalAuthorities || {};
       setApprovalAuthority({
@@ -726,7 +730,7 @@ const PurchaseOrders = () => {
       return sum + (itemSubtotal * (item.taxRate || 0) / 100);
     }, 0);
     
-    return subtotal + tax + (formData.shippingCost || 0);
+    return subtotal + tax + (formData.shippingCost || 0) - (formData.orderDiscount || 0);
   };
 
   const getStatusColor = (status) => {
@@ -1450,16 +1454,25 @@ const PurchaseOrders = () => {
               ))}
             </Grid>
 
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 type="number"
                 label="Shipping Cost"
                 value={formData.shippingCost}
-                onChange={(e) => setFormData({ ...formData, shippingCost: parseFloat(e.target.value) })}
+                onChange={(e) => setFormData({ ...formData, shippingCost: parseFloat(e.target.value) || 0 })}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Order Discount"
+                value={formData.orderDiscount}
+                onChange={(e) => setFormData({ ...formData, orderDiscount: parseFloat(e.target.value) || 0 })}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 label="Payment Terms"
@@ -1916,10 +1929,16 @@ const PurchaseOrders = () => {
                       </Box>
                     )}
                     {viewDialog.data.discountAmount > 0 && (
-                      <Box>
-                        <Typography sx={{ fontSize: '0.85rem' }}>Discount:</Typography>
+                      <Grid container justifyContent="space-between" sx={{ mb: 1, color: 'text.secondary' }}>
+                        <Typography sx={{ fontSize: '0.85rem' }}>Item Discount:</Typography>
                         <Typography sx={{ fontSize: '0.85rem' }}>-{formatPKR(viewDialog.data.discountAmount)}</Typography>
-                      </Box>
+                      </Grid>
+                    )}
+                    {viewDialog.data.orderDiscount > 0 && (
+                      <Grid container justifyContent="space-between" sx={{ mb: 1, color: 'text.secondary' }}>
+                        <Typography sx={{ fontSize: '0.85rem' }}>Order Discount:</Typography>
+                        <Typography sx={{ fontSize: '0.85rem' }}>-{formatPKR(viewDialog.data.orderDiscount)}</Typography>
+                      </Grid>
                     )}
                     {viewDialog.data.shippingCost > 0 && (
                       <Box>
