@@ -29,7 +29,8 @@ export const MAP_MOZA_ALIASES = {
   'rupa': ['ropa', 'rupa', 'chak-rupa'],
   'sheikhpur': ['sheikhpur'],
   'lakhu': ['lakhu'],
-  'narhala': ['narhala']
+  'narhala': ['narhala'],
+  'kot-kolian': ['kot-kolian', 'kot-koliyan']
 };
 
 export const getErpSlugsForMapMoza = (mapMoza, erpMozas = []) => {

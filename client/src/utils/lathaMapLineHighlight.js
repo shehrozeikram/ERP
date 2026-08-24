@@ -62,6 +62,7 @@ export const MOUZA_HIGHLIGHT_COLORS = {
   rupa: '#512DA8',       // Deep Royal Slate
   'chak-rupa': '#1565C0',// Deep Sapphire Blue
   narhala: '#C2185B',    // Muted Rose Garnet
+  'kot-kolian': '#8E24AA',// Vibrant Purple
   unknown: '#607D8B'     // Cool Steel Grey
 };
 

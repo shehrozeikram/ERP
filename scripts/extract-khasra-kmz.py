@@ -43,6 +43,10 @@ MOUZA_DESC_SLUGS = (
     ('lakhu', 'lakhu'),
     ('narhala', 'narhala'),
     ('rupa', 'rupa'),
+    ('kolian', 'kot-kolian'),
+    ('koliyan', 'kot-kolian'),
+    ('kot kolian', 'kot-kolian'),
+    ('kot koliyan', 'kot-kolian'),
 )
 
 

@@ -70,6 +70,7 @@ const MOUZA_LABELS = {
   rupa: 'Mouza Rupa',
   'chak-rupa': 'Mouza Chak Rupa',
   narhala: 'Mouza Narhala',
+  'kot-kolian': 'Mouza Kot Kolian',
   unknown: 'Other / Unmapped'
 };
 

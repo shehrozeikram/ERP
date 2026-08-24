@@ -207,6 +207,7 @@ def main():
             'rupa': '#0288D1',
             'chak-rupa': '#1565C0',
             'narhala': '#C62828',
+            'kot-kolian': '#8E24AA',
             'unknown': '#9E9E9E',
         },
     }
