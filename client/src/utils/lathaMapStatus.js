@@ -149,6 +149,13 @@ export const buildStatusLookups = (statusMap = {}) => {
     const norm = normalizeKhasraNo(khasra);
     const normKey = `${slug}:${norm}`;
     if (!byKhasra[normKey]) byKhasra[normKey] = row;
+
+    // Additionally index by base number (before the slash) to support mapping slashed database entries to unslashed map parcels
+    if (norm.includes('/')) {
+      const base = norm.split('/')[0];
+      const baseKey = `${slug}:${base}`;
+      if (!byKhasra[baseKey]) byKhasra[baseKey] = row;
+    }
   });
 
   return { exact, byKhasra };
@@ -171,6 +178,15 @@ export const resolveStatusForKhasra = (khasraNo, mapMozaOrFilter, statusMap, moz
       status = tryKey(slug);
       if (status) return { status, mouza: slug };
     }
+
+    // Fallback: if not found under mapMozaOrFilter or its aliases, look up other active ERP mozas
+    for (const moza of mozas) {
+      const slug = typeof moza === 'string' ? moza : moza.slug;
+      if (slug === mapMozaOrFilter || matchingSlugs.includes(slug)) continue;
+      status = tryKey(slug);
+      if (status) return { status, mouza: slug };
+    }
+
     return null;
   }
 

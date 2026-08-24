@@ -574,6 +574,11 @@ const LathaMapViewer = () => {
       if (!khasra) return;
       if (!sets[slug]) sets[slug] = new Set();
       sets[slug].add(khasra);
+      
+      // Also add the base number of slashed khasras to sets
+      if (khasra.includes('/')) {
+        sets[slug].add(khasra.split('/')[0]);
+      }
     });
 
     return sets;
@@ -596,11 +601,16 @@ const LathaMapViewer = () => {
       if (parcel.moza === slug) return true;
       const matchingSlugs = getErpSlugsForMapMoza(parcel.moza, mozas);
       if (matchingSlugs.includes(slug)) return true;
+      
+      // Fallback matching: if the parcel resolved to an ERP record of this filtered slug, it belongs to this mouza
+      const statusRes = getResolvedStatusForMouza(parcel, slug);
+      if (statusRes && statusRes.mouza === slug) return true;
       return false;
     }
     const khasraSet = mouzaKhasraSets[slug];
-    if (!khasraSet?.size) return Boolean(getResolvedStatusForMouza(parcel, slug));
-    return khasraSet.has(normalizeKhasraNo(parcel.k));
+    if (khasraSet && khasraSet.has(normalizeKhasraNo(parcel.k))) return true;
+    const statusRes = getResolvedStatusForMouza(parcel, slug);
+    return Boolean(statusRes && statusRes.mouza === slug);
   }, [mouzaKhasraSets, getResolvedStatusForMouza, mozas]);
 
   const getResolvedStatus = useCallback(
