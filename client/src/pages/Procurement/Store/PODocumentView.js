@@ -222,7 +222,11 @@ const PODocumentView = ({ data }) => {
           </Box>
           <Box sx={{ display: 'flex', mb: 0.5 }}>
             <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
-            <Typography component="span">{data.indent?.department?.name || '___________'}</Typography>
+            <Typography component="span">
+              {data.costCenter 
+                ? (typeof data.costCenter === 'object' ? `${data.costCenter.code || ''} - ${data.costCenter.name || ''}` : data.costCenter)
+                : (data.indent?.department?.name || '___________')}
+            </Typography>
           </Box>
         </Box>
       </Box>

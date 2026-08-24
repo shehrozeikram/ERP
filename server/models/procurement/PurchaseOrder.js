@@ -45,6 +45,11 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Quotation'
   },
+  costCenter: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CostCenter',
+    default: null
+  },
   auditApprovedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

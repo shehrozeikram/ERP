@@ -167,6 +167,7 @@ const PurchaseOrders = () => {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [statistics, setStatistics] = useState(null);
   const [vendors, setVendors] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
   
   // Pagination and filters
   const [page, setPage] = useState(0);
@@ -240,9 +241,11 @@ const PurchaseOrders = () => {
     priority: 'Medium',
     items: [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
     shippingCost: 0,
+    orderDiscount: 0,
     paymentTerms: '',
     notes: '',
-    internalNotes: ''
+    internalNotes: '',
+    costCenter: ''
   });
 
   // Prefilled quotation tracking info
@@ -310,7 +313,8 @@ const PurchaseOrders = () => {
           orderDiscount: 0,
           paymentTerms: q.paymentTerms || '',
           notes: q.notes ? `From quotation ${q.quotationNumber || ''}. ${q.notes}` : `Created from quotation ${q.quotationNumber || ''}`,
-          internalNotes: q.indent?.indentNumber ? `Source: Quotation ${q.quotationNumber || ''}, Indent: ${q.indent.indentNumber}` : ''
+          internalNotes: q.indent?.indentNumber ? `Source: Quotation ${q.quotationNumber || ''}, Indent: ${q.indent.indentNumber}` : '',
+          costCenter: q.indent?.costCenter?._id || q.indent?.costCenter || ''
         });
         setApprovalAuthority({
           preparedBy: approvals.preparedBy || approverLabel(user) || '',
@@ -377,6 +381,17 @@ const PurchaseOrders = () => {
     }
   }, []);
 
+  const loadCostCenters = useCallback(async () => {
+    try {
+      const response = await api.get('/procurement/cost-centers', { params: { limit: 1000, isActive: true } });
+      if (response.data.success) {
+        setCostCenters(response.data.data.costCenters || []);
+      }
+    } catch (err) {
+      console.error('Error loading cost centers:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadPurchaseOrders();
   }, [loadPurchaseOrders]);
@@ -384,7 +399,8 @@ const PurchaseOrders = () => {
   useEffect(() => {
     loadStatistics();
     loadVendors();
-  }, [loadStatistics, loadVendors]);
+    loadCostCenters();
+  }, [loadStatistics, loadVendors, loadCostCenters]);
 
   const handleCreate = () => {
     setApprovalAuthority({
@@ -406,7 +422,8 @@ const PurchaseOrders = () => {
       orderDiscount: 0,
       paymentTerms: '',
       notes: '',
-      internalNotes: ''
+      internalNotes: '',
+      costCenter: ''
     });
     setFormDialog({ open: true, mode: 'create', data: null, quotationId: null });
   };
@@ -424,6 +441,7 @@ const PurchaseOrders = () => {
         expectedDeliveryDate: fullOrder.expectedDeliveryDate ? new Date(fullOrder.expectedDeliveryDate).toISOString().split('T')[0] : '',
         deliveryAddress: fullOrder.deliveryAddress || '',
         orderDiscount: fullOrder.orderDiscount || 0,
+        costCenter: fullOrder.costCenter?._id || fullOrder.costCenter || ''
       });
       const approvals = fullOrder.approvalAuthorities || {};
       setApprovalAuthority({
@@ -456,6 +474,7 @@ const PurchaseOrders = () => {
         expectedDeliveryDate: order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toISOString().split('T')[0] : '',
         deliveryAddress: order.deliveryAddress || '',
         orderDiscount: order.orderDiscount || 0,
+        costCenter: order.costCenter?._id || order.costCenter || ''
       });
       const approvals = order.approvalAuthorities || {};
       setApprovalAuthority({
@@ -1166,6 +1185,22 @@ const PurchaseOrders = () => {
               <TextField
                 fullWidth
                 select
+                label="Cost Center"
+                value={formData.costCenter || ''}
+                onChange={(e) => setFormData({ ...formData, costCenter: e.target.value })}
+              >
+                <MenuItem value=""><em>None</em></MenuItem>
+                {costCenters.map((cc) => (
+                  <MenuItem key={cc._id} value={cc._id}>
+                    {cc.code} - {cc.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                select
                 label="Priority"
                 value={formData.priority}
                 onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
@@ -1827,6 +1862,18 @@ const PurchaseOrders = () => {
                         {viewDialog.data.status}
                       </Typography>
                     </Box>
+                    {viewDialog.data.costCenter && (
+                      <Box sx={{ mb: 1 }}>
+                        <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                          Cost Center:{' '}
+                        </Typography>
+                        <Typography component="span" sx={{ fontSize: '0.9rem' }}>
+                          {typeof viewDialog.data.costCenter === 'object' 
+                            ? `${viewDialog.data.costCenter.code || ''} - ${viewDialog.data.costCenter.name || ''}`
+                            : viewDialog.data.costCenter}
+                        </Typography>
+                      </Box>
+                    )}
                     {viewDialog.data.quotation && (
                       <Box sx={{ mb: 1 }}>
                         <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 600 }}>

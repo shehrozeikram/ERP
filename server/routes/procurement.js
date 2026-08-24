@@ -804,6 +804,7 @@ router.get('/purchase-orders',
         })
         .populate('createdBy', 'firstName lastName email')
         .populate('approvedBy', 'firstName lastName')
+        .populate('costCenter', 'code name department')
         .sort(sortOptions)
         .limit(limit * 1)
         .skip((page - 1) * limit)
@@ -968,7 +969,8 @@ router.get('/purchase-orders/:id',
       .populate('auditObservations.addedBy', 'firstName lastName email digitalSignature')
       .populate('auditObservations.answeredBy', 'firstName lastName email digitalSignature')
       .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature')
-      .populate('updatedBy', 'firstName lastName email digitalSignature');
+      .populate('updatedBy', 'firstName lastName email digitalSignature')
+      .populate('costCenter', 'code name department');
 
     if (!purchaseOrder) {
       return res.status(404).json({
@@ -1099,8 +1101,11 @@ router.post('/purchase-orders', [
   }));
   const preparedByName = [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ').trim() || req.user?.email || '';
 
+  const bodyData = { ...req.body };
+  if (bodyData.costCenter === '') bodyData.costCenter = null;
+
   const purchaseOrder = new PurchaseOrder({
-    ...req.body,
+    ...bodyData,
     status: 'Pending Approval',
     items,
     createdBy: req.user.id
@@ -1149,6 +1154,7 @@ router.post('/purchase-orders', [
   const populatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
     .populate('vendor', 'name email phone')
     .populate('createdBy', 'firstName lastName email')
+    .populate('costCenter', 'code name department')
     .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
 
   res.status(201).json({
@@ -1200,7 +1206,10 @@ router.put('/purchase-orders/:id', [
     }));
   }
 
-  Object.assign(purchaseOrder, req.body);
+  const bodyData = { ...req.body };
+  if (bodyData.costCenter === '') bodyData.costCenter = null;
+
+  Object.assign(purchaseOrder, bodyData);
   purchaseOrder.updatedBy = req.user.id;
   
   await purchaseOrder.save();
@@ -1208,7 +1217,8 @@ router.put('/purchase-orders/:id', [
   const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
     .populate('vendor', 'name email phone')
     .populate('createdBy', 'firstName lastName email')
-    .populate('approvedBy', 'firstName lastName email');
+    .populate('approvedBy', 'firstName lastName email')
+    .populate('costCenter', 'code name department');
 
   res.json({
     success: true,
