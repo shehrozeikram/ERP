@@ -143,6 +143,22 @@ const JournalEntryForm = () => {
       const response = await api.get(`/finance/journal-entries/${id}`);
       if (response.data.success) {
         const entry = response.data.data;
+        const entryCompanyId = entry.companyId?._id || entry.companyId || selectedCompanyId;
+        
+        // Fetch accounts specifically for this entry's company if needed
+        if (entryCompanyId) {
+          try {
+            const accRes = await api.get('/finance/accounts', {
+              params: { limit: 1000, companyId: entryCompanyId }
+            });
+            if (accRes.data.success) {
+              setAccounts(accRes.data.data.accounts || []);
+            }
+          } catch (accErr) {
+            console.error('Error fetching accounts for journal entry company:', accErr);
+          }
+        }
+
         // Normalize lines: if account is a populated object, extract _id for the Select value
         // but keep the full object so we can display account name
         const normalizedLines = (entry.lines || []).map(line => ({
@@ -153,6 +169,7 @@ const JournalEntryForm = () => {
         }));
         setFormData({ 
           ...entry, 
+          companyId: entryCompanyId,
           date: entry.date ? new Date(entry.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
           department: entry.department?._id || entry.department || '',
           project: entry.project?._id || entry.project || '',
@@ -263,8 +280,9 @@ const JournalEntryForm = () => {
       return;
     }
 
-    if (!selectedCompanyId) {
-      setError('Select a finance company before creating a journal entry');
+    const targetCompanyId = formData.companyId || selectedCompanyId;
+    if (!targetCompanyId) {
+      setError('Select a finance company before saving a journal entry');
       return;
     }
 
@@ -274,7 +292,7 @@ const JournalEntryForm = () => {
       
       const payload = { 
         ...formData, 
-        companyId: selectedCompanyId,
+        companyId: targetCompanyId,
         module: formData.module || 'general' 
       };
       const response = isEdit 
@@ -311,8 +329,8 @@ const JournalEntryForm = () => {
     );
   }
 
-  // ── READ-ONLY VIEW for posted / reversed entries ────────────────────────────
-  if (isEdit && (formData.status === 'posted' || formData.status === 'reversed')) {
+  // ── READ-ONLY VIEW for reversed entries only ────────────────────────────
+  if (isEdit && (formData.status === 'reversed' || formData.isReversed)) {
     const totalDr = (formData.lines || []).reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
     const totalCr = (formData.lines || []).reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
     const balanced = Math.abs(totalDr - totalCr) < 0.01;
@@ -332,8 +350,8 @@ const JournalEntryForm = () => {
               <Typography variant="body2" color="textSecondary">{formData.description}</Typography>
             </Box>
             <Chip
-              label={formData.status?.toUpperCase()}
-              color={formData.status === 'posted' ? 'success' : 'error'}
+              label={formData.status?.toUpperCase() || 'REVERSED'}
+              color="error"
               sx={{ fontWeight: 700 }}
             />
           </Box>
@@ -425,11 +443,21 @@ const JournalEntryForm = () => {
             <AccountBalanceIcon />
           </Avatar>
           <Box>
-            <Typography variant="h4" sx={{ fontWeight: 'bold', color: theme.palette.primary.main }}>
-              {isEdit ? 'Edit Journal Entry' : 'Create Journal Entry'}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="h4" sx={{ fontWeight: 'bold', color: theme.palette.primary.main }}>
+                {isEdit ? 'Edit Journal Entry' : 'Create Journal Entry'}
+              </Typography>
+              {isEdit && formData.status && (
+                <Chip
+                  label={formData.status.toUpperCase()}
+                  color={formData.status === 'posted' ? 'success' : 'default'}
+                  size="small"
+                  sx={{ fontWeight: 700 }}
+                />
+              )}
+            </Box>
             <Typography variant="body2" color="textSecondary">
-              {isEdit ? 'Modify journal entry details and lines' : 'Create a new journal entry with double-entry accounting'}
+              {isEdit ? (formData.entryNumber ? `${formData.entryNumber} — Modify journal entry details and lines` : 'Modify journal entry details and lines') : 'Create a new journal entry with double-entry accounting'}
             </Typography>
           </Box>
           </Box>
@@ -438,6 +466,12 @@ const JournalEntryForm = () => {
       </Paper>
 
       {/* Alerts */}
+      {isEdit && formData.status === 'posted' && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          This journal entry is already <strong>POSTED</strong>. Updating amounts or accounts will automatically recalculate associated account balances and synchronize General Ledger records.
+        </Alert>
+      )}
+
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
           {error}

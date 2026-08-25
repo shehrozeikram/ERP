@@ -997,7 +997,8 @@ router.post('/journal-entries',
 );
 
 // @route   PUT /api/finance/journal-entries/:id
-// @desc    Update/edit a journal entry (draft only)
+// @route   PUT /api/finance/journal-entries/:id
+// @desc    Update/edit a journal entry (draft or posted)
 // @access  Private (Finance and Admin)
 router.put('/journal-entries/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
@@ -1032,10 +1033,17 @@ router.put('/journal-entries/:id',
       });
     }
 
-    if (entry.status !== 'draft') {
+    if (entry.status === 'reversed' || entry.isReversed) {
       return res.status(400).json({
         success: false,
-        message: 'Only draft journal entries can be edited'
+        message: 'Reversed journal entries cannot be edited'
+      });
+    }
+
+    if (entry.status !== 'draft' && entry.status !== 'posted') {
+      return res.status(400).json({
+        success: false,
+        message: `Entries with status "${entry.status}" cannot be edited`
       });
     }
 
@@ -1052,6 +1060,13 @@ router.put('/journal-entries/:id',
         message: 'All journal lines must use accounts from the selected finance company'
       });
     }
+
+    const wasPosted = entry.status === 'posted';
+    const oldLines = entry.lines ? entry.lines.map((l) => ({
+      account: l.account?._id || l.account,
+      debit: Number(l.debit) || 0,
+      credit: Number(l.credit) || 0
+    })) : [];
 
     entry.description = req.body.description;
     entry.department = req.body.department;
@@ -1071,7 +1086,30 @@ router.put('/journal-entries/:id',
       });
     }
 
-    await entry.save();
+    if (wasPosted) {
+      // 1. Revert previous impact on account balances
+      for (const oldLine of oldLines) {
+        if (oldLine.account) {
+          const delta = oldLine.debit - oldLine.credit;
+          await Account.findByIdAndUpdate(oldLine.account, {
+            $inc: { balance: -delta }
+          });
+        }
+      }
+
+      // 2. Save the journal entry (the post-save hook will apply new line balances because status is posted)
+      await entry.save();
+
+      // 3. Refresh General Ledger entries
+      try {
+        await GeneralLedger.deleteMany({ journalEntry: entry._id });
+        await FinanceHelper.postToGeneralLedger(entry._id);
+      } catch (glErr) {
+        console.warn('[Journal update] General ledger sync error:', glErr.message);
+      }
+    } else {
+      await entry.save();
+    }
 
     res.json({
       success: true,
@@ -4566,170 +4604,236 @@ router.get('/reports/customer-statement/:customerName',
 router.get('/reports/bank-reconciliation',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { accountId, asOfDate } = req.query;
+    const { accountId, asOfDate, fromDate, toDate } = req.query;
     let asOf = new Date();
     if (asOfDate) {
       asOf = new Date(asOfDate);
       asOf.setHours(23, 59, 59, 999);
     }
+
     const { q, jeMatch } = await financeScope(req);
     const mongoose = require('mongoose');
 
     // 1. Fetch Chart of Accounts Bank/Cash Accounts
-    let accountFilter;
+    let targetAccountIds = [];
+    let selectedAccountObj = null;
+
     if (accountId) {
-      accountFilter = { _id: accountId };
+      selectedAccountObj = await Account.findById(accountId).lean();
+      if (selectedAccountObj) {
+        // Find all sub-accounts / children under this account recursively
+        const allCompanyAccounts = await Account.find({
+          ...(selectedAccountObj.companyId ? { companyId: selectedAccountObj.companyId } : {})
+        }).lean();
+
+        const findChildren = (parentId) => {
+          let ids = [parentId];
+          const directKids = allCompanyAccounts.filter((a) => String(a.parentAccount || '') === String(parentId));
+          directKids.forEach((child) => {
+            ids = ids.concat(findChildren(child._id));
+          });
+          return ids;
+        };
+
+        targetAccountIds = findChildren(selectedAccountObj._id);
+      } else {
+        targetAccountIds = [new mongoose.Types.ObjectId(accountId)];
+      }
     } else {
-      accountFilter = q({
+      const defaultBankAccounts = await Account.find(
+        q({
+          $or: [
+            { type: 'Asset', category: { $regex: /cash|bank|current/i } },
+            { category: { $regex: /cash|bank/i } },
+            { detailType: { $regex: /cash|bank/i } },
+            { accountCode: 'BANK' },
+            { accountCode: 'CASH' }
+          ]
+        })
+      ).sort({ accountNumber: 1 }).lean();
+      targetAccountIds = defaultBankAccounts.map((a) => a._id);
+    }
+
+    // Also fetch all available accounts for the selector dropdown
+    const coaBankAccounts = await Account.find(
+      q({
         $or: [
           { type: 'Asset' },
-          { category: { $regex: /cash|bank/i } },
+          { category: { $regex: /cash|bank|current/i } },
           { detailType: { $regex: /cash|bank/i } },
           { accountCode: 'BANK' },
           { accountCode: 'CASH' }
         ]
-      });
-    }
-
-    const coaBankAccounts = await Account.find(accountFilter).sort({ accountNumber: 1 });
-    const bankAccountIds = coaBankAccounts.map((a) => a._id);
+      })
+    ).sort({ accountNumber: 1 }).lean();
 
     // 2. Fetch General Ledger & Journal Entries for selected/all Bank accounts up to asOf date
-    const glMatch = jeMatch({ date: { $lte: asOf } });
-    if (accountId) {
-      glMatch.account = new mongoose.Types.ObjectId(accountId);
-    } else if (bankAccountIds.length > 0) {
-      glMatch.account = { $in: bankAccountIds };
-    }
+    const glMatchAsOf = {
+      date: { $lte: asOf },
+      account: { $in: targetAccountIds }
+    };
 
-    const glEntries = await GeneralLedger.find(glMatch)
+    const allGlEntriesUpToAsOf = await GeneralLedger.find(glMatchAsOf)
       .populate('account', 'name accountNumber category detailType')
       .populate({
         path: 'journalEntry',
-        select: 'status isReconciled reconciledAt signedDocumentStatus entryNumber reference'
+        select: 'status isReconciled reconciledAt clearanceStatus clearedAt signedDocumentStatus entryNumber reference description lines date'
       })
-      .sort({ date: 1 })
+      .sort({ date: 1, entryNumber: 1 })
       .lean();
 
-    const postedGlEntries = glEntries.filter((e) => e.status !== 'cancelled' && e.status !== 'reversed');
-    const glBalance = postedGlEntries.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
+    const postedGlEntries = allGlEntriesUpToAsOf.filter((e) => e.status !== 'cancelled' && e.status !== 'reversed');
 
-    // Also fetch Journal Entries with line account matching bank accounts (includes pending/draft Vendor Advance vouchers)
-    const jeMatchFilter = jeMatch({
+    // Also query Journal Entries directly with line accounts matching target bank account(s)
+    const jeMatchFilter = {
       date: { $lte: asOf },
-      status: { $ne: 'cancelled' },
-      'lines.account': accountId ? new mongoose.Types.ObjectId(accountId) : { $in: bankAccountIds }
-    });
+      status: { $in: ['posted', 'draft'] },
+      'lines.account': { $in: targetAccountIds }
+    };
     const journalEntries = await JournalEntry.find(jeMatchFilter)
       .populate('lines.account', 'name accountNumber category detailType')
-      .sort({ date: 1 })
+      .sort({ date: 1, entryNumber: 1 })
       .lean();
 
-    // 3. Check Banking collection transactions
-    const bankingFilter = q({});
-    if (accountId) bankingFilter._id = accountId;
-    const bankingDocs = await Banking.find(bankingFilter).sort({ accountName: 1 });
+    // Map all unique transactions (prioritize GL, fallback to JE lines)
+    const seenJeIds = new Set();
+    const allBankTxns = [];
 
-    let allTxns = [];
+    postedGlEntries.forEach((gle) => {
+      const je = gle.journalEntry || {};
+      if (je._id) seenJeIds.add(String(je._id));
+      const isCredit = (Number(gle.credit) || 0) > 0;
+      const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
+      const isCleared = Boolean(gle.clearanceStatus === 'cleared' || je.clearanceStatus === 'cleared' || gle.isReconciled || je.isReconciled);
+      const clearDate = gle.clearedAt || je.clearedAt || gle.reconciledAt || je.reconciledAt || null;
 
-    if (bankingDocs.length > 0) {
-      bankingDocs.forEach((acc) => {
-        const txns = Array.isArray(acc.transactions) ? acc.transactions : [];
-        txns.forEach((t) => {
-          const tDate = t.transactionDate || t.date;
-          if (tDate && new Date(tDate) <= asOf) {
-            allTxns.push({
-              _id: t._id,
-              date: tDate,
-              voucherNo: t.voucherNo || t.entryNumber || t.reference || '—',
-              description: t.description || acc.accountName,
-              reference: t.reference || acc.accountNumber,
-              type: t.transactionType || 'debit',
-              amount: t.amount || 0,
-              isReconciled: Boolean(t.isReconciled),
-              clearanceStatus: t.clearanceStatus || (t.isReconciled ? 'cleared' : 'pending'),
-              clearedAt: t.clearedAt || t.reconciledDate || null,
-              accountName: acc.accountName,
-              bankName: acc.bankName
-            });
-          }
-        });
+      allBankTxns.push({
+        _id: gle._id,
+        journalEntryId: je._id || null,
+        date: gle.date,
+        vrNo: gle.entryNumber || je.entryNumber || '—',
+        narration: gle.description || je.description || gle.account?.name || 'Bank Transaction',
+        reference: gle.reference || je.reference || '—',
+        debit: Number(gle.debit) || 0,
+        credit: Number(gle.credit) || 0,
+        amount: amt,
+        type: isCredit ? 'Cr' : 'Dr',
+        isCleared,
+        clearanceStatus: isCleared ? 'cleared' : (gle.clearanceStatus || je.clearanceStatus || 'pending'),
+        clearingDate: clearDate,
+        accountName: gle.account?.name || 'Bank Account',
+        accountNumber: gle.account?.accountNumber || ''
       });
-    }
+    });
 
-    // Fallback: Map General Ledger & Journal Entry bank lines if Banking model has no standalone rows
-    if (allTxns.length === 0) {
-      const seenJeIds = new Set();
-      postedGlEntries.forEach((gle) => {
-        const isCredit = (Number(gle.credit) || 0) > 0;
-        const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
-        const je = gle.journalEntry || {};
-        if (je._id) seenJeIds.add(String(je._id));
-        allTxns.push({
-          _id: gle._id,
-          journalEntryId: je._id || null,
-          date: gle.date,
-          voucherNo: gle.entryNumber || je.entryNumber || gle.reference || '—',
-          description: gle.description || gle.account?.name || 'Bank Transaction',
-          reference: gle.reference || gle.entryNumber || '—',
-          type: isCredit ? 'credit' : 'debit',
-          amount: amt,
-          isReconciled: Boolean(je.isReconciled || gle.isReconciled || gle.clearanceStatus === 'cleared'),
-          clearanceStatus: je.clearanceStatus || gle.clearanceStatus || (je.isReconciled || gle.isReconciled ? 'cleared' : 'pending'),
-          clearedAt: je.clearedAt || gle.clearedAt || je.reconciledAt || null,
-          accountName: gle.account?.name || 'Bank Account',
-          bankName: gle.account?.accountNumber || 'GL'
-        });
+    const targetAccountIdsStr = new Set(targetAccountIds.map((id) => String(id)));
+
+    // Add journal entries lines not present in GL
+    journalEntries.forEach((je) => {
+      if (seenJeIds.has(String(je._id))) return;
+      (je.lines || []).forEach((line) => {
+        const accId = String(line.account?._id || line.account || '');
+        if (targetAccountIdsStr.has(accId)) {
+          const isCredit = (Number(line.credit) || 0) > 0;
+          const amt = isCredit ? Number(line.credit) : Number(line.debit);
+          const isCleared = Boolean(je.clearanceStatus === 'cleared' || je.isReconciled);
+          const clearDate = je.clearedAt || je.reconciledAt || null;
+
+          allBankTxns.push({
+            _id: `${je._id}-${accId}`,
+            journalEntryId: je._id,
+            date: je.date,
+            vrNo: je.entryNumber || je.reference || '—',
+            narration: line.description || je.description || line.account?.name || 'Bank Transaction',
+            reference: je.reference || je.entryNumber || '—',
+            debit: Number(line.debit) || 0,
+            credit: Number(line.credit) || 0,
+            amount: amt,
+            type: isCredit ? 'Cr' : 'Dr',
+            isCleared,
+            clearanceStatus: isCleared ? 'cleared' : (je.clearanceStatus || 'pending'),
+            clearingDate: clearDate,
+            accountName: line.account?.name || 'Bank Account',
+            accountNumber: line.account?.accountNumber || ''
+          });
+        }
       });
+    });
 
-      // Include draft/pending vendor advance BPV journal entries if not yet in GL
-      journalEntries.forEach((je) => {
-        if (seenJeIds.has(String(je._id))) return;
-        (je.lines || []).forEach((line) => {
-          const accId = String(line.account?._id || line.account || '');
-          const isTargetBank = accountId ? accId === String(accountId) : bankAccountIds.some((bId) => String(bId) === accId);
-          if (isTargetBank) {
-            const isCredit = (Number(line.credit) || 0) > 0;
-            const amt = isCredit ? Number(line.credit) : Number(line.debit);
-            allTxns.push({
-              _id: `${je._id}-${accId}`,
-              date: je.date,
-              voucherNo: je.entryNumber || je.reference || '—',
-              description: line.description || je.description || 'Vendor Advance / Bank Voucher',
-              reference: je.reference || je.entryNumber || '—',
-              type: isCredit ? 'credit' : 'debit',
-              amount: amt,
-              isReconciled: Boolean(je.isReconciled),
-              clearanceStatus: je.clearanceStatus || (je.isReconciled ? 'cleared' : 'pending'),
-              clearedAt: je.clearedAt || je.reconciledAt || null,
-              accountName: line.account?.name || 'Bank Account',
-              bankName: line.account?.accountNumber || 'BPV'
-            });
-          }
-        });
-      });
-    }
+    // In standard accounting for bank (Asset): Debit is +, Credit is -.
+    // Positive balance = Dr (debit balance), Negative balance = Cr (credit/overdraft balance).
+    const netGlBalance = allBankTxns.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
 
-    const bankStatementBalance = bankingDocs.length > 0
-      ? bankingDocs.reduce((s, acc) => s + (acc.currentBalance || 0), 0)
-      : glBalance;
+    // 3. Unpresented / Uncleared Transactions up to asOf date
+    const unpresentedTxns = [];
+    let unpresentedTotal = 0;
 
-    const unreconciled = allTxns.filter((t) => !t.isReconciled);
-    const unreconciledTotal = unreconciled.reduce((s, t) => {
-      if (t.type === 'deposit' || t.type === 'transfer_in' || t.type === 'credit') return s + (t.amount || 0);
-      return s - (t.amount || 0);
-    }, 0);
+    allBankTxns.forEach((txn) => {
+      const clearedBeforeAsOf = txn.isCleared && txn.clearingDate && new Date(txn.clearingDate) <= asOf;
+      
+      if (!clearedBeforeAsOf) {
+        const signedAmt = txn.type === 'Cr' ? -txn.amount : txn.amount;
+        unpresentedTotal += signedAmt;
+        unpresentedTxns.push(txn);
+      }
+    });
+
+    // Bank Statement Balance = Balance as per Bank Ledger - Unpresented/Uncleared Difference
+    const bankStatementBalance = netGlBalance - unpresentedTotal;
+
+    // 4. Period Activity / Cleared Bank Transactions (Lower Table with Date.From & Date.To)
+    let periodStartDate = fromDate ? new Date(fromDate) : new Date(new Date(asOf).getFullYear(), new Date(asOf).getMonth(), 1);
+    periodStartDate.setHours(0, 0, 0, 0);
+
+    let periodEndDate = toDate ? new Date(toDate) : new Date(asOf);
+    periodEndDate.setHours(23, 59, 59, 999);
+
+    // Cleared transactions: transactions that have cleared in the bank statement
+    // For the lower statement table, include transactions that cleared within or up to the selected period
+    const clearedTxns = allBankTxns.filter((t) => t.isCleared && t.clearingDate && new Date(t.clearingDate) <= periodEndDate);
+
+    // Opening Balance of cleared statement transactions before periodStartDate
+    const openingClearedTxns = allBankTxns.filter((t) => {
+      if (t.isCleared && t.clearingDate) {
+        return new Date(t.clearingDate) < periodStartDate;
+      }
+      return new Date(t.date) < periodStartDate && !t.isCleared;
+    });
+    const openingBalance = openingClearedTxns.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
+
+    // Period cleared transactions between periodStartDate and periodEndDate (by clearingDate or date)
+    const periodTransactions = allBankTxns.filter((t) => {
+      if (!t.isCleared || !t.clearingDate) return false;
+      const cDate = new Date(t.clearingDate);
+      return cDate >= periodStartDate && cDate <= periodEndDate;
+    });
+
+    // Lower table total should equal Bank Statement Balance as of periodEndDate / asOfDate
+    const statementTotal = bankStatementBalance;
 
     res.json({
       success: true,
       data: {
         asOfDate: asOf,
-        glBalance: Math.round(glBalance * 100) / 100,
+        fromDate: periodStartDate,
+        toDate: periodEndDate,
+        // Summary
+        glBalance: Math.round(netGlBalance * 100) / 100,
+        glBalanceType: netGlBalance >= 0 ? 'Dr' : 'Cr',
+        difference: Math.round(unpresentedTotal * 100) / 100,
+        differenceType: unpresentedTotal >= 0 ? 'Dr' : 'Cr',
         bankStatementBalance: Math.round(bankStatementBalance * 100) / 100,
-        difference: Math.round((glBalance - bankStatementBalance) * 100) / 100,
-        unreconciledCount: unreconciled.length,
-        unreconciledTotal: Math.round(unreconciledTotal * 100) / 100,
-        transactions: allTxns,
+        bankStatementBalanceType: bankStatementBalance >= 0 ? 'Dr' : 'Cr',
+        // Upper table (Unpresented / Pending Payments & Receipts)
+        unpresentedTransactions: unpresentedTxns,
+        unpresentedTotal: Math.round(unpresentedTotal * 100) / 100,
+        // Lower table (Period Activity & Cleared Bank Transactions)
+        openingBalance: Math.round(openingBalance * 100) / 100,
+        openingBalanceType: openingBalance >= 0 ? 'Dr' : 'Cr',
+        periodTransactions,
+        statementTotal: Math.round(statementTotal * 100) / 100,
+        statementTotalType: statementTotal >= 0 ? 'Dr' : 'Cr',
+        // Account master list
         bankAccounts: coaBankAccounts.map((a) => ({
           _id: a._id,
           accountName: a.name,
@@ -5470,11 +5574,13 @@ router.get('/reports/balance-sheet',
       { $unwind: '$acc' },
       {
         $project: {
-          accountNumber: '$acc.accountNumber',
-          accountName:   '$acc.name',
-          accountType:   '$acc.type',
-          totalDebit:    1,
-          totalCredit:   1,
+          accountNumber:     '$acc.accountNumber',
+          accountName:       '$acc.name',
+          accountType:       '$acc.type',
+          accountCategory:   '$acc.category',
+          accountDetailType: '$acc.detailType',
+          totalDebit:        1,
+          totalCredit:       1,
           // Account model has no normalBalance; use type (matches Account enum).
           // Asset & Expense: debit − credit. Liability, Equity, Revenue: credit − debit.
           balance: {
@@ -5489,7 +5595,7 @@ router.get('/reports/balance-sheet',
       { $sort: { accountNumber: 1 } }
     ]);
 
-    // BS sections: exact Account.type match (avoid substring bugs, e.g. "accounts_receivable" vs "asset")
+    // BS sections: exact Account.type match
     const assets      = rows.filter(r => r.accountType === 'Asset');
     const liabilities = rows.filter(r => r.accountType === 'Liability');
     const equity      = rows.filter(r => r.accountType === 'Equity');
@@ -5498,24 +5604,40 @@ router.get('/reports/balance-sheet',
 
     const totalAssets      = assets.reduce((s, r) => s + (r.balance || 0), 0);
     const totalLiabilities = liabilities.reduce((s, r) => s + (r.balance || 0), 0);
-    const totalEquity      = equity.reduce((s, r) => s + (r.balance || 0), 0);
+    const rawEquityTotal   = equity.reduce((s, r) => s + (r.balance || 0), 0);
     const totalRevenue     = revenueRows.reduce((s, r) => s + (r.balance || 0), 0);
     const totalExpense     = expenseRows.reduce((s, r) => s + (r.balance || 0), 0);
+
     // Unclosed P&L affects the accounting equation: Assets = Liabilities + Equity + (Revenue − Expense)
     const netIncomeFromPL  = Math.round((totalRevenue - totalExpense) * 100) / 100;
 
-    const totalAssetsR     = Math.round(totalAssets * 100) / 100;
-    const totalLiabR       = Math.round(totalLiabilities * 100) / 100;
-    const totalEquityR     = Math.round(totalEquity * 100) / 100;
-    const liabPlusEquityPL = Math.round((totalLiabilities + totalEquity + netIncomeFromPL) * 100) / 100;
+    // In standard QuickBooks Balance Sheet, Net Income for the period is reported directly under Equity
+    const equityWithPL = [...equity];
+    if (Math.abs(netIncomeFromPL) > 0.001 || equity.length === 0) {
+      equityWithPL.push({
+        _id: 'unclosed-net-income',
+        accountNumber: '—',
+        accountName: 'Net Income / (Loss)',
+        accountType: 'Equity',
+        accountCategory: 'Equity',
+        accountDetailType: 'Net Income',
+        balance: netIncomeFromPL,
+        isNetIncomeRow: true
+      });
+    }
+
+    const totalEquityWithPL = Math.round((rawEquityTotal + netIncomeFromPL) * 100) / 100;
+    const totalAssetsR      = Math.round(totalAssets * 100) / 100;
+    const totalLiabR        = Math.round(totalLiabilities * 100) / 100;
+    const liabPlusEquityPL  = Math.round((totalLiabilities + totalEquityWithPL) * 100) / 100;
 
     res.json({
       success: true,
       data: {
-        asOfDate:   asOf,
-        assets:     { rows: assets,      total: totalAssetsR },
-        liabilities: { rows: liabilities, total: totalLiabR },
-        equity:     { rows: equity,       total: totalEquityR },
+        asOfDate:    asOf,
+        assets:      { rows: assets,        total: totalAssetsR },
+        liabilities: { rows: liabilities,   total: totalLiabR },
+        equity:      { rows: equityWithPL,  total: totalEquityWithPL },
         pAndL: {
           revenueRows,
           expenseRows,
@@ -5524,10 +5646,10 @@ router.get('/reports/balance-sheet',
           netIncome: netIncomeFromPL
         },
         totals: {
-          totalAssets:      totalAssetsR,
-          totalLiabilities: totalLiabR,
-          totalEquity:      totalEquityR,
-          liabilitiesAndEquity: Math.round((totalLiabilities + totalEquity) * 100) / 100,
+          totalAssets:          totalAssetsR,
+          totalLiabilities:     totalLiabR,
+          totalEquity:          totalEquityWithPL,
+          liabilitiesAndEquity: liabPlusEquityPL,
           liabilitiesEquityAndPL: liabPlusEquityPL,
           isBalanced: Math.abs(totalAssetsR - liabPlusEquityPL) < 1
         }
@@ -5565,11 +5687,13 @@ router.get('/reports/profit-loss',
       },
       {
         $project: {
-          accountNumber: '$acc.accountNumber',
-          accountName:   '$acc.name',
-          accountType:   '$acc.type',
-          totalDebit:    1,
-          totalCredit:   1,
+          accountNumber:     '$acc.accountNumber',
+          accountName:       '$acc.name',
+          accountType:       '$acc.type',
+          accountCategory:   '$acc.category',
+          accountDetailType: '$acc.detailType',
+          totalDebit:        1,
+          totalCredit:       1,
           balance: {
             $cond: {
               if: { $eq: ['$acc.type', 'Expense'] },

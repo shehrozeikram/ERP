@@ -15,7 +15,7 @@ import {
   Alert,
   Divider
 } from '@mui/material';
-import { ArrowBack as BackIcon, Print as PrintIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon, Print as PrintIcon, Edit as EditIcon } from '@mui/icons-material';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
@@ -374,9 +374,21 @@ const VoucherView = () => {
         <Button variant="outlined" startIcon={<BackIcon />} onClick={() => navigate(-1)}>
           Back
         </Button>
-        <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
-          Print
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1.5 }}>
+          {entry.status !== 'reversed' && (
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={<EditIcon />}
+              onClick={() => navigate(`/finance/journal-entries/${entry._id}/edit`)}
+            >
+              Edit Voucher
+            </Button>
+          )}
+          <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
+            Print
+          </Button>
+        </Box>
       </Box>
 
       <Paper sx={{ p: 3, maxWidth: '1200px', mx: 'auto' }}>
