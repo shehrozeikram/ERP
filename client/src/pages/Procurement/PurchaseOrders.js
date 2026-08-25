@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -168,6 +168,7 @@ const PurchaseOrders = () => {
   const [statistics, setStatistics] = useState(null);
   const [vendors, setVendors] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
+  const [companies, setCompanies] = useState([]);
   
   // Pagination and filters
   const [page, setPage] = useState(0);
@@ -234,6 +235,7 @@ const PurchaseOrders = () => {
   // Form data
   const [formData, setFormData] = useState({
     vendor: '',
+    company: '',
     orderDate: new Date().toISOString().split('T')[0],
     expectedDeliveryDate: '',
     deliveryAddress: '',
@@ -247,6 +249,15 @@ const PurchaseOrders = () => {
     internalNotes: '',
     costCenter: ''
   });
+
+  // Filter cost centers based on selected company in form (or show all if no company selected)
+  const filteredCostCenters = useMemo(() => {
+    if (!formData.company) return costCenters;
+    return costCenters.filter((cc) => {
+      const ccCompanyId = cc.company?._id || cc.company;
+      return !ccCompanyId || String(ccCompanyId) === String(formData.company);
+    });
+  }, [costCenters, formData.company]);
 
   // Prefilled quotation tracking info
   const [quotationPrefillInfo, setQuotationPrefillInfo] = useState(null);
@@ -392,6 +403,17 @@ const PurchaseOrders = () => {
     }
   }, []);
 
+  const loadCompanies = useCallback(async () => {
+    try {
+      const response = await api.get('/hr/companies');
+      if (response.data.success) {
+        setCompanies(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading companies:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadPurchaseOrders();
   }, [loadPurchaseOrders]);
@@ -400,7 +422,8 @@ const PurchaseOrders = () => {
     loadStatistics();
     loadVendors();
     loadCostCenters();
-  }, [loadStatistics, loadVendors, loadCostCenters]);
+    loadCompanies();
+  }, [loadStatistics, loadVendors, loadCostCenters, loadCompanies]);
 
   const handleCreate = () => {
     setApprovalAuthority({
@@ -1185,14 +1208,31 @@ const PurchaseOrders = () => {
               <TextField
                 fullWidth
                 select
+                label="Company (Optional)"
+                value={formData.company || ''}
+                onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                helperText="Filters available cost centers"
+              >
+                <MenuItem value=""><em>All / General</em></MenuItem>
+                {companies.map((comp) => (
+                  <MenuItem key={comp._id} value={comp._id}>
+                    {comp.name} {comp.code ? `(${comp.code})` : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                select
                 label="Cost Center"
                 value={formData.costCenter || ''}
                 onChange={(e) => setFormData({ ...formData, costCenter: e.target.value })}
               >
                 <MenuItem value=""><em>None</em></MenuItem>
-                {costCenters.map((cc) => (
+                {filteredCostCenters.map((cc) => (
                   <MenuItem key={cc._id} value={cc._id}>
-                    {cc.code} - {cc.name}
+                    {cc.level > 0 ? ' '.repeat(cc.level * 3) + '↳ ' : ''}{cc.code} — {cc.name}
                   </MenuItem>
                 ))}
               </TextField>

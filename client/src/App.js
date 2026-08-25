@@ -250,6 +250,7 @@ import Payments from './pages/General/Payments';
 import ProjectManagement from './pages/General/ProjectManagement';
 import ProjectDetail from './pages/General/ProjectDetail';
 import ProjectWorkspaceRedirect from './pages/General/ProjectWorkspaceRedirect';
+import GeneralCostCenters from './pages/General/CostCenters/GeneralCostCenters';
 import ServerMonitor from './pages/Developer/ServerMonitor';
 import FinancialsDashboard from './pages/Developer/FinancialsDashboard';
 import LoanManagement from './pages/HR/LoanManagement';
@@ -820,6 +821,10 @@ function App() {
             <Route
               path="/general/project-management/:id"
               element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/cost-centers"
+              element={<ProtectedRoute><GeneralCostCenters /></ProtectedRoute>}
             />
 
             {/* Developer Module Routes */}

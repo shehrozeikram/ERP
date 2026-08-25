@@ -200,6 +200,7 @@ const Sidebar = () => {
       '/general/project-management/projects': 'project_management',
       '/general/project-management/workspace': 'project_management',
       '/general/subcontractors': 'project_management',
+      '/general/cost-centers': 'cost_centers',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
 
@@ -283,7 +284,6 @@ const Sidebar = () => {
       '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
       '/finance/recovery/campaigns': 'recovery_campaigns',
       '/finance/recovery/my-tasks': 'recovery_my_tasks',
-      '/finance/vouchers': 'vouchers',
       '/finance/reports': 'financial_reports',
       '/finance/legacy': 'legacy',
       

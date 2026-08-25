@@ -4814,32 +4814,142 @@ router.get('/inventory/:id/barcode',
 
 // ==================== COST CENTERS ROUTES ====================
 
+// Helper function to build cost center path and level
+async function computeCostCenterHierarchy(parentId, currentName) {
+  if (!parentId) {
+    return { level: 0, path: currentName };
+  }
+  const parentDoc = await CostCenter.findById(parentId);
+  if (!parentDoc) {
+    return { level: 0, path: currentName };
+  }
+  const parentPath = parentDoc.path || parentDoc.name;
+  return {
+    level: (parentDoc.level || 0) + 1,
+    path: `${parentPath} / ${currentName}`
+  };
+}
+
+// @route   GET /api/procurement/cost-centers/next-code
+// @desc    Generate next auto-incremented cost center code dynamically (+1)
+// @access  Private
+router.get('/cost-centers/next-code',
+  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { parentId } = req.query;
+    
+    let prefix = 'CC-';
+    if (parentId) {
+      const parentDoc = await CostCenter.findById(parentId).lean();
+      if (parentDoc && parentDoc.code) {
+        // Strip trailing hyphen/number if any, or append clean separator
+        prefix = `${parentDoc.code}-`;
+      }
+    }
+
+    // Find all cost centers with matching prefix
+    const regex = new RegExp(`^${prefix.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}`, 'i');
+    const existing = await CostCenter.find({ code: regex }).select('code').lean();
+    let maxNum = 0;
+
+    existing.forEach((item) => {
+      const remainder = item.code.slice(prefix.length);
+      const match = remainder.match(/^(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    });
+
+    // If no existing code with that prefix found and it's root
+    if (maxNum === 0 && !parentId) {
+      const allCC = await CostCenter.find({}).select('code').lean();
+      allCC.forEach((item) => {
+        const match = item.code.match(/(\d+)$/);
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (n > maxNum) maxNum = n;
+        }
+      });
+    }
+
+    const nextNumber = maxNum + 1;
+    const padded = String(nextNumber).padStart(3, '0');
+    const nextCode = `${prefix}${padded}`;
+
+    res.json({
+      success: true,
+      data: {
+        code: nextCode,
+        nextNumber,
+        prefix
+      }
+    });
+  })
+);
+
 // @route   GET /api/procurement/cost-centers
-// @desc    Get all cost centers
+// @desc    Get all cost centers (flat with pagination or full tree)
 // @access  Private
 router.get('/cost-centers',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, search, department, isActive } = req.query;
+    const { page = 1, limit = 50, search, department, company, project, tree, activeOnly } = req.query;
+    
     const query = {};
-    
-    if (department) query.department = department;
-    if (isActive !== undefined) query.isActive = isActive === 'true';
-    
+    if (activeOnly === 'true') {
+      query.isActive = true;
+    }
+    if (department) {
+      query.department = department;
+    }
+    if (company) {
+      query.company = company;
+    }
+    if (project) {
+      query.project = project;
+    }
     if (search) {
       query.$or = [
         { code: { $regex: search, $options: 'i' } },
         { name: { $regex: search, $options: 'i' } },
+        { path: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } }
       ];
     }
+
+    // If tree view requested or all items needed for hierarchy
+    if (tree === 'true' || limit === 'all' || limit === '0') {
+      const allCostCenters = await CostCenter.find(query)
+        .populate('manager', 'firstName lastName email name')
+        .populate('department', 'name code')
+        .populate('company', 'name code companyCode')
+        .populate('project', 'name code')
+        .populate('parent', 'name code path')
+        .sort({ level: 1, name: 1 })
+        .lean();
+
+      return res.json({
+        success: true,
+        data: {
+          costCenters: allCostCenters,
+          total: allCostCenters.length
+        }
+      });
+    }
     
     const costCenters = await CostCenter.find(query)
-      .populate('manager', 'firstName lastName email')
+      .populate('manager', 'firstName lastName email name')
       .populate('department', 'name code')
-      .sort({ code: 1 })
+      .populate('company', 'name code companyCode')
+      .populate('project', 'name code')
+      .populate('parent', 'name code path')
+      .sort({ path: 1, code: 1 })
       .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .skip((page - 1) * limit)
+      .lean();
     
     const total = await CostCenter.countDocuments(query);
     
@@ -4862,11 +4972,14 @@ router.get('/cost-centers',
 // @desc    Get single cost center
 // @access  Private
 router.get('/cost-centers/:id',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const costCenter = await CostCenter.findById(req.params.id)
-      .populate('manager', 'firstName lastName email')
+      .populate('manager', 'firstName lastName email name')
       .populate('department', 'name code')
+      .populate('company', 'name code companyCode')
+      .populate('project', 'name code')
+      .populate('parent', 'name code path')
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName');
     
@@ -4879,14 +4992,13 @@ router.get('/cost-centers/:id',
 );
 
 // @route   POST /api/procurement/cost-centers
-// @desc    Create cost center
+// @desc    Create cost center (with optional parent hierarchy)
 // @access  Private
 router.post('/cost-centers',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'finance_manager'),
   [
     body('code').trim().notEmpty().withMessage('Cost center code is required'),
-    body('name').trim().notEmpty().withMessage('Cost center name is required'),
-    body('department').optional().isMongoId().withMessage('Department must be a valid ID')
+    body('name').trim().notEmpty().withMessage('Cost center name is required')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -4894,30 +5006,34 @@ router.post('/cost-centers',
       return res.status(400).json({ success: false, errors: errors.array() });
     }
     
-    const { code, name, description, department, departmentName, location, manager, managerName, budget, budgetPeriod, isActive, notes } = req.body;
+    const {
+      code, name, description, parent, company, project,
+      department, departmentName, location, manager, managerName,
+      budget, budgetPeriod, isActive, notes
+    } = req.body;
     
     const existingCode = await CostCenter.findOne({ code: code.toUpperCase() });
     if (existingCode) {
       return res.status(400).json({ success: false, message: 'Cost center code already exists' });
     }
     
-    // Validate department exists if provided (and not empty string)
+    const parentId = parent && parent.trim() !== '' ? parent : null;
+    const { level, path } = await computeCostCenterHierarchy(parentId, name.trim());
+
     const deptId = department && department.trim() !== '' ? department : null;
-    if (deptId) {
-      const Department = require('../models/hr/Department');
-      const dept = await Department.findById(deptId);
-      if (!dept) {
-        return res.status(400).json({ success: false, message: 'Department not found' });
-      }
-    }
-    
-    // Convert empty strings to null for ObjectId fields
+    const companyId = company && company.trim() !== '' ? company : null;
+    const projectId = project && project.trim() !== '' ? project : null;
     const managerId = manager && manager.trim() !== '' ? manager : null;
     
     const costCenter = new CostCenter({
       code: code.toUpperCase(),
-      name,
+      name: name.trim(),
       description,
+      parent: parentId,
+      company: companyId,
+      project: projectId,
+      level,
+      path,
       department: deptId,
       departmentName: departmentName || '',
       location,
@@ -4931,8 +5047,11 @@ router.post('/cost-centers',
     });
     
     await costCenter.save();
-    await costCenter.populate('manager', 'firstName lastName');
+    await costCenter.populate('manager', 'firstName lastName name');
     await costCenter.populate('department', 'name code');
+    await costCenter.populate('company', 'name code companyCode');
+    await costCenter.populate('project', 'name code');
+    await costCenter.populate('parent', 'name code path');
     
     res.status(201).json({
       success: true,
@@ -4946,7 +5065,7 @@ router.post('/cost-centers',
 // @desc    Update cost center
 // @access  Private
 router.put('/cost-centers/:id',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const costCenter = await CostCenter.findById(req.params.id);
     
@@ -4954,7 +5073,11 @@ router.put('/cost-centers/:id',
       return res.status(404).json({ success: false, message: 'Cost center not found' });
     }
     
-    const { code, name, description, department, departmentName, location, manager, managerName, budget, budgetPeriod, isActive, notes } = req.body;
+    const {
+      code, name, description, parent, company, project,
+      department, departmentName, location, manager, managerName,
+      budget, budgetPeriod, isActive, notes
+    } = req.body;
     
     if (code && code.toUpperCase() !== costCenter.code) {
       const existingCode = await CostCenter.findOne({ code: code.toUpperCase() });
@@ -4964,27 +5087,38 @@ router.put('/cost-centers/:id',
       costCenter.code = code.toUpperCase();
     }
     
-    if (name) costCenter.name = name;
+    if (name) costCenter.name = name.trim();
     if (description !== undefined) costCenter.description = description;
-    if (department !== undefined) {
-      const deptId = department && department.trim() !== '' ? department : null;
-      if (deptId) {
-        const Department = require('../models/hr/Department');
-        const dept = await Department.findById(deptId);
-        if (!dept) {
-          return res.status(400).json({ success: false, message: 'Department not found' });
+
+    // Hierarchy cycle check: parent cannot be this cost center or its descendant
+    if (parent !== undefined) {
+      const newParentId = parent && parent.trim() !== '' ? parent : null;
+      if (newParentId) {
+        if (String(newParentId) === String(costCenter._id)) {
+          return res.status(400).json({ success: false, message: 'A cost center cannot be its own parent' });
         }
-        costCenter.department = deptId;
-      } else {
-        costCenter.department = null;
+        // Check if new parent is a descendant of this cost center
+        let curr = await CostCenter.findById(newParentId);
+        while (curr && curr.parent) {
+          if (String(curr.parent) === String(costCenter._id)) {
+            return res.status(400).json({ success: false, message: 'Cannot set a child/descendant cost center as parent' });
+          }
+          curr = await CostCenter.findById(curr.parent);
+        }
       }
+      costCenter.parent = newParentId;
     }
+
+    const { level, path } = await computeCostCenterHierarchy(costCenter.parent, costCenter.name);
+    costCenter.level = level;
+    costCenter.path = path;
+
+    if (company !== undefined) costCenter.company = company && company.trim() !== '' ? company : null;
+    if (project !== undefined) costCenter.project = project && project.trim() !== '' ? project : null;
+    if (department !== undefined) costCenter.department = department && department.trim() !== '' ? department : null;
     if (departmentName !== undefined) costCenter.departmentName = departmentName;
     if (location !== undefined) costCenter.location = location;
-    if (manager !== undefined) {
-      // Convert empty string to null for ObjectId field
-      costCenter.manager = manager && manager.trim() !== '' ? manager : null;
-    }
+    if (manager !== undefined) costCenter.manager = manager && manager.trim() !== '' ? manager : null;
     if (managerName !== undefined) costCenter.managerName = managerName;
     if (budget !== undefined) costCenter.budget = budget;
     if (budgetPeriod) costCenter.budgetPeriod = budgetPeriod;
@@ -4993,8 +5127,11 @@ router.put('/cost-centers/:id',
     costCenter.updatedBy = req.user.id;
     
     await costCenter.save();
-    await costCenter.populate('manager', 'firstName lastName');
+    await costCenter.populate('manager', 'firstName lastName name');
     await costCenter.populate('department', 'name code');
+    await costCenter.populate('company', 'name code companyCode');
+    await costCenter.populate('project', 'name code');
+    await costCenter.populate('parent', 'name code path');
     
     res.json({
       success: true,
@@ -5008,12 +5145,21 @@ router.put('/cost-centers/:id',
 // @desc    Delete cost center
 // @access  Private (Admin only)
 router.delete('/cost-centers/:id',
-  authorize('super_admin', 'admin'),
+  authorize('super_admin', 'admin', 'hr_manager', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const costCenter = await CostCenter.findById(req.params.id);
     
     if (!costCenter) {
       return res.status(404).json({ success: false, message: 'Cost center not found' });
+    }
+
+    // Check if this cost center has children
+    const childCount = await CostCenter.countDocuments({ parent: costCenter._id });
+    if (childCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete cost center. It has ${childCount} sub-cost center(s). Delete or reassign children first.`
+      });
     }
     
     // Check if cost center is used in goods issues

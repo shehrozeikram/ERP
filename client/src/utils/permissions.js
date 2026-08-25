@@ -1087,6 +1087,10 @@ export const MODULES = {
         ]
       },
       {
+        name: 'Cost Centers',
+        path: '/general/cost-centers'
+      },
+      {
         name: 'Ceo Secretariat',
         path: '/general/ceo-secretariat',
         subItems: [

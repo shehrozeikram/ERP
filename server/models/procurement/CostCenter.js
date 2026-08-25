@@ -20,6 +20,27 @@ const costCenterSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Description cannot exceed 500 characters']
   },
+  parent: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CostCenter',
+    default: null
+  },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company'
+  },
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project'
+  },
+  level: {
+    type: Number,
+    default: 0
+  },
+  path: {
+    type: String,
+    trim: true
+  },
   department: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department'
