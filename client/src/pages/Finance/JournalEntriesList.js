@@ -49,6 +49,7 @@ import {
   InsertDriveFile as FileIcon,
   CheckCircle as PostIcon
 } from '@mui/icons-material';
+import TablePagination from '@mui/material/TablePagination';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
@@ -65,13 +66,9 @@ const JournalEntriesList = () => {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [pagination, setPagination] = useState({
-    currentPage: 1,
-    totalPages: 1,
-    totalCount: 0,
-    hasNextPage: false,
-    hasPrevPage: false
-  });
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [totalCount, setTotalCount] = useState(0);
 
   // Attachment dialog state
   const [attachDlg, setAttachDlg] = useState({ open: false, entry: null, uploading: false });
@@ -114,26 +111,26 @@ const JournalEntriesList = () => {
   };
 
   useEffect(() => {
-    if (!selectedCompanyId) {
-      setLoading(false);
-      setEntries([]);
-      return;
-    }
+    setPage(0);
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
     fetchJournalEntries();
-  }, [selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedCompanyId, page, rowsPerPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchJournalEntries = async () => {
-    if (!selectedCompanyId) return;
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      params.append('limit', '100');
-      params.append('page', '1');
-      params.append('companyId', selectedCompanyId);
+      params.append('limit', String(rowsPerPage));
+      params.append('page', String(page + 1));
+      if (selectedCompanyId) {
+        params.append('companyId', selectedCompanyId);
+      }
       const response = await api.get(`/finance/journal-entries?${params}`);
       if (response.data.success) {
         setEntries(response.data.data.entries || []);
-        setPagination(response.data.data.pagination || {});
+        setTotalCount(response.data.data.pagination?.totalCount || 0);
       }
     } catch (error) {
       console.error('Error fetching journal entries:', error);
@@ -144,31 +141,31 @@ const JournalEntriesList = () => {
   };
 
   const getDepartmentIcon = (department) => {
-    const deptKey = typeof department === 'object' ? (department?.code || '').toLowerCase() : (department || '').toLowerCase();
-    const iconMap = {
-      'hr': <PeopleIcon />,
-      'admin': <AdminIcon />,
-      'procurement': <ShoppingCartIcon />,
-      'sales': <BusinessIcon />,
-      'finance': <AccountBalanceIcon />,
-      'audit': <SecurityIcon />,
-      'general': <AccountBalanceIcon />
-    };
-    return iconMap[deptKey] || <AccountBalanceIcon />;
+    const deptKey = typeof department === 'object' 
+      ? (department?.code || department?.name || '').toLowerCase() 
+      : (department || '').toLowerCase();
+    
+    if (deptKey.includes('fin') || deptKey.includes('account')) return <AccountBalanceIcon />;
+    if (deptKey.includes('hr') || deptKey.includes('human') || deptKey.includes('people')) return <PeopleIcon />;
+    if (deptKey.includes('proc') || deptKey.includes('purchase')) return <ShoppingCartIcon />;
+    if (deptKey.includes('admin') || deptKey.includes('adm')) return <AdminIcon />;
+    if (deptKey.includes('sal') || deptKey.includes('sales') || deptKey.includes('bus')) return <BusinessIcon />;
+    if (deptKey.includes('audit') || deptKey.includes('sec')) return <SecurityIcon />;
+    return <AccountBalanceIcon />;
   };
 
   const getDepartmentColor = (department) => {
-    const deptKey = typeof department === 'object' ? (department?.code || '').toLowerCase() : (department || '').toLowerCase();
-    const colorMap = {
-      'hr': 'primary',
-      'admin': 'secondary',
-      'procurement': 'warning',
-      'sales': 'success',
-      'finance': 'info',
-      'audit': 'error',
-      'general': 'default'
-    };
-    return colorMap[deptKey] || 'default';
+    const deptKey = typeof department === 'object' 
+      ? (department?.code || department?.name || '').toLowerCase() 
+      : (department || '').toLowerCase();
+    
+    if (deptKey.includes('fin') || deptKey.includes('account')) return 'info';
+    if (deptKey.includes('hr') || deptKey.includes('human')) return 'primary';
+    if (deptKey.includes('proc') || deptKey.includes('purchase')) return 'warning';
+    if (deptKey.includes('sal') || deptKey.includes('sales')) return 'success';
+    if (deptKey.includes('admin') || deptKey.includes('adm')) return 'secondary';
+    if (deptKey.includes('audit') || deptKey.includes('sec')) return 'error';
+    return 'default';
   };
 
   const getStatusColor = (status) => {
@@ -238,7 +235,7 @@ const JournalEntriesList = () => {
                 Total Entries
               </Typography>
               <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                {pagination.totalCount}
+                {totalCount}
               </Typography>
             </CardContent>
           </Card>
@@ -305,12 +302,20 @@ const JournalEntriesList = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip 
-                        label={typeof entry.department === 'object' ? entry.department.name : (entry.department?.toUpperCase() || 'GENERAL')} 
-                        size="small" 
-                        color={getDepartmentColor(entry.department)}
-                        icon={getDepartmentIcon(entry.department)}
-                      />
+                      {(() => {
+                        const deptName = typeof entry.department === 'object' ? (entry.department?.name || entry.department?.code) : (entry.department || 'GENERAL');
+                        const isHexId = /^[0-9a-fA-F]{24}$/.test(String(deptName));
+                        const displayDept = isHexId ? 'GENERAL' : String(deptName).toUpperCase();
+
+                        return (
+                          <Chip 
+                            label={displayDept} 
+                            size="small" 
+                            color={getDepartmentColor(entry.department)}
+                            icon={getDepartmentIcon(entry.department)}
+                          />
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" color="textSecondary">
@@ -409,6 +414,20 @@ const JournalEntriesList = () => {
               </TableBody>
             </Table>
           </TableContainer>
+
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={page}
+            onPageChange={(_, newPage) => setPage(newPage)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[25, 50, 100, 250, 500]}
+            labelRowsPerPage="Rows per page:"
+          />
 
           {entries.length === 0 && (
             <Box sx={{ textAlign: 'center', py: 4 }}>

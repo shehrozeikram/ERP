@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
@@ -723,6 +724,37 @@ router.get('/journal-entries',
     const totalPages = Math.ceil(totalCount / parseInt(limit));
     const entriesWithCaFlags = await attachCashApprovalWorkflowFlags(entries);
 
+    // Safely enrich department ObjectId references with Department documents
+    const Department = mongoose.model('Department');
+    const deptIds = new Set();
+    entriesWithCaFlags.forEach((e) => {
+      if (e.department && mongoose.Types.ObjectId.isValid(e.department)) {
+        deptIds.add(String(e.department));
+      }
+      (e.lines || []).forEach((l) => {
+        if (l.department && mongoose.Types.ObjectId.isValid(l.department)) {
+          deptIds.add(String(l.department));
+        }
+      });
+    });
+
+    if (deptIds.size > 0) {
+      const depts = await Department.find({ _id: { $in: Array.from(deptIds) } }).select('name code').lean();
+      const deptMap = new Map();
+      depts.forEach((d) => deptMap.set(String(d._id), d));
+
+      entriesWithCaFlags.forEach((e) => {
+        if (e.department && deptMap.has(String(e.department))) {
+          e.department = deptMap.get(String(e.department));
+        }
+        (e.lines || []).forEach((l) => {
+          if (l.department && deptMap.has(String(l.department))) {
+            l.department = deptMap.get(String(l.department));
+          }
+        });
+      });
+    }
+
     res.json({
       success: true,
       data: {
@@ -761,6 +793,11 @@ router.get('/journal-entries/:id',
     // Normalize lines so the form receives { account: ObjectId-string, ... }
     // but also provide account details for display
     const normalized = entry.toObject();
+    if (normalized.department && mongoose.Types.ObjectId.isValid(normalized.department)) {
+      const Department = mongoose.model('Department');
+      const deptDoc = await Department.findById(normalized.department).select('name code').lean();
+      if (deptDoc) normalized.department = deptDoc;
+    }
     if (normalized.module === 'payroll') {
       const PayrollPeriodPaymentHelper = require('../utils/payrollPeriodPayment');
       normalized.payrollVoucherSummary = await PayrollPeriodPaymentHelper.resolvePayrollVoucherSummaryForJournalEntry(entry._id);

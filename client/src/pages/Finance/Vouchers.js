@@ -21,8 +21,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  Alert
+  DialogActions
 } from '@mui/material';
 import {
   Visibility as ViewIcon,
@@ -98,7 +97,7 @@ const Vouchers = () => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [totalCount, setTotalCount] = useState(0);
   /** Default: PAYMENT vouchers (referenceType payment on journal) */
   const [voucherType, setVoucherType] = useState('payment');
@@ -321,8 +320,6 @@ const Vouchers = () => {
     }))
   ), [entries]);
 
-  const baseUploadsUrl = (api.defaults.baseURL || '').replace(/\/api\/?$/, '');
-
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3, mb: 3 }}>
@@ -469,7 +466,7 @@ const Vouchers = () => {
             setRowsPerPage(parseInt(e.target.value, 10));
             setPage(0);
           }}
-          rowsPerPageOptions={[10, 25, 50, 100]}
+          rowsPerPageOptions={[25, 50, 100, 250, 500]}
         />
       </Paper>
 

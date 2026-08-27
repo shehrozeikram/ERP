@@ -374,7 +374,7 @@ const AccountsPayable = () => {
     currentPage: 1,
     totalPages: 1,
     totalCount: 0,
-    limit: 20
+    limit: 100
   });
   const [summary, setSummary] = useState({
     totalOutstanding: 0,
@@ -1474,7 +1474,7 @@ const AccountsPayable = () => {
             onPageChange={handlePageChange}
             rowsPerPage={pagination.limit}
             onRowsPerPageChange={handleRowsPerPageChange}
-            rowsPerPageOptions={[10, 20, 50, 100]}
+            rowsPerPageOptions={[25, 50, 100, 250, 500]}
           />
         </CardContent>
       </Card>

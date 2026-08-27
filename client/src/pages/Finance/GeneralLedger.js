@@ -26,7 +26,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Pagination
+  TablePagination
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -67,7 +67,7 @@ const GeneralLedger = () => {
     currentPage: 1,
     totalPages: 1,
     totalCount: 0,
-    limit: 20
+    limit: 100
   });
 
   useEffect(() => {
@@ -133,10 +133,6 @@ const GeneralLedger = () => {
       [field]: event.target.value
     }));
     setPagination(prev => ({ ...prev, currentPage: 1 }));
-  };
-
-  const handlePageChange = (event, page) => {
-    setPagination(prev => ({ ...prev, currentPage: page }));
   };
 
   const getDepartmentIcon = (department) => {
@@ -506,16 +502,16 @@ const GeneralLedger = () => {
           )}
 
           {/* Pagination */}
-          {pagination.totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-              <Pagination
-                count={pagination.totalPages}
-                page={pagination.currentPage}
-                onChange={handlePageChange}
-                color="primary"
-              />
-            </Box>
-          )}
+          <TablePagination
+            component="div"
+            count={pagination.totalCount}
+            page={Math.max(0, pagination.currentPage - 1)}
+            onPageChange={(_, newPage) => setPagination(prev => ({ ...prev, currentPage: newPage + 1 }))}
+            rowsPerPage={pagination.limit}
+            onRowsPerPageChange={(e) => setPagination(prev => ({ ...prev, limit: parseInt(e.target.value, 10), currentPage: 1 }))}
+            rowsPerPageOptions={[25, 50, 100, 250, 500]}
+            labelRowsPerPage="Rows per page:"
+          />
         </CardContent>
       </Card>
     </Box>
