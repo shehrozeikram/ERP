@@ -42,7 +42,7 @@ const journalEntrySchema = new mongoose.Schema({
   },
   // Department and project integration
   department: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed,
     ref: 'Department',
     required: [true, 'Department is required']
   },
@@ -102,7 +102,7 @@ const journalEntrySchema = new mongoose.Schema({
       }
     },
     department: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'Department',
       default: null
     },
@@ -296,6 +296,24 @@ journalEntrySchema.pre('save', async function(next) {
       }
       if (line.debit === 0 && line.credit === 0) {
         return next(new Error('Each journal entry line must have either a debit or credit amount.'));
+      }
+    }
+
+    // Resolve department to ObjectId if provided as string
+    const financeHelper = require('../../utils/financeHelper');
+    const resolveDept = financeHelper.resolveDepartment || financeHelper.resolveDepartmentId;
+    if (resolveDept) {
+      if (this.department && typeof this.department === 'string' && !mongoose.Types.ObjectId.isValid(this.department)) {
+        const resolved = await resolveDept(this.department);
+        if (resolved) this.department = resolved;
+      }
+      if (Array.isArray(this.lines)) {
+        for (let line of this.lines) {
+          if (line.department && typeof line.department === 'string' && !mongoose.Types.ObjectId.isValid(line.department)) {
+            const resLineDept = await resolveDept(line.department);
+            if (resLineDept) line.department = resLineDept;
+          }
+        }
       }
     }
 
