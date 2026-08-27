@@ -901,6 +901,19 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
   });
 }));
 
+// DELETE /api/taj-residencia/land-acquisition/registries/:id
+router.delete('/registries/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const registry = await LandRegistry.findOne({ _id: req.params.id, isActive: true });
+  if (!registry) {
+    return res.status(404).json({ success: false, message: 'Registry not found' });
+  }
+
+  registry.isActive = false;
+  await registry.save();
+
+  res.json({ success: true, message: 'Registry deleted' });
+}));
+
 // GET /api/taj-residencia/land-acquisition/khasra-summary
 router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
   const { moza, search = '', page = 1, limit = 25 } = req.query;
