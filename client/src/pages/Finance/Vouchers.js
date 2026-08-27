@@ -21,7 +21,12 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Menu,
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
+  Divider as MuiDivider
 } from '@mui/material';
 import {
   Visibility as ViewIcon,
@@ -29,7 +34,9 @@ import {
   Description as DescriptionIcon,
   Print as PrintIcon,
   Close as CloseIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  ArrowDropDown as ArrowDropDownIcon,
+  Checklist as ChecklistIcon
 } from '@mui/icons-material';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -103,13 +110,32 @@ const Vouchers = () => {
   const [voucherType, setVoucherType] = useState('payment');
   const [viewDialog, setViewDialog] = useState({
     open: false,
+    voucher: null,
     po: null,
     poQuotations: [],
     poGrns: [],
     poLinkedDocs: [],
     poAuditTab: 0,
+    financeAuthorityDoc: null,
+    vendorAdvanceDoc: null,
+    apPaymentApp: null,
+    payrollPeriodPaymentApp: null,
+    cashApproval: null,
     loading: false
   });
+
+  // Print selection dialog state
+  const [printSelectDialogOpen, setPrintSelectDialogOpen] = useState(false);
+  const [printSelection, setPrintSelection] = useState({
+    voucher: true,
+    indent: true,
+    po: true,
+    comparative: true,
+    quotations: true,
+    grns: true
+  });
+  const [multiPrintMode, setMultiPrintMode] = useState(false); // true when printing all or selected
+  const [printMenuAnchor, setPrintMenuAnchor] = useState(null);
   
   const [newVoucherDialog, setNewVoucherDialog] = useState(false);
   const [selectedNewVoucherType, setSelectedNewVoucherType] = useState('');
@@ -141,44 +167,83 @@ const Vouchers = () => {
   const handleOpenVoucherDocs = async (voucherRow) => {
     setViewDialog({
       open: true,
+      voucher: voucherRow,
       po: null,
       poQuotations: [],
       poGrns: [],
       poLinkedDocs: [],
       poAuditTab: 0,
+      financeAuthorityDoc: null,
+      vendorAdvanceDoc: null,
+      apPaymentApp: null,
+      payrollPeriodPaymentApp: null,
+      cashApproval: null,
       loading: true
     });
+    setMultiPrintMode(false);
 
     try {
-      let poId = null;
-      if (voucherRow.purchaseOrder || voucherRow.purchaseOrderId) {
-        poId = voucherRow.purchaseOrder?._id || voucherRow.purchaseOrder || voucherRow.purchaseOrderId;
-      } else if (voucherRow.referenceModel === 'PurchaseOrder' && voucherRow.referenceId) {
-        poId = voucherRow.referenceId;
+      // 1. Fetch full journal entry to ensure complete lines, populated accounts and approval authorities
+      let fullVoucher = voucherRow;
+      if (voucherRow?._id) {
+        try {
+          const vRes = await api.get(`/finance/journal-entries/${voucherRow._id}`);
+          if (vRes.data?.data) {
+            fullVoucher = vRes.data.data;
+          }
+        } catch (_) {}
       }
 
-      if (!poId && voucherRow._id) {
+      let poId = null;
+      if (fullVoucher.purchaseOrder || fullVoucher.purchaseOrderId) {
+        poId = fullVoucher.purchaseOrder?._id || fullVoucher.purchaseOrder || fullVoucher.purchaseOrderId;
+      } else if (fullVoucher.referenceModel === 'PurchaseOrder' && fullVoucher.referenceId) {
+        poId = fullVoucher.referenceId;
+      }
+
+      let vaData = null;
+      let apData = null;
+      let payrollData = null;
+      let caData = null;
+
+      if (fullVoucher._id) {
         try {
-          const vaRes = await api.get(`/finance/vendor-advances/by-journal-entry/${voucherRow._id}`);
-          const vaData = vaRes.data?.data;
-          if (vaData && vaData.referenceType === 'purchase_order' && vaData.referenceId) {
+          const vaRes = await api.get(`/finance/vendor-advances/by-journal-entry/${fullVoucher._id}`);
+          vaData = vaRes.data?.data || null;
+          if (!poId && vaData && vaData.referenceType === 'purchase_order' && vaData.referenceId) {
             poId = vaData.referenceId;
           }
         } catch (_) {}
       }
 
-      if (!poId && voucherRow._id) {
+      if (fullVoucher._id) {
         try {
-          const apRes = await api.get(`/finance/ap-payment-applications/by-journal-entry/${voucherRow._id}`);
-          const apData = apRes.data?.data;
-          if (apData && apData.referenceType === 'purchase_order' && apData.referenceId) {
+          const apRes = await api.get(`/finance/ap-payment-applications/by-journal-entry/${fullVoucher._id}`);
+          apData = apRes.data?.data || null;
+          if (!poId && apData && apData.referenceType === 'purchase_order' && apData.referenceId) {
             poId = apData.referenceId;
           }
         } catch (_) {}
       }
 
+      if (fullVoucher._id) {
+        try {
+          const pRes = await api.get(`/finance/payroll-period-payments/by-journal-entry/${fullVoucher._id}`);
+          payrollData = pRes.data?.data || null;
+        } catch (_) {}
+      }
+
+      if (fullVoucher.referenceId && fullVoucher.referenceModel === 'CashApproval') {
+        try {
+          const cRes = await api.get(`/cash-approvals/${fullVoucher.referenceId}`);
+          caData = cRes.data?.data || null;
+        } catch (_) {}
+      }
+
+      const financeAuthDoc = apData || payrollData || vaData || caData;
+
       if (!poId) {
-        const fallbackDocs = (voucherRow.attachments || []).map((att, idx) => ({
+        const fallbackDocs = (fullVoucher.attachments || []).map((att, idx) => ({
           id: att._id || `att-${idx}`,
           source: 'Voucher Attachment',
           name: att.originalName || att.filename || `Attachment ${idx + 1}`,
@@ -187,11 +252,17 @@ const Vouchers = () => {
         }));
         setViewDialog({
           open: true,
+          voucher: fullVoucher,
           po: null,
           poQuotations: [],
           poGrns: [],
           poLinkedDocs: fallbackDocs,
-          poAuditTab: 5,
+          poAuditTab: 0,
+          financeAuthorityDoc: financeAuthDoc,
+          vendorAdvanceDoc: vaData,
+          apPaymentApp: apData,
+          payrollPeriodPaymentApp: payrollData,
+          cashApproval: caData,
           loading: false
         });
         return;
@@ -235,7 +306,7 @@ const Vouchers = () => {
         poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
       }
 
-      (voucherRow.attachments || []).forEach((att, idx) => {
+      (fullVoucher.attachments || []).forEach((att, idx) => {
         poLinkedDocs.push({
           id: att._id || `v-att-${idx}`,
           source: 'Voucher Attachment',
@@ -247,11 +318,17 @@ const Vouchers = () => {
 
       setViewDialog({
         open: true,
+        voucher: fullVoucher,
         po: d,
         poQuotations,
         poGrns,
         poLinkedDocs,
-        poAuditTab: d ? 0 : 5,
+        poAuditTab: 0,
+        financeAuthorityDoc: financeAuthDoc,
+        vendorAdvanceDoc: vaData,
+        apPaymentApp: apData,
+        payrollPeriodPaymentApp: payrollData,
+        cashApproval: caData,
         loading: false
       });
     } catch (e) {
@@ -265,14 +342,65 @@ const Vouchers = () => {
       }));
       setViewDialog({
         open: true,
+        voucher: voucherRow,
         po: null,
         poQuotations: [],
         poGrns: [],
         poLinkedDocs: fallbackDocs,
-        poAuditTab: 5,
+        poAuditTab: 0,
+        financeAuthorityDoc: null,
+        vendorAdvanceDoc: null,
+        apPaymentApp: null,
+        payrollPeriodPaymentApp: null,
+        cashApproval: null,
         loading: false
       });
     }
+  };
+
+  const handlePrintAllInOneGo = () => {
+    setMultiPrintMode(true);
+    setPrintSelection({
+      voucher: true,
+      indent: Boolean(viewDialog.po?.indent),
+      po: Boolean(viewDialog.po),
+      comparative: Boolean(viewDialog.poQuotations?.length > 0 || viewDialog.po?.indent?.comparativeApproval),
+      quotations: Boolean(viewDialog.poQuotations?.length > 0),
+      grns: Boolean(viewDialog.poGrns?.length > 0)
+    });
+    setPrintMenuAnchor(null);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
+
+  const handleOpenPrintCustomizer = () => {
+    setPrintSelection({
+      voucher: true,
+      indent: Boolean(viewDialog.po?.indent),
+      po: Boolean(viewDialog.po),
+      comparative: Boolean(viewDialog.poQuotations?.length > 0 || viewDialog.po?.indent?.comparativeApproval),
+      quotations: Boolean(viewDialog.poQuotations?.length > 0),
+      grns: Boolean(viewDialog.poGrns?.length > 0)
+    });
+    setPrintMenuAnchor(null);
+    setPrintSelectDialogOpen(true);
+  };
+
+  const handleExecuteCustomPrint = () => {
+    setPrintSelectDialogOpen(false);
+    setMultiPrintMode(true);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
+
+  const handlePrintCurrentTabOnly = () => {
+    setMultiPrintMode(false);
+    setPrintMenuAnchor(null);
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
   const fetchEntries = async (opts = {}) => {
@@ -321,7 +449,7 @@ const Vouchers = () => {
   ), [entries]);
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, '@media print': { display: 'none !important' } }} className="app-print-hide">
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -509,7 +637,10 @@ const Vouchers = () => {
       {/* Related PO & Voucher Audit Documents Dialog */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog((prev) => ({ ...prev, open: false }))}
+        onClose={() => {
+          setViewDialog((prev) => ({ ...prev, open: false }));
+          setMultiPrintMode(false);
+        }}
         maxWidth={false}
         fullWidth
         PaperProps={{
@@ -524,31 +655,71 @@ const Vouchers = () => {
               boxShadow: 'none',
               maxWidth: '100%',
               margin: 0,
-              height: '100%',
+              padding: 0,
+              height: 'auto',
               width: '100%',
-              maxHeight: '100%'
+              maxHeight: 'none',
+              overflow: 'visible',
+              position: 'static'
             }
           }
         }}
       >
-        <DialogTitle sx={{ p: 0, m: 0, '@media print': { display: 'none' } }}>
+        <DialogTitle sx={{ p: 0, m: 0, '@media print': { display: 'none !important' } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: '1px solid #e0e0e0' }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
-              Voucher &amp; Linked Documents ({viewDialog.po?.orderNumber || 'Audit View'})
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <VoucherIcon color="primary" />
+              <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
+                Voucher &amp; Linked Documents ({viewDialog.voucher?.entryNumber || viewDialog.po?.orderNumber || 'Audit View'})
+              </Typography>
+            </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
                 variant="contained"
                 startIcon={<PrintIcon />}
-                onClick={() => window.print()}
+                endIcon={<ArrowDropDownIcon />}
+                onClick={(e) => setPrintMenuAnchor(e.currentTarget)}
                 size="small"
                 sx={{ '@media print': { display: 'none' } }}
               >
-                Print
+                Print Options
               </Button>
+              <Menu
+                anchorEl={printMenuAnchor}
+                open={Boolean(printMenuAnchor)}
+                onClose={() => setPrintMenuAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              >
+                <MenuItem onClick={handlePrintAllInOneGo}>
+                  <PrintIcon fontSize="small" sx={{ mr: 1.5, color: 'primary.main' }} />
+                  <Box>
+                    <Typography variant="body2" fontWeight={600}>Print All in One Go</Typography>
+                    <Typography variant="caption" color="text.secondary">Prints Voucher + all attached docs in a single queue</Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem onClick={handleOpenPrintCustomizer}>
+                  <ChecklistIcon fontSize="small" sx={{ mr: 1.5, color: 'info.main' }} />
+                  <Box>
+                    <Typography variant="body2" fontWeight={600}>Select Documents to Print...</Typography>
+                    <Typography variant="caption" color="text.secondary">Choose which documents you want to include</Typography>
+                  </Box>
+                </MenuItem>
+                <MuiDivider />
+                <MenuItem onClick={handlePrintCurrentTabOnly}>
+                  <DescriptionIcon fontSize="small" sx={{ mr: 1.5, color: 'text.secondary' }} />
+                  <Box>
+                    <Typography variant="body2">Print Current View Only</Typography>
+                    <Typography variant="caption" color="text.secondary">Prints currently selected tab</Typography>
+                  </Box>
+                </MenuItem>
+              </Menu>
               <IconButton
                 size="small"
-                onClick={() => setViewDialog((prev) => ({ ...prev, open: false }))}
+                onClick={() => {
+                  setViewDialog((prev) => ({ ...prev, open: false }));
+                  setMultiPrintMode(false);
+                }}
                 sx={{ color: '#666', '@media print': { display: 'none' } }}
               >
                 <CloseIcon />
@@ -563,13 +734,18 @@ const Vouchers = () => {
             </Box>
           ) : (
             <Box sx={{ p: 0, background: '#ffffff', fontFamily: 'Arial, sans-serif' }} className="print-content">
+              {/* Screen Tab Navigation */}
               <Tabs
                 value={viewDialog.poAuditTab ?? 0}
-                onChange={(_, v) => setViewDialog((prev) => ({ ...prev, poAuditTab: v }))}
+                onChange={(_, v) => {
+                  setMultiPrintMode(false);
+                  setViewDialog((prev) => ({ ...prev, poAuditTab: v }));
+                }}
                 sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
                 variant="scrollable"
                 scrollButtons="auto"
               >
+                <Tab label="Voucher" />
                 <Tab label="Indent" />
                 <Tab label="Purchase Order" />
                 <Tab label="Comparative Statement" />
@@ -578,30 +754,234 @@ const Vouchers = () => {
                 <Tab label={`Attached Documents (${viewDialog.poLinkedDocs?.length || 0})`} />
               </Tabs>
 
-              {/* Tab 0: Indent */}
-              {viewDialog.poAuditTab === 0 && (
-                <Box sx={{ p: 2, overflowX: 'auto' }}>
+              {/* ----------------- SECTION 0: VOUCHER DETAILS ----------------- */}
+              {(multiPrintMode ? printSelection.voucher : viewDialog.poAuditTab === 0) && viewDialog.voucher && (
+                <Box
+                  sx={{
+                    p: 2,
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      height: 'auto',
+                      maxHeight: 'none',
+                      overflow: 'visible'
+                    }
+                  }}
+                >
+                  <Paper
+                    sx={{
+                      p: { xs: 3, sm: 3.5, md: 4 },
+                      maxWidth: '210mm',
+                      mx: 'auto',
+                      backgroundColor: '#fff',
+                      boxShadow: 'none',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      fontFamily: 'Arial, sans-serif',
+                      '@media print': {
+                        p: '10mm 14mm',
+                        boxShadow: 'none',
+                        border: 'none',
+                        maxWidth: '100%',
+                        mx: 0,
+                        pageBreakInside: 'avoid',
+                        breakInside: 'avoid'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, '@media print': { mb: 2 } }}>
+                      <Box>
+                        <Typography fontWeight={700} sx={{ fontSize: '1.4rem', '@media print': { fontSize: '1.65rem', lineHeight: 1.2 } }}>
+                          {viewDialog.voucher?.companyId?.name || 'Sardar Group of Companies'}
+                        </Typography>
+                        <Typography fontWeight={700} color="primary" sx={{ fontSize: '1.2rem', textTransform: 'uppercase', '@media print': { fontSize: '1.45rem', mt: 0.5, letterSpacing: 0.5 } }}>
+                          {viewDialog.voucher?.voucherSeries
+                            ? `${viewDialog.voucher.voucherSeries} Voucher`
+                            : `${String(viewDialog.voucher?.voucherType || viewDialog.voucher?.referenceType || 'Payment').toUpperCase()} VOUCHER`}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.5 } }}><strong>Date:</strong> {formatDateForPrint(viewDialog.voucher.date)}</Typography>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Status:</strong> {getVoucherStatusDisplay(viewDialog.voucher).label}</Typography>
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, p: 2, bgcolor: '#f9f9f9', borderRadius: 1, border: '1px solid #eee', '@media print': { p: 1.8, mb: 2, bgcolor: '#fcfcfc', border: '1.5px solid #ddd' } }}>
+                      <Box sx={{ '@media print': { lineHeight: 1.7 } }}>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Voucher No:</strong> {viewDialog.voucher.entryNumber || '—'}</Typography>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Voucher Type:</strong> {viewDialog.voucher.voucherType || viewDialog.voucher.referenceType || '—'}</Typography>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Reference:</strong> {viewDialog.voucher.reference || '—'}</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'right', '@media print': { lineHeight: 1.7 } }}>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Amount:</strong> {formatPKR(viewDialog.voucher.totalDebits || 0)}</Typography>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Module:</strong> {viewDialog.voucher.module || 'Finance'}</Typography>
+                        {viewDialog.voucher.signedBySignatory && (
+                          <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Signed By:</strong> {viewDialog.voucher.signedBySignatory}</Typography>
+                        )}
+                      </Box>
+                    </Box>
+
+                    {viewDialog.voucher.description && (
+                      <Box sx={{ mb: 2.5, '@media print': { mb: 2 } }}>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ '@media print': { fontSize: '1.15rem', mb: 0.5 } }}>Narration / Description:</Typography>
+                        <Typography variant="body2" sx={{ p: 1.5, bgcolor: '#fcfcfc', border: '1px solid #eee', borderRadius: 0.5, '@media print': { fontSize: '1.05rem', p: 1.2, border: '1.5px solid #ddd' } }}>
+                          {viewDialog.voucher.description}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, '@media print': { fontSize: '1.25rem', mb: 0.8 } }}>
+                      Accounting Entries &amp; Lines
+                    </Typography>
+                    <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', mb: 2.5, '@media print': { mb: 2, border: '1.5px solid #000' } }}>
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: 'grey.100', '@media print': { bgcolor: '#f2f2f2' } }}>
+                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Account Title</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Narration</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Ref</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }} align="right">Debit (PKR)</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }} align="right">Credit (PKR)</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(viewDialog.voucher.lines || []).map((line, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>
+                              {line?.account?.name || line?.accountTitle || '—'}
+                              {line?.account?.accountNumber ? (
+                                <Typography variant="caption" display="block" color="text.secondary" sx={{ '@media print': { fontSize: '0.85rem' } }}>({line.account.accountNumber})</Typography>
+                              ) : null}
+                            </TableCell>
+                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{line.description || viewDialog.voucher.description || '—'}</TableCell>
+                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{viewDialog.voucher.reference || '—'}</TableCell>
+                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.debit ? formatPKR(line.debit) : '0'}</TableCell>
+                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.credit ? formatPKR(line.credit) : '0'}</TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow sx={{ bgcolor: '#fafafa', '@media print': { bgcolor: '#f5f5f5' } }}>
+                          <TableCell colSpan={3} align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>Total</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>{formatPKR(viewDialog.voucher.totalDebits || 0)}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>{formatPKR(viewDialog.voucher.totalCredits || 0)}</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+
+                    {/* Voucher Finance Approval Authorities */}
+                    {viewDialog.financeAuthorityDoc && (
+                      <Box sx={{ mt: 3, '@media print': { mt: 2.5, pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, '@media print': { fontSize: '1.25rem', mb: 0.8 } }}>
+                          Finance Document Approval Authority
+                        </Typography>
+                        <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', '@media print': { border: '1.5px solid #000' } }}>
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'grey.100', '@media print': { bgcolor: '#f2f2f2' } }}>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Authority</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Approver</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Status</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Date &amp; Time</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }} align="center">Digital Signature</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {(() => {
+                              const authorityDoc = viewDialog.financeAuthorityDoc;
+                              const approvals = Array.isArray(authorityDoc?.financeAuthorityApprovals) ? authorityDoc.financeAuthorityApprovals : [];
+                              const byKey = new Map(approvals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
+                              const slots = [
+                                { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
+                                { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
+                                { key: 'financeControllerUser', label: 'GM Finance' }
+                              ];
+
+                              return slots.map((slot) => {
+                                const approval = byKey.get(slot.key);
+                                const assigned = authorityDoc?.financeApprovalAuthorities?.[slot.key] || null;
+                                const approver = approval?.approver || assigned || null;
+                                const decision = approval ? String(approval.decision || 'approved').toLowerCase() : 'pending';
+                                const approvedAt = approval?.approvedAt || null;
+                                const approverName = approver
+                                  ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
+                                  : '—';
+
+                                return (
+                                  <TableRow key={slot.key}>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider', fontWeight: 600, '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{slot.label}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{approverName}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.8, px: 1.2, border: '1px solid #000' } }}>
+                                      <Chip
+                                        size="small"
+                                        label={decision === 'rejected' ? 'Rejected' : (decision === 'approved' ? 'Approved' : 'Pending')}
+                                        color={decision === 'rejected' ? 'error' : (decision === 'approved' ? 'success' : 'warning')}
+                                        variant={decision === 'approved' ? 'filled' : 'outlined'}
+                                        sx={{ '@media print': { height: 26, fontSize: '0.9rem', fontWeight: 600 } }}
+                                      />
+                                    </TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1rem', border: '1px solid #000' } }}>{approvedAt ? formatDateForPrint(approvedAt) : '—'}</TableCell>
+                                    <TableCell align="center" sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.6, px: 1, border: '1px solid #000' } }}>
+                                      {decision === 'approved' && approver?.digitalSignature ? (
+                                        <DigitalSignatureImage userOrPath={approver} alt={`${slot.label} signature`} sx={{ maxHeight: 56, maxWidth: 180, '@media print': { maxHeight: 52, maxWidth: 170 } }} />
+                                      ) : decision === 'approved' ? (
+                                        <Typography variant="caption" color="text.secondary" sx={{ '@media print': { fontSize: '0.9rem' } }}>No signature on file</Typography>
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              });
+                            })()}
+                          </TableBody>
+                        </Table>
+                      </Box>
+                    )}
+                  </Paper>
+                </Box>
+              )}
+
+              {/* ----------------- SECTION 1: INDENT ----------------- */}
+              {(multiPrintMode ? (printSelection.indent && viewDialog.po?.indent) : viewDialog.poAuditTab === 1) && (
+                <Box
+                  sx={{
+                    p: 2,
+                    overflowX: 'auto',
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      height: '100%',
+                      maxHeight: '100vh',
+                      overflow: 'hidden'
+                    }
+                  }}
+                >
                   {!viewDialog.po?.indent ? (
                     <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
                       No indent linked with this Purchase Order.
                     </Typography>
                   ) : (
-                    <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
-                      <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                    <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider', '@media print': { p: '12mm 15mm', border: 'none', maxWidth: '100%', mx: 0, pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                      <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1, '@media print': { fontSize: '1.2rem', mb: 0.5 } }}>
                         Purchase Request Form
                       </Typography>
                       {viewDialog.po.indent.title && (
-                        <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>
+                        <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 1.5, '@media print': { fontSize: '0.95rem', mb: 1 } }}>
                           {viewDialog.po.indent.title}
                         </Typography>
                       )}
-                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                      <Box sx={{ mb: 1, fontSize: '0.9rem', textAlign: 'center', '@media print': { fontSize: '0.8rem', mb: 0.5 } }}>
                         <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
                         <Typography component="span" sx={{ ml: 1 }}>
                           {viewDialog.po.indent.erpRef || 'PR #' + (viewDialog.po.indent.indentNumber?.split('-').pop() || '')}
                         </Typography>
                       </Box>
-                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <Box sx={{ mb: 1, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 4, '@media print': { fontSize: '0.78rem', mb: 0.8, gap: 2 } }}>
                         <Box>
                           <Typography component="span" fontWeight={600}>Date:</Typography>
                           <Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.po.indent.requestedDate)}</Typography>
@@ -615,7 +995,7 @@ const Vouchers = () => {
                           <Typography component="span" sx={{ ml: 1 }}>{viewDialog.po.indent.indentNumber || '—'}</Typography>
                         </Box>
                       </Box>
-                      <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 4, '@media print': { fontSize: '0.78rem', mb: 1, gap: 2 } }}>
                         <Box>
                           <Typography component="span" fontWeight={600}>Department:</Typography>
                           <Typography component="span" sx={{ ml: 1 }}>{viewDialog.po.indent.department?.name || viewDialog.po.indent.department || '—'}</Typography>
@@ -629,56 +1009,56 @@ const Vouchers = () => {
                           </Typography>
                         </Box>
                       </Box>
-                      <Box sx={{ mb: 3 }}>
+                      <Box sx={{ mb: 2, '@media print': { mb: 1 } }}>
                         <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
                           <TableHead>
                             <TableRow sx={{ bgcolor: 'grey.100' }}>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S#</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Item Name</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="center">Qty</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Purpose</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Est. Cost</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }}>S#</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }}>Item Name</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }}>Description</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }}>Brand</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }}>Unit</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }} align="center">Qty</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }}>Purpose</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.73rem' } }} align="right">Est. Cost</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
                             {(viewDialog.po.indent.items || []).map((item, idx) => (
                               <TableRow key={idx}>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || '—'}</TableCell>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || '—'}</TableCell>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity ?? '—'}</TableCell>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.purpose || '—'}</TableCell>
-                                <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }} align="center">{idx + 1}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>{item.itemName || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>{item.description || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>{item.brand || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>{item.unit || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }} align="center">{item.quantity ?? '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>{item.purpose || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
                         </Table>
                       </Box>
                       {viewDialog.po.indent.justification && (
-                        <Box sx={{ mb: 2 }}>
-                          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
-                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                        <Box sx={{ mb: 1.5, '@media print': { mb: 1 } }}>
+                          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 0.5, '@media print': { fontSize: '0.78rem' } }}>Justification:</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1, '@media print': { fontSize: '0.72rem', p: 0.5 } }}>
                             {viewDialog.po.indent.justification}
                           </Typography>
                         </Box>
                       )}
                       {Array.isArray(viewDialog.po.indent.approvalChain) && viewDialog.po.indent.approvalChain.length > 0 && (
-                        <Box sx={{ mt: 3 }}>
-                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                        <Box sx={{ mt: 2, '@media print': { mt: 1, pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, '@media print': { fontSize: '0.8rem', mb: 0.5 } }}>
                             Indent approval progress
                           </Typography>
                           <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', maxWidth: 760 }}>
                             <TableHead>
                               <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>Date &amp; time</TableCell>
-                                <TableCell sx={{ fontWeight: 700 }} align="center">Digital signature</TableCell>
+                                <TableCell sx={{ fontWeight: 700, '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>Approver</TableCell>
+                                <TableCell sx={{ fontWeight: 700, '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>Status</TableCell>
+                                <TableCell sx={{ fontWeight: 700, '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>Date &amp; time</TableCell>
+                                <TableCell sx={{ fontWeight: 700, '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }} align="center">Digital signature</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -693,16 +1073,16 @@ const Vouchers = () => {
                                 const chipLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending approval';
                                 return (
                                   <TableRow key={`${name}-${idx}`}>
-                                    <TableCell>{name}</TableCell>
-                                    <TableCell>
-                                      <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} />
+                                    <TableCell sx={{ '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>{name}</TableCell>
+                                    <TableCell sx={{ '@media print': { py: 0.3, px: 0.5 } }}>
+                                      <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} sx={{ '@media print': { height: 20, fontSize: '0.65rem' } }} />
                                     </TableCell>
-                                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{step?.actedAt ? formatDateForPrint(step.actedAt) : '—'}</TableCell>
-                                    <TableCell align="center">
+                                    <TableCell sx={{ whiteSpace: 'nowrap', '@media print': { py: 0.4, px: 0.6, fontSize: '0.7rem' } }}>{step?.actedAt ? formatDateForPrint(step.actedAt) : '—'}</TableCell>
+                                    <TableCell align="center" sx={{ '@media print': { py: 0.2, px: 0.4 } }}>
                                       {status === 'approved' && approver?.digitalSignature ? (
-                                        <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} />
+                                        <DigitalSignatureImage userOrPath={approver} alt={`Signature ${name}`} sx={{ maxHeight: 36, maxWidth: 120, '@media print': { maxHeight: 32, maxWidth: 100 } }} />
                                       ) : status === 'approved' ? (
-                                        <Typography variant="caption" color="text.secondary">No signature on file</Typography>
+                                        <Typography variant="caption" color="text.secondary" sx={{ '@media print': { fontSize: '0.65rem' } }}>No signature on file</Typography>
                                       ) : (
                                         <Typography variant="caption" color="text.secondary">—</Typography>
                                       )}
@@ -719,9 +1099,24 @@ const Vouchers = () => {
                 </Box>
               )}
 
-              {/* Tab 1: Purchase Order (Official Layout matching Audit and CEO) */}
-              {viewDialog.poAuditTab === 1 && (
-                <Box sx={{ p: 2 }}>
+              {/* ----------------- SECTION 2: PURCHASE ORDER ----------------- */}
+              {(multiPrintMode ? (printSelection.po && viewDialog.po) : viewDialog.poAuditTab === 2) && (
+                <Box
+                  sx={{
+                    p: 2,
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid',
+                      height: '100%',
+                      maxHeight: '100vh',
+                      overflow: 'hidden'
+                    }
+                  }}
+                >
                   {!viewDialog.po ? (
                     <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
                       No direct Purchase Order linked with this voucher. See Attached Documents tab.
@@ -738,12 +1133,13 @@ const Vouchers = () => {
                         fontFamily: 'Arial, sans-serif',
                         '@media print': {
                           boxShadow: 'none',
-                          p: 2.5,
+                          p: '10mm 15mm',
                           maxWidth: '100%',
                           backgroundColor: '#fff',
                           mx: 0,
                           width: '100%',
-                          pageBreakInside: 'avoid'
+                          pageBreakInside: 'avoid',
+                          breakInside: 'avoid'
                         }
                       }}
                     >
@@ -754,42 +1150,40 @@ const Vouchers = () => {
                         align="center"
                         sx={{
                           textTransform: 'uppercase',
-                          mb: 3,
-                          fontSize: { xs: '1.8rem', print: '1.6rem' },
+                          mb: 2,
+                          fontSize: { xs: '1.8rem', print: '1.4rem' },
                           letterSpacing: 1
                         }}
                       >
                         Purchase Order
                       </Typography>
 
-                      {/* Buyer Information - First Row */}
-                      <Box sx={{ mb: 2.5 }}>
-                        <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+                      {/* Buyer Information */}
+                      <Box sx={{ mb: 1.5 }}>
+                        <Typography variant="h6" fontWeight={600} sx={{ mb: 0.5, fontSize: '1rem', '@media print': { fontSize: '0.9rem' } }}>
                           Residencia
                         </Typography>
-                        <Typography sx={{ fontSize: '0.9rem', mb: 0.5 }}>
+                        <Typography sx={{ fontSize: '0.85rem', mb: 0.2, '@media print': { fontSize: '0.75rem' } }}>
                           1st Avenue 18 4 Islamabad
                         </Typography>
-                        <Typography sx={{ fontSize: '0.9rem' }}>
+                        <Typography sx={{ fontSize: '0.85rem', '@media print': { fontSize: '0.75rem' } }}>
                           1. Het Sne 1-8. Islamabad.
                         </Typography>
                       </Box>
 
-                      {/* Divider */}
-                      <Divider sx={{ my: 2.5, borderWidth: 1, borderColor: '#ccc' }} />
+                      <Divider sx={{ my: 1.5, borderWidth: 1, borderColor: '#ccc', '@media print': { my: 1 } }} />
 
-                      {/* Vendor and PO Details - Second Row in Columns */}
-                      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
-                        {/* Left Column - Vendor Info */}
-                        <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
-                          <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+                      {/* Vendor and PO Details */}
+                      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', gap: 2, '@media print': { mb: 1.5 } }}>
+                        <Box sx={{ width: '48%', fontSize: '0.85rem', '@media print': { fontSize: '0.75rem' } }}>
+                          <Typography variant="h6" fontWeight={600} sx={{ mb: 0.5, fontSize: '0.95rem', '@media print': { fontSize: '0.85rem' } }}>
                             {viewDialog.po.vendor?.name || 'Vendor Name'}
                           </Typography>
-                          <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>
+                          <Typography sx={{ fontSize: '0.85rem', lineHeight: 1.4, mb: 1, '@media print': { fontSize: '0.75rem' } }}>
                             {viewDialog.po.vendor?.address || 'Vendor Address'}
                           </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
-                            <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.4 }}>
+                            <Typography component="span" sx={{ fontWeight: 600, mr: 0.5 }}>Indent Details:</Typography>
                             <Typography component="span">
                               Indent# {viewDialog.po.indent?.indentNumber || 'N/A'} Dated. {viewDialog.po.indent?.requestedDate ? formatDateForPrint(viewDialog.po.indent.requestedDate) : 'N/A'}.
                               {viewDialog.po.indent?.title && ` ${viewDialog.po.indent.title}.`}
@@ -798,10 +1192,9 @@ const Vouchers = () => {
                           </Box>
                         </Box>
 
-                        {/* Right Column - PO Details */}
-                        <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
-                          <Box sx={{ display: 'flex', mb: 0.5 }}>
-                            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>P.O No.:</Typography>
+                        <Box sx={{ width: '48%', fontSize: '0.85rem', lineHeight: 1.6, '@media print': { fontSize: '0.75rem', lineHeight: 1.4 } }}>
+                          <Box sx={{ display: 'flex', mb: 0.2 }}>
+                            <Typography component="span" sx={{ minWidth: '120px', fontWeight: 600 }}>P.O No.:</Typography>
                             <Typography component="span">
                               {viewDialog.po.orderNumber ? 
                                 (viewDialog.po.orderNumber.startsWith('P') && !viewDialog.po.orderNumber.includes('-')
@@ -810,16 +1203,16 @@ const Vouchers = () => {
                                 : 'N/A'}
                             </Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', mb: 0.5 }}>
-                            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
+                          <Box sx={{ display: 'flex', mb: 0.2 }}>
+                            <Typography component="span" sx={{ minWidth: '120px', fontWeight: 600 }}>Date:</Typography>
                             <Typography component="span">{formatDateForPrint(viewDialog.po.orderDate)}</Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', mb: 0.5 }}>
-                            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Date:</Typography>
+                          <Box sx={{ display: 'flex', mb: 0.2 }}>
+                            <Typography component="span" sx={{ minWidth: '120px', fontWeight: 600 }}>Delivery Date:</Typography>
                             <Typography component="span">{viewDialog.po.expectedDeliveryDate ? formatDateForPrint(viewDialog.po.expectedDeliveryDate) : '___________'}</Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', mb: 0.5 }}>
-                            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
+                          <Box sx={{ display: 'flex', mb: 0.2 }}>
+                            <Typography component="span" sx={{ minWidth: '120px', fontWeight: 600 }}>Delivery Address:</Typography>
                             <Typography component="span">
                               {(() => {
                                 if (viewDialog.po.deliveryAddress && typeof viewDialog.po.deliveryAddress === 'string' && viewDialog.po.deliveryAddress.trim()) {
@@ -840,66 +1233,48 @@ const Vouchers = () => {
                               })()}
                             </Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', mb: 0.5 }}>
-                            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
+                          <Box sx={{ display: 'flex', mb: 0.2 }}>
+                            <Typography component="span" sx={{ minWidth: '120px', fontWeight: 600 }}>Cost Center:</Typography>
                             <Typography component="span">{viewDialog.po.indent?.department?.name || viewDialog.po.indent?.department || '___________'}</Typography>
                           </Box>
                         </Box>
                       </Box>
 
                       {/* Items Table */}
-                      <Box sx={{ mb: 3 }}>
+                      <Box sx={{ mb: 1.5, '@media print': { mb: 1 } }}>
                         <table
                           style={{
                             width: '100%',
                             borderCollapse: 'collapse',
                             border: '1px solid #000',
-                            fontSize: '0.85rem',
+                            fontSize: '0.8rem',
                             fontFamily: 'Arial, sans-serif'
                           }}
                         >
                           <thead>
                             <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>
-                                Sr no
-                              </th>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
-                                Product
-                              </th>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '23%' }}>
-                                Description
-                              </th>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>
-                                Specification
-                              </th>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
-                                Brand
-                              </th>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '11%' }}>
-                                Quantity Unit
-                              </th>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
-                                Rate
-                              </th>
-                              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
-                                Amount
-                              </th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'center', width: '5%' }}>Sr no</th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Product</th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'left', width: '23%' }}>Description</th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Specification</th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Brand</th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'center', width: '11%' }}>Quantity Unit</th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Rate</th>
+                              <th style={{ border: '1px solid #000', padding: '6px 5px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Amount</th>
                             </tr>
                           </thead>
                           <tbody>
                             {viewDialog.po.items && viewDialog.po.items.length > 0 ? (
                               viewDialog.po.items.map((item, index) => (
                                 <tr key={index} style={{ border: '1px solid #000' }}>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
-                                    {index + 1}
-                                  </td>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'top' }}>{index + 1}</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'top' }}>
                                     {item.productCode || viewDialog.po.indent?.items?.[index]?.itemCode || `44-001-${String(index + 1).padStart(4, '0')}`}
                                   </td>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'top' }}>
                                     {item.itemName || item.description || viewDialog.po.indent?.items?.[index]?.itemName || '___________'}
                                   </td>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'top' }}>
                                     {(() => {
                                       if (item.specification && String(item.specification).trim()) return item.specification.trim();
                                       const indentItem = viewDialog.po.indent?.items?.[index];
@@ -909,23 +1284,23 @@ const Vouchers = () => {
                                       return '___________';
                                     })()}
                                   </td>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'top' }}>
                                     {item.brand || viewDialog.po.indent?.items?.[index]?.brand || '___________'}
                                   </td>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'top' }}>
                                     {item.quantity ? `${Number(item.quantity).toLocaleString()} ${item.unit || 'Nos'}` : '___________'}
                                   </td>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', verticalAlign: 'top' }}>
                                     {item.unitPrice ? Number(item.unitPrice).toLocaleString() : '___________'}
                                   </td>
-                                  <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', verticalAlign: 'top' }}>
                                     {item.totalPrice || item.amount ? Number(item.totalPrice || item.amount).toLocaleString() : '___________'}
                                   </td>
                                 </tr>
                               ))
                             ) : (
                               <tr>
-                                <td colSpan={8} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
+                                <td colSpan={8} style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center' }}>
                                   No items
                                 </td>
                               </tr>
@@ -934,82 +1309,69 @@ const Vouchers = () => {
                         </table>
                       </Box>
 
-                      {/* Financial Summary - Right Aligned */}
-                      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                        <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
-                            <Typography component="span">{Number(viewDialog.po.totalAmount || 0).toLocaleString()}</Typography>
+                      {/* Financial Summary */}
+                      <Box sx={{ mb: 1.5, display: 'flex', justifyContent: 'flex-end', '@media print': { mb: 1 } }}>
+                        <Box sx={{ width: '280px', fontSize: '0.82rem', '@media print': { fontSize: '0.74rem' } }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Total (Rupees):</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Number(viewDialog.po.totalAmount || 0).toLocaleString()}</Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography component="span" fontWeight={600}>Net Total:</Typography>
-                            <Typography component="span">{Number(viewDialog.po.totalAmount || 0).toLocaleString()}</Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Net Total:</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Number(viewDialog.po.totalAmount || 0).toLocaleString()}</Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                            <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
-                            <Typography component="span">{Number(viewDialog.po.shippingCost || 0).toLocaleString()}</Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Freight Charges:</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Number(viewDialog.po.shippingCost || 0).toLocaleString()}</Typography>
                           </Box>
-                          <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic' }}>
+                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, fontStyle: 'italic', '@media print': { fontSize: '0.7rem' } }}>
                             Rupees {numberToWords(viewDialog.po.totalAmount || 0)}
                           </Typography>
                         </Box>
                       </Box>
 
                       {/* Terms & Conditions */}
-                      <Box sx={{ mb: 3, border: '1px solid #ccc', p: 2, fontSize: '0.9rem' }}>
-                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, textDecoration: 'underline' }}>
-                          TERMS & CONDITIONS
+                      <Box sx={{ mb: 1.5, border: '1px solid #ccc', p: 1.2, fontSize: '0.8rem', '@media print': { p: 0.8, mb: 1, fontSize: '0.72rem' } }}>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, textDecoration: 'underline', '@media print': { fontSize: '0.75rem' } }}>
+                          TERMS &amp; CONDITIONS
                         </Typography>
-                        <Box sx={{ lineHeight: 1.8 }}>
-                          <Typography sx={{ mb: 1, fontWeight: 600 }}>Main Terms & Conditions</Typography>
-                          <Box sx={{ mb: 1 }}>
-                            <Typography component="span" fontWeight={600}>Payment Terms:</Typography>
-                            <Typography component="span" sx={{ ml: 1 }}>
+                        <Box sx={{ lineHeight: 1.4 }}>
+                          <Box sx={{ mb: 0.3 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Payment Terms:</Typography>
+                            <Typography component="span" sx={{ ml: 0.5, fontSize: 'inherit' }}>
                               {viewDialog.po.paymentTerms || '100% Advance Payment'}
                             </Typography>
                           </Box>
-                          <Box sx={{ mb: 1 }}>
-                            <Typography component="span" fontWeight={600}>Delivery Terms:</Typography>
-                            <Typography component="span" sx={{ ml: 1 }}>
+                          <Box sx={{ mb: 0.3 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Delivery Terms:</Typography>
+                            <Typography component="span" sx={{ ml: 0.5, fontSize: 'inherit' }}>
                               At-Site Delivery
                             </Typography>
                           </Box>
-                          <Box sx={{ mb: 1 }}>
-                            <Typography component="span" fontWeight={600}>Delivery Time.</Typography>
-                            <Typography component="span" sx={{ ml: 1 }}>
-                              Delivery within: {viewDialog.po.quotation?.deliveryTime || '03 days'} of confirmed PO & Payment
+                          <Box sx={{ mb: 0.3 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Delivery Time.</Typography>
+                            <Typography component="span" sx={{ ml: 0.5, fontSize: 'inherit' }}>
+                              Delivery within: {viewDialog.po.quotation?.deliveryTime || '03 days'} of confirmed PO &amp; Payment
                             </Typography>
                           </Box>
-                          <Typography sx={{ mb: 1 }}>
-                            Rates Are Exclusive Of all The Taxes
+                          <Typography sx={{ fontSize: 'inherit' }}>
+                            Rates Are Exclusive Of all The Taxes {viewDialog.po.vendor?.cnic ? `| CNIC: ${viewDialog.po.vendor.cnic}` : ''} {viewDialog.po.vendor?.payeeName ? `| Payee: ${viewDialog.po.vendor.payeeName}` : ''}
                           </Typography>
-                          {viewDialog.po.vendor?.cnic && (
-                            <Typography sx={{ mb: 1 }}>
-                              CNIC {viewDialog.po.vendor.cnic}
-                            </Typography>
-                          )}
-                          {viewDialog.po.vendor?.payeeName && (
-                            <Typography>
-                              Payee Name: {viewDialog.po.vendor.payeeName}
-                            </Typography>
-                          )}
                         </Box>
                       </Box>
 
-                      <Divider sx={{ my: 3 }} />
-
                       {/* Approval Authorities Table */}
-                      <Typography variant="subtitle1" fontWeight={700} mb={1.5} sx={{ textAlign: 'center' }}>
+                      <Typography variant="subtitle2" fontWeight={700} mb={0.5} sx={{ textAlign: 'center', '@media print': { fontSize: '0.78rem' } }}>
                         APPROVAL AUTHORITIES
                       </Typography>
-                      <TableContainer component={Box} sx={{ border: '1px solid #ccc', mb: 2 }}>
+                      <TableContainer component={Box} sx={{ border: '1px solid #ccc', mb: 1, '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
                         <Table size="small">
                           <TableHead>
                             <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Authority</TableCell>
-                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Name</TableCell>
-                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Digital Signature</TableCell>
-                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Date & Time</TableCell>
+                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>Authority</TableCell>
+                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>Name</TableCell>
+                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center', '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>Digital Signature</TableCell>
+                              <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>Date &amp; Time</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
@@ -1071,16 +1433,16 @@ const Vouchers = () => {
 
                                 return (
                                   <TableRow key={row.key}>
-                                    <TableCell sx={{ border: '1px solid #ccc', fontWeight: 600 }}>{row.label}</TableCell>
-                                    <TableCell sx={{ border: '1px solid #ccc' }}>{displayAuthorityName}</TableCell>
-                                    <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center' }}>
+                                    <TableCell sx={{ border: '1px solid #ccc', fontWeight: 600, '@media print': { py: 0.3, px: 0.6, fontSize: '0.7rem' } }}>{row.label}</TableCell>
+                                    <TableCell sx={{ border: '1px solid #ccc', '@media print': { py: 0.3, px: 0.6, fontSize: '0.7rem' } }}>{displayAuthorityName}</TableCell>
+                                    <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center', '@media print': { py: 0.2, px: 0.4 } }}>
                                       {authorityUser?.digitalSignature ? (
-                                        <DigitalSignatureImage userOrPath={authorityUser} alt={`${row.label} signature`} />
+                                        <DigitalSignatureImage userOrPath={authorityUser} alt={`${row.label} signature`} sx={{ maxHeight: 32, maxWidth: 100, '@media print': { maxHeight: 28, maxWidth: 90 } }} />
                                       ) : (
-                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                        <Typography variant="caption" color="text.secondary" sx={{ '@media print': { fontSize: '0.65rem' } }}>—</Typography>
                                       )}
                                     </TableCell>
-                                    <TableCell sx={{ border: '1px solid #ccc' }}>
+                                    <TableCell sx={{ border: '1px solid #ccc', '@media print': { py: 0.3, px: 0.6, fontSize: '0.68rem' } }}>
                                       {actionDate ? formatDateForPrint(actionDate) : '—'}
                                     </TableCell>
                                   </TableRow>
@@ -1095,9 +1457,22 @@ const Vouchers = () => {
                 </Box>
               )}
 
-              {/* Tab 2: Comparative Statement */}
-              {viewDialog.poAuditTab === 2 && (
-                <Box sx={{ p: 2, overflowX: 'auto' }}>
+              {/* ----------------- SECTION 3: COMPARATIVE STATEMENT ----------------- */}
+              {(multiPrintMode ? (printSelection.comparative && (viewDialog.poQuotations?.length > 0 || viewDialog.po?.indent?.comparativeApproval)) : viewDialog.poAuditTab === 3) && (
+                <Box
+                  sx={{
+                    p: 2,
+                    overflowX: 'auto',
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid'
+                    }
+                  }}
+                >
                   <ComparativeStatementView
                     requisition={viewDialog.po?.indent}
                     quotations={viewDialog.poQuotations || []}
@@ -1111,29 +1486,54 @@ const Vouchers = () => {
                 </Box>
               )}
 
-              {/* Tab 3: Quotations */}
-              {viewDialog.poAuditTab === 3 && (
-                <Box sx={{ p: 2 }}>
+              {/* ----------------- SECTION 4: QUOTATIONS ----------------- */}
+              {(multiPrintMode ? (printSelection.quotations && viewDialog.poQuotations?.length > 0) : viewDialog.poAuditTab === 4) && (
+                <Box
+                  sx={{
+                    p: 2,
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid'
+                    }
+                  }}
+                >
                   {(!viewDialog.poQuotations || viewDialog.poQuotations.length === 0) ? (
                     <Typography color="text.secondary">No quotations linked with this PO.</Typography>
                   ) : (
                     <Stack spacing={4}>
                       {viewDialog.poQuotations.map((q) => (
-                        <QuotationDetailView
-                          key={q._id}
-                          quotation={q}
-                          formatNumber={(n) => Number(n || 0).toLocaleString()}
-                          formatDateForPrint={formatDateForPrint}
-                        />
+                        <Box key={q._id} sx={{ '@media print': { pageBreakAfter: 'always', breakAfter: 'page', pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                          <QuotationDetailView
+                            quotation={q}
+                            formatNumber={(n) => Number(n || 0).toLocaleString()}
+                            formatDateForPrint={formatDateForPrint}
+                          />
+                        </Box>
                       ))}
                     </Stack>
                   )}
                 </Box>
               )}
 
-              {/* Tab 4: GRNs */}
-              {viewDialog.poAuditTab === 4 && (
-                <Box sx={{ p: 2 }}>
+              {/* ----------------- SECTION 5: GRNS ----------------- */}
+              {(multiPrintMode ? (printSelection.grns && viewDialog.poGrns?.length > 0) : viewDialog.poAuditTab === 5) && (
+                <Box
+                  sx={{
+                    p: 2,
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid'
+                    }
+                  }}
+                >
                   {(!viewDialog.poGrns || viewDialog.poGrns.length === 0) ? (
                     <Typography color="text.secondary">No GRN attached to this PO.</Typography>
                   ) : (
@@ -1165,8 +1565,8 @@ const Vouchers = () => {
                 </Box>
               )}
 
-              {/* Tab 5: Attached Documents */}
-              {viewDialog.poAuditTab === 5 && (
+              {/* ----------------- SECTION 6: ATTACHED DOCUMENTS ----------------- */}
+              {(!multiPrintMode && viewDialog.poAuditTab === 6) && (
                 <Box sx={{ p: 2 }}>
                   {(!viewDialog.poLinkedDocs || viewDialog.poLinkedDocs.length === 0) ? (
                     <Typography color="text.secondary">No attached documents found.</Typography>
@@ -1207,6 +1607,135 @@ const Vouchers = () => {
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      {/* Select Documents to Print Dialog */}
+      <Dialog
+        open={printSelectDialogOpen}
+        onClose={() => setPrintSelectDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ChecklistIcon color="primary" />
+          <Typography variant="h6" fontWeight={600}>Select Documents to Print</Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Choose which documents from this voucher package to include in the single print job:
+          </Typography>
+          <FormGroup>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.voucher}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, voucher: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Voucher (General Ledger &amp; Lines)</Typography>
+                  <Typography variant="caption" color="text.secondary">Voucher summary, accounting entries &amp; authorities</Typography>
+                </Box>
+              }
+              sx={{ mb: 1 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.indent}
+                  disabled={!viewDialog.po?.indent}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, indent: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Indent (Purchase Request Form)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {viewDialog.po?.indent ? `PR #${viewDialog.po.indent.indentNumber || ''}` : 'No indent linked'}
+                  </Typography>
+                </Box>
+              }
+              sx={{ mb: 1 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.po}
+                  disabled={!viewDialog.po}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, po: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Purchase Order (PO)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {viewDialog.po ? `PO #${viewDialog.po.orderNumber || ''}` : 'No PO linked'}
+                  </Typography>
+                </Box>
+              }
+              sx={{ mb: 1 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.comparative}
+                  disabled={!viewDialog.poQuotations?.length && !viewDialog.po?.indent?.comparativeApproval}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, comparative: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Comparative Statement</Typography>
+                  <Typography variant="caption" color="text.secondary">Vendor rate comparison &amp; committee approvals</Typography>
+                </Box>
+              }
+              sx={{ mb: 1 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.quotations}
+                  disabled={!viewDialog.poQuotations || viewDialog.poQuotations.length === 0}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, quotations: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Quotations ({viewDialog.poQuotations?.length || 0})</Typography>
+                  <Typography variant="caption" color="text.secondary">Official vendor quotation sheets</Typography>
+                </Box>
+              }
+              sx={{ mb: 1 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.grns}
+                  disabled={!viewDialog.poGrns || viewDialog.poGrns.length === 0}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, grns: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>GRN(s) ({viewDialog.poGrns?.length || 0})</Typography>
+                  <Typography variant="caption" color="text.secondary">Goods Receipt Notes for delivered items</Typography>
+                </Box>
+              }
+            />
+          </FormGroup>
+        </DialogContent>
+        <DialogActions sx={{ px: 2.5, py: 1.5 }}>
+          <Button onClick={() => setPrintSelectDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            startIcon={<PrintIcon />}
+            onClick={handleExecuteCustomPrint}
+            disabled={!Object.values(printSelection).some(Boolean)}
+          >
+            Print Selected
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

@@ -39,8 +39,9 @@ const ChatFloatingButton = () => {
   if (hidden) return null;
 
   return (
-    <Zoom in>
+    <Zoom in className="app-print-hide">
       <Fab
+        className="app-print-hide"
         color="primary"
         aria-label="open chat"
         onClick={() => navigate('/chat')}
@@ -48,7 +49,8 @@ const ChatFloatingButton = () => {
           position: 'fixed',
           right: 24,
           bottom: 24,
-          zIndex: (theme) => theme.zIndex.drawer + 2
+          zIndex: (theme) => theme.zIndex.drawer + 2,
+          '@media print': { display: 'none !important' }
         }}
       >
         <Badge color="error" badgeContent={unread > 0 ? unread : 0} max={99} invisible={!unread}>

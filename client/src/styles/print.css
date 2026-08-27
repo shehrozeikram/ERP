@@ -1,9 +1,18 @@
 /**
- * Global print rules: hide app shell (sidebar, header, toasts) so Save as PDF / Print
+ * Global print rules: hide app shell (sidebar, header, toasts, chat) so Save as PDF / Print
  * shows only page content. Add .print-hide-toolbar to report action rows (Generate, PDF, etc.).
  */
+@page {
+  /* Hides default browser header (title/URL like localhost:3000/finance/vouchers) and footer (date/page numbers) */
+  margin: 0;
+  size: auto;
+}
+
 @media print {
-  .app-print-hide {
+  .app-print-hide,
+  .MuiFab-root,
+  .MuiSpeedDial-root,
+  button[aria-label="open chat"] {
     display: none !important;
   }
 
@@ -30,8 +39,22 @@
     display: none !important;
   }
 
+  /* When an active Modal / Dialog is printing, hide underlying main app shell completely so background rows don't show below the dialog */
+  body:has(.MuiDialog-root:not([aria-hidden="true"])) #root,
+  body:has(.MuiModal-root:not([aria-hidden="true"])) #root {
+    display: none !important;
+  }
+
+  /* React / MUI Portals in print */
+  .MuiDialog-root,
+  .MuiModal-root {
+    position: static !important;
+    display: block !important;
+  }
+
   body {
     margin: 0 !important;
+    padding: 0 !important;
     background: #fff !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -46,5 +69,22 @@
     margin: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
+  }
+
+  /* Multi-document ERP print page breaks & fit */
+  .print-page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .print-page-break-avoid {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  img {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 }

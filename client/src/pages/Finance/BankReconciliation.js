@@ -254,8 +254,6 @@ export default function BankReconciliation() {
     if (!clearanceDialog.transaction?._id) return;
     const txn = clearanceDialog.transaction;
     const rawId = String(txn._id);
-    const jeId = rawId.split('-')[0];
-    const journalEntryId = txn.journalEntryId ? String(txn.journalEntryId) : null;
     const nextStatus = clearanceDialog.status || 'pending';
     let clearedAt = null;
 
@@ -269,26 +267,12 @@ export default function BankReconciliation() {
     }
 
     try {
-      const idsToUpdate = Array.from(new Set([rawId, jeId, journalEntryId].filter(Boolean)));
-      
+      // Reconcile specifically this individual transaction row
       await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: idsToUpdate,
+        transactionIds: [rawId],
         clearanceStatus: nextStatus,
         clearedAt
       });
-
-      const targetJeId = journalEntryId || (/^[0-9a-fA-F]{24}$/.test(jeId) ? jeId : null);
-      if (targetJeId) {
-        try {
-          await api.put(`/finance/journal-entries/${targetJeId}/clearance`, {
-            clearanceStatus: nextStatus,
-            clearanceRemarks: '',
-            clearedAt
-          });
-        } catch (_) {
-          // ignore
-        }
-      }
 
       setSuccess('Clearance status updated successfully');
       closeClearanceDialog();

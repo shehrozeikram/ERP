@@ -3192,11 +3192,12 @@ router.get('/banking/transactions',
       if (seenTxnKeys.has(txnKey)) return;
       seenTxnKeys.add(txnKey);
 
+      // In bank ledger: debit = cash in (Dr), credit = cash out (Cr)
       const isCredit = (Number(gle.credit) || 0) > 0;
       const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
       const clearDate = gle.clearedAt || je.clearedAt || gle.reconciledAt || je.reconciledAt || gle.date;
 
-      // Find opposing line (Main Account Head & Sub Account Head) from Journal Entry
+      // Find the corresponding opposing line for description/heads
       let opposingLine = null;
       if (je && Array.isArray(je.lines) && je.lines.length > 0) {
         opposingLine = je.lines.find((line) => {
@@ -3283,6 +3284,10 @@ router.get('/banking/transactions',
     const targetAccountIdsSet = new Set(targetAccountIds.map(id => String(id)));
 
     directJes.forEach((je) => {
+      // Only check if this journalEntry hasn't already been covered by GeneralLedger entries
+      const alreadyInGl = glEntries.some(gle => gle.journalEntry && String(gle.journalEntry._id || gle.journalEntry) === String(je._id));
+      if (alreadyInGl) return;
+
       (je.lines || []).forEach((line, idx) => {
         const lineAccId = String(line.account?._id || line.account || '');
         if (targetAccountIdsSet.has(lineAccId)) {
@@ -3298,11 +3303,11 @@ router.get('/banking/transactions',
           const costCenterName = line.costCenter?.name || opposing?.costCenter?.name || '—';
           const paymentType = je.customPaymentType || (je.voucherSeries ? String(je.voucherSeries).toUpperCase() : (isCredit ? 'Payment' : 'Receipt'));
 
-          // Avoid duplicating if already added via GL
-          const alreadyAdded = transactions.some(t => String(t.journalEntryId) === String(je._id));
-          if (!alreadyAdded) {
+          const lineKey = `${je._id}-${idx}`;
+          if (!seenTxnKeys.has(lineKey)) {
+            seenTxnKeys.add(lineKey);
             transactions.push({
-              _id: `${je._id}-${idx}`,
+              _id: lineKey,
               journalEntryId: je._id,
               vDate: je.date,
               vNo: je.entryNumber || je.reference || '—',
@@ -5133,6 +5138,7 @@ router.post('/reports/bank-reconciliation/reconcile',
       const validObjIds = transactionIds.filter(id => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id));
       
       if (validObjIds.length > 0) {
+        // Specifically update the selected GeneralLedger document(s)
         await GeneralLedger.updateMany(
           { _id: { $in: validObjIds } },
           {
@@ -5144,30 +5150,45 @@ router.post('/reports/bank-reconciliation/reconcile',
             }
           }
         );
-        // Also update any GeneralLedger rows pointing to these JournalEntries
-        await GeneralLedger.updateMany(
-          { journalEntry: { $in: validObjIds } },
-          {
-            $set: {
-              isReconciled: isCleared,
-              reconciledAt: isCleared ? clearDate : null,
-              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-              clearedAt: isCleared ? clearDate : null
-            }
+
+        // Find the parent journal entries for these GL rows
+        const targetGls = await GeneralLedger.find({ _id: { $in: validObjIds } }).select('journalEntry').lean();
+        const parentJeIds = Array.from(new Set(targetGls.map(g => String(g.journalEntry || '')).filter(Boolean)));
+
+        for (const parentJeId of parentJeIds) {
+          // Check if there are any remaining uncleared GL rows for this journal entry
+          const unclearedCount = await GeneralLedger.countDocuments({
+            journalEntry: parentJeId,
+            clearanceStatus: { $ne: 'cleared' },
+            isReconciled: { $ne: true }
+          });
+
+          if (unclearedCount === 0) {
+            // All lines are cleared, mark entire JE as cleared
+            await JournalEntry.updateOne(
+              { _id: parentJeId },
+              {
+                $set: {
+                  isReconciled: true,
+                  reconciledAt: clearDate,
+                  clearanceStatus: 'cleared',
+                  clearedAt: clearDate
+                }
+              }
+            );
+          } else {
+            // Partial lines cleared
+            await JournalEntry.updateOne(
+              { _id: parentJeId },
+              {
+                $set: {
+                  isReconciled: false,
+                  clearanceStatus: 'pending'
+                }
+              }
+            );
           }
-        );
-        // Update JournalEntries
-        await JournalEntry.updateMany(
-          { _id: { $in: validObjIds } },
-          {
-            $set: {
-              isReconciled: isCleared,
-              reconciledAt: isCleared ? clearDate : null,
-              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-              clearedAt: isCleared ? clearDate : null
-            }
-          }
-        );
+        }
       }
     }
     res.json({ success: true, message: `${transactionIds?.length || 0} transactions updated` });
