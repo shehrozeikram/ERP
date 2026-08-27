@@ -145,6 +145,8 @@ export default function LandExchangeFormDialog({
   const [exchangeDate, setExchangeDate] = useState(new Date().toISOString().slice(0, 10));
   const [party, setParty] = useState(null);
   const [dealNo, setDealNo] = useState('');
+  const [registryNo, setRegistryNo] = useState('');
+  const [inteqalNo, setInteqalNo] = useState('');
   const [moza, setMoza] = useState('');
   const [remarks, setRemarks] = useState('');
 
@@ -220,6 +222,8 @@ export default function LandExchangeFormDialog({
           setExchangeDate(d.exchangeDate ? new Date(d.exchangeDate).toISOString().slice(0, 10) : '');
           setParty(d.party || null);
           setDealNo(d.dealNo ? String(d.dealNo) : '');
+          setRegistryNo(d.registryNo || '');
+          setInteqalNo(d.inteqalNo || '');
           setMoza(d.moza?._id || d.moza || '');
           setRemarks(d.remarks || '');
 
@@ -287,6 +291,8 @@ export default function LandExchangeFormDialog({
       setExchangeDate(new Date().toISOString().slice(0, 10));
       setParty(null);
       setDealNo('');
+      setRegistryNo('');
+      setInteqalNo('');
       setMoza('');
       setRemarks('');
       setOutLandLines([emptyOutLine()]);
@@ -566,6 +572,8 @@ export default function LandExchangeFormDialog({
         exchangeDate,
         party: party._id || party,
         dealNo: dealNo ? Number(dealNo) : undefined,
+        registryNo: registryNo ? registryNo.trim() : undefined,
+        inteqalNo: inteqalNo ? inteqalNo.trim() : undefined,
         moza: moza || undefined,
         remarks,
         outLandLines: cleanOut,
@@ -603,7 +611,21 @@ export default function LandExchangeFormDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth scroll="paper">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      scroll="paper"
+      PaperProps={{
+        sx: {
+          borderRadius: 3,
+          minHeight: '80vh',
+          display: 'flex',
+          flexDirection: 'column'
+        }
+      }}
+    >
       <DialogTitle sx={{ pb: 1, bgcolor: 'background.paper', borderBottom: '1px solid', borderColor: 'divider' }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Stack direction="row" spacing={1.5} alignItems="center">
@@ -613,7 +635,7 @@ export default function LandExchangeFormDialog({
                 {exchangeId ? 'Edit Land Exchange' : 'New Land Exchange Record'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Exchange / swap land between registries (Out Land) and newly acquired parcels (In Land).
+                Surrender existing registries/khasras and acquire incoming replacement land
               </Typography>
             </Box>
           </Stack>
@@ -664,7 +686,7 @@ export default function LandExchangeFormDialog({
                     required
                   />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
                   <Autocomplete
                     size="small"
                     options={parties}
@@ -690,7 +712,7 @@ export default function LandExchangeFormDialog({
                     )}
                   />
                 </Grid>
-                <Grid item xs={12} sm={2}>
+                <Grid item xs={12} sm={3}>
                   <TextField
                     fullWidth
                     size="small"
@@ -701,7 +723,27 @@ export default function LandExchangeFormDialog({
                     placeholder="e.g. 102"
                   />
                 </Grid>
-                <Grid item xs={12}>
+                <Grid item xs={12} sm={3}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Registry No."
+                    value={registryNo}
+                    onChange={(e) => setRegistryNo(e.target.value)}
+                    placeholder="e.g. 1052"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Inteqal No."
+                    value={inteqalNo}
+                    onChange={(e) => setInteqalNo(e.target.value)}
+                    placeholder="e.g. 54"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
                     size="small"

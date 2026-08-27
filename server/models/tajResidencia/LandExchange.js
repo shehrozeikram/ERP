@@ -80,6 +80,8 @@ const landExchangeSchema = new mongoose.Schema({
     required: true
   },
   dealNo: { type: Number },
+  registryNo: { type: String, trim: true, default: '' },
+  inteqalNo: { type: String, trim: true, default: '' },
   moza: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'LandMoza'

@@ -162,6 +162,16 @@ export default function LandExchangeDetailDialog({
                     <Typography variant="body2">
                       <strong>Deal No:</strong> {data.dealNo ? `#${data.dealNo}` : '—'}
                     </Typography>
+                    {data.registryNo && (
+                      <Typography variant="body2">
+                        <strong>Registry No:</strong> {data.registryNo}
+                      </Typography>
+                    )}
+                    {data.inteqalNo && (
+                      <Typography variant="body2">
+                        <strong>Inteqal No:</strong> {data.inteqalNo}
+                      </Typography>
+                    )}
                     <Typography variant="body2">
                       <strong>Created By:</strong> {data.createdBy?.name || data.createdBy?.firstName || 'System'}
                     </Typography>

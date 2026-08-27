@@ -296,6 +296,8 @@ router.post('/exchanges', authMiddleware, handleExchangeUpload, asyncHandler(asy
     exchangeDate: body.exchangeDate ? new Date(body.exchangeDate) : new Date(),
     party: body.party,
     dealNo: body.dealNo ? Number(body.dealNo) : undefined,
+    registryNo: String(body.registryNo || '').trim(),
+    inteqalNo: String(body.inteqalNo || '').trim(),
     moza: body.moza || (outLandLines[0]?.moza || inLandLines[0]?.moza),
     outLandLines,
     inLandLines,
@@ -355,6 +357,8 @@ router.put('/exchanges/:id', authMiddleware, handleExchangeUpload, asyncHandler(
   if (body.party) existingDoc.party = body.party;
   if (body.exchangeDate) existingDoc.exchangeDate = new Date(body.exchangeDate);
   if (body.dealNo !== undefined) existingDoc.dealNo = body.dealNo ? Number(body.dealNo) : undefined;
+  if (body.registryNo !== undefined) existingDoc.registryNo = String(body.registryNo).trim();
+  if (body.inteqalNo !== undefined) existingDoc.inteqalNo = String(body.inteqalNo).trim();
   if (body.moza) existingDoc.moza = body.moza;
   if (body.remarks !== undefined) existingDoc.remarks = String(body.remarks).trim();
 

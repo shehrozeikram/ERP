@@ -197,6 +197,8 @@ export default function LandExchangeViewer() {
       'Counterparty': r.party?.name || '',
       'Party CNIC': r.party?.cnic || '',
       'Deal No': r.dealNo || '',
+      'Registry No': r.registryNo || '',
+      'Inteqal No': r.inteqalNo || '',
       'Out Land Area (K-M-S)': formatKMS(r.totalOutArea),
       'In Land Area (K-M-S)': formatKMS(r.totalInArea),
       'Net Variance (K-M-S)': formatKMS(r.netAreaDiff),
@@ -448,6 +450,13 @@ export default function LandExchangeViewer() {
                       {row.dealNo && (
                         <Typography variant="caption" color="text.secondary" display="block">
                           Deal #{row.dealNo}
+                        </Typography>
+                      )}
+                      {(row.registryNo || row.inteqalNo) && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {row.registryNo ? `Reg: ${row.registryNo}` : ''}
+                          {row.registryNo && row.inteqalNo ? ' · ' : ''}
+                          {row.inteqalNo ? `Int: ${row.inteqalNo}` : ''}
                         </Typography>
                       )}
                     </TableCell>
