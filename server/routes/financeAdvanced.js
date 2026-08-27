@@ -713,7 +713,6 @@ router.get('/journal-entries',
         .populate('lines.account', 'accountNumber name type')
         .populate('createdBy', 'firstName lastName')
         .populate('approvedBy', 'firstName lastName')
-        .populate('department', 'name code')
         .populate('project', 'name code')
         .sort({ date: -1, entryNumber: -1 })
         .skip(skip)
@@ -755,7 +754,6 @@ router.get('/journal-entries/:id',
       .populate('lines.account', 'accountNumber name type category')
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName')
-      .populate('department', 'name code')
       .populate('project', 'name code');
 
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
