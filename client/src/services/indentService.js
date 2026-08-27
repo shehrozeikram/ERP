@@ -21,13 +21,19 @@ const indentService = {
 
   // Create new indent
   createIndent: async (indentData) => {
-    const response = await api.post('/indents', indentData);
+    const isFormData = typeof FormData !== 'undefined' && indentData instanceof FormData;
+    const response = await api.post('/indents', indentData, {
+      headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined
+    });
     return response.data;
   },
 
   // Update indent
   updateIndent: async (id, indentData) => {
-    const response = await api.put(`/indents/${id}`, indentData);
+    const isFormData = typeof FormData !== 'undefined' && indentData instanceof FormData;
+    const response = await api.put(`/indents/${id}`, indentData, {
+      headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined
+    });
     return response.data;
   },
 

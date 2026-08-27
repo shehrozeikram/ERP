@@ -31,7 +31,10 @@ import {
   Cancel as CancelIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  CloudUpload as UploadIcon,
+  AttachFile as AttachFileIcon,
+  Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../../../contexts/DataContext';
@@ -39,6 +42,8 @@ import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
+import { compressImage } from '../../../utils/compressImage';
+import { resolveUploadFileHref } from '../../../utils/uploadPaths';
 
 /** Catalog bucket for requests outside item master categories; requires categoryOtherDescription */
 const OTHERS_CATEGORY = 'Others';
@@ -108,6 +113,10 @@ const IndentForm = () => {
   const [approverSlots, setApproverSlots] = useState([null]);
   const [approverSearchOptions, setApproverSearchOptions] = useState([]);
   const [approverSearchLoading, setApproverSearchLoading] = useState(false);
+  const [existingAttachments, setExistingAttachments] = useState([]);
+  const [newAttachmentFiles, setNewAttachmentFiles] = useState([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState([]);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -246,6 +255,9 @@ const IndentForm = () => {
             return u && typeof u === 'object' && u._id ? u : null;
           });
           setApproverSlots(slots);
+          setExistingAttachments(Array.isArray(indent.attachments) ? indent.attachments : []);
+          setNewAttachmentFiles([]);
+          setRemovedAttachmentIds([]);
 
           setFormData({
             title: indent.title || '',
@@ -586,6 +598,49 @@ const IndentForm = () => {
     return true;
   };
 
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const totalCurrent = (existingAttachments?.length || 0) + (newAttachmentFiles?.length || 0);
+    if (totalCurrent + files.length > 10) {
+      setError('Maximum 10 attachments allowed in total.');
+      return;
+    }
+
+    try {
+      setUploadingFiles(true);
+      const processedFiles = [];
+      for (const file of files) {
+        if (file.type.startsWith('image/')) {
+          const compressed = await compressImage(file);
+          processedFiles.push(compressed);
+        } else if (file.type === 'application/pdf') {
+          processedFiles.push(file);
+        } else {
+          setError('Only images and PDF files are allowed as attachments.');
+        }
+      }
+      setNewAttachmentFiles((prev) => [...prev, ...processedFiles]);
+    } catch (err) {
+      console.error('Error processing attachment files:', err);
+      setError('Error processing attachment files. Please try again.');
+    } finally {
+      setUploadingFiles(false);
+      // Reset input value
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveNewFile = (index) => {
+    setNewAttachmentFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleRemoveExistingFile = (attachmentId) => {
+    setExistingAttachments((prev) => prev.filter((att) => att._id !== attachmentId));
+    setRemovedAttachmentIds((prev) => [...prev, attachmentId]);
+  };
+
   const handleSubmit = async (submitForApproval = false) => {
     if (!validateForm()) {
       return;
@@ -637,15 +692,30 @@ const IndentForm = () => {
       if (formData.indentNumber?.trim()) {
         indentData.indentNumber = formData.indentNumber.trim();
       }
-      // For new indents, if ERP Ref is empty backend auto-generates it
+
+      // Build payload either as FormData or JSON depending on whether new files are attached or existing files removed
+      let payload;
+      if (newAttachmentFiles.length > 0 || removedAttachmentIds.length > 0) {
+        const fd = new FormData();
+        fd.append('data', JSON.stringify({
+          ...indentData,
+          removedAttachmentIds
+        }));
+        newAttachmentFiles.forEach((file) => {
+          fd.append('attachments', file);
+        });
+        payload = fd;
+      } else {
+        payload = indentData;
+      }
 
       let response;
       let savedId;
       if (isEdit) {
-        response = await indentService.updateIndent(id, indentData);
+        response = await indentService.updateIndent(id, payload);
         savedId = id;
       } else {
-        response = await indentService.createIndent(indentData);
+        response = await indentService.createIndent(payload);
         savedId = response.data?._id;
       }
 
@@ -1154,6 +1224,121 @@ const IndentForm = () => {
             variant="outlined"
             size="small"
           />
+        </Box>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Attachments (Optional) */}
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="subtitle1" fontWeight={600}>
+              Attachments <Typography component="span" variant="body2" color="text.secondary">(Optional — image or PDF)</Typography>
+            </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              component="label"
+              startIcon={<UploadIcon />}
+              disabled={uploadingFiles || (existingAttachments.length + newAttachmentFiles.length >= 10)}
+            >
+              {uploadingFiles ? 'Processing...' : 'Upload Attachment'}
+              <input
+                type="file"
+                hidden
+                multiple
+                accept="image/*,.pdf"
+                onChange={handleFileSelect}
+              />
+            </Button>
+          </Box>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
+            Upload quotation reference, product photo, specs, or supporting documents (up to 10 files, max 10MB each).
+          </Typography>
+
+          {existingAttachments.length === 0 && newAttachmentFiles.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', py: 1 }}>
+              No attachments added.
+            </Typography>
+          ) : (
+            <Stack spacing={1}>
+              {/* Existing attachments from database */}
+              {existingAttachments.map((att) => {
+                const fileHref = resolveUploadFileHref(att.path);
+                const isPdf = att.path?.toLowerCase().endsWith('.pdf') || att.filename?.toLowerCase().endsWith('.pdf');
+                return (
+                  <Paper
+                    key={att._id}
+                    variant="outlined"
+                    sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#fafafa' }}
+                  >
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0, flex: 1, mr: 1 }}>
+                      <AttachFileIcon color="primary" fontSize="small" />
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" noWrap fontWeight={500}>
+                          {att.filename || 'Attachment'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Existing attachment {att.uploadedAt ? `(${dayjs(att.uploadedAt).format('DD-MMM-YYYY')})` : ''}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                    <Stack direction="row" spacing={0.5}>
+                      {fileHref && (
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          component="a"
+                          href={fileHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="View attachment"
+                        >
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => handleRemoveExistingFile(att._id)}
+                        title="Remove attachment"
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+
+              {/* Newly selected files */}
+              {newAttachmentFiles.map((file, idx) => (
+                <Paper
+                  key={`new-${idx}`}
+                  variant="outlined"
+                  sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#f0f7ff', borderColor: '#b3d7ff' }}
+                >
+                  <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0, flex: 1, mr: 1 }}>
+                    <AttachFileIcon color="info" fontSize="small" />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" noWrap fontWeight={500}>
+                        {file.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        New file ({Math.round(file.size / 1024)} KB)
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => handleRemoveNewFile(idx)}
+                    title="Remove file"
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Paper>
+              ))}
+            </Stack>
+          )}
         </Box>
 
         <Divider sx={{ my: 3 }} />

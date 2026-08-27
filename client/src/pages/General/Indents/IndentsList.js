@@ -789,9 +789,18 @@ const IndentsList = () => {
                     </TableCell>
                     <TableCell>{item.indentNumber}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                        {item.title}
-                      </Typography>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                          {item.title}
+                        </Typography>
+                        {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                          <Tooltip title={`${item.attachments.length} attachment(s)`}>
+                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', color: 'primary.main', fontSize: '0.9rem' }}>
+                              📎
+                            </Box>
+                          </Tooltip>
+                        )}
+                      </Stack>
                     </TableCell>
                     <TableCell>{item.department?.name || '—'}</TableCell>
                     <TableCell>

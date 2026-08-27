@@ -40,7 +40,9 @@ import {
   Print as PrintIcon,
   ShoppingCart as POIcon,
   History as HistoryIcon,
-  Replay as ReplayIcon
+  Replay as ReplayIcon,
+  AttachFile as AttachFileIcon,
+  OpenInNew as OpenInNewIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -48,6 +50,7 @@ import indentService from '../../../services/indentService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
 import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
+import { resolveUploadFileHref } from '../../../utils/uploadPaths';
 
 const approverDisplayName = (u) => {
   if (!u) return '';
@@ -599,6 +602,70 @@ const IndentDetail = () => {
                         {indent.procurementRejection.observation.trim()}
                       </Typography>
                     </Alert>
+                  </Grid>
+                )}
+                {Array.isArray(indent.attachments) && indent.attachments.length > 0 && (
+                  <Grid item xs={12}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      Attachments ({indent.attachments.length})
+                    </Typography>
+                    <Stack spacing={1}>
+                      {indent.attachments.map((att, idx) => {
+                        const fileHref = resolveUploadFileHref(att.path);
+                        const isImage = /\.(png|jpe?g|webp|gif)$/i.test(att.path || att.filename || '');
+                        const name = att.filename || `Attachment ${idx + 1}`;
+                        return (
+                          <Paper
+                            key={att._id || idx}
+                            variant="outlined"
+                            sx={{ p: 1.5, borderRadius: 1.5, bgcolor: '#fafafa' }}
+                          >
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+                              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
+                                <AttachFileIcon color="primary" fontSize="small" />
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography variant="body2" fontWeight={600} noWrap>
+                                    {name}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Uploaded {att.uploadedAt ? dayjs(att.uploadedAt).format('DD-MMM-YYYY HH:mm') : ''}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                              {fileHref && (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<OpenInNewIcon fontSize="small" />}
+                                  href={fileHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  sx={{ textTransform: 'none' }}
+                                >
+                                  View / Download
+                                </Button>
+                              )}
+                            </Stack>
+                            {isImage && fileHref && (
+                              <Box sx={{ mt: 1.5, pt: 1, borderTop: '1px dashed #e0e0e0' }}>
+                                <Box
+                                  component="img"
+                                  src={fileHref}
+                                  alt={name}
+                                  sx={{
+                                    maxHeight: 220,
+                                    maxWidth: '100%',
+                                    objectFit: 'contain',
+                                    borderRadius: 1,
+                                    border: '1px solid #eee'
+                                  }}
+                                />
+                              </Box>
+                            )}
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
                   </Grid>
                 )}
               </Grid>

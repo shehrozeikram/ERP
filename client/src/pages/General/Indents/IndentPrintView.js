@@ -329,6 +329,28 @@ const IndentPrintView = () => {
           </Box>
         </Box>
 
+        {/* Attachments Section (if any) */}
+        {Array.isArray(indent.attachments) && indent.attachments.length > 0 && (
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1, fontSize: '0.95rem' }}>
+              Attachments ({indent.attachments.length}):
+            </Typography>
+            <Box
+              sx={{
+                border: '1px solid #ccc',
+                p: 1.5,
+                fontSize: '0.85rem'
+              }}
+            >
+              {indent.attachments.map((att, idx) => (
+                <Typography key={att._id || idx} variant="body2" sx={{ fontSize: '0.85rem', mb: 0.5 }}>
+                  {idx + 1}. {att.filename || 'Attachment file'}
+                </Typography>
+              ))}
+            </Box>
+          </Box>
+        )}
+
         {/* Signatures Section */}
         <Box sx={{ mb: 3 }}>
           <Grid container spacing={1.5}>

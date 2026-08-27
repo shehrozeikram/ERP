@@ -1,5 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { body, validationResult, query } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize, authMiddleware } = require('../middleware/auth');
@@ -15,6 +18,84 @@ const {
 } = require('../utils/comparativeStatementAuthorityLock');
 
 const router = express.Router();
+
+const indentUploadDir = path.join(__dirname, '../uploads/indents');
+const indentUploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(indentUploadDir)) {
+      fs.mkdirSync(indentUploadDir, { recursive: true });
+    }
+    cb(null, indentUploadDir);
+  },
+  filename: (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `indent-${unique}${path.extname(file.originalname)}`);
+  }
+});
+
+const indentUpload = multer({
+  storage: indentUploadStorage,
+  limits: { fileSize: 10 * 1024 * 1024, files: 10 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Attachments must be a PDF or image file'), false);
+    }
+  }
+});
+
+const handleIndentUpload = (req, res, next) => {
+  indentUpload.array('attachments', 10)(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ success: false, message: 'Each attachment must be 10 MB or less' });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ success: false, message: 'Maximum 10 attachments allowed' });
+    }
+    return res.status(400).json({ success: false, message: err.message || 'File upload error' });
+  });
+};
+
+const parseIndentRequestBody = (req, res, next) => {
+  if (req.body?.data) {
+    try {
+      const parsed = typeof req.body.data === 'string' ? JSON.parse(req.body.data) : req.body.data;
+      req.body = { ...parsed, ...req.body };
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid indent data JSON format' });
+    }
+  }
+  next();
+};
+
+const mapUploadedAttachments = (files = []) => files.map((file) => ({
+  filename: file.originalname,
+  path: `/uploads/indents/${file.filename}`,
+  uploadedAt: new Date()
+}));
+
+const parseRemovedAttachmentIds = (body) => {
+  const raw = body.removedAttachmentIds;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
+const deleteAttachmentFile = (attachment) => {
+  if (!attachment?.path) return;
+  const filename = path.basename(attachment.path);
+  const filePath = path.join(indentUploadDir, filename);
+  if (fs.existsSync(filePath)) {
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  }
+};
 
 const APPROVAL_SIGNATURE_KEYS = ['headOfDepartment', 'gmPd', 'svpAvp'];
 const LEGACY_APPROVER_ROLES = ['super_admin', 'admin', 'hr_manager'];
@@ -515,6 +596,8 @@ router.get('/:id',
 // @access  Private
 router.post('/',
   authMiddleware,
+  handleIndentUpload,
+  parseIndentRequestBody,
   [
     body('title').trim().notEmpty().withMessage('Title is required').isLength({ max: 200 }).withMessage('Title cannot exceed 200 characters'),
     body('description').optional().trim().isLength({ max: 1000 }).withMessage('Description cannot exceed 1000 characters'),
@@ -542,11 +625,14 @@ router.post('/',
       });
     }
 
+    const uploadedAttachments = mapUploadedAttachments(req.files || []);
+
     const indentData = {
       ...req.body,
       requestedBy: req.user.id,
       createdBy: req.user.id,
-      status: req.body.status || 'Draft'
+      status: req.body.status || 'Draft',
+      attachments: uploadedAttachments
     };
 
     delete indentData.approvalChain;
@@ -638,6 +724,8 @@ router.post('/',
 // @access  Private
 router.put('/:id',
   authMiddleware,
+  handleIndentUpload,
+  parseIndentRequestBody,
   [
     body('title').optional().trim().isLength({ min: 1, max: 200 }).withMessage('Title must be less than 200 characters'),
     body('description').optional().trim().isLength({ max: 1000 }).withMessage('Description cannot exceed 1000 characters'),
@@ -725,9 +813,22 @@ router.put('/:id',
       indent.draftApproverIds = uniq;
     }
 
+    // Handle attachments removal & new additions
+    const removedIds = parseRemovedAttachmentIds(req.body);
+    const existing = (indent.attachments || []).filter((att) => {
+      const idStr = String(att._id || '');
+      if (removedIds.includes(idStr)) {
+        deleteAttachmentFile(att);
+        return false;
+      }
+      return true;
+    });
+    const newAttachments = mapUploadedAttachments(req.files || []);
+    indent.attachments = [...existing, ...newAttachments];
+
     // Update fields (now also allowing indentNumber updates); never take approvalChain from client
     Object.keys(req.body).forEach(key => {
-      if (key !== '_id' && key !== 'createdAt' && key !== 'updatedAt' && key !== 'approvalChain' && key !== 'draftApproverIds') {
+      if (key !== '_id' && key !== 'createdAt' && key !== 'updatedAt' && key !== 'approvalChain' && key !== 'draftApproverIds' && key !== 'attachments' && key !== 'removedAttachmentIds' && key !== 'data') {
         indent[key] = req.body[key];
       }
     });
