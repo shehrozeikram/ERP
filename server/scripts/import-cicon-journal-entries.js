@@ -36,9 +36,16 @@ function excelDateToJSDate(serial) {
 }
 
 async function run() {
-  const uri = process.env.MONGODB_URI_LOCAL || 'mongodb://localhost:27017/sgc_erp_local';
-  console.log('Connecting to MongoDB at:', uri);
-  await mongoose.connect(uri);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const uri = isProduction
+    ? (process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sgc_erp')
+    : (process.env.MONGODB_URI_LOCAL || process.env.MONGODB_URI || 'mongodb://localhost:27017/sgc_erp_local');
+
+  console.log(`Connecting to MongoDB (${isProduction ? 'PRODUCTION' : 'LOCAL'}) at:`, uri.replace(/:[^:@]+@/, ':****@'));
+  await mongoose.connect(uri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  });
 
   // 1. Locate CICON PlacementCompany
   const cicon = await PlacementCompany.findOne({ name: new RegExp('cicon', 'i') });
