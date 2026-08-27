@@ -1056,7 +1056,8 @@ export const MODULES = {
         subItems: [
           { name: 'Dashboard', path: '/general/indents/dashboard' },
           { name: 'All Indents', path: '/general/indents' },
-          { name: 'Create Indent', path: '/general/indents/create' }
+          { name: 'Create Indent', path: '/general/indents/create' },
+          { name: 'Cost Centers', path: '/general/cost-centers' }
         ]
       },
       {
@@ -1085,10 +1086,6 @@ export const MODULES = {
           { name: 'Gantt Chart', path: '/general/project-management/workspace/gantt' },
           { name: 'Invoices', path: '/general/project-management/workspace/invoices' }
         ]
-      },
-      {
-        name: 'Cost Centers',
-        path: '/general/cost-centers'
       },
       {
         name: 'Ceo Secretariat',
@@ -1409,6 +1406,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/general/indents': 'indents',
       '/general/indents/dashboard': 'indents',
       '/general/indents/create': 'indents',
+      '/general/cost-centers': 'indents',
       '/general/cash-approvals': 'general_cash_approvals',
       '/general/cash-approvals/create': 'general_cash_approvals',
       '/general/user-tracking': 'user_tracking',

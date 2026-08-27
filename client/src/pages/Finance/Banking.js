@@ -27,21 +27,16 @@ import {
   Select,
   MenuItem,
   Pagination,
-  Tabs,
-  Tab
+  Stack
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
-  CreditCard as CreditCardIcon,
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Visibility as ViewIcon,
-  Download as DownloadIcon,
+  Search as SearchIcon,
   Refresh as RefreshIcon,
-  SwapHoriz as TransferIcon,
-  Savings as SavingsIcon
+  Download as DownloadIcon,
+  CheckCircle as ClearedIcon,
+  ReceiptLong as VoucherIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -58,25 +53,24 @@ const Banking = () => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState(0);
   const [filters, setFilters] = useState({
     accountId: '',
-    type: '',
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: '',
+    endDate: '',
     search: ''
   });
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
     totalCount: 0,
-    limit: 20
+    limit: 50
   });
   const [summary, setSummary] = useState({
-    totalBalance: 0,
-    totalDeposits: 0,
-    totalWithdrawals: 0,
-    totalTransfers: 0
+    totalCount: 0,
+    totalDr: 0,
+    totalCr: 0,
+    netBalance: 0,
+    netBalanceType: 'Dr'
   });
 
   useEffect(() => {
@@ -92,13 +86,12 @@ const Banking = () => {
 
   const fetchBankAccounts = async () => {
     try {
-      const response = await api.get('/finance/banking/accounts');
+      const response = await api.get('/finance/reports/bank-reconciliation');
       if (response.data.success) {
-        setBankAccounts(response.data.data.accounts || []);
-        setSummary(response.data.data.summary || summary);
+        setBankAccounts(response.data.data.bankAccounts || []);
       }
-    } catch (error) {
-      console.error('Error fetching bank accounts:', error);
+    } catch (err) {
+      console.error('Error fetching bank accounts:', err);
     }
   };
 
@@ -107,7 +100,6 @@ const Banking = () => {
       setLoading(true);
       const params = new URLSearchParams();
       if (filters.accountId) params.append('accountId', filters.accountId);
-      if (filters.type) params.append('type', filters.type);
       if (filters.startDate) params.append('startDate', filters.startDate);
       if (filters.endDate) params.append('endDate', filters.endDate);
       if (filters.search) params.append('search', filters.search);
@@ -117,14 +109,15 @@ const Banking = () => {
       const response = await api.get(`/finance/banking/transactions?${params}`);
       if (response.data.success) {
         setTransactions(response.data.data.transactions || []);
+        setSummary(response.data.data.summary || summary);
         setPagination(prev => ({
           ...prev,
           ...response.data.data.pagination
         }));
       }
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-      setError('Failed to fetch banking data');
+    } catch (err) {
+      console.error('Error fetching transactions:', err);
+      setError('Failed to fetch reconciled banking transactions');
     } finally {
       setLoading(false);
     }
@@ -142,55 +135,38 @@ const Banking = () => {
     setPagination(prev => ({ ...prev, currentPage: page }));
   };
 
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
+  const handleUpdateCustomMeta = async (t, field, value) => {
+    if (!t.journalEntryId) return;
+    try {
+      setTransactions(prev => prev.map(item => {
+        if (item._id === t._id) {
+          return { ...item, [field]: value };
+        }
+        return item;
+      }));
+
+      const payload = {
+        journalEntryId: t.journalEntryId,
+        customPaymentType: field === 'paymentType' ? value : t.paymentType,
+        customMainAccountHead: field === 'mainAccountHead' ? value : t.mainAccountHead,
+        customSubAccountHead: field === 'subAccountHead' ? value : t.subAccountHead,
+        customCompany: field === 'companies' ? value : t.companies,
+        customProject: field === 'project' ? value : t.project
+      };
+
+      await api.put(`/finance/banking/transactions/${t.journalEntryId}/custom-meta`, payload);
+    } catch (err) {
+      console.error('Failed to update custom meta:', err);
+    }
   };
 
-  const getTransactionTypeColor = (type) => {
-    const colorMap = {
-      'deposit': 'success',
-      'withdrawal': 'error',
-      'transfer': 'info',
-      'fee': 'warning',
-      'interest': 'primary'
-    };
-    return colorMap[type] || 'default';
-  };
-
-  const getTransactionTypeIcon = (type) => {
-    const iconMap = {
-      'deposit': <TrendingUpIcon />,
-      'withdrawal': <TrendingDownIcon />,
-      'transfer': <TransferIcon />,
-      'fee': <CreditCardIcon />,
-      'interest': <SavingsIcon />
-    };
-    return iconMap[type] || <AccountBalanceIcon />;
-  };
-
-  const getAccountTypeIcon = (type) => {
-    const iconMap = {
-      'checking': <AccountBalanceIcon />,
-      'savings': <SavingsIcon />,
-      'credit': <CreditCardIcon />
-    };
-    return iconMap[type] || <AccountBalanceIcon />;
-  };
-
-  if (loading) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <LinearProgress />
-        <Typography variant="h6" sx={{ mt: 2 }}>Loading Banking...</Typography>
-      </Box>
-    );
-  }
+  const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Paper sx={{ p: 3, mb: 3, background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.1)} 0%, ${alpha(theme.palette.primary.main, 0.1)} 100%)` }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Avatar sx={{ bgcolor: theme.palette.info.main }}>
               <AccountBalanceIcon />
@@ -200,7 +176,7 @@ const Banking = () => {
                 Banking
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Manage bank accounts and transactions
+                Reconciled bank book & cleared accounting transactions
               </Typography>
             </Box>
           </Box>
@@ -216,16 +192,36 @@ const Banking = () => {
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
-              onClick={() => console.log('Export functionality')}
+              onClick={() => {
+                // Export table data to CSV
+                if (!transactions.length) return;
+                const headers = ['V Date', 'V No', 'Narration', 'Inst No', 'AMOUNT', 'DR/CR', 'Clearing Date', 'BANK', 'Payment Type', 'MAIN ACCOUNT HEADS', 'SUB ACCOUNT HEAD', 'COMPANIES', 'PROJECT'];
+                const rows = transactions.map(t => [
+                  t.vDate ? formatDate(t.vDate) : '',
+                  `"${(t.vNo || '').replace(/"/g, '""')}"`,
+                  `"${(t.narration || '').replace(/"/g, '""')}"`,
+                  `"${(t.instNo || '').replace(/"/g, '""')}"`,
+                  t.drCr === 'Cr' ? -t.amount : t.amount,
+                  t.drCr,
+                  t.clearingDate ? formatDate(t.clearingDate) : '',
+                  `"${(t.bank || '').replace(/"/g, '""')}"`,
+                  `"${(t.paymentType || '').replace(/"/g, '""')}"`,
+                  `"${(t.mainAccountHead || '').replace(/"/g, '""')}"`,
+                  `"${(t.subAccountHead || '').replace(/"/g, '""')}"`,
+                  `"${(t.companies || '').replace(/"/g, '""')}"`,
+                  `"${(t.project || '').replace(/"/g, '""')}"`
+                ]);
+                const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement('a');
+                link.setAttribute('href', encodedUri);
+                link.setAttribute('download', `Reconciled_Banking_${new Date().toISOString().split('T')[0]}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }}
             >
-              Export
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => navigate('/finance/banking/accounts/new')}
-            >
-              Add Account
+              Export CSV
             </Button>
           </Box>
         </Box>
@@ -240,385 +236,341 @@ const Banking = () => {
 
       {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={3}>
-          <Card>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined">
             <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom variant="body2">
-                    Total Balance
-                  </Typography>
-                  <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                    {formatPKR(summary.totalBalance)}
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary">
-                    {bankAccounts.length} accounts
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'primary.main' }}>
-                  <AccountBalanceIcon />
-                </Avatar>
-              </Box>
+              <Typography color="textSecondary" gutterBottom variant="body2" fontWeight={600}>
+                Total Reconciled Records
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, color: 'info.main' }}>
+                {summary.totalCount}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Cleared from Bank Reconciliation
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={3}>
-          <Card>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined">
             <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom variant="body2">
-                    Total Deposits
-                  </Typography>
-                  <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                    {formatPKR(summary.totalDeposits)}
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'success.main' }}>
-                  <TrendingUpIcon />
-                </Avatar>
-              </Box>
+              <Typography color="textSecondary" gutterBottom variant="body2" fontWeight={600}>
+                Total Debits (Dr / Inflows)
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, color: 'success.main' }}>
+                {formatPKR(summary.totalDr)}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Cleared incoming receipts
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={3}>
-          <Card>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined">
             <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom variant="body2">
-                    Total Withdrawals
-                  </Typography>
-                  <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'error.main' }}>
-                    {formatPKR(summary.totalWithdrawals)}
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'error.main' }}>
-                  <TrendingDownIcon />
-                </Avatar>
-              </Box>
+              <Typography color="textSecondary" gutterBottom variant="body2" fontWeight={600}>
+                Total Credits (Cr / Outflows)
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, color: 'error.main' }}>
+                {formatPKR(summary.totalCr)}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Cleared payments & charges
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={3}>
-          <Card>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card variant="outlined">
             <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom variant="body2">
-                    Total Transfers
-                  </Typography>
-                  <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'info.main' }}>
-                    {formatPKR(summary.totalTransfers)}
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'info.main' }}>
-                  <TransferIcon />
-                </Avatar>
-              </Box>
+              <Typography color="textSecondary" gutterBottom variant="body2" fontWeight={600}>
+                Net Cleared Balance
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, color: summary.netBalanceType === 'Dr' ? 'primary.main' : 'error.main' }}>
+                {formatPKR(summary.netBalance)}{' '}
+                <Typography component="span" variant="caption" fontWeight={800} color={summary.netBalanceType === 'Cr' ? 'error.main' : 'success.main'}>
+                  {summary.netBalanceType}.
+                </Typography>
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Reconciled ledger net balance
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      {/* Tabs */}
-      <Card sx={{ mb: 3 }}>
-        <Tabs value={activeTab} onChange={handleTabChange}>
-          <Tab label="Bank Accounts" />
-          <Tab label="Transactions" />
-        </Tabs>
-      </Card>
-
-      {/* Tab Content */}
-      {activeTab === 0 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Bank Accounts
-            </Typography>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Account</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Bank</TableCell>
-                    <TableCell>Account Number</TableCell>
-                    <TableCell align="right">Balance</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
+      {/* Main Transactions Sheet */}
+      <Card variant="outlined">
+        <CardContent sx={{ p: 2 }}>
+          {/* Filters */}
+          <Grid container spacing={2} sx={{ mb: 2.5 }} alignItems="center">
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Filter Bank</InputLabel>
+                <Select
+                  value={filters.accountId}
+                  onChange={handleFilterChange('accountId')}
+                  label="Filter Bank"
+                >
+                  <MenuItem value="">All Banks</MenuItem>
                   {bankAccounts.map((account) => (
-                    <TableRow key={account._id} hover>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {getAccountTypeIcon(account.type)}
-                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                            {account.name}
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={account.type?.toUpperCase() || 'UNKNOWN'} 
-                          size="small" 
-                          color="primary"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {account.bankName}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                          ****{account.accountNumber.slice(-4)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            fontWeight: 'bold',
-                            color: account.balance > 0 ? 'success.main' : account.balance < 0 ? 'error.main' : 'textSecondary'
-                          }}
-                        >
-                          {formatPKR(account.balance)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={account.isActive ? 'Active' : 'Inactive'} 
-                          size="small" 
-                          color={account.isActive ? 'success' : 'default'}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Tooltip title="View Details">
-                            <IconButton size="small">
-                              <ViewIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Edit Account">
-                            <IconButton size="small">
-                              <EditIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
+                    <MenuItem key={account._id} value={account._id}>
+                      {account.accountName} {account.accountNumber ? `(${account.accountNumber})` : ''}
+                    </MenuItem>
                   ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            {bankAccounts.length === 0 && (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography variant="h6" color="textSecondary">
-                  No bank accounts found
-                </Typography>
-                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                  Add your first bank account to get started
-                </Typography>
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => navigate('/finance/banking/accounts/new')}
-                >
-                  Add First Account
-                </Button>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === 1 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Transactions
-            </Typography>
-
-            {/* Filters */}
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} md={2}>
-                <TextField
-                  fullWidth
-                  type="date"
-                  label="Start Date"
-                  value={filters.startDate}
-                  onChange={handleFilterChange('startDate')}
-                  InputLabelProps={{ shrink: true }}
-                  size="small"
-                />
-              </Grid>
-              <Grid item xs={12} md={2}>
-                <TextField
-                  fullWidth
-                  type="date"
-                  label="End Date"
-                  value={filters.endDate}
-                  onChange={handleFilterChange('endDate')}
-                  InputLabelProps={{ shrink: true }}
-                  size="small"
-                />
-              </Grid>
-              <Grid item xs={12} md={2}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Account</InputLabel>
-                  <Select
-                    value={filters.accountId}
-                    onChange={handleFilterChange('accountId')}
-                    label="Account"
-                  >
-                    <MenuItem value="">All Accounts</MenuItem>
-                    {bankAccounts.map((account) => (
-                      <MenuItem key={account._id} value={account._id}>
-                        {account.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} md={2}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Type</InputLabel>
-                  <Select
-                    value={filters.type}
-                    onChange={handleFilterChange('type')}
-                    label="Type"
-                  >
-                    <MenuItem value="">All Types</MenuItem>
-                    <MenuItem value="deposit">Deposit</MenuItem>
-                    <MenuItem value="withdrawal">Withdrawal</MenuItem>
-                    <MenuItem value="transfer">Transfer</MenuItem>
-                    <MenuItem value="fee">Fee</MenuItem>
-                    <MenuItem value="interest">Interest</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  label="Search"
-                  value={filters.search}
-                  onChange={handleFilterChange('search')}
-                  placeholder="Search transactions"
-                  size="small"
-                />
-              </Grid>
+                </Select>
+              </FormControl>
             </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                type="date"
+                label="From Date"
+                value={filters.startDate}
+                onChange={handleFilterChange('startDate')}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                type="date"
+                label="To Date"
+                value={filters.endDate}
+                onChange={handleFilterChange('endDate')}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} md={5}>
+              <TextField
+                fullWidth
+                label="Search (Voucher, Narration, Instrument No, Bank, Head, Company, Project)"
+                value={filters.search}
+                onChange={handleFilterChange('search')}
+                placeholder="Search anything..."
+                size="small"
+                InputProps={{
+                  startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
+                }}
+              />
+            </Grid>
+          </Grid>
 
-            <TableContainer>
-              <Table>
+          {loading ? (
+            <Box sx={{ py: 6, textAlign: 'center' }}>
+              <LinearProgress sx={{ mb: 2 }} />
+              <Typography variant="body2" color="text.secondary">Loading reconciled banking transactions...</Typography>
+            </Box>
+          ) : (
+            <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: '72vh' }}>
+              <Table size="small" stickyHeader>
                 <TableHead>
-                  <TableRow>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Description</TableCell>
-                    <TableCell>Account</TableCell>
-                    <TableCell align="right">Amount</TableCell>
-                    <TableCell align="right">Balance</TableCell>
-                    <TableCell>Actions</TableCell>
+                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                    <TableCell sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>V Date</TableCell>
+                    <TableCell sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>V No</TableCell>
+                    <TableCell sx={{ fontWeight: 800, minWidth: 260, bgcolor: 'grey.100' }}>Narration</TableCell>
+                    <TableCell sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>Inst No</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>AMOUNT</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>DR/CR</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>Clearing Date</TableCell>
+                    <TableCell sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>BANK</TableCell>
+                    <TableCell sx={{ fontWeight: 800, minWidth: 140, bgcolor: 'grey.100' }}>Payment Type</TableCell>
+                    <TableCell sx={{ fontWeight: 800, minWidth: 170, bgcolor: 'grey.100' }}>MAIN ACCOUNT HEADS</TableCell>
+                    <TableCell sx={{ fontWeight: 800, minWidth: 170, bgcolor: 'grey.100' }}>SUB ACCOUNT HEAD</TableCell>
+                    <TableCell sx={{ fontWeight: 800, minWidth: 140, bgcolor: 'grey.100' }}>COMPANIES</TableCell>
+                    <TableCell sx={{ fontWeight: 800, minWidth: 140, bgcolor: 'grey.100' }}>PROJECT</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>Action</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {transactions.map((transaction) => (
-                    <TableRow key={transaction._id} hover>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {formatDate(transaction.date)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={transaction.type?.toUpperCase() || 'UNKNOWN'} 
-                          size="small" 
-                          color={getTransactionTypeColor(transaction.type)}
-                          icon={getTransactionTypeIcon(transaction.type)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {transaction.description}
-                        </Typography>
-                        {transaction.reference && (
-                          <Typography variant="caption" color="textSecondary">
-                            Ref: {transaction.reference}
+                  {transactions.map((t, idx) => {
+                    const isCredit = t.drCr === 'Cr';
+                    return (
+                      <TableRow key={t._id || idx} hover sx={{ '&:nth-of-type(odd)': { bgcolor: 'action.hover' } }}>
+                        <TableCell sx={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
+                          {formatDate(t.vDate)}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
+                          {t.vNo}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.8125rem' }}>
+                          {t.narration}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', fontSize: '0.8125rem', fontFamily: 'monospace' }}>
+                          {t.instNo && t.instNo !== '—' ? (
+                            <Chip size="small" variant="outlined" label={t.instNo} sx={{ fontSize: '0.75rem', height: 20 }} />
+                          ) : '—'}
+                        </TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 700, fontSize: '0.8125rem' }}>
+                          {isCredit ? `-${fmt(t.amount)}` : fmt(t.amount)}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            sx={{
+                              fontWeight: 800,
+                              px: 0.75,
+                              py: 0.25,
+                              borderRadius: 0.5,
+                              bgcolor: isCredit ? 'error.lighter' : 'success.lighter',
+                              color: isCredit ? 'error.main' : 'success.main'
+                            }}
+                          >
+                            {t.drCr}.
                           </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          {transaction.account?.name || 'Unknown Account'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            fontWeight: 'bold',
-                            color: transaction.amount > 0 ? 'success.main' : 'error.main'
-                          }}
-                        >
-                          {transaction.amount > 0 ? '+' : ''}{formatPKR(transaction.amount)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          {formatPKR(transaction.runningBalance)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Tooltip title="View Details">
-                          <IconButton size="small">
-                            <ViewIcon />
-                          </IconButton>
-                        </Tooltip>
+                        </TableCell>
+                        <TableCell align="center" sx={{ whiteSpace: 'nowrap', fontSize: '0.8125rem', color: 'success.dark', fontWeight: 600 }}>
+                          {t.clearingDate ? formatDate(t.clearingDate) : '—'}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 600, fontSize: '0.8125rem' }}>
+                          {t.bank}
+                        </TableCell>
+                        {/* Editable Payment Type */}
+                        <TableCell sx={{ minWidth: 140 }}>
+                          <TextField
+                            size="small"
+                            variant="standard"
+                            fullWidth
+                            value={t.paymentType || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, paymentType: val } : item));
+                            }}
+                            onBlur={(e) => handleUpdateCustomMeta(t, 'paymentType', e.target.value)}
+                            placeholder="e.g. BPV / Online"
+                            inputProps={{ style: { fontSize: '0.8125rem' } }}
+                          />
+                        </TableCell>
+                        {/* Editable MAIN ACCOUNT HEADS */}
+                        <TableCell sx={{ minWidth: 170 }}>
+                          <TextField
+                            size="small"
+                            variant="standard"
+                            fullWidth
+                            value={t.mainAccountHead || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, mainAccountHead: val } : item));
+                            }}
+                            onBlur={(e) => handleUpdateCustomMeta(t, 'mainAccountHead', e.target.value)}
+                            placeholder="Main Head"
+                            inputProps={{ style: { fontSize: '0.8125rem' } }}
+                          />
+                        </TableCell>
+                        {/* Editable SUB ACCOUNT HEAD */}
+                        <TableCell sx={{ minWidth: 170 }}>
+                          <TextField
+                            size="small"
+                            variant="standard"
+                            fullWidth
+                            value={t.subAccountHead || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, subAccountHead: val } : item));
+                            }}
+                            onBlur={(e) => handleUpdateCustomMeta(t, 'subAccountHead', e.target.value)}
+                            placeholder="Sub Head"
+                            inputProps={{ style: { fontSize: '0.8125rem', fontWeight: 500 } }}
+                          />
+                        </TableCell>
+                        {/* Editable COMPANIES */}
+                        <TableCell sx={{ minWidth: 140 }}>
+                          <TextField
+                            size="small"
+                            variant="standard"
+                            fullWidth
+                            value={t.companies || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, companies: val } : item));
+                            }}
+                            onBlur={(e) => handleUpdateCustomMeta(t, 'companies', e.target.value)}
+                            placeholder="Company"
+                            inputProps={{ style: { fontSize: '0.8125rem' } }}
+                          />
+                        </TableCell>
+                        {/* Editable PROJECT */}
+                        <TableCell sx={{ minWidth: 140 }}>
+                          <TextField
+                            size="small"
+                            variant="standard"
+                            fullWidth
+                            value={t.project || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, project: val } : item));
+                            }}
+                            onBlur={(e) => handleUpdateCustomMeta(t, 'project', e.target.value)}
+                            placeholder="Project"
+                            inputProps={{ style: { fontSize: '0.8125rem' } }}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          {t.journalEntryId && (
+                            <Tooltip title="View Linked Voucher">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => navigate(`/finance/vouchers/${t.journalEntryId}`)}
+                              >
+                                <ViewIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+
+                  {transactions.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={14} align="center" sx={{ py: 6 }}>
+                        <Box sx={{ color: 'text.disabled', textAlign: 'center' }}>
+                          <ClearedIcon sx={{ fontSize: 48, mb: 1, opacity: 0.5 }} />
+                          <Typography variant="h6" color="text.secondary">
+                            No Reconciled Banking Transactions Found
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            When cheques and payment vouchers are marked as Cleared with a Clearing Date in Bank Reconciliation, they will appear here automatically.
+                          </Typography>
+                          <Button
+                            variant="outlined"
+                            startIcon={<VoucherIcon />}
+                            sx={{ mt: 2 }}
+                            onClick={() => navigate('/finance/reports/bank-reconciliation')}
+                          >
+                            Go to Bank Reconciliation
+                          </Button>
+                        </Box>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )}
                 </TableBody>
               </Table>
             </TableContainer>
+          )}
 
-            {transactions.length === 0 && (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography variant="h6" color="textSecondary">
-                  No transactions found
-                </Typography>
-                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                  Adjust your filters or add some transactions
-                </Typography>
-                <Button
-                  variant="contained"
-                  onClick={() => navigate('/finance/banking/transactions/new')}
-                >
-                  Add Transaction
-                </Button>
-              </Box>
-            )}
-
-            {/* Pagination */}
-            {pagination.totalPages > 1 && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-                <Pagination
-                  count={pagination.totalPages}
-                  page={pagination.currentPage}
-                  onChange={handlePageChange}
-                  color="primary"
-                />
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      )}
+          {/* Pagination */}
+          {pagination.totalPages > 1 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+              <Pagination
+                count={pagination.totalPages}
+                page={pagination.currentPage}
+                onChange={handlePageChange}
+                color="primary"
+              />
+            </Box>
+          )}
+        </CardContent>
+      </Card>
     </Box>
   );
 };
 
 export default Banking;
+

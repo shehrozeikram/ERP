@@ -802,18 +802,6 @@ router.put('/journal-entries/:id/clearance',
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
 
     if (clearanceStatus === 'cleared') {
-      const att = entry.attachments || [];
-      if (
-        !att.length ||
-        entry.signedDocumentStatus !== 'signed' ||
-        !entry.signedDocumentAt
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'Add an attachment, mark the voucher as signed, and ensure signed date is set before marking clearance as cleared.'
-        });
-      }
       if (!clearedAt || Number.isNaN(new Date(clearedAt).getTime())) {
         return res.status(400).json({
           success: false,
@@ -859,16 +847,6 @@ router.put('/journal-entries/:id/signed-document',
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
 
-    if (signedDocumentStatus === 'signed') {
-      const att = entry.attachments || [];
-      if (!att.length) {
-        return res.status(400).json({
-          success: false,
-          message: 'Add at least one attachment before marking the voucher as signed.'
-        });
-      }
-    }
-
     entry.signedDocumentStatus = signedDocumentStatus;
     if (signedBySignatory !== undefined) {
       entry.signedBySignatory = signedBySignatory || null;
@@ -878,10 +856,6 @@ router.put('/journal-entries/:id/signed-document',
     } else {
       entry.signedDocumentAt = null;
       entry.signedBySignatory = null;
-      entry.clearanceStatus = 'pending';
-      entry.clearedAt = null;
-      entry.clearedBy = null;
-      entry.clearanceRemarks = '';
     }
     await entry.save();
 
@@ -3079,110 +3053,339 @@ router.get('/banking',
 );
 
 // @route   GET /api/finance/banking/transactions
-// @desc    Get banking transactions
+// @desc    Get reconciled / cleared banking transactions with complete accounting breakdown
 // @access  Private (Finance and Admin)
 router.get('/banking/transactions', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
-      limit = 20, 
+      limit = 50, 
       accountId,
-      type,
+      bankAccount,
       startDate,
       endDate,
-      search 
+      search,
+      companyId,
+      project
     } = req.query;
 
-    const filters = {};
+    const { q, selectedCompanyId } = await financeScope(req);
+    const effectiveCompanyId = companyId || selectedCompanyId;
 
-    if (accountId) filters.account = accountId;
-    if (type) filters.type = type;
-    if (startDate || endDate) {
-      filters.date = {};
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        filters.date.$gte = start;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        filters.date.$lte = end;
-      }
-    }
-    if (search) {
-      filters.$or = [
-        { description: { $regex: search, $options: 'i' } },
-        { reference: { $regex: search, $options: 'i' } }
-      ];
+    // 1. Identify Target Bank Accounts (COA)
+    let targetAccountIds = [];
+    if (accountId || bankAccount) {
+      targetAccountIds = [accountId || bankAccount];
+    } else {
+      const bankAccounts = await Account.find(
+        q({
+          $or: [
+            { type: 'Asset' },
+            { category: { $regex: /cash|bank|current/i } },
+            { detailType: { $regex: /cash|bank/i } },
+            { accountCode: 'BANK' },
+            { accountCode: 'CASH' }
+          ]
+        })
+      ).select('_id').lean();
+      targetAccountIds = bankAccounts.map(a => a._id);
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const { q } = await financeScope(req);
-    const bankAccounts = await Banking.find(q({})).exec();
-    
-    // Extract transactions from all accounts
-    let allTransactions = [];
-    bankAccounts.forEach(account => {
-      if (account.transactions && account.transactions.length > 0) {
-        account.transactions.forEach(transaction => {
-          allTransactions.push({
-            ...transaction.toObject(),
-            account: {
-              _id: account._id,
-              name: account.accountName,
-              type: account.accountType
-            }
-          });
-        });
-      }
+    // 2. Query GeneralLedger where transaction is cleared / reconciled
+    const glQuery = q({
+      account: { $in: targetAccountIds },
+      $or: [
+        { clearanceStatus: 'cleared' },
+        { isReconciled: true }
+      ]
     });
 
-    // Apply filters
-    let filteredTransactions = allTransactions;
-    if (filters.account) {
-      filteredTransactions = filteredTransactions.filter(t => t.account._id.toString() === filters.account);
+    if (effectiveCompanyId) {
+      glQuery.companyId = effectiveCompanyId;
     }
-    if (filters.type) {
-      filteredTransactions = filteredTransactions.filter(t => t.type === filters.type);
-    }
-    if (filters.date) {
-      filteredTransactions = filteredTransactions.filter(t => {
-        const transactionDate = new Date(t.date);
-        return transactionDate >= filters.date.$gte && transactionDate <= filters.date.$lte;
-      });
-    }
-    if (filters.$or) {
-      filteredTransactions = filteredTransactions.filter(t => {
-        return filters.$or.some(condition => {
-          return Object.keys(condition).some(field => {
-            return t[field] && t[field].toLowerCase().includes(condition[field].$regex.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, ''));
-          });
+
+    if (startDate || endDate) {
+      glQuery.$and = glQuery.$and || [];
+      if (startDate) {
+        const s = new Date(startDate);
+        s.setHours(0, 0, 0, 0);
+        glQuery.$and.push({
+          $or: [
+            { clearedAt: { $gte: s } },
+            { reconciledAt: { $gte: s } },
+            { date: { $gte: s } }
+          ]
         });
-      });
+      }
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        glQuery.$and.push({
+          $or: [
+            { clearedAt: { $lte: e } },
+            { reconciledAt: { $lte: e } },
+            { date: { $lte: e } }
+          ]
+        });
+      }
     }
 
-    // Sort by date (newest first)
-    filteredTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+    const glEntries = await GeneralLedger.find(glQuery)
+      .populate('account', 'name accountNumber category detailType type')
+      .populate('costCenter', 'name code')
+      .populate('companyId', 'name companyCode')
+      .populate({
+        path: 'journalEntry',
+        select: 'status isReconciled reconciledAt clearanceStatus clearedAt signedDocumentStatus signedDocumentAt signedBySignatory attachments entryNumber reference description lines date project companyId',
+        populate: [
+          { path: 'lines.account', select: 'name accountNumber category detailType type' },
+          { path: 'lines.costCenter', select: 'name code' },
+          { path: 'project', select: 'name code' },
+          { path: 'companyId', select: 'name companyCode' }
+        ]
+      })
+      .sort({ clearedAt: -1, date: -1, entryNumber: -1 })
+      .lean();
 
-    // Apply pagination
-    const totalCount = filteredTransactions.length;
-    const paginatedTransactions = filteredTransactions.slice(skip, skip + parseInt(limit));
+    const transactions = [];
+    const seenTxnKeys = new Set();
+
+    glEntries.forEach((gle) => {
+      const je = gle.journalEntry || {};
+      const txnKey = `${gle._id}`;
+      if (seenTxnKeys.has(txnKey)) return;
+      seenTxnKeys.add(txnKey);
+
+      const isCredit = (Number(gle.credit) || 0) > 0;
+      const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
+      const clearDate = gle.clearedAt || je.clearedAt || gle.reconciledAt || je.reconciledAt || gle.date;
+
+      // Find opposing line (Main Account Head & Sub Account Head) from Journal Entry
+      let opposingLine = null;
+      if (je && Array.isArray(je.lines) && je.lines.length > 0) {
+        opposingLine = je.lines.find((line) => {
+          const lineAccId = String(line.account?._id || line.account || '');
+          const bankAccId = String(gle.account?._id || gle.account || '');
+          return lineAccId !== bankAccId;
+        }) || je.lines[0];
+      }
+
+      const mainAccountHead = je.customMainAccountHead || opposingLine?.account?.category || opposingLine?.account?.type || opposingLine?.account?.name || 'General';
+      const subAccountHead = je.customSubAccountHead || opposingLine?.account?.name || opposingLine?.description || '—';
+      const companyName = je.customCompany || gle.companyId?.companyCode || gle.companyId?.name || je.companyId?.companyCode || je.companyId?.name || '—';
+      const projectName = je.customProject || je.project?.name || je.project?.code || '—';
+      const costCenterName = gle.costCenter?.name || opposingLine?.costCenter?.name || '—';
+      const paymentType = je.customPaymentType || (je.voucherSeries ? String(je.voucherSeries).toUpperCase() : (isCredit ? 'Payment' : 'Receipt'));
+
+      transactions.push({
+        _id: gle._id,
+        journalEntryId: je._id || null,
+        vDate: gle.date,
+        vNo: gle.entryNumber || je.entryNumber || '—',
+        narration: gle.description || je.description || 'Bank Transaction',
+        instNo: gle.reference || je.reference || '—',
+        amount: amt,
+        drCr: isCredit ? 'Cr' : 'Dr',
+        displayAmount: isCredit ? -amt : amt,
+        clearingDate: clearDate,
+        bank: gle.account?.name || 'Bank Account',
+        bankAccountNumber: gle.account?.accountNumber || '',
+        paymentType,
+        mainAccountHead,
+        subAccountHead,
+        companies: companyName,
+        project: projectName,
+        costCenter: costCenterName,
+        signedBy: je.signedBySignatory || '—',
+        signedDate: je.signedDocumentAt || null,
+        status: 'Cleared'
+      });
+    });
+
+    // Also check Journal Entries directly with clearanceStatus === 'cleared' that might not be in GL
+    const jeDirectQuery = q({
+      clearanceStatus: 'cleared',
+      'lines.account': { $in: targetAccountIds }
+    });
+
+    if (effectiveCompanyId) {
+      jeDirectQuery.companyId = effectiveCompanyId;
+    }
+
+    if (startDate || endDate) {
+      jeDirectQuery.$and = jeDirectQuery.$and || [];
+      if (startDate) {
+        const s = new Date(startDate);
+        s.setHours(0, 0, 0, 0);
+        jeDirectQuery.$and.push({
+          $or: [
+            { clearedAt: { $gte: s } },
+            { date: { $gte: s } }
+          ]
+        });
+      }
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        jeDirectQuery.$and.push({
+          $or: [
+            { clearedAt: { $lte: e } },
+            { date: { $lte: e } }
+          ]
+        });
+      }
+    }
+
+    const directJes = await JournalEntry.find(jeDirectQuery)
+      .populate('lines.account', 'name accountNumber category detailType type')
+      .populate('lines.costCenter', 'name code')
+      .populate('project', 'name code')
+      .populate('companyId', 'name companyCode')
+      .sort({ clearedAt: -1, date: -1 })
+      .lean();
+
+    const targetAccountIdsSet = new Set(targetAccountIds.map(id => String(id)));
+
+    directJes.forEach((je) => {
+      (je.lines || []).forEach((line, idx) => {
+        const lineAccId = String(line.account?._id || line.account || '');
+        if (targetAccountIdsSet.has(lineAccId)) {
+          const isCredit = (Number(line.credit) || 0) > 0;
+          const amt = isCredit ? Number(line.credit) : Number(line.debit);
+          const clearDate = je.clearedAt || je.reconciledAt || je.date;
+
+          const opposing = je.lines.find((l, i) => i !== idx) || line;
+          const mainAccountHead = je.customMainAccountHead || opposing?.account?.category || opposing?.account?.type || opposing?.account?.name || 'General';
+          const subAccountHead = je.customSubAccountHead || opposing?.account?.name || opposing?.description || '—';
+          const companyName = je.customCompany || je.companyId?.companyCode || je.companyId?.name || '—';
+          const projectName = je.customProject || je.project?.name || je.project?.code || '—';
+          const costCenterName = line.costCenter?.name || opposing?.costCenter?.name || '—';
+          const paymentType = je.customPaymentType || (je.voucherSeries ? String(je.voucherSeries).toUpperCase() : (isCredit ? 'Payment' : 'Receipt'));
+
+          // Avoid duplicating if already added via GL
+          const alreadyAdded = transactions.some(t => String(t.journalEntryId) === String(je._id));
+          if (!alreadyAdded) {
+            transactions.push({
+              _id: `${je._id}-${idx}`,
+              journalEntryId: je._id,
+              vDate: je.date,
+              vNo: je.entryNumber || je.reference || '—',
+              narration: line.description || je.description || 'Bank Transaction',
+              instNo: je.reference || je.entryNumber || '—',
+              amount: amt,
+              drCr: isCredit ? 'Cr' : 'Dr',
+              displayAmount: isCredit ? -amt : amt,
+              clearingDate: clearDate,
+              bank: line.account?.name || 'Bank Account',
+              bankAccountNumber: line.account?.accountNumber || '',
+              paymentType,
+              mainAccountHead,
+              subAccountHead,
+              companies: companyName,
+              project: projectName,
+              costCenter: costCenterName,
+              signedBy: je.signedBySignatory || '—',
+              signedDate: je.signedDocumentAt || null,
+              status: 'Cleared'
+            });
+          }
+        }
+      });
+    });
+
+    // Apply keyword search
+    let filtered = transactions;
+    if (search && search.trim()) {
+      const s = search.trim().toLowerCase();
+      filtered = filtered.filter(t => 
+        (t.vNo && t.vNo.toLowerCase().includes(s)) ||
+        (t.narration && t.narration.toLowerCase().includes(s)) ||
+        (t.instNo && t.instNo.toLowerCase().includes(s)) ||
+        (t.bank && t.bank.toLowerCase().includes(s)) ||
+        (t.paymentType && t.paymentType.toLowerCase().includes(s)) ||
+        (t.mainAccountHead && t.mainAccountHead.toLowerCase().includes(s)) ||
+        (t.subAccountHead && t.subAccountHead.toLowerCase().includes(s)) ||
+        (t.companies && t.companies.toLowerCase().includes(s)) ||
+        (t.project && t.project.toLowerCase().includes(s))
+      );
+    }
+
+    // Sort by clearingDate (newest first)
+    filtered.sort((a, b) => new Date(b.clearingDate || b.vDate) - new Date(a.clearingDate || a.vDate));
+
+    // Summary calculation
+    const totalDr = filtered.filter(t => t.drCr === 'Dr').reduce((s, t) => s + t.amount, 0);
+    const totalCr = filtered.filter(t => t.drCr === 'Cr').reduce((s, t) => s + t.amount, 0);
+    const netBalance = totalDr - totalCr;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedTransactions = filtered.slice(skip, skip + parseInt(limit));
+    const totalCount = filtered.length;
 
     res.json({
       success: true,
       data: {
         transactions: paginatedTransactions,
+        summary: {
+          totalCount,
+          totalDr: Math.round(totalDr * 100) / 100,
+          totalCr: Math.round(totalCr * 100) / 100,
+          netBalance: Math.round(netBalance * 100) / 100,
+          netBalanceType: netBalance >= 0 ? 'Dr' : 'Cr'
+        },
         pagination: {
           currentPage: parseInt(page),
-          totalPages: Math.ceil(totalCount / parseInt(limit)),
+          totalPages: Math.ceil(totalCount / parseInt(limit)) || 1,
           totalCount,
           hasNextPage: page < Math.ceil(totalCount / parseInt(limit)),
           hasPrevPage: page > 1,
           limit: parseInt(limit)
         }
+      }
+    });
+  })
+);
+
+// @route   PUT /api/finance/banking/transactions/:id/custom-meta
+// @desc    Update editable custom metadata fields for a banking entry (Main Head, Sub Head, Company, Project, Payment Type)
+// @access  Private (Finance and Admin)
+router.put('/banking/transactions/:id/custom-meta',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { 
+      journalEntryId, 
+      customPaymentType, 
+      customMainAccountHead, 
+      customSubAccountHead, 
+      customCompany, 
+      customProject 
+    } = req.body || {};
+
+    const targetJeId = journalEntryId || req.params.id;
+    const entry = await JournalEntry.findById(targetJeId);
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Journal entry / voucher not found' });
+    }
+
+    if (customPaymentType !== undefined) entry.customPaymentType = customPaymentType;
+    if (customMainAccountHead !== undefined) entry.customMainAccountHead = customMainAccountHead;
+    if (customSubAccountHead !== undefined) entry.customSubAccountHead = customSubAccountHead;
+    if (customCompany !== undefined) entry.customCompany = customCompany;
+    if (customProject !== undefined) entry.customProject = customProject;
+
+    await entry.save();
+
+    res.json({
+      success: true,
+      message: 'Custom banking attributes updated successfully',
+      data: {
+        _id: entry._id,
+        customPaymentType: entry.customPaymentType,
+        customMainAccountHead: entry.customMainAccountHead,
+        customSubAccountHead: entry.customSubAccountHead,
+        customCompany: entry.customCompany,
+        customProject: entry.customProject
       }
     });
   })
@@ -4677,7 +4880,7 @@ router.get('/reports/bank-reconciliation',
       .populate('account', 'name accountNumber category detailType')
       .populate({
         path: 'journalEntry',
-        select: 'status isReconciled reconciledAt clearanceStatus clearedAt signedDocumentStatus entryNumber reference description lines date'
+        select: 'status isReconciled reconciledAt clearanceStatus clearedAt signedDocumentStatus signedDocumentAt signedBySignatory attachments entryNumber reference description lines date'
       })
       .sort({ date: 1, entryNumber: 1 })
       .lean();
@@ -4721,6 +4924,11 @@ router.get('/reports/bank-reconciliation',
         isCleared,
         clearanceStatus: isCleared ? 'cleared' : (gle.clearanceStatus || je.clearanceStatus || 'pending'),
         clearingDate: clearDate,
+        attachments: je.attachments || [],
+        signedDocumentStatus: je.signedDocumentStatus || 'not_signed',
+        signedDocumentAt: je.signedDocumentAt || null,
+        signedBySignatory: je.signedBySignatory || null,
+        status: je.status || gle.status || 'posted',
         accountName: gle.account?.name || 'Bank Account',
         accountNumber: gle.account?.accountNumber || ''
       });
@@ -4753,6 +4961,11 @@ router.get('/reports/bank-reconciliation',
             isCleared,
             clearanceStatus: isCleared ? 'cleared' : (je.clearanceStatus || 'pending'),
             clearingDate: clearDate,
+            attachments: je.attachments || [],
+            signedDocumentStatus: je.signedDocumentStatus || 'not_signed',
+            signedDocumentAt: je.signedDocumentAt || null,
+            signedBySignatory: je.signedBySignatory || null,
+            status: je.status || 'posted',
             accountName: line.account?.name || 'Bank Account',
             accountNumber: line.account?.accountNumber || ''
           });

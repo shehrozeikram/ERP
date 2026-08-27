@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Paper,
@@ -22,20 +22,11 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Alert,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction
+  Alert
 } from '@mui/material';
 import {
   Visibility as ViewIcon,
   ReceiptLong as VoucherIcon,
-  AttachFile as AttachIcon,
-  CloudUpload as UploadIcon,
-  Delete as DeleteIcon,
-  GetApp as DownloadIcon,
-  InsertDriveFile as FileIcon,
   Description as DescriptionIcon,
   Print as PrintIcon,
   Close as CloseIcon,
@@ -63,17 +54,6 @@ const formatDateForPrint = (date) => {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-/** YYYY-MM-DD in local calendar from a Date or ISO string */
-function clearedAtToYmd(value) {
-  if (!value) return '';
-  const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return '';
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, '0');
-  const d = String(dt.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
 /** User-facing voucher status (journal status + signed / clearance workflow). */
 function getVoucherStatusDisplay(row) {
   const journalStatus = String(row?.status || '').toLowerCase();
@@ -84,31 +64,13 @@ function getVoucherStatusDisplay(row) {
   if (journalStatus === 'reversed') return { label: 'Reversed', color: 'default' };
   if (journalStatus === 'cancelled') return { label: 'Cancelled', color: 'default' };
   if (cleared) return { label: 'Cleared', color: 'success' };
+  if (signed) return { label: 'Signed', color: 'info' };
   if (journalStatus === 'posted') return { label: 'Posted', color: 'success' };
-  if (journalStatus === 'draft' && signed) return { label: 'Signed', color: 'info' };
   if (journalStatus === 'draft') return { label: 'Draft', color: 'warning' };
   const fallback = journalStatus
     ? journalStatus.charAt(0).toUpperCase() + journalStatus.slice(1)
     : '—';
   return { label: fallback, color: 'default' };
-}
-
-const CA_VOUCHER_WORKFLOW_LOCK_MSG =
-  'Available after all finance authorities approve the linked cash approval.';
-
-/** Cash-approval BPV/CPV: lock attachment / signed / clearance until every authority has approved. */
-const isCaVoucherWorkflowLocked = (row) => row?.cashApprovalAuthoritiesComplete === false;
-
-/** Parse YYYY-MM-DD as local noon (stable for API ISO). */
-function parseYmdLocalNoon(ymd) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((ymd || '').trim());
-  if (!m) return null;
-  const y = parseInt(m[1], 10);
-  const mo = parseInt(m[2], 10) - 1;
-  const d = parseInt(m[3], 10);
-  const dt = new Date(y, mo, d, 12, 0, 0, 0);
-  if (dt.getFullYear() !== y || dt.getMonth() !== mo || dt.getDate() !== d) return null;
-  return dt;
 }
 
 /** Journal referenceType values → Voucher Type filter labels (Finance → Vouchers) */
@@ -128,16 +90,9 @@ const VOUCHER_TYPE_FILTER_OPTIONS = [
   { value: 'purchase_return', label: 'PURCHASE RETURN' }
 ];
 
-const SIGNATORY_OPTIONS = [
-  { value: 'Sardar Tanveer Ilyas', label: 'Sardar Tanveer Ilyas' },
-  { value: 'Sardar Umer Tanveer', label: 'Sardar Umer Tanveer' },
-  { value: 'Hamza Tanveer', label: 'Hamza Tanveer' }
-];
-
 const Vouchers = () => {
   const navigate = useNavigate();
   const { selectedCompanyId } = useFinanceCompany();
-  const fileInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
@@ -147,12 +102,6 @@ const Vouchers = () => {
   const [totalCount, setTotalCount] = useState(0);
   /** Default: PAYMENT vouchers (referenceType payment on journal) */
   const [voucherType, setVoucherType] = useState('payment');
-  const [clearanceDialog, setClearanceDialog] = useState({
-    open: false,
-    voucher: null,
-    status: 'pending',
-    clearedAtDate: ''
-  });
   const [viewDialog, setViewDialog] = useState({
     open: false,
     po: null,
@@ -162,8 +111,6 @@ const Vouchers = () => {
     poAuditTab: 0,
     loading: false
   });
-  const [attachDlg, setAttachDlg] = useState({ open: false, entry: null, uploading: false });
-  const [attachError, setAttachError] = useState('');
   
   const [newVoucherDialog, setNewVoucherDialog] = useState(false);
   const [selectedNewVoucherType, setSelectedNewVoucherType] = useState('');
@@ -329,61 +276,6 @@ const Vouchers = () => {
     }
   };
 
-  const openAttachDlg = (entry) => {
-    if (isCaVoucherWorkflowLocked(entry)) return;
-    setAttachDlg({ open: true, entry, uploading: false });
-    setAttachError('');
-  };
-  const closeAttachDlg = () => setAttachDlg({ open: false, entry: null, uploading: false });
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || isCaVoucherWorkflowLocked(attachDlg.entry)) return;
-    setAttachDlg((d) => ({ ...d, uploading: true }));
-    setAttachError('');
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await api.post(`/finance/journal-entries/${attachDlg.entry._id}/attachments`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      const updated = {
-        ...attachDlg.entry,
-        attachments: [...(attachDlg.entry.attachments || []), res.data.data]
-      };
-      setAttachDlg((d) => ({ ...d, entry: updated, uploading: false }));
-      setEntries((prev) => prev.map((en) => (en._id === updated._id ? { ...en, attachments: updated.attachments } : en)));
-    } catch (err) {
-      setAttachError(err.response?.data?.message || 'Upload failed');
-      setAttachDlg((d) => ({ ...d, uploading: false }));
-    }
-    e.target.value = '';
-  };
-
-  const handleDeleteAttachment = async (filename) => {
-    if (isCaVoucherWorkflowLocked(attachDlg.entry)) return;
-    if (!window.confirm('Delete this attachment?')) return;
-    try {
-      const res = await api.delete(
-        `/finance/journal-entries/${attachDlg.entry._id}/attachments/${encodeURIComponent(filename)}`
-      );
-      const serverRow = res?.data?.data;
-      const nextAttachments = (attachDlg.entry.attachments || []).filter((a) => a.filename !== filename);
-      const merged = serverRow && serverRow._id
-        ? { ...attachDlg.entry, ...serverRow, attachments: serverRow.attachments || nextAttachments }
-        : {
-          ...attachDlg.entry,
-          attachments: nextAttachments,
-          signedDocumentStatus: nextAttachments.length ? attachDlg.entry.signedDocumentStatus : 'not_signed',
-          signedDocumentAt: nextAttachments.length ? attachDlg.entry.signedDocumentAt : null
-        };
-      setAttachDlg((d) => ({ ...d, entry: merged }));
-      setEntries((prev) => prev.map((en) => (en._id === merged._id ? { ...en, ...merged } : en)));
-    } catch (err) {
-      setAttachError(err.response?.data?.message || 'Delete failed');
-    }
-  };
-
   const fetchEntries = async (opts = {}) => {
     const nextPage = opts.page ?? page;
     const nextRowsPerPage = opts.rowsPerPage ?? rowsPerPage;
@@ -428,80 +320,6 @@ const Vouchers = () => {
       voucherType: String(entry?.referenceType || 'manual').toUpperCase()
     }))
   ), [entries]);
-
-  const closeClearanceDialog = () =>
-    setClearanceDialog({ open: false, voucher: null, status: 'pending', clearedAtDate: '' });
-
-  const openClearanceDialog = (voucher) => {
-    if (isCaVoucherWorkflowLocked(voucher)) return;
-    const can =
-      (voucher?.attachments || []).length > 0 &&
-      voucher?.signedDocumentStatus === 'signed' &&
-      Boolean(voucher?.signedDocumentAt);
-    if (!can) return;
-    setClearanceDialog({
-      open: true,
-      voucher,
-      status: voucher?.clearanceStatus || 'pending',
-      clearedAtDate:
-        voucher?.clearanceStatus === 'cleared' && voucher?.clearedAt
-          ? clearedAtToYmd(voucher.clearedAt)
-          : ''
-    });
-  };
-
-  const saveClearance = async () => {
-    if (!clearanceDialog.voucher?._id) return;
-    const nextStatus = clearanceDialog.status || 'pending';
-    let clearedAtPayload = null;
-    if (nextStatus === 'cleared') {
-      const ymd = (clearanceDialog.clearedAtDate || '').trim();
-      if (!ymd) {
-        window.alert('Please select a clearance date using the calendar.');
-        return;
-      }
-      const parsed = parseYmdLocalNoon(ymd);
-      if (!parsed) {
-        window.alert('Clearance date is invalid.');
-        return;
-      }
-      clearedAtPayload = parsed.toISOString();
-    }
-    try {
-      const res = await api.put(`/finance/journal-entries/${clearanceDialog.voucher._id}/clearance`, {
-        clearanceStatus: nextStatus,
-        clearanceRemarks: '',
-        clearedAt: clearedAtPayload
-      });
-      const updated = res?.data?.data;
-      setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
-      closeClearanceDialog();
-    } catch (err) {
-      window.alert(err.response?.data?.message || 'Could not update clearance');
-    }
-  };
-
-  const saveSignedDocumentStatus = async (voucherId, nextStatus, signedBySignatory) => {
-    if (!voucherId) return;
-    const row = entries.find((e) => e._id === voucherId);
-    if (isCaVoucherWorkflowLocked(row)) return;
-    if (nextStatus === 'signed' && !(row?.attachments || []).length) return;
-    try {
-      const payload = { signedDocumentStatus: nextStatus };
-      if (signedBySignatory !== undefined) {
-        payload.signedBySignatory = signedBySignatory;
-      }
-      const res = await api.put(`/finance/journal-entries/${voucherId}/signed-document`, payload);
-      const updated = res?.data?.data;
-      if (!updated?._id) return;
-      setEntries((prev) => prev.map((e) => (e._id === updated._id ? updated : e)));
-      if (attachDlg.entry?._id === voucherId) {
-        setAttachDlg((d) => (d.entry ? { ...d, entry: { ...d.entry, ...updated } } : d));
-      }
-    } catch (err) {
-      window.alert(err.response?.data?.message || 'Could not update signed document status');
-    }
-  };
 
   const baseUploadsUrl = (api.defaults.baseURL || '').replace(/\/api\/?$/, '');
 
@@ -590,30 +408,16 @@ const Vouchers = () => {
                 <TableCell>Description</TableCell>
                 <TableCell align="right">Amount</TableCell>
                 <TableCell>Reference</TableCell>
-                <TableCell align="center">Attachment</TableCell>
-                <TableCell>Signed Document</TableCell>
-                <TableCell>Signed By</TableCell>
-                <TableCell>Signed Date</TableCell>
-                <TableCell>Clearance</TableCell>
-                <TableCell>Clearance Date</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell align="center">Action</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={14} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={24} /></TableCell></TableRow>
               ) : voucherRows.length === 0 ? (
-                <TableRow><TableCell colSpan={14} align="center">No vouchers found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => {
-                const workflowLocked = isCaVoucherWorkflowLocked(row);
-                const hasAttachment = (row.attachments || []).length > 0;
-                const isSigned = row.signedDocumentStatus === 'signed';
-                const canUseClearance =
-                  !workflowLocked &&
-                  hasAttachment &&
-                  isSigned &&
-                  Boolean(row.signedDocumentAt);
                 return (
                   <TableRow key={row._id} hover>
                     <TableCell>{formatDate(row.date)}</TableCell>
@@ -622,108 +426,6 @@ const Vouchers = () => {
                     <TableCell>{row.description}</TableCell>
                     <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
                     <TableCell>{row.reference || '—'}</TableCell>
-                    <TableCell align="center">
-                      <Tooltip
-                        title={
-                          workflowLocked
-                            ? CA_VOUCHER_WORKFLOW_LOCK_MSG
-                            : `Attachments (${(row.attachments || []).length}) — click to add or view`
-                        }
-                      >
-                        <span>
-                          <IconButton
-                            size="small"
-                            color={(row.attachments || []).length > 0 ? 'primary' : 'default'}
-                            onClick={() => openAttachDlg(row)}
-                            disabled={workflowLocked}
-                          >
-                            <AttachIcon fontSize="small" />
-                            {(row.attachments || []).length > 0 && (
-                              <Typography component="span" variant="caption" sx={{ fontSize: 10, fontWeight: 700, ml: 0.25 }}>
-                                {row.attachments.length}
-                              </Typography>
-                            )}
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ minWidth: 140 }}>
-                        <TextField
-                          select
-                          fullWidth
-                          size="small"
-                          disabled={workflowLocked || !hasAttachment}
-                          value={isSigned ? 'signed' : 'not_signed'}
-                          onChange={(e) => saveSignedDocumentStatus(row._id, e.target.value, row.signedBySignatory)}
-                          SelectProps={{
-                            displayEmpty: true,
-                            MenuProps: { PaperProps: { sx: { maxHeight: 250 } } }
-                          }}
-                        >
-                          <MenuItem value="signed">Signed</MenuItem>
-                          <MenuItem value="not_signed">Not Signed</MenuItem>
-                        </TextField>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ minWidth: 180 }}>
-                        <TextField
-                          select
-                          fullWidth
-                          size="small"
-                          disabled={workflowLocked || !hasAttachment || !isSigned}
-                          value={row.signedBySignatory || ''}
-                          onChange={(e) => saveSignedDocumentStatus(row._id, 'signed', e.target.value)}
-                          SelectProps={{
-                            displayEmpty: true,
-                            MenuProps: { PaperProps: { sx: { maxHeight: 250 } } }
-                          }}
-                        >
-                          <MenuItem value="">
-                            <em>Select Signatory</em>
-                          </MenuItem>
-                          {SIGNATORY_OPTIONS.map((opt) => (
-                            <MenuItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      {!workflowLocked && hasAttachment && row.signedDocumentAt
-                        ? formatDate(row.signedDocumentAt)
-                        : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <Tooltip
-                        title={
-                          workflowLocked
-                            ? CA_VOUCHER_WORKFLOW_LOCK_MSG
-                            : canUseClearance
-                              ? 'Update clearance status'
-                              : 'Complete attachment and signed document (with signed date) before clearance'
-                        }
-                      >
-                        <Box component="span" sx={{ display: 'inline-flex' }}>
-                          <Chip
-                            size="small"
-                            label={row.clearanceStatus === 'cleared' ? 'Cleared' : 'Pending'}
-                            color={row.clearanceStatus === 'cleared' ? 'success' : 'warning'}
-                            variant={row.clearanceStatus === 'cleared' ? 'filled' : 'outlined'}
-                            onClick={canUseClearance ? () => openClearanceDialog(row) : undefined}
-                            sx={{
-                              opacity: canUseClearance ? 1 : 0.55,
-                              cursor: canUseClearance ? 'pointer' : 'default'
-                            }}
-                          />
-                        </Box>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell>
-                      {canUseClearance && row.clearedAt ? formatDate(row.clearedAt) : '—'}
-                    </TableCell>
                     <TableCell>
                       {(() => {
                         const display = getVoucherStatusDisplay(row);
@@ -771,80 +473,6 @@ const Vouchers = () => {
         />
       </Paper>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        hidden
-        onChange={handleFileUpload}
-        accept="image/png,image/jpeg,image/jpg,image/webp,.pdf,.png,.jpg,.jpeg,.webp"
-      />
-
-      <Dialog open={attachDlg.open} onClose={closeAttachDlg} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box display="flex" alignItems="center" gap={1}>
-            <AttachIcon color="primary" />
-            <Typography fontWeight={700}>Attachments — {attachDlg.entry?.entryNumber}</Typography>
-          </Box>
-        </DialogTitle>
-        <DialogContent dividers>
-          {attachError && (
-            <Alert severity="error" onClose={() => setAttachError('')} sx={{ mb: 1 }}>
-              {attachError}
-            </Alert>
-          )}
-          {(attachDlg.entry?.attachments || []).length === 0 && (
-            <Box textAlign="center" py={3} color="text.disabled">
-              <AttachIcon sx={{ fontSize: 40, mb: 1, opacity: 0.4 }} />
-              <Typography variant="body2">
-                No attachments yet. Upload a voucher image, bank slip, or supporting document.
-              </Typography>
-            </Box>
-          )}
-          <List dense>
-            {(attachDlg.entry?.attachments || []).map((a, i) => (
-              <ListItem key={i} divider sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
-                <FileIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
-                <ListItemText
-                  primary={<Typography variant="body2" fontWeight={600}>{a.originalName || a.filename}</Typography>}
-                  secondary={a.uploadedAt ? new Date(a.uploadedAt).toLocaleDateString('en-PK') : ''}
-                />
-                <ListItemSecondaryAction>
-                  <Tooltip title="Open / download">
-                    <IconButton
-                      size="small"
-                      component="a"
-                      href={`${baseUploadsUrl}/uploads/finance/${encodeURIComponent(a.filename)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download={a.originalName}
-                    >
-                      <DownloadIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Delete">
-                    <IconButton size="small" color="error" onClick={() => handleDeleteAttachment(a.filename)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </ListItemSecondaryAction>
-              </ListItem>
-            ))}
-          </List>
-        </DialogContent>
-        <DialogActions sx={{ justifyContent: 'space-between', px: 2 }}>
-          <Button
-            variant="outlined"
-            startIcon={attachDlg.uploading ? <CircularProgress size={16} /> : <UploadIcon />}
-            component="label"
-            disabled={attachDlg.uploading}
-          >
-            Upload Document
-            <input type="file" hidden onChange={handleFileUpload} accept=".pdf,.png,.jpg,.jpeg" />
-          </Button>
-          <Button variant="contained" onClick={closeAttachDlg}>Close</Button>
-        </DialogActions>
-      </Dialog>
-      
       <Dialog open={newVoucherDialog} onClose={() => setNewVoucherDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>
           <Typography fontWeight={700}>Create New Voucher</Typography>
@@ -878,64 +506,6 @@ const Vouchers = () => {
           >
             Continue
           </Button>
-        </DialogActions>
-      </Dialog>
-      
-      <Dialog
-        open={clearanceDialog.open}
-        onClose={closeClearanceDialog}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Update Clearance — {clearanceDialog.voucher?.entryNumber}</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                select
-                size="small"
-                label="Clearance Status"
-                value={clearanceDialog.status}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setClearanceDialog((d) => ({
-                    ...d,
-                    status: v,
-                    clearedAtDate:
-                      v === 'pending'
-                        ? ''
-                        : d.voucher?.clearanceStatus === 'cleared' && d.voucher?.clearedAt
-                          ? clearedAtToYmd(d.voucher.clearedAt)
-                          : d.clearedAtDate || ''
-                  }));
-                }}
-              >
-                <MenuItem value="pending">Pending</MenuItem>
-                <MenuItem value="cleared">Cleared</MenuItem>
-              </TextField>
-            </Grid>
-            {clearanceDialog.status === 'cleared' && (
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="date"
-                  label="Clearance date"
-                  value={clearanceDialog.clearedAtDate}
-                  onChange={(e) =>
-                    setClearanceDialog((d) => ({ ...d, clearedAtDate: e.target.value }))
-                  }
-                  InputLabelProps={{ shrink: true }}
-                  helperText="Choose the actual clearance date (not auto-filled)."
-                />
-              </Grid>
-            )}
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeClearanceDialog}>Cancel</Button>
-          <Button variant="contained" onClick={saveClearance}>Save</Button>
         </DialogActions>
       </Dialog>
 

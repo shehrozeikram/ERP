@@ -193,6 +193,7 @@ const Sidebar = () => {
       '/general/indents': 'indents',
       '/general/indents/dashboard': 'indents',
       '/general/indents/create': 'indents',
+      '/general/cost-centers': 'indents',
       '/general/cash-approvals': 'general_cash_approvals',
       '/general/cash-approvals/create': 'general_cash_approvals',
       '/general/project-management': 'project_management',
@@ -200,7 +201,6 @@ const Sidebar = () => {
       '/general/project-management/projects': 'project_management',
       '/general/project-management/workspace': 'project_management',
       '/general/subcontractors': 'project_management',
-      '/general/cost-centers': 'cost_centers',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
 

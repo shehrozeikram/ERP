@@ -206,6 +206,32 @@ const journalEntrySchema = new mongoose.Schema({
     ref: 'User'
   },
   notes: String,
+  // Banking Sheet Editable Fields
+  customPaymentType: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  customMainAccountHead: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  customSubAccountHead: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  customCompany: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  customProject: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   attachments: [{
     filename: String,
     originalName: String,

@@ -12,8 +12,18 @@ import {
   ReceiptLong as VoucherIcon,
   Search as SearchIcon,
   PictureAsPdf as PdfIcon,
-  EditCalendar as EditDateIcon
+  EditCalendar as EditDateIcon,
+  AttachFile as AttachIcon,
+  CloudUpload as UploadIcon,
+  Delete as DeleteIcon,
+  GetApp as DownloadIcon,
+  InsertDriveFile as FileIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction';
 import api from '../../services/api';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
@@ -22,6 +32,14 @@ import { fetchPayFromAccounts } from '../../utils/payFromAccounts';
 import { formatDate } from '../../utils/dateUtils';
 
 const fmt = (n) => Number(Math.abs(n || 0)).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const SIGNATORY_OPTIONS = [
+  { value: 'Sardar Tanveer Ilyas', label: 'Sardar Tanveer Ilyas' },
+  { value: 'Sardar Umer Tanveer', label: 'Sardar Umer Tanveer' },
+  { value: 'Hamza Tanveer', label: 'Hamza Tanveer' }
+];
+
+const baseUploadsUrl = (api.defaults.baseURL || '').replace(/\/api\/?$/, '');
 
 const clearedAtToYmd = (raw) => {
   if (!raw) return '';
@@ -51,6 +69,89 @@ export default function BankReconciliation() {
     status: 'pending',
     clearedAtDate: ''
   });
+
+  const [attachDlg, setAttachDlg] = useState({ open: false, txn: null, uploading: false });
+  const [attachError, setAttachError] = useState('');
+
+  const openAttachDlg = (txn) => {
+    setAttachError('');
+    setAttachDlg({ open: true, txn, uploading: false });
+  };
+
+  const closeAttachDlg = () => {
+    setAttachDlg({ open: false, txn: null, uploading: false });
+    setAttachError('');
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !attachDlg.txn) return;
+    const targetJeId = attachDlg.txn.journalEntryId || String(attachDlg.txn._id).split('-')[0];
+    if (!targetJeId || !/^[0-9a-fA-F]{24}$/.test(targetJeId)) {
+      setAttachError('Linked voucher not found for uploading attachment.');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    setAttachDlg((d) => ({ ...d, uploading: true }));
+    setAttachError('');
+    try {
+      const res = await api.post(`/finance/journal-entries/${targetJeId}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const updatedAttachments = res?.data?.data?.attachments || [];
+      setAttachDlg((d) => ({
+        ...d,
+        txn: d.txn ? { ...d.txn, attachments: updatedAttachments } : null
+      }));
+      setSuccess('Attachment uploaded successfully');
+      load();
+    } catch (err) {
+      setAttachError(err.response?.data?.message || 'Upload failed');
+    } finally {
+      setAttachDlg((d) => ({ ...d, uploading: false }));
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteAttachment = async (filename) => {
+    if (!attachDlg.txn) return;
+    const targetJeId = attachDlg.txn.journalEntryId || String(attachDlg.txn._id).split('-')[0];
+    if (!targetJeId || !/^[0-9a-fA-F]{24}$/.test(targetJeId)) return;
+    try {
+      const res = await api.delete(`/finance/journal-entries/${targetJeId}/attachments/${encodeURIComponent(filename)}`);
+      const updatedAttachments = res?.data?.data?.attachments || [];
+      setAttachDlg((d) => ({
+        ...d,
+        txn: d.txn ? { ...d.txn, attachments: updatedAttachments } : null
+      }));
+      setSuccess('Attachment deleted');
+      load();
+    } catch (err) {
+      setAttachError(err.response?.data?.message || 'Delete failed');
+    }
+  };
+
+  const saveSignedDocumentStatus = async (txn, nextStatus, signedBySignatory) => {
+    const targetJeId = txn.journalEntryId || String(txn._id).split('-')[0];
+    if (!targetJeId || !/^[0-9a-fA-F]{24}$/.test(targetJeId)) {
+      setError('Linked voucher not found.');
+      return;
+    }
+    try {
+      const payload = { signedDocumentStatus: nextStatus };
+      if (nextStatus === 'signed') {
+        if (signedBySignatory !== undefined) {
+          payload.signedBySignatory = signedBySignatory || null;
+        }
+      }
+      await api.put(`/finance/journal-entries/${targetJeId}/signed-document`, payload);
+      setSuccess(`Voucher marked as ${nextStatus === 'signed' ? 'signed' : 'not signed'}`);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update signed document status');
+    }
+  };
 
   const loadBankAccounts = useCallback(async () => {
     try {
@@ -335,6 +436,10 @@ export default function BankReconciliation() {
                   <TableCell sx={{ fontWeight: 700 }}>Narration</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700 }}>Attachment</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 130 }}>Signed Document</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>Signed By</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Signed Date</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 700 }}>Clearing.Date</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 700 }}>Action</TableCell>
                 </TableRow>
@@ -342,36 +447,104 @@ export default function BankReconciliation() {
               <TableBody>
                 {(data.unpresentedTransactions || []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                    <TableCell colSpan={11} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                       No unpresented/uncleared cheques found up to {formatDate(filters.asOfDate)}.
                     </TableCell>
                   </TableRow>
                 ) : (
                   <>
-                    {(data.unpresentedTransactions || []).map((t, idx) => (
-                      <TableRow key={t._id || idx} hover>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
-                        <TableCell>{t.narration}</TableCell>
-                        <TableCell>{t.reference || '—'}</TableCell>
-                        <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
-                          {t.type === 'Cr' ? `-${fmt(t.amount)}` : fmt(t.amount)}{' '}
-                          <Typography component="span" fontWeight={700} color={t.type === 'Cr' ? 'error.main' : 'success.main'}>
-                            {t.type}.
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="center">
-                          {t.clearingDate ? formatDate(t.clearingDate) : '—'}
-                        </TableCell>
-                        <TableCell align="center">
-                          <Tooltip title="Mark / Edit Clearance">
-                            <IconButton size="small" color="primary" onClick={() => openClearanceDialog(t)}>
-                              <EditDateIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {(data.unpresentedTransactions || []).map((t, idx) => {
+                      const hasAttachment = (t.attachments || []).length > 0;
+                      const isSigned = t.signedDocumentStatus === 'signed';
+                      return (
+                        <TableRow key={t._id || idx} hover>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
+                          <TableCell>{t.narration}</TableCell>
+                          <TableCell>{t.reference || '—'}</TableCell>
+                          <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+                            {t.type === 'Cr' ? `-${fmt(t.amount)}` : fmt(t.amount)}{' '}
+                            <Typography component="span" fontWeight={700} color={t.type === 'Cr' ? 'error.main' : 'success.main'}>
+                              {t.type}.
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title={`Attachments (${(t.attachments || []).length}) — click to add or view`}>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color={(t.attachments || []).length > 0 ? 'primary' : 'default'}
+                                  onClick={() => openAttachDlg(t)}
+                                >
+                                  <AttachIcon fontSize="small" />
+                                  {(t.attachments || []).length > 0 && (
+                                    <Typography component="span" variant="caption" sx={{ fontSize: 10, fontWeight: 700, ml: 0.25 }}>
+                                      {t.attachments.length}
+                                    </Typography>
+                                  )}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell>
+                            <Box sx={{ minWidth: 120 }}>
+                              <TextField
+                                select
+                                fullWidth
+                                size="small"
+                                value={isSigned ? 'signed' : 'not_signed'}
+                                onChange={(e) => saveSignedDocumentStatus(t, e.target.value, t.signedBySignatory)}
+                                SelectProps={{
+                                  displayEmpty: true,
+                                  MenuProps: { PaperProps: { sx: { maxHeight: 250 } } }
+                                }}
+                              >
+                                <MenuItem value="signed">Signed</MenuItem>
+                                <MenuItem value="not_signed">Not Signed</MenuItem>
+                              </TextField>
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Box sx={{ minWidth: 150 }}>
+                              <TextField
+                                select
+                                fullWidth
+                                size="small"
+                                disabled={!isSigned}
+                                value={t.signedBySignatory || ''}
+                                onChange={(e) => saveSignedDocumentStatus(t, 'signed', e.target.value)}
+                                SelectProps={{
+                                  displayEmpty: true,
+                                  MenuProps: { PaperProps: { sx: { maxHeight: 250 } } }
+                                }}
+                              >
+                                <MenuItem value="">
+                                  <em>Select Signatory</em>
+                                </MenuItem>
+                                {SIGNATORY_OPTIONS.map((opt) => (
+                                  <MenuItem key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </MenuItem>
+                                ))}
+                              </TextField>
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            {t.signedDocumentAt ? formatDate(t.signedDocumentAt) : '—'}
+                          </TableCell>
+                          <TableCell align="center">
+                            {t.clearingDate ? formatDate(t.clearingDate) : '—'}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title="Mark / Edit Clearance">
+                              <IconButton size="small" color="primary" onClick={() => openClearanceDialog(t)}>
+                                <EditDateIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                     {/* Total Row */}
                     <TableRow sx={{ bgcolor: 'grey.100' }}>
                       <TableCell colSpan={4} sx={{ fontWeight: 800, fontSize: '0.95rem' }}>
@@ -380,7 +553,7 @@ export default function BankReconciliation() {
                       <TableCell align="right" sx={{ fontWeight: 800, fontSize: '0.95rem', color: data.differenceType === 'Cr' ? 'error.main' : 'success.main' }}>
                         {data.difference < 0 ? `-${fmt(data.difference)}` : fmt(data.difference)} {data.differenceType}.
                       </TableCell>
-                      <TableCell colSpan={2} />
+                      <TableCell colSpan={6} />
                     </TableRow>
                   </>
                 )}
@@ -546,6 +719,73 @@ export default function BankReconciliation() {
         <DialogActions>
           <Button onClick={closeClearanceDialog}>Cancel</Button>
           <Button variant="contained" onClick={saveClearance}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Attachments Dialog */}
+      <Dialog open={attachDlg.open} onClose={closeAttachDlg} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6" fontWeight={700}>
+              Voucher Attachments — {attachDlg.txn?.vrNo || ''}
+            </Typography>
+            <IconButton size="small" onClick={closeAttachDlg}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {attachError && <Alert severity="error" sx={{ mb: 2 }}>{attachError}</Alert>}
+          {(attachDlg.txn?.attachments || []).length === 0 && (
+            <Box textAlign="center" py={3} color="text.disabled">
+              <AttachIcon sx={{ fontSize: 40, mb: 1, opacity: 0.4 }} />
+              <Typography variant="body2">
+                No attachments yet. Upload a voucher image, bank slip, or supporting document.
+              </Typography>
+            </Box>
+          )}
+          <List dense>
+            {(attachDlg.txn?.attachments || []).map((a, i) => (
+              <ListItem key={i} divider sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                <FileIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
+                <ListItemText
+                  primary={<Typography variant="body2" fontWeight={600}>{a.originalName || a.filename}</Typography>}
+                  secondary={a.uploadedAt ? new Date(a.uploadedAt).toLocaleDateString('en-PK') : ''}
+                />
+                <ListItemSecondaryAction>
+                  <Tooltip title="Open / download">
+                    <IconButton
+                      size="small"
+                      component="a"
+                      href={`${baseUploadsUrl}/uploads/finance/${encodeURIComponent(a.filename)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={a.originalName}
+                    >
+                      <DownloadIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteAttachment(a.filename)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </ListItemSecondaryAction>
+              </ListItem>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'space-between', px: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={attachDlg.uploading ? <CircularProgress size={16} /> : <UploadIcon />}
+            component="label"
+            disabled={attachDlg.uploading}
+          >
+            Upload Document
+            <input type="file" hidden onChange={handleFileUpload} accept=".pdf,.png,.jpg,.jpeg" />
+          </Button>
+          <Button variant="contained" onClick={closeAttachDlg}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
