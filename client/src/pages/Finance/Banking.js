@@ -26,8 +26,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Pagination,
-  Stack
+  Pagination
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -36,7 +35,8 @@ import {
   Download as DownloadIcon,
   CheckCircle as ClearedIcon,
   ReceiptLong as VoucherIcon,
-  Visibility as ViewIcon
+  Visibility as ViewIcon,
+  Undo as UndoIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -157,6 +157,26 @@ const Banking = () => {
       await api.put(`/finance/banking/transactions/${t.journalEntryId}/custom-meta`, payload);
     } catch (err) {
       console.error('Failed to update custom meta:', err);
+    }
+  };
+
+  const handleRevertTransaction = async (t) => {
+    if (!t._id) return;
+    const confirmMsg = `Are you sure you want to revert voucher ${t.vNo || ''} (Amount: PKR ${fmt(t.amount)}) back to Bank Reconciliation?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setLoading(true);
+      await api.post('/finance/reports/bank-reconciliation/reconcile', {
+        transactionIds: [String(t._id)],
+        clearanceStatus: 'pending',
+        clearedAt: null
+      });
+      await fetchTransactions();
+    } catch (err) {
+      console.error('Failed to revert transaction:', err);
+      setError(err.response?.data?.message || 'Failed to revert transaction back to Bank Reconciliation');
+      setLoading(false);
     }
   };
 
@@ -510,18 +530,29 @@ const Banking = () => {
                             inputProps={{ style: { fontSize: '0.8125rem' } }}
                           />
                         </TableCell>
-                        <TableCell align="center">
-                          {t.journalEntryId && (
-                            <Tooltip title="View Linked Voucher">
+                        <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                            {t.journalEntryId && (
+                              <Tooltip title="View Linked Voucher">
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => navigate(`/finance/vouchers/${t.journalEntryId}`)}
+                                >
+                                  <ViewIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            <Tooltip title="Revert to Bank Reconciliation (Mark Pending)">
                               <IconButton
                                 size="small"
-                                color="primary"
-                                onClick={() => navigate(`/finance/vouchers/${t.journalEntryId}`)}
+                                color="warning"
+                                onClick={() => handleRevertTransaction(t)}
                               >
-                                <ViewIcon fontSize="small" />
+                                <UndoIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                          )}
+                          </Box>
                         </TableCell>
                       </TableRow>
                     );

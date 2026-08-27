@@ -50,6 +50,7 @@ import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
+import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { numberToWords } from '../../utils/numberToWords';
 
@@ -242,6 +243,39 @@ const Vouchers = () => {
 
       const financeAuthDoc = apData || payrollData || vaData || caData;
 
+      // Fetch Vendor Bills linked to PO or AP payment application or Voucher
+      let poBills = [];
+      try {
+        if (apData?.accountsPayableId?._id || apData?.accountsPayableId) {
+          const bId = apData.accountsPayableId._id || apData.accountsPayableId;
+          const bRes = await api.get(`/finance/accounts-payable/${bId}`).catch(() => null);
+          if (bRes?.data?.data) {
+            poBills.push(bRes.data.data);
+          }
+        }
+        if (poId) {
+          const bRes = await api.get('/finance/accounts-payable', { params: { limit: 100 } }).catch(() => null);
+          const allBills = bRes?.data?.data?.bills || bRes?.data?.data || [];
+          const matchedBills = allBills.filter((b) => {
+            if (String(b.referenceId || '') === String(poId)) return true;
+            if (b.lineItems?.some((li) => String(li.poId || '') === String(poId))) return true;
+            if (b.linkedGRNs?.some((lg) => String(lg.poId || '') === String(poId))) return true;
+            return false;
+          });
+          matchedBills.forEach((b) => {
+            if (!poBills.some((existing) => String(existing._id) === String(b._id))) {
+              poBills.push(b);
+            }
+          });
+        }
+        if (fullVoucher.referenceModel === 'AccountsPayable' && fullVoucher.referenceId) {
+          const bRes = await api.get(`/finance/accounts-payable/${fullVoucher.referenceId}`).catch(() => null);
+          if (bRes?.data?.data && !poBills.some((existing) => String(existing._id) === String(bRes.data.data._id))) {
+            poBills.push(bRes.data.data);
+          }
+        }
+      } catch (_) {}
+
       if (!poId) {
         const fallbackDocs = (fullVoucher.attachments || []).map((att, idx) => ({
           id: att._id || `att-${idx}`,
@@ -250,10 +284,25 @@ const Vouchers = () => {
           url: att.filename ? `${(api.defaults.baseURL || '').replace(/\/api\/?$/, '')}/uploads/finance/${encodeURIComponent(att.filename)}` : '',
           uploadedAt: att.uploadedAt || null
         }));
+
+        poBills.forEach((b) => {
+          (b.attachments || []).forEach((att, idx) => {
+            const pathUrl = att.path ? `${(api.defaults.baseURL || '').replace(/\/api\/?$/, '')}/${att.path.replace(/^\/+/, '')}` : '';
+            fallbackDocs.push({
+              id: att._id || `bill-att-${idx}`,
+              source: `Vendor Bill (${b.billNumber})`,
+              name: att.originalName || att.filename || `Bill Document ${idx + 1}`,
+              url: pathUrl,
+              uploadedAt: b.billDate || null
+            });
+          });
+        });
+
         setViewDialog({
           open: true,
           voucher: fullVoucher,
           po: null,
+          poBills,
           poQuotations: [],
           poGrns: [],
           poLinkedDocs: fallbackDocs,
@@ -286,7 +335,7 @@ const Vouchers = () => {
 
       const pushDocs = (items = [], source = 'Attachment') => {
         items.forEach((item, idx) => {
-          const url = item?.url || '';
+          const url = item?.url || (item?.path ? `${(api.defaults.baseURL || '').replace(/\/api\/?$/, '')}/${item.path.replace(/^\/+/, '')}` : '');
           const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
           if (!name && !url) return;
           poLinkedDocs.push({
@@ -306,6 +355,10 @@ const Vouchers = () => {
         poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
       }
 
+      poBills.forEach((b) => {
+        pushDocs(b.attachments, `Vendor Bill (${b.billNumber})`);
+      });
+
       (fullVoucher.attachments || []).forEach((att, idx) => {
         poLinkedDocs.push({
           id: att._id || `v-att-${idx}`,
@@ -320,6 +373,7 @@ const Vouchers = () => {
         open: true,
         voucher: fullVoucher,
         po: d,
+        poBills,
         poQuotations,
         poGrns,
         poLinkedDocs,
@@ -344,6 +398,7 @@ const Vouchers = () => {
         open: true,
         voucher: voucherRow,
         po: null,
+        poBills: [],
         poQuotations: [],
         poGrns: [],
         poLinkedDocs: fallbackDocs,
@@ -364,6 +419,7 @@ const Vouchers = () => {
       voucher: true,
       indent: Boolean(viewDialog.po?.indent),
       po: Boolean(viewDialog.po),
+      bills: Boolean(viewDialog.poBills?.length > 0),
       comparative: Boolean(viewDialog.poQuotations?.length > 0 || viewDialog.po?.indent?.comparativeApproval),
       quotations: Boolean(viewDialog.poQuotations?.length > 0),
       grns: Boolean(viewDialog.poGrns?.length > 0)
@@ -379,6 +435,7 @@ const Vouchers = () => {
       voucher: true,
       indent: Boolean(viewDialog.po?.indent),
       po: Boolean(viewDialog.po),
+      bills: Boolean(viewDialog.poBills?.length > 0),
       comparative: Boolean(viewDialog.poQuotations?.length > 0 || viewDialog.po?.indent?.comparativeApproval),
       quotations: Boolean(viewDialog.poQuotations?.length > 0),
       grns: Boolean(viewDialog.poGrns?.length > 0)
@@ -751,6 +808,7 @@ const Vouchers = () => {
                 <Tab label="Comparative Statement" />
                 <Tab label={`Quotations (${viewDialog.poQuotations?.length || 0})`} />
                 <Tab label={viewDialog.poGrns?.length > 0 ? `GRN(s) (${viewDialog.poGrns.length})` : 'GRN(s)'} />
+                <Tab label={viewDialog.poBills?.length > 0 ? `Vendor Bills (${viewDialog.poBills.length})` : 'Vendor Bills'} />
                 <Tab label={`Attached Documents (${viewDialog.poLinkedDocs?.length || 0})`} />
               </Tabs>
 
@@ -1565,8 +1623,158 @@ const Vouchers = () => {
                 </Box>
               )}
 
-              {/* ----------------- SECTION 6: ATTACHED DOCUMENTS ----------------- */}
-              {(!multiPrintMode && viewDialog.poAuditTab === 6) && (
+              {/* ----------------- SECTION 6: VENDOR BILLS ----------------- */}
+              {(multiPrintMode ? (printSelection.bills && viewDialog.poBills?.length > 0) : viewDialog.poAuditTab === 6) && (
+                <Box
+                  sx={{
+                    p: 2,
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      pageBreakAfter: 'always',
+                      breakAfter: 'page',
+                      pageBreakInside: 'avoid',
+                      breakInside: 'avoid'
+                    }
+                  }}
+                >
+                  {(!viewDialog.poBills || viewDialog.poBills.length === 0) ? (
+                    <Typography color="text.secondary">No vendor bills attached.</Typography>
+                  ) : (
+                    <Stack spacing={4}>
+                      {viewDialog.poBills.map((b) => {
+                        const getApprovalRows = () => {
+                          const formatDateTime = (date) => {
+                            if (!date) return '-';
+                            return new Date(date).toLocaleString('en-PK', {
+                              day: '2-digit', month: 'short', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit'
+                            });
+                          };
+
+                          const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
+                          const history = Array.isArray(b.workflowHistory) ? [...b.workflowHistory].reverse() : [];
+                          const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
+                          const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+
+                          const rows = [
+                            {
+                              authority: 'Sig of Requester',
+                              name: userDisplayName(b.createdBy),
+                              signatureUser: b.createdBy,
+                              dateTime: b.createdAt ? formatDateTime(b.createdAt) : '-'
+                            },
+                            {
+                              authority: 'Pre-Audit Authority',
+                              name: userDisplayName(preAuditEntry?.changedBy),
+                              signatureUser: preAuditEntry?.changedBy || null,
+                              dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
+                            },
+                            {
+                              authority: 'Audit Director',
+                              name: userDisplayName(directorEntry?.changedBy),
+                              signatureUser: directorEntry?.changedBy || null,
+                              signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : directorEntry?.changedBy?.digitalSignature || '',
+                              dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+                            }
+                          ];
+                          return rows;
+                        };
+
+                        const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
+
+                        return (
+                          <Box key={b._id} sx={{ '@media print': { pageBreakAfter: 'always', breakAfter: 'page', pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                            <Paper sx={{ p: { xs: 2.5, sm: 3 }, border: '1px solid #ccc', '@media print': { p: '10mm 14mm', border: 'none' } }}>
+                              <CentralizedStoreBillInvoiceBody
+                                bill={{
+                                  ...b,
+                                  billId: b.billNumber,
+                                  billDate: b.billDate,
+                                  createdAt: b.createdAt || b.billDate,
+                                  provider: b.vendorName || b.vendor?.name,
+                                  location: b.company || b.vendor?.address?.city || b.department || 'N/A',
+                                  notes: b.notes || b.internalNotes,
+                                  forWhat: b.forWhat || b.notes,
+                                  billLines: (b.lineItems && b.lineItems.length > 0)
+                                    ? b.lineItems.map((line, idx) => ({
+                                        ...line,
+                                        category: line.category || line.accountName || line.account?.name || (line.accountNumber ? `Account ${line.accountNumber}` : '—'),
+                                        accountName: line.accountName || line.account?.name || '',
+                                        accountNumber: line.accountNumber || line.account?.accountNumber || '',
+                                        itemName: line.description || line.itemName || (line.accountNumber ? `Account ${line.accountNumber}` : 'Item'),
+                                        description: line.description || line.itemName || '',
+                                        itemCode: line.itemCode || line.accountNumber || '—',
+                                        amount: line.amount || (line.quantity * line.unitPrice),
+                                        attachments: idx === 0 && b.attachments?.length ? b.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
+                                      }))
+                                    : (b.billLines || [])
+                                }}
+                                showChargesSummary={true}
+                              />
+
+                              {/* Approval Authority Table */}
+                              <Table
+                                size="small"
+                                sx={{
+                                  mt: 3,
+                                  mb: 1,
+                                  border: '1px solid',
+                                  borderColor: 'grey.300',
+                                  '& th': {
+                                    bgcolor: 'grey.100',
+                                    fontWeight: 800,
+                                    fontSize: 13,
+                                    borderBottom: '1px solid',
+                                    borderColor: 'grey.300'
+                                  },
+                                  '& td': {
+                                    fontSize: 13,
+                                    borderBottom: '1px solid',
+                                    borderColor: 'grey.200',
+                                    py: 1.2
+                                  },
+                                  '& tr:last-child td': {
+                                    borderBottom: 0
+                                  }
+                                }}
+                              >
+                                <TableHead>
+                                  <TableRow>
+                                    <TableCell>Authority</TableCell>
+                                    <TableCell>Name</TableCell>
+                                    <TableCell>Digital Signature</TableCell>
+                                    <TableCell>Date &amp; Time</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {getApprovalRows().map((row) => (
+                                    <TableRow key={row.authority}>
+                                      <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                                      <TableCell>{row.name || '-'}</TableCell>
+                                      <TableCell>
+                                        {getSignatureSource(row) ? (
+                                          <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                                        ) : (
+                                          '-'
+                                        )}
+                                      </TableCell>
+                                      <TableCell>{row.dateTime || '-'}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </Paper>
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  )}
+                </Box>
+              )}
+
+              {/* ----------------- SECTION 7: ATTACHED DOCUMENTS ----------------- */}
+              {(!multiPrintMode && viewDialog.poAuditTab === 7) && (
                 <Box sx={{ p: 2 }}>
                   {(!viewDialog.poLinkedDocs || viewDialog.poLinkedDocs.length === 0) ? (
                     <Typography color="text.secondary">No attached documents found.</Typography>
@@ -1672,6 +1880,22 @@ const Vouchers = () => {
                   <Typography variant="caption" color="text.secondary">
                     {viewDialog.po ? `PO #${viewDialog.po.orderNumber || ''}` : 'No PO linked'}
                   </Typography>
+                </Box>
+              }
+              sx={{ mb: 1 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.bills}
+                  disabled={!viewDialog.poBills || viewDialog.poBills.length === 0}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, bills: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Vendor Bills ({viewDialog.poBills?.length || 0})</Typography>
+                  <Typography variant="caption" color="text.secondary">Attached vendor bills &amp; line invoices</Typography>
                 </Box>
               }
               sx={{ mb: 1 }}
