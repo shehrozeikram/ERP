@@ -5,7 +5,6 @@ import {
   Box,
   Button,
   Card,
-  CardContent,
   Chip,
   CircularProgress,
   Dialog,
@@ -16,7 +15,6 @@ import {
   FormControlLabel,
   Grid,
   IconButton,
-  InputAdornment,
   MenuItem,
   Paper,
   Stack,
@@ -28,7 +26,6 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography
 } from '@mui/material';
 import {
@@ -37,8 +34,6 @@ import {
   CloudUpload as UploadIcon,
   SwapHoriz as ExchangeIcon,
   ArrowForward as ArrowForwardIcon,
-  CheckCircle as CheckCircleIcon,
-  Warning as WarningIcon,
   AttachFile as AttachFileIcon,
   Close as CloseIcon
 } from '@mui/icons-material';
@@ -46,9 +41,10 @@ import toast from 'react-hot-toast';
 import landAcquisitionExchangeService from '../../services/landAcquisitionExchangeService';
 import landAcquisitionPartyService from '../../services/landAcquisitionPartyService';
 import { getMozas, getMozaKhasras } from '../../services/landAcquisitionMozaService';
-import { getRegistries } from '../../services/landAcquisitionRegistryService';
+import { getRegistries, getRegisteredTotals } from '../../services/landAcquisitionRegistryService';
 import {
   addAreas,
+  areaToForm,
   emptyArea,
   formatAreaReadable,
   formatKMS,
@@ -57,43 +53,41 @@ import {
   subtractAreas,
   toSarsais
 } from '../../utils/landAreaUnits';
-import { resolveUploadFileHref } from '../../utils/uploadPaths';
+import { formatKhasraSelectLabel, sortKhasraEntries } from '../../utils/landKhasraDisplay';
 
-const AreaInputGroup = ({ value, onChange, label, disabled = false, size = 'small' }) => (
-  <Stack direction="row" spacing={0.75} alignItems="center">
-    <TextField
-      size={size}
-      label="K"
-      placeholder="Kanal"
-      type="number"
-      value={value?.kanal ?? ''}
-      onChange={(e) => onChange({ ...value, kanal: e.target.value })}
-      inputProps={{ min: 0 }}
-      disabled={disabled}
-      sx={{ width: 68 }}
-    />
-    <TextField
-      size={size}
-      label="M"
-      placeholder="Marla"
-      type="number"
-      value={value?.marla ?? ''}
-      onChange={(e) => onChange({ ...value, marla: e.target.value })}
-      inputProps={{ min: 0 }}
-      disabled={disabled}
-      sx={{ width: 68 }}
-    />
-    <TextField
-      size={size}
-      label="S"
-      placeholder="Sarsai"
-      type="number"
-      value={value?.sarsai ?? ''}
-      onChange={(e) => onChange({ ...value, sarsai: e.target.value })}
-      inputProps={{ min: 0, step: 0.5 }}
-      disabled={disabled}
-      sx={{ width: 68 }}
-    />
+const calcTransferPercent = (totalOwned, khasraArea) => {
+  const ownedSarsais = toSarsais(totalOwned);
+  const khasraSarsais = toSarsais(khasraArea);
+  if (!khasraSarsais || !ownedSarsais) return 0;
+  return Math.round((ownedSarsais / khasraSarsais) * 10000) / 100;
+};
+
+const formatTransferPercent = (pct) => {
+  if (!pct) return '0';
+  return Number.isInteger(pct) ? String(pct) : pct.toFixed(2);
+};
+
+const formatKMSOrZero = (area) => {
+  const a = normalizeArea(area || {});
+  if (!a.kanal && !a.marla && !a.sarsai) return '0-0-0';
+  return formatKMS(a);
+};
+
+const AreaInputs = ({ value, onChange, readOnly = false, size = 'small' }) => (
+  <Stack direction="row" spacing={0.5}>
+    {['kanal', 'marla', 'sarsai'].map((unit) => (
+      <TextField
+        key={unit}
+        size={size}
+        label={unit === 'kanal' ? 'K' : unit === 'marla' ? 'M' : 'S'}
+        type="number"
+        value={value?.[unit] ?? ''}
+        onChange={(e) => onChange?.({ ...(value || emptyArea()), [unit]: e.target.value })}
+        inputProps={{ min: 0 }}
+        disabled={readOnly}
+        sx={{ width: 68 }}
+      />
+    ))}
   </Stack>
 );
 
@@ -106,19 +100,18 @@ const emptyOutLine = () => ({
   khasraEntry: '',
   khewatNo: '',
   khasraNo: '',
-  khasraArea: { kanal: '', marla: '', sarsai: '' },
-  surrenderedArea: { kanal: '', marla: '', sarsai: '' },
+  khasraArea: emptyArea(),
+  surrenderedArea: emptyArea(),
   remarks: ''
 });
 
 const emptyInLine = () => ({
   id: Math.random().toString(36).substring(2, 9),
-  moza: '',
   khasraEntry: '',
   khewatNo: '',
   khasraNo: '',
-  khasraArea: { kanal: '', marla: '', sarsai: '' },
-  acquiredArea: { kanal: '', marla: '', sarsai: '' },
+  khasraArea: emptyArea(),
+  acquiredArea: emptyArea(),
   registryNo: '',
   inteqalNo: '',
   remarks: ''
@@ -139,18 +132,24 @@ export default function LandExchangeFormDialog({
   const [mozas, setMozas] = useState([]);
   const [registries, setRegistries] = useState([]);
   const [mozaKhasrasMap, setMozaKhasrasMap] = useState({});
+  const [inMozaKhasras, setInMozaKhasras] = useState([]);
+  const [inRegisteredTotals, setInRegisteredTotals] = useState({});
 
-  // Form State
+  // General Header Form State
   const [exchangeRef, setExchangeRef] = useState('');
   const [exchangeDate, setExchangeDate] = useState(new Date().toISOString().slice(0, 10));
   const [party, setParty] = useState(null);
   const [dealNo, setDealNo] = useState('');
   const [registryNo, setRegistryNo] = useState('');
   const [inteqalNo, setInteqalNo] = useState('');
-  const [moza, setMoza] = useState('');
   const [remarks, setRemarks] = useState('');
 
+  // Out Land State
   const [outLandLines, setOutLandLines] = useState([emptyOutLine()]);
+
+  // In Land State (exact same pattern as Add Registry)
+  const [inMoza, setInMoza] = useState('');
+  const [inTotalArea, setInTotalArea] = useState(emptyArea());
   const [inLandLines, setInLandLines] = useState([emptyInLine()]);
 
   // Financial Adjustment
@@ -207,7 +206,23 @@ export default function LandExchangeFormDialog({
     }
   }, [mozaKhasrasMap]);
 
-  // Initialize or fetch existing
+  // Load In Land Moza Khasras and Registered Totals when inMoza changes
+  useEffect(() => {
+    if (!open || !inMoza) {
+      setInMozaKhasras([]);
+      setInRegisteredTotals({});
+      return;
+    }
+    getMozaKhasras(inMoza)
+      .then((res) => setInMozaKhasras(res.data?.data || []))
+      .catch(() => setInMozaKhasras([]));
+
+    getRegisteredTotals(inMoza)
+      .then((res) => setInRegisteredTotals(res.data?.data || {}))
+      .catch(() => setInRegisteredTotals({}));
+  }, [open, inMoza]);
+
+  // Initialize or fetch existing exchange
   useEffect(() => {
     if (!open) return;
     loadResources();
@@ -224,8 +239,11 @@ export default function LandExchangeFormDialog({
           setDealNo(d.dealNo ? String(d.dealNo) : '');
           setRegistryNo(d.registryNo || '');
           setInteqalNo(d.inteqalNo || '');
-          setMoza(d.moza?._id || d.moza || '');
           setRemarks(d.remarks || '');
+
+          const firstInMoza = d.moza?._id || d.moza || (d.inLandLines && d.inLandLines[0]?.moza?._id) || (d.inLandLines && d.inLandLines[0]?.moza) || '';
+          setInMoza(firstInMoza);
+          setInTotalArea(areaToForm(d.totalInArea || emptyArea()));
 
           setOutLandLines(
             (d.outLandLines || []).map((l) => ({
@@ -237,25 +255,26 @@ export default function LandExchangeFormDialog({
               khasraEntry: l.khasraEntry?._id || l.khasraEntry || '',
               khewatNo: l.khewatNo || '',
               khasraNo: l.khasraNo || '',
-              khasraArea: l.khasraArea || { kanal: '', marla: '', sarsai: '' },
-              surrenderedArea: l.surrenderedArea || { kanal: '', marla: '', sarsai: '' },
+              khasraArea: areaToForm(l.khasraArea),
+              surrenderedArea: areaToForm(l.surrenderedArea),
               remarks: l.remarks || ''
             }))
           );
 
           setInLandLines(
-            (d.inLandLines || []).map((l) => ({
-              id: l._id || Math.random().toString(36).substring(2, 9),
-              moza: l.moza?._id || l.moza || '',
-              khasraEntry: l.khasraEntry?._id || l.khasraEntry || '',
-              khewatNo: l.khewatNo || '',
-              khasraNo: l.khasraNo || '',
-              khasraArea: l.khasraArea || { kanal: '', marla: '', sarsai: '' },
-              acquiredArea: l.acquiredArea || { kanal: '', marla: '', sarsai: '' },
-              registryNo: l.registryNo || '',
-              inteqalNo: l.inteqalNo || '',
-              remarks: l.remarks || ''
-            }))
+            (d.inLandLines || []).length
+              ? (d.inLandLines || []).map((l) => ({
+                id: l._id || Math.random().toString(36).substring(2, 9),
+                khasraEntry: l.khasraEntry?._id || l.khasraEntry || '',
+                khewatNo: l.khewatNo || '',
+                khasraNo: l.khasraNo || '',
+                khasraArea: areaToForm(l.khasraArea),
+                acquiredArea: areaToForm(l.acquiredArea),
+                registryNo: l.registryNo || '',
+                inteqalNo: l.inteqalNo || '',
+                remarks: l.remarks || ''
+              }))
+              : [emptyInLine()]
           );
 
           if (d.financialAdjustment) {
@@ -270,12 +289,8 @@ export default function LandExchangeFormDialog({
           setExistingAttachments(d.attachments || []);
           setNewFiles([]);
 
-          if (d.moza?._id || d.moza) loadKhasrasForMoza(d.moza?._id || d.moza);
+          if (firstInMoza) loadKhasrasForMoza(firstInMoza);
           (d.outLandLines || []).forEach((l) => {
-            const mId = l.moza?._id || l.moza;
-            if (mId) loadKhasrasForMoza(mId);
-          });
-          (d.inLandLines || []).forEach((l) => {
             const mId = l.moza?._id || l.moza;
             if (mId) loadKhasrasForMoza(mId);
           });
@@ -285,7 +300,6 @@ export default function LandExchangeFormDialog({
         })
         .finally(() => setLoading(false));
     } else {
-      // Instant render for new record without blinking spinner
       setLoading(false);
       setError('');
       setExchangeDate(new Date().toISOString().slice(0, 10));
@@ -293,7 +307,8 @@ export default function LandExchangeFormDialog({
       setDealNo('');
       setRegistryNo('');
       setInteqalNo('');
-      setMoza('');
+      setInMoza('');
+      setInTotalArea(emptyArea());
       setRemarks('');
       setOutLandLines([emptyOutLine()]);
       setInLandLines([emptyInLine()]);
@@ -306,7 +321,6 @@ export default function LandExchangeFormDialog({
       setExistingAttachments([]);
       setNewFiles([]);
 
-      // Fetch next Ref smoothly in background
       landAcquisitionExchangeService.getNextExchangeRef()
         .then((res) => {
           if (res.data?.nextRef) {
@@ -317,9 +331,40 @@ export default function LandExchangeFormDialog({
           setExchangeRef((prev) => prev || 'EXC-0001');
         });
     }
-  }, [open, exchangeId]);
+  }, [open, exchangeId, loadResources, loadKhasrasForMoza]);
 
-  // Handle Out Land line updates
+  // Keep inLandLines aligned with moza master data (same as RegistryFormDialog)
+  useEffect(() => {
+    if (!open || !inMoza || !inMozaKhasras.length) return;
+    setInLandLines((prev) => {
+      let changed = false;
+      const lines = prev.map((line) => {
+        if (!line.khasraEntry && !line.khasraNo) return line;
+        let entry = null;
+        const entryId = line.khasraEntry?._id || line.khasraEntry;
+        if (entryId) {
+          entry = inMozaKhasras.find((k) => String(k._id) === String(entryId));
+        } else {
+          entry = inMozaKhasras.find((k) =>
+            k.khasraNo === line.khasraNo &&
+            (!line.khewatNo || k.khewatNo === line.khewatNo)
+          );
+        }
+        if (!entry) return line;
+        if (line.khewatNo === entry.khewatNo && line.khasraNo === entry.khasraNo) return line;
+        changed = true;
+        return {
+          ...line,
+          khewatNo: entry.khewatNo,
+          khasraNo: entry.khasraNo,
+          khasraArea: areaToForm(entry.landInKhasra)
+        };
+      });
+      return changed ? lines : prev;
+    });
+  }, [open, inMoza, inMozaKhasras]);
+
+  // Out Land line updates
   const handleOutLineChange = (index, field, value) => {
     setOutLandLines((prev) => {
       const updated = [...prev];
@@ -341,14 +386,12 @@ export default function LandExchangeFormDialog({
       } else if (field === 'khasraNo') {
         current.khasraNo = value;
 
-        // Find Khasra metadata from Moza khasras
         const khasras = mozaKhasrasMap[current.moza] || [];
         const match = khasras.find((k) => String(k.khasraNo).trim() === String(value).trim());
         const defaultKhewat = match?.khewatNo || '';
-        const defaultKhasraArea = match?.landInKhasra || emptyArea();
+        const defaultKhasraArea = match?.landInKhasra ? areaToForm(match.landInKhasra) : emptyArea();
         const defaultKhasraEntry = match?._id || '';
 
-        // Find all unique registries created under this Moza and Khasra
         const matchingRegs = [];
         const seenRegIds = new Set();
 
@@ -357,7 +400,6 @@ export default function LandExchangeFormDialog({
             const rMozaId = r.moza?._id || r.moza || '';
             if (String(rMozaId) === String(current.moza)) {
               if (Array.isArray(r.lines)) {
-                // Find matching line in registry for this khasra
                 const matchedLine = r.lines.find((rl) => String(rl.khasraNo).trim() === String(value).trim());
                 if (matchedLine && !seenRegIds.has(String(r._id))) {
                   seenRegIds.add(String(r._id));
@@ -372,7 +414,6 @@ export default function LandExchangeFormDialog({
         }
 
         if (matchingRegs.length > 1) {
-          // If this khasra appears in more than one registry, expand all of them into separate lines
           const expandedLines = matchingRegs.map(({ registry: r, regLine: rl }) => ({
             id: Math.random().toString(36).substring(2, 9),
             moza: current.moza,
@@ -382,8 +423,8 @@ export default function LandExchangeFormDialog({
             registryNo: r.registryNo || '',
             inteqalNo: r.inteqalNo || '',
             khewatNo: rl.khewatNo || r.khewatNo || defaultKhewat,
-            khasraArea: rl.khasraArea || rl.landOfKhasra || defaultKhasraArea,
-            surrenderedArea: rl.acquiredArea || emptyArea(),
+            khasraArea: rl.khasraArea ? areaToForm(rl.khasraArea) : defaultKhasraArea,
+            surrenderedArea: rl.acquiredArea ? areaToForm(rl.acquiredArea) : emptyArea(),
             remarks: current.remarks || ''
           }));
           updated.splice(index, 1, ...expandedLines);
@@ -395,12 +436,11 @@ export default function LandExchangeFormDialog({
           current.inteqalNo = r.inteqalNo || '';
           current.khasraEntry = rl.khasraEntry?._id || rl.khasraEntry || defaultKhasraEntry;
           current.khewatNo = rl.khewatNo || r.khewatNo || defaultKhewat;
-          current.khasraArea = rl.khasraArea || rl.landOfKhasra || defaultKhasraArea;
-          current.surrenderedArea = rl.acquiredArea || emptyArea();
+          current.khasraArea = rl.khasraArea ? areaToForm(rl.khasraArea) : defaultKhasraArea;
+          current.surrenderedArea = rl.acquiredArea ? areaToForm(rl.acquiredArea) : emptyArea();
           updated[index] = current;
           return updated;
         } else {
-          // No registry found for this khasra yet
           current.registryId = '';
           current.registryNo = '';
           current.inteqalNo = '';
@@ -421,17 +461,16 @@ export default function LandExchangeFormDialog({
             current.khewatNo = reg.khewatNo;
           }
 
-          // If a specific khasra was selected, match its line in the registry
           if (current.khasraNo && reg.lines?.length > 0) {
             const regLine = reg.lines.find((sl) => String(sl.khasraNo).trim() === String(current.khasraNo).trim());
             if (regLine) {
               if (regLine.khewatNo) current.khewatNo = regLine.khewatNo;
               if (regLine.khasraEntry) current.khasraEntry = regLine.khasraEntry?._id || regLine.khasraEntry;
               if (regLine.khasraArea || regLine.landOfKhasra) {
-                current.khasraArea = regLine.khasraArea || regLine.landOfKhasra;
+                current.khasraArea = areaToForm(regLine.khasraArea || regLine.landOfKhasra);
               }
               if (regLine.acquiredArea) {
-                current.surrenderedArea = regLine.acquiredArea;
+                current.surrenderedArea = areaToForm(regLine.acquiredArea);
               }
             }
           } else if (reg.lines?.length === 1) {
@@ -439,8 +478,8 @@ export default function LandExchangeFormDialog({
             if (!current.khasraNo) current.khasraNo = firstL.khasraNo || '';
             current.khasraEntry = firstL.khasraEntry?._id || firstL.khasraEntry || current.khasraEntry;
             current.khewatNo = firstL.khewatNo || reg.khewatNo || current.khewatNo;
-            current.khasraArea = firstL.khasraArea || firstL.landOfKhasra || current.khasraArea;
-            current.surrenderedArea = firstL.acquiredArea || current.surrenderedArea;
+            current.khasraArea = areaToForm(firstL.khasraArea || firstL.landOfKhasra || current.khasraArea);
+            current.surrenderedArea = areaToForm(firstL.acquiredArea || current.surrenderedArea);
           }
         } else {
           current.registryNo = '';
@@ -458,40 +497,96 @@ export default function LandExchangeFormDialog({
 
   const handleAddOutLine = () => setOutLandLines((prev) => [...prev, emptyOutLine()]);
   const handleRemoveOutLine = (index) => {
-    setOutLandLines((prev) => prev.filter((_, i) => i !== index));
+    setOutLandLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [emptyOutLine()]));
   };
-  const handleClearOutLines = () => setOutLandLines([]);
 
-  // Handle In Land line updates
-  const handleInLineChange = (index, field, value) => {
-    setInLandLines((prev) => {
-      const updated = [...prev];
-      const line = { ...updated[index], [field]: value };
+  // -------------------------------------------------------------
+  // IN LAND HANDLERS (Exact Registry Pattern)
+  // -------------------------------------------------------------
+  const inKhasraOptions = useMemo(() => sortKhasraEntries(inMozaKhasras), [inMozaKhasras]);
 
-      if (field === 'moza' && value) {
-        loadKhasrasForMoza(value);
-      }
+  const priorOwnedForInKhasra = (khasraEntryId) =>
+    normalizeArea(inRegisteredTotals[String(khasraEntryId || '')] || {});
 
-      if (field === 'khasraNo') {
-        const khasras = mozaKhasrasMap[line.moza] || [];
-        const match = khasras.find((k) => String(k.khasraNo).trim() === String(value).trim());
-        if (match) {
-          line.khasraEntry = match._id;
-          if (!line.khewatNo) line.khewatNo = match.khewatNo || '';
-          line.khasraArea = match.landInKhasra || line.khasraArea;
-        }
-      }
+  const totalLandOwnedForInLine = (line) =>
+    addAreas(priorOwnedForInKhasra(line.khasraEntry), parseAreaForm(line.acquiredArea));
 
-      updated[index] = line;
-      return updated;
+  const transferPercentForInLine = (line) =>
+    calcTransferPercent(totalLandOwnedForInLine(line), parseAreaForm(line.khasraArea));
+
+  const remainingKhasraForInLine = (line) => {
+    const kArea = parseAreaForm(line.khasraArea);
+    if (!line.khasraEntry || !toSarsais(kArea)) return null;
+    return subtractAreas(kArea, priorOwnedForInKhasra(line.khasraEntry));
+  };
+
+  const acquiredInTotal = useMemo(
+    () => addAreas(...inLandLines.map((line) => parseAreaForm(line.acquiredArea))),
+    [inLandLines]
+  );
+
+  const totalInAreaParsed = useMemo(() => parseAreaForm(inTotalArea), [inTotalArea]);
+  const hasInTotalArea = toSarsais(totalInAreaParsed) > 0;
+  const linesExceedInTotal = hasInTotalArea && toSarsais(acquiredInTotal) > toSarsais(totalInAreaParsed);
+  const lineExceedsInTotal = (line) =>
+    hasInTotalArea && toSarsais(parseAreaForm(line.acquiredArea)) > toSarsais(totalInAreaParsed);
+  const remainingInArea = hasInTotalArea ? subtractAreas(totalInAreaParsed, acquiredInTotal) : null;
+
+  const handleInMozaChange = (mozaId) => {
+    setInMoza(mozaId);
+    setInTotalArea(emptyArea());
+    setInLandLines(mozaId ? [emptyInLine()] : []);
+  };
+
+  const findInKhasraOption = (line) => {
+    if (line.khasraEntry) {
+      return inKhasraOptions.find((k) => k._id === line.khasraEntry) || null;
+    }
+    if (line.khasraNo && line.khewatNo) {
+      return inKhasraOptions.find(
+        (k) => String(k.khasraNo) === String(line.khasraNo)
+          && String(k.khewatNo) === String(line.khewatNo)
+      ) || null;
+    }
+    return null;
+  };
+
+  const updateInLine = (index, patch) => {
+    setInLandLines((prev) =>
+      prev.map((line, i) => (i === index ? { ...line, ...patch } : line))
+    );
+  };
+
+  const handleInKhasraSelect = (index, entry) => {
+    if (!entry) {
+      updateInLine(index, {
+        khasraEntry: '',
+        khewatNo: '',
+        khasraNo: '',
+        khasraArea: emptyArea(),
+        acquiredArea: emptyArea()
+      });
+      return;
+    }
+    updateInLine(index, {
+      khasraEntry: entry._id,
+      khewatNo: entry.khewatNo,
+      khasraNo: entry.khasraNo,
+      khasraArea: areaToForm(entry.landInKhasra),
+      acquiredArea: emptyArea()
     });
   };
 
-  const handleAddInLine = () => setInLandLines((prev) => [...prev, emptyInLine()]);
-  const handleRemoveInLine = (index) => {
-    setInLandLines((prev) => prev.filter((_, i) => i !== index));
+  const isInKhasraTaken = (entryId, lineIndex) =>
+    inLandLines.some((line, i) => i !== lineIndex && line.khasraEntry === entryId);
+
+  const handleAddInLine = () => {
+    setInLandLines((prev) => [...prev, emptyInLine()]);
   };
-  const handleClearInLines = () => setInLandLines([]);
+
+  const handleRemoveInLine = (index) => {
+    setInLandLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  };
 
   // Calculation summaries
   const totalOut = useMemo(() => {
@@ -499,8 +594,8 @@ export default function LandExchangeFormDialog({
   }, [outLandLines]);
 
   const totalIn = useMemo(() => {
-    return addAreas(...inLandLines.map((l) => parseAreaForm(l.acquiredArea)));
-  }, [inLandLines]);
+    return hasInTotalArea ? totalInAreaParsed : acquiredInTotal;
+  }, [hasInTotalArea, totalInAreaParsed, acquiredInTotal]);
 
   const netDiff = useMemo(() => {
     const outS = toSarsais(totalOut);
@@ -537,7 +632,7 @@ export default function LandExchangeFormDialog({
         registry: l.registryId || undefined,
         registryNo: l.registryNo,
         inteqalNo: l.inteqalNo,
-        moza: l.moza || moza,
+        moza: l.moza || inMoza,
         khasraEntry: l.khasraEntry || undefined,
         khewatNo: l.khewatNo,
         khasraNo: l.khasraNo,
@@ -549,19 +644,19 @@ export default function LandExchangeFormDialog({
     const cleanIn = inLandLines
       .filter((l) => l.khasraNo || toSarsais(parseAreaForm(l.acquiredArea)) > 0)
       .map((l) => ({
-        moza: l.moza || moza,
+        moza: inMoza || l.moza,
         khasraEntry: l.khasraEntry || undefined,
-        khewatNo: l.khewatNo,
-        khasraNo: l.khasraNo,
+        khewatNo: l.khewatNo?.trim?.() || l.khewatNo || '',
+        khasraNo: l.khasraNo?.trim?.() || l.khasraNo || '',
         khasraArea: parseAreaForm(l.khasraArea),
         acquiredArea: parseAreaForm(l.acquiredArea),
-        registryNo: l.registryNo,
-        inteqalNo: l.inteqalNo,
-        remarks: l.remarks
+        registryNo: l.registryNo || registryNo,
+        inteqalNo: l.inteqalNo || inteqalNo,
+        remarks: l.remarks?.trim?.() || l.remarks || ''
       }));
 
     if (!cleanOut.length && !cleanIn.length) {
-      setError('Please provide at least one Out Land line or In Land line (the other can be added later)');
+      setError('Please provide at least one Out Land line or In Land line');
       return;
     }
 
@@ -574,10 +669,11 @@ export default function LandExchangeFormDialog({
         dealNo: dealNo ? Number(dealNo) : undefined,
         registryNo: registryNo ? registryNo.trim() : undefined,
         inteqalNo: inteqalNo ? inteqalNo.trim() : undefined,
-        moza: moza || undefined,
+        moza: inMoza || undefined,
         remarks,
         outLandLines: cleanOut,
         inLandLines: cleanIn,
+        totalInArea: parseAreaForm(inTotalArea),
         financialAdjustment: {
           hasAdjustment,
           amount: Number(adjustAmount) || 0,
@@ -610,11 +706,13 @@ export default function LandExchangeFormDialog({
     }
   };
 
+  const selectedInMoza = mozas.find((m) => m._id === inMoza);
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="xl"
       fullWidth
       scroll="paper"
       PaperProps={{
@@ -645,7 +743,7 @@ export default function LandExchangeFormDialog({
         </Stack>
       </DialogTitle>
 
-      <DialogContent dividers sx={{ p: 3, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.950' : 'grey.50' }}>
+      <DialogContent dividers sx={{ p: 3, bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.950' : 'grey.50') }}>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
             <CircularProgress />
@@ -756,10 +854,10 @@ export default function LandExchangeFormDialog({
               </Grid>
             </Paper>
 
-            {/* Side-By-Side / Tabbed Out Land vs In Land */}
+            {/* Side-By-Side Out Land vs In Land (Add Registry Style for In Land) */}
             <Grid container spacing={3} sx={{ mb: 3 }}>
-              {/* OUT LAND SECTION */}
-              <Grid item xs={12} md={6}>
+              {/* OUT LAND SECTION (Surrendered Land) */}
+              <Grid item xs={12} lg={5}>
                 <Paper
                   elevation={0}
                   sx={{
@@ -768,7 +866,7 @@ export default function LandExchangeFormDialog({
                     borderRadius: 2,
                     border: '1.5px solid',
                     borderColor: 'warning.light',
-                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(237, 108, 2, 0.05)' : '#fffdfa'
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(237, 108, 2, 0.05)' : '#fffdfa')
                   }}
                 >
                   <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
@@ -803,7 +901,6 @@ export default function LandExchangeFormDialog({
                     <Stack spacing={2}>
                       {outLandLines.map((line, idx) => {
                         const currentMozaKhasras = mozaKhasrasMap[line.moza] || [];
-                        const selectedReg = registries.find((r) => String(r._id) === String(line.registryId));
 
                         return (
                           <Card key={line.id || idx} variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
@@ -818,7 +915,7 @@ export default function LandExchangeFormDialog({
                               </Stack>
 
                               <Grid container spacing={1.5}>
-                                {/* 1. Moza */}
+                                {/* Moza */}
                                 <Grid item xs={12} sm={6}>
                                   <TextField
                                     select
@@ -835,7 +932,7 @@ export default function LandExchangeFormDialog({
                                   </TextField>
                                 </Grid>
 
-                                {/* 2. Khasra No. (From selected Moza) */}
+                                {/* Khasra No. */}
                                 <Grid item xs={12} sm={6}>
                                   {currentMozaKhasras.length > 0 ? (
                                     <Autocomplete
@@ -865,10 +962,9 @@ export default function LandExchangeFormDialog({
                                   )}
                                 </Grid>
 
-                                {/* 3. Source Registry (Filtered by selected Moza & Khasra) */}
+                                {/* Source Registry */}
                                 <Grid item xs={12}>
                                   {(() => {
-                                    // Filter registries matching this line's Moza and Khasra
                                     const matchingRegistries = registries.filter((r) => {
                                       const rMozaId = r.moza?._id || r.moza || '';
                                       if (line.moza && String(rMozaId) !== String(line.moza)) return false;
@@ -881,7 +977,6 @@ export default function LandExchangeFormDialog({
                                       return true;
                                     });
 
-                                    // Fallback to all registries if no specific filter matches or not selected yet
                                     const displayRegistries = matchingRegistries.length > 0
                                       ? matchingRegistries
                                       : (line.moza ? registries.filter((r) => String(r.moza?._id || r.moza) === String(line.moza)) : registries);
@@ -922,7 +1017,7 @@ export default function LandExchangeFormDialog({
                                   })()}
                                 </Grid>
 
-                                {/* 4. Registry Details Row: Registry No., Inteqal No., Khewat No. */}
+                                {/* Registry Details */}
                                 <Grid item xs={12} sm={4}>
                                   <TextField
                                     fullWidth
@@ -954,9 +1049,9 @@ export default function LandExchangeFormDialog({
                                   />
                                 </Grid>
 
-                                {/* 5. Surrendered Area */}
+                                {/* Surrendered Area */}
                                 <Grid item xs={12}>
-                                  <Box sx={{ p: 1, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : '#fbfbfb', borderRadius: 1.5, border: '1px dashed', borderColor: 'divider' }}>
+                                  <Box sx={{ p: 1, bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : '#fbfbfb'), borderRadius: 1.5, border: '1px dashed', borderColor: 'divider' }}>
                                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between">
                                       <Box>
                                         <Typography variant="caption" fontWeight={600} color="text.secondary" display="block">
@@ -966,7 +1061,7 @@ export default function LandExchangeFormDialog({
                                           Total Khasra Area: {formatKMS(line.khasraArea)}
                                         </Typography>
                                       </Box>
-                                      <AreaInputGroup
+                                      <AreaInputs
                                         value={line.surrenderedArea}
                                         onChange={(val) => handleOutLineChange(idx, 'surrenderedArea', val)}
                                       />
@@ -994,8 +1089,8 @@ export default function LandExchangeFormDialog({
                 </Paper>
               </Grid>
 
-              {/* IN LAND SECTION */}
-              <Grid item xs={12} md={6}>
+              {/* IN LAND SECTION (Exact Add Registry Pattern) */}
+              <Grid item xs={12} lg={7}>
                 <Paper
                   elevation={0}
                   sx={{
@@ -1004,142 +1099,240 @@ export default function LandExchangeFormDialog({
                     borderRadius: 2,
                     border: '1.5px solid',
                     borderColor: 'success.light',
-                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(46, 125, 50, 0.05)' : '#f9fdfa'
+                    bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(46, 125, 50, 0.05)' : '#f9fdfa')
                   }}
                 >
                   <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
                     <Stack direction="row" alignItems="center" spacing={1}>
                       <Chip label="IN" size="small" color="success" sx={{ fontWeight: 700 }} />
                       <Typography variant="subtitle1" fontWeight={700}>
-                        In Land (Acquired)
+                        In Land (Acquired Land Registry)
                       </Typography>
                     </Stack>
-                    <Button
-                      size="small"
-                      startIcon={<AddIcon />}
-                      onClick={handleAddInLine}
-                      variant="outlined"
-                      color="success"
-                      sx={{ textTransform: 'none', fontWeight: 600 }}
-                    >
-                      Add Khasra
-                    </Button>
                   </Stack>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-                    Incoming acquired parcels (can be left empty and added later).
+                    Add incoming land exactly like adding a new Land Registry with Mouza, Total Area, Khasra selection, Total Land Owned, and Transfer %.
                   </Typography>
 
-                  {inLandLines.length === 0 ? (
-                    <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'background.paper', borderRadius: 2, border: '1px dashed', borderColor: 'divider' }}>
-                      <Typography variant="body2" color="text.secondary">
-                        No In Land added. Click <strong>Add Khasra</strong> above if acquiring land in this deal now.
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Stack spacing={2}>
-                      {inLandLines.map((line, idx) => {
-                        const currentMozaKhasras = mozaKhasrasMap[line.moza] || [];
+                  {/* Moza & Total Area Selector Header */}
+                  <Grid container spacing={2} sx={{ mb: 2.5 }}>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        required
+                        select
+                        label="Select Mouza"
+                        value={inMoza}
+                        onChange={(e) => handleInMozaChange(e.target.value)}
+                      >
+                        <MenuItem value=""><em>Select Mouza</em></MenuItem>
+                        {mozas.map((m) => (
+                          <MenuItem key={m._id} value={m._id}>Mouza {m.name}</MenuItem>
+                        ))}
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                          Total Area (K · M · Sarsai) *
+                        </Typography>
+                        <AreaInputs
+                          value={inTotalArea}
+                          onChange={(area) => setInTotalArea(area)}
+                        />
+                        <Typography
+                          variant="caption"
+                          color={linesExceedInTotal ? 'error' : 'text.secondary'}
+                          sx={{ display: 'block', mt: 0.25 }}
+                        >
+                          {hasInTotalArea
+                            ? `Allocated ${formatKMS(acquiredInTotal)} · Remaining ${formatKMS(remainingInArea)}`
+                            : 'Enter total area for incoming land'}
+                          {linesExceedInTotal ? ' · exceeds total area' : ''}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
 
-                        return (
-                          <Card key={line.id || idx} variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
-                            <Stack spacing={1.5}>
-                              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                <Typography variant="caption" fontWeight={700} color="success.dark">
-                                  In Line #{idx + 1}
-                                </Typography>
-                                <IconButton size="small" color="error" onClick={() => handleRemoveInLine(idx)}>
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
-                              </Stack>
-
-                              <Grid container spacing={1.5}>
-                                <Grid item xs={6}>
-                                  <TextField
-                                    select
-                                    fullWidth
-                                    size="small"
-                                    label="Moza"
-                                    value={line.moza || ''}
-                                    onChange={(e) => handleInLineChange(idx, 'moza', e.target.value)}
-                                  >
-                                    <MenuItem value=""><em>Select Moza</em></MenuItem>
-                                    {(Array.isArray(mozas) ? mozas : []).map((m) => (
-                                      <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
-                                    ))}
-                                  </TextField>
-                                </Grid>
-                                <Grid item xs={6}>
-                                  <TextField
-                                    fullWidth
-                                    size="small"
-                                    label="Khewat No."
-                                    value={line.khewatNo}
-                                    onChange={(e) => handleInLineChange(idx, 'khewatNo', e.target.value)}
-                                  />
-                                </Grid>
-                                <Grid item xs={6}>
-                                  {currentMozaKhasras.length > 0 ? (
-                                    <Autocomplete
-                                      freeSolo
-                                      size="small"
-                                      options={currentMozaKhasras.map((k) => String(k.khasraNo))}
-                                      value={line.khasraNo || ''}
-                                      onChange={(_, val) => handleInLineChange(idx, 'khasraNo', val || '')}
-                                      onInputChange={(_, val) => handleInLineChange(idx, 'khasraNo', val || '')}
-                                      renderInput={(params) => (
-                                        <TextField {...params} label="Khasra No." placeholder="Select or type khasra" />
-                                      )}
-                                    />
-                                  ) : (
-                                    <TextField
-                                      fullWidth
-                                      size="small"
-                                      label="Khasra No."
-                                      value={line.khasraNo}
-                                      onChange={(e) => handleInLineChange(idx, 'khasraNo', e.target.value)}
-                                    />
-                                  )}
-                                </Grid>
-                                <Grid item xs={6}>
-                                  <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                                      Acquired Area (K-M-S)
-                                    </Typography>
-                                    <AreaInputGroup
-                                      value={line.acquiredArea}
-                                      onChange={(val) => handleInLineChange(idx, 'acquiredArea', val)}
-                                    />
-                                  </Box>
-                                </Grid>
-                                <Grid item xs={6}>
-                                  <TextField
-                                    fullWidth
-                                    size="small"
-                                    label="New Registry No."
-                                    value={line.registryNo}
-                                    onChange={(e) => handleInLineChange(idx, 'registryNo', e.target.value)}
-                                    placeholder="Optional"
-                                  />
-                                </Grid>
-                                <Grid item xs={6}>
-                                  <TextField
-                                    fullWidth
-                                    size="small"
-                                    label="New Inteqal No."
-                                    value={line.inteqalNo}
-                                    onChange={(e) => handleInLineChange(idx, 'inteqalNo', e.target.value)}
-                                    placeholder="Optional"
-                                  />
-                                </Grid>
-                              </Grid>
-                            </Stack>
-                          </Card>
-                        );
-                      })}
-                    </Stack>
+                  {selectedInMoza && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: '0.825rem' }}>
+                      Mouza <strong>{selectedInMoza.name}</strong> — select a khasra and enter area; total land owned and transfer % update automatically.
+                    </Typography>
                   )}
 
-                  <Box sx={{ mt: 2.5, p: 1.5, bgcolor: 'success.50', borderRadius: 1.5, border: '1px dashed', borderColor: 'success.main' }}>
+                  {!inMoza ? (
+                    <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', mb: 2, bgcolor: 'background.paper' }}>
+                      <Typography color="text.secondary">Select a mouza above to add khasra rows.</Typography>
+                    </Paper>
+                  ) : (
+                    <>
+                      <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 440, mb: 1.5 }}>
+                        <Table size="small" stickyHeader>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Khewat No.</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Khasra No.</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Khasra Area (K·M·S)</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Area in Registry</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Total Land Owned</TableCell>
+                              <TableCell width={75} sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Transfer %</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Remarks</TableCell>
+                              <TableCell width={40} />
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {inLandLines.map((line, index) => {
+                              const priorOwned = priorOwnedForInKhasra(line.khasraEntry);
+                              const totalOwned = totalLandOwnedForInLine(line);
+                              const transferPct = transferPercentForInLine(line);
+                              const remainingKhasra = remainingKhasraForInLine(line);
+                              const rowAreaError = lineExceedsInTotal(line);
+
+                              return (
+                                <TableRow key={line.id || line.khasraEntry || `inline-${index}`}>
+                                  {/* Khewat No. (Readonly auto-populated from khasra) */}
+                                  <TableCell>
+                                    <TextField
+                                      size="small"
+                                      value={line.khewatNo || ''}
+                                      InputProps={{ readOnly: true }}
+                                      placeholder="—"
+                                      sx={{ width: 80 }}
+                                    />
+                                  </TableCell>
+
+                                  {/* Khasra No. Autocomplete */}
+                                  <TableCell>
+                                    <Autocomplete
+                                      size="small"
+                                      disablePortal
+                                      options={inKhasraOptions}
+                                      value={findInKhasraOption(line)}
+                                      onChange={(_, entry) => handleInKhasraSelect(index, entry)}
+                                      getOptionLabel={formatKhasraSelectLabel}
+                                      isOptionEqualToValue={(a, b) => a._id === b._id}
+                                      getOptionDisabled={(option) => isInKhasraTaken(option._id, index)}
+                                      noOptionsText="No khasras in this mouza"
+                                      renderOption={(props, option) => (
+                                        <li {...props} key={option._id}>
+                                          <Box>
+                                            <Typography variant="body2">Khasra {option.khasraNo}</Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                              Khewat {option.khewatNo}
+                                            </Typography>
+                                          </Box>
+                                        </li>
+                                      )}
+                                      renderInput={(params) => (
+                                        <TextField
+                                          {...params}
+                                          placeholder="Select khasra…"
+                                          required
+                                        />
+                                      )}
+                                      sx={{ minWidth: 180 }}
+                                    />
+                                  </TableCell>
+
+                                  {/* Khasra Area (K·M·S) */}
+                                  <TableCell>
+                                    <AreaInputs value={line.khasraArea} readOnly />
+                                  </TableCell>
+
+                                  {/* Area in Registry (Acquired Area) */}
+                                  <TableCell>
+                                    <Stack spacing={0.25}>
+                                      <AreaInputs
+                                        value={line.acquiredArea}
+                                        onChange={(area) => updateInLine(index, { acquiredArea: area })}
+                                      />
+                                      {rowAreaError && hasInTotalArea && (
+                                        <Typography variant="caption" color="error">
+                                          Cannot exceed total area
+                                        </Typography>
+                                      )}
+                                      {line.khasraEntry && remainingKhasra != null && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Max: {formatKMSOrZero(remainingKhasra)}
+                                        </Typography>
+                                      )}
+                                    </Stack>
+                                  </TableCell>
+
+                                  {/* Total Land Owned */}
+                                  <TableCell>
+                                    <Stack spacing={0.25}>
+                                      <AreaInputs
+                                        value={areaToForm(totalOwned)}
+                                        readOnly
+                                      />
+                                      {line.khasraEntry && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Prior: {formatKMS(priorOwned)}
+                                        </Typography>
+                                      )}
+                                    </Stack>
+                                  </TableCell>
+
+                                  {/* Transfer % */}
+                                  <TableCell>
+                                    <TextField
+                                      size="small"
+                                      value={formatTransferPercent(transferPct)}
+                                      InputProps={{ readOnly: true }}
+                                      sx={{ width: 68 }}
+                                    />
+                                  </TableCell>
+
+                                  {/* Remarks */}
+                                  <TableCell>
+                                    <TextField
+                                      size="small"
+                                      value={line.remarks || ''}
+                                      onChange={(e) => updateInLine(index, { remarks: e.target.value })}
+                                      fullWidth
+                                      placeholder="Remarks"
+                                    />
+                                  </TableCell>
+
+                                  {/* Delete row */}
+                                  <TableCell>
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => handleRemoveInLine(index)}
+                                      disabled={inLandLines.length <= 1}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+
+                            {inLandLines.length > 0 && (
+                              <TableRow sx={{ bgcolor: linesExceedInTotal ? 'error.light' : 'grey.100' }}>
+                                <TableCell colSpan={3}><strong>Allocated in rows</strong></TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" fontWeight={700} color={linesExceedInTotal ? 'error' : 'inherit'}>
+                                    {formatKMS(acquiredInTotal)}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell colSpan={4} />
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+
+                      <Button startIcon={<AddIcon />} onClick={handleAddInLine} disabled={!inMoza} sx={{ textTransform: 'none', fontWeight: 600 }}>
+                        Add Row
+                      </Button>
+                    </>
+                  )}
+
+                  <Box sx={{ mt: 2, p: 1.5, bgcolor: 'success.50', borderRadius: 1.5, border: '1px dashed', borderColor: 'success.main' }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
                       <Typography variant="body2" fontWeight={700} color="success.dark">
                         Total In Land:
