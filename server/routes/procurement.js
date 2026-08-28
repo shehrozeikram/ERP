@@ -6048,7 +6048,7 @@ router.post('/requisitions/:id/comparative-reject',
 );
 
 // @route   DELETE /api/procurement/requisitions/:id/comparative-statement
-// @desc    Developer option to delete / reset comparative statement for a requisition and reset related quotations to Received status
+// @desc    Developer option to delete POs, delete/reset comparative statement for a requisition and reset related quotations to Received status (preserving quotations)
 // @access  Private (Developer only)
 router.delete('/requisitions/:id/comparative-statement',
   authMiddleware,
@@ -6056,7 +6056,7 @@ router.delete('/requisitions/:id/comparative-statement',
     if (req.user.role !== 'developer' && req.user.role !== 'super_admin') {
       return res.status(403).json({
         success: false,
-        message: 'Only developer can delete / reset comparative statements.'
+        message: 'Only developer can delete / reset comparative statements and POs.'
       });
     }
 
@@ -6065,7 +6065,108 @@ router.delete('/requisitions/:id/comparative-statement',
       return res.status(404).json({ success: false, message: 'Requisition not found' });
     }
 
-    // Reset comparative approval object
+    const indentId = indent._id;
+    const indentNumber = indent.indentNumber || '';
+
+    // Models for cascading deletion of Purchase Orders & downstream docs
+    const InwardGatePass = mongoose.models.InwardGatePass || require('../models/procurement/InwardGatePass');
+    const QualityInspection = mongoose.models.QualityInspection || require('../models/procurement/QualityInspection');
+    const LandedCostVoucher = mongoose.models.LandedCostVoucher || require('../models/procurement/LandedCostVoucher');
+    const PurchaseReturn = mongoose.models.PurchaseReturn || require('../models/procurement/PurchaseReturn');
+    const VendorAdvance = mongoose.models.VendorAdvance || require('../models/finance/VendorAdvance');
+    const ApPaymentApplication = mongoose.models.ApPaymentApplication || require('../models/finance/ApPaymentApplication');
+    const JournalEntry = mongoose.models.JournalEntry || require('../models/finance/JournalEntry');
+    const Notification = mongoose.models.Notification || require('../models/hr/Notification');
+    const BOQItem = mongoose.models.BOQItem || require('../models/projectManagement/BOQItem');
+    const ProjectExpense = mongoose.models.ProjectExpense || require('../models/projectManagement/ProjectExpense');
+
+    // 1. Find all POs linked to this indent
+    const pos = await PurchaseOrder.find({ indent: indentId }).select('_id orderNumber poNumber').lean();
+    const poIds = pos.map(p => p._id);
+    const poNumbers = pos.map(p => p.orderNumber || p.poNumber).filter(Boolean);
+
+    // 2. Find GRNs for these POs to delete LandedCostVouchers
+    const grns = poIds.length ? await GoodsReceive.find({ purchaseOrder: { $in: poIds } }).select('_id').lean() : [];
+    const grnIds = grns.map(g => g._id);
+
+    // 3. Find Accounts Payable records for these POs
+    const aps = poIds.length ? await AccountsPayable.find({
+      $or: [
+        { 'poDetails.poId': { $in: poIds } },
+        { poId: { $in: poIds } }
+      ]
+    }).select('_id voucherEntryId').lean() : [];
+    const apIds = aps.map(a => a._id);
+    const apVoucherIds = aps.map(a => a.voucherEntryId).filter(Boolean);
+
+    // 4. Delete LandedCostVouchers
+    if (grnIds.length > 0) {
+      await LandedCostVoucher.deleteMany({ goodsReceive: { $in: grnIds } });
+    }
+
+    // 5. Delete downstream PO documents
+    if (poIds.length > 0) {
+      await InwardGatePass.deleteMany({ purchaseOrder: { $in: poIds } });
+      await GoodsReceive.deleteMany({ purchaseOrder: { $in: poIds } });
+      await QualityInspection.deleteMany({ purchaseOrder: { $in: poIds } });
+      await DeliveryChallan.deleteMany({ purchaseOrder: { $in: poIds } });
+      await PurchaseReturn.deleteMany({ purchaseOrder: { $in: poIds } });
+      await VendorAdvance.deleteMany({ purchaseOrder: { $in: poIds } });
+      await ProjectExpense.deleteMany({ linkedPurchaseOrder: { $in: poIds } });
+      await BOQItem.updateMany(
+        { linkedPurchaseOrders: { $in: poIds } },
+        { $pull: { linkedPurchaseOrders: { $in: poIds } } }
+      );
+    }
+
+    // 6. Delete Goods Issues referencing these POs
+    if (poIds.length > 0) {
+      await GoodsIssue.deleteMany({ referencePurchaseOrder: { $in: poIds } });
+    }
+
+    // 7. Delete AP Payment Applications for these AP bills
+    if (apIds.length > 0) {
+      await ApPaymentApplication.deleteMany({ billId: { $in: apIds } });
+    }
+
+    // 8. Delete Accounts Payable bills for these POs
+    if (apIds.length > 0 || poIds.length > 0) {
+      await AccountsPayable.deleteMany({
+        $or: [
+          ...(apIds.length > 0 ? [{ _id: { $in: apIds } }] : []),
+          ...(poIds.length > 0 ? [{ 'poDetails.poId': { $in: poIds } }, { poId: { $in: poIds } }] : [])
+        ]
+      });
+    }
+
+    // 9. Delete Journal Entries / Vouchers related to these POs
+    const voucherRefs = [...poNumbers].filter(Boolean);
+    if (apVoucherIds.length > 0 || poIds.length > 0 || voucherRefs.length > 0) {
+      await JournalEntry.deleteMany({
+        $or: [
+          ...(apVoucherIds.length > 0 ? [{ _id: { $in: apVoucherIds } }] : []),
+          ...(poIds.length > 0 ? [{ purchaseOrder: { $in: poIds } }] : []),
+          ...(voucherRefs.length > 0 ? [{ 'lines.reference': { $in: voucherRefs } }] : [])
+        ]
+      });
+    }
+
+    // 10. Delete Purchase Orders
+    if (poIds.length > 0) {
+      await PurchaseOrder.deleteMany({ indent: indentId });
+    }
+
+    // 11. Delete Notifications related to these POs
+    if (poIds.length > 0) {
+      await Notification.deleteMany({
+        $or: [
+          { 'data.purchaseOrderId': { $in: poIds } },
+          { 'data.poId': { $in: poIds } }
+        ]
+      });
+    }
+
+    // 12. Reset comparative approval object on Indent
     indent.comparativeApproval = {
       status: 'not_configured',
       approvers: [],
@@ -6077,7 +6178,7 @@ router.delete('/requisitions/:id/comparative-statement',
       rejectionObservations: []
     };
 
-    // Reset comparative statement authority approvals if present
+    // 13. Reset comparative statement authority approvals if present
     indent.comparativeStatementApprovals = {
       preparedByUser: null,
       procurementManagerUser: null,
@@ -6087,21 +6188,30 @@ router.delete('/requisitions/:id/comparative-statement',
       ceoUser: null
     };
 
-    // Reset split PO assignments
+    // 14. Reset split PO assignments
     indent.splitPOAssignments = {};
+
+    // 15. Reset orderedQuantity on items and status back to Approved
+    if (Array.isArray(indent.items)) {
+      indent.items.forEach(item => {
+        item.orderedQuantity = 0;
+      });
+    }
+    indent.status = 'Approved';
+    indent.fulfilledDate = null;
     indent.updatedBy = req.user.id;
 
     pushIndentWorkflowHistory(indent, {
-      fromStatus: 'Comparative Statement: Active',
-      toStatus: 'Comparative Statement: Deleted / Reset',
+      fromStatus: 'Comparative Statement / PO Active',
+      toStatus: 'Comparative Statement & PO Deleted / Reset',
       changedBy: req.user.id,
-      comments: 'Comparative statement was deleted/reset by developer. All related quotations reset to Received.',
+      comments: 'Comparative statement and linked PO(s) were deleted/reset by developer. All related quotations kept and reset to Received.',
       module: 'Procurement'
     });
 
     await indent.save();
 
-    // Reset all related quotations to status 'Received'
+    // 16. Reset all related quotations to status 'Received' (Quotations are kept intact!)
     await Quotation.updateMany(
       { indent: indent._id },
       {
@@ -6119,7 +6229,7 @@ router.delete('/requisitions/:id/comparative-statement',
 
     res.json({
       success: true,
-      message: 'Comparative statement deleted successfully and all quotations reset to Received.',
+      message: 'PO(s) and Comparative Statement deleted/reset successfully. Quotations have been preserved and reset to Received.',
       data: updatedIndent
     });
   })

@@ -473,9 +473,11 @@ const ComparativeStatements = () => {
   const handleDeleteComparativeStatement = async () => {
     if (!selectedRequisition?._id) return;
     const confirmed = window.confirm(
-      'Are you sure you want to DELETE/RESET the Comparative Statement for this requisition?\n\n' +
+      'Are you sure you want to DELETE the PO & Comparative Statement for this requisition?\n\n' +
+      '• All linked Purchase Orders (and downstream docs/entries) will be DELETED.\n' +
+      '• Requisition fulfillment and status will be reset back to "Approved".\n' +
       '• All comparative approvers & approvals will be reset.\n' +
-      '• All related quotations will be reset back to "Received" status.\n\n' +
+      '• All related quotations will be KEPT and reset back to "Received" status.\n\n' +
       'This action is exclusively for developers / super admin.'
     );
     if (!confirmed) return;
@@ -484,7 +486,7 @@ const ComparativeStatements = () => {
       setDeletingComparative(true);
       setError('');
       const res = await api.delete(`/procurement/requisitions/${selectedRequisition._id}/comparative-statement`);
-      setSuccess(res.data?.message || 'Comparative statement deleted and quotations reset to Received.');
+      setSuccess(res.data?.message || 'PO and Comparative statement deleted. Quotations preserved.');
 
       // Reload quotations
       const quoteRes = await api.get(`/procurement/quotations/by-indent/${selectedRequisition._id}`);
@@ -498,7 +500,7 @@ const ComparativeStatements = () => {
       }
       await loadRequisitions();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete comparative statement');
+      setError(err.response?.data?.message || 'Failed to delete PO and comparative statement');
     } finally {
       setDeletingComparative(false);
     }
@@ -521,7 +523,7 @@ const ComparativeStatements = () => {
                 disabled={deletingComparative}
                 sx={{ textTransform: 'none', fontWeight: 600 }}
               >
-                {deletingComparative ? 'Deleting…' : 'Delete Comparative (Developer)'}
+                {deletingComparative ? 'Deleting…' : 'Delete PO & Comparative (Developer)'}
               </Button>
             )}
             <Button
