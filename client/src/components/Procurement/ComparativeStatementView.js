@@ -165,8 +165,19 @@ const ComparativeStatementView = ({
         const qDesc = (qi?.description || '').trim().toLowerCase();
         return indentDesc && qDesc && qDesc === indentDesc;
       });
-      // Fallback to index if no descriptions match (legacy support)
-      quoteItem = match || quote.items[itemIndex] || null;
+      if (match) {
+        quoteItem = match;
+      } else if (itemIndex != null && itemIndex < quote.items.length) {
+        // Fallback by index only if descriptions are both empty or match
+        const indexedItem = quote.items[itemIndex];
+        const qDesc = (indexedItem?.description || '').trim().toLowerCase();
+        if (!indentDesc || !qDesc || indentDesc === qDesc) {
+          quoteItem = indexedItem;
+        }
+      }
+    }
+    if (quoteItem && ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)) {
+      return null;
     }
     return quoteItem;
   };
@@ -290,17 +301,20 @@ const ComparativeStatementView = ({
                 </tr>
               </thead>
               <tbody>
-                {selectedRequisition?.items?.length > 0 ? selectedRequisition.items.map((item, itemIndex) => {
-                  // Check if this item exists in ANY quotation
-                  const isQuoted = quotations.some(quote => getQuoteItemForIndentItem(quote, item, itemIndex) != null);
-                  if (!isQuoted) return null; // Hide row if no vendor quoted this item
+                {(() => {
+                  let visibleItemCounter = 0;
+                  return selectedRequisition?.items?.length > 0 ? selectedRequisition.items.map((item, itemIndex) => {
+                    // Check if this item exists in ANY quotation
+                    const isQuoted = quotations.some(quote => getQuoteItemForIndentItem(quote, item, itemIndex) != null);
+                    if (!isQuoted) return null; // Hide row if no vendor quoted this item
 
-                  const assignedQuotationId = vendorAssignments[itemIndex];
-                  const isAlreadyOrdered = (item.orderedQuantity || 0) >= item.quantity;
-                  return (
-                    <React.Fragment key={itemIndex}>
-                      <tr style={{ border: '1px solid #000', backgroundColor: isAlreadyOrdered ? '#fafafa' : assignedQuotationId ? '#f0fff0' : undefined }}>
-                        <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{itemIndex + 1}</td>
+                    visibleItemCounter += 1;
+                    const assignedQuotationId = vendorAssignments[itemIndex];
+                    const isAlreadyOrdered = (item.orderedQuantity || 0) >= item.quantity;
+                    return (
+                      <React.Fragment key={itemIndex}>
+                        <tr style={{ border: '1px solid #000', backgroundColor: isAlreadyOrdered ? '#fafafa' : assignedQuotationId ? '#f0fff0' : undefined }}>
+                          <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{visibleItemCounter}</td>
                         <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
                             <span>{item.itemName || item.description || '___________'}</span>
@@ -380,7 +394,8 @@ const ComparativeStatementView = ({
                   <tr>
                     <td colSpan={4 + quotations.length * 2} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>No items</td>
                   </tr>
-                )}
+                );
+                })()}
                 <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
                   <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>TOTAL</td>
                   {quotations.map((quote, idx) => (
