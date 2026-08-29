@@ -1210,9 +1210,29 @@ router.put('/purchase-orders/:id', [
   const bodyData = { ...req.body };
   if (bodyData.costCenter === '') bodyData.costCenter = null;
 
+  const isResubmissionFromReject = purchaseOrder.status === 'Rejected';
+
   Object.assign(purchaseOrder, bodyData);
   purchaseOrder.updatedBy = req.user.id;
   
+  if (isResubmissionFromReject) {
+    purchaseOrder.status = 'Pending Approval';
+    // Clear only the rejecting reviewer's approval so it routes specifically back to them
+    if (purchaseOrder.auditRejectedBy && Array.isArray(purchaseOrder.authorityApprovals)) {
+      purchaseOrder.authorityApprovals = purchaseOrder.authorityApprovals.filter(
+        (entry) => String(entry?.approver || '') !== String(purchaseOrder.auditRejectedBy)
+      );
+    }
+    pushPOWorkflowHistory(
+      purchaseOrder,
+      'Rejected',
+      'Pending Approval',
+      req.user.id,
+      'Edited and resubmitted by creator for reviewer re-approval',
+      'Procurement'
+    );
+  }
+
   await purchaseOrder.save();
 
   const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
@@ -1365,15 +1385,29 @@ router.put('/purchase-orders/:id/reject',
       return res.status(403).json({ success: false, message: 'Only assigned authority can reject this purchase order' });
     }
     const rejectionComments = req.body?.rejectionComments || req.body?.comments || '';
+    const observations = Array.isArray(req.body?.observations)
+      ? req.body.observations.filter(o => o && (typeof o === 'string' ? o.trim() : o.observation?.trim()))
+      : [];
+
     purchaseOrder.status = 'Rejected';
     purchaseOrder.updatedBy = req.user.id;
+    purchaseOrder.auditRejectedBy = req.user.id;
+    purchaseOrder.auditRejectedAt = new Date();
     purchaseOrder.auditRejectionComments = rejectionComments || purchaseOrder.auditRejectionComments || '';
+    if (observations.length > 0) {
+      purchaseOrder.auditRejectObservations = observations.map(o => typeof o === 'string' ? { observation: o, severity: 'medium' } : { observation: o.observation, severity: o.severity || 'medium' });
+    }
+
+    const obsText = observations.length > 0 
+      ? ` | Observations: ${observations.map((o, idx) => `${idx + 1}. ${typeof o === 'string' ? o : o.observation}`).join('; ')}`
+      : '';
+
     pushPOWorkflowHistory(
       purchaseOrder,
       'Pending Approval',
       'Rejected',
       req.user.id,
-      rejectionComments || 'Rejected by assigned authority',
+      `${rejectionComments || 'Rejected by assigned authority'}${obsText}`,
       'Procurement'
     );
     await purchaseOrder.save();

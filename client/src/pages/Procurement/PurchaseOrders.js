@@ -183,6 +183,10 @@ const PurchaseOrders = () => {
   const [viewDialog, setViewDialog] = useState({ open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
+  const [rejectDialog, setRejectDialog] = useState({ open: false, order: null });
+  const [rejectionComments, setRejectionComments] = useState('');
+  const [rejectObservations, setRejectObservations] = useState([{ observation: '', severity: 'medium' }]);
+  const [rejectingOrder, setRejectingOrder] = useState(false);
   
   // Approval authorities for create/edit form (prefilled from comparative statement when creating from quotation)
   const [approvalAuthority, setApprovalAuthority] = useState({
@@ -625,10 +629,11 @@ const PurchaseOrders = () => {
       }
       payload.items = validItems;
 
-      // When editing, ensure status is always included
-      // If status is not set in formData, use the original status from the PO
+      // When editing, ensure status is handled properly
       if (formDialog.mode === 'edit' && formDialog.data) {
-        if (!payload.status || payload.status === '') {
+        if (formDialog.data.status === 'Rejected') {
+          payload.status = 'Pending Approval';
+        } else if (!payload.status || payload.status === '') {
           payload.status = formDialog.data.status || 'Draft';
         }
       }
@@ -638,7 +643,11 @@ const PurchaseOrders = () => {
         setSuccess('Purchase order created successfully');
       } else {
         await api.put(`/procurement/purchase-orders/${formDialog.data._id}`, payload);
-        setSuccess('Purchase order updated successfully');
+        setSuccess(
+          formDialog.data.status === 'Rejected'
+            ? 'Purchase order updated and resubmitted to the reviewer successfully'
+            : 'Purchase order updated successfully'
+        );
       }
       
       setFormDialog({ open: false, mode: 'create', data: null, quotationId: null });
@@ -663,16 +672,54 @@ const PurchaseOrders = () => {
     }
   };
 
-  const handleReject = async (id) => {
-    const rejectionComments = window.prompt('Please enter rejection comments:');
-    if (rejectionComments === null) return;
+  const handleOpenRejectDialog = (order) => {
+    setRejectDialog({ open: true, order });
+    setRejectionComments('');
+    setRejectObservations([{ observation: '', severity: 'medium' }]);
+  };
+
+  const addRejectObservation = () => {
+    setRejectObservations(prev => [...prev, { observation: '', severity: 'medium' }]);
+  };
+
+  const updateRejectObservation = (index, field, value) => {
+    setRejectObservations(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const removeRejectObservation = (index) => {
+    setRejectObservations(prev => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleConfirmReject = async () => {
+    const order = rejectDialog.order;
+    if (!order) return;
+    const validObservations = rejectObservations
+      .filter(o => o.observation.trim())
+      .map(o => ({ observation: o.observation.trim(), severity: o.severity || 'medium' }));
+
     try {
-      await api.put(`/procurement/purchase-orders/${id}/reject`, { rejectionComments });
-      setSuccess('Purchase order rejected successfully');
+      setRejectingOrder(true);
+      await api.put(`/procurement/purchase-orders/${order._id || order}/reject`, {
+        rejectionComments: rejectionComments.trim(),
+        observations: validObservations
+      });
+      setSuccess('Purchase order rejected with observations successfully');
+      setRejectDialog({ open: false, order: null });
+      setRejectionComments('');
+      setRejectObservations([{ observation: '', severity: 'medium' }]);
+      if (viewDialog.open) {
+        setViewDialog(prev => ({ ...prev, open: false, data: null }));
+      }
       loadPurchaseOrders();
       loadStatistics();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to reject purchase order');
+    } finally {
+      setRejectingOrder(false);
     }
   };
 
@@ -1103,7 +1150,7 @@ const PurchaseOrders = () => {
                           </IconButton>
                         </Tooltip>
                       )}
-                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat' || order.status === 'Rejected') && (
+                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat') && (
                         <Tooltip title="Send to Audit">
                           <IconButton size="small" color="primary" onClick={() => handleSendToAudit(order._id, order)}>
                             <SendIcon fontSize="small" />
@@ -1118,8 +1165,8 @@ const PurchaseOrders = () => {
                         </Tooltip>
                       )}
                       {order.status === 'Pending Approval' && isAssignedAuthorityUser(order) && !hasCurrentUserApprovedAuthority(order) && (
-                        <Tooltip title="Reject">
-                          <IconButton size="small" color="error" onClick={() => handleReject(order._id)}>
+                        <Tooltip title="Reject with Observation">
+                          <IconButton size="small" color="error" onClick={() => handleOpenRejectDialog(order)}>
                             <RejectIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -1700,19 +1747,16 @@ const PurchaseOrders = () => {
                     }}
                     size="small"
                   >
-                    Approve
+                    Accept
                   </Button>
                   <Button
                     variant="outlined"
                     color="error"
                     startIcon={<RejectIcon />}
-                    onClick={async () => {
-                      await handleReject(viewDialog.data._id);
-                      setViewDialog(prev => ({ ...prev, open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 }));
-                    }}
+                    onClick={() => handleOpenRejectDialog(viewDialog.data)}
                     size="small"
                   >
-                    Reject
+                    Reject with Observation
                   </Button>
                 </>
               )}
@@ -1789,21 +1833,25 @@ const PurchaseOrders = () => {
                   Purchase Order
                 </Typography>
 
-                {/* Audit Rejection Observations - Show if status is Rejected */}
-                {viewDialog.data.status === 'Rejected' && viewDialog.data.auditRejectObservations && viewDialog.data.auditRejectObservations.length > 0 && (
+                {/* Rejection Observations - Show if status is Rejected */}
+                {viewDialog.data.status === 'Rejected' && (
+                  (viewDialog.data.auditRejectObservations && viewDialog.data.auditRejectObservations.length > 0) ||
+                  viewDialog.data.auditRejectionComments ||
+                  viewDialog.data.ceoRejectionComments
+                ) && (
                   <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.error.main, 0.1), border: `1px solid ${theme.palette.error.main}`, borderRadius: 1 }}>
                     <Typography variant="h6" sx={{ mb: 2, color: 'error.main', fontWeight: 'bold' }}>
-                      Audit Rejection Observations
+                      Rejection Observations
                     </Typography>
-                    {viewDialog.data.auditRejectionComments && (
+                    {(viewDialog.data.auditRejectionComments || viewDialog.data.ceoRejectionComments) && (
                       <Box sx={{ mb: 2 }}>
                         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
                         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
-                          {viewDialog.data.auditRejectionComments}
+                          {viewDialog.data.auditRejectionComments || viewDialog.data.ceoRejectionComments}
                         </Typography>
                       </Box>
                     )}
-                    {viewDialog.data.auditRejectObservations.map((obs, index) => (
+                    {viewDialog.data.auditRejectObservations && viewDialog.data.auditRejectObservations.map((obs, index) => (
                       <Box key={index} sx={{ mb: 1.5, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'error.light' }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
                           <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
@@ -1822,10 +1870,10 @@ const PurchaseOrders = () => {
                         </Typography>
                       </Box>
                     ))}
-                    {viewDialog.data.auditRejectedBy && (
+                    {(viewDialog.data.auditRejectedBy || viewDialog.data.ceoRejectedBy) && (
                       <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
-                        Rejected by: {viewDialog.data.auditRejectedBy?.firstName || ''} {viewDialog.data.auditRejectedBy?.lastName || ''}
-                        {viewDialog.data.auditRejectedAt && ` on ${formatDate(viewDialog.data.auditRejectedAt)}`}
+                        Rejected by: {viewDialog.data.auditRejectedBy?.firstName || viewDialog.data.ceoRejectedBy?.firstName || ''} {viewDialog.data.auditRejectedBy?.lastName || viewDialog.data.ceoRejectedBy?.lastName || ''}
+                        {(viewDialog.data.auditRejectedAt || viewDialog.data.ceoRejectedAt) && ` on ${formatDate(viewDialog.data.auditRejectedAt || viewDialog.data.ceoRejectedAt)}`}
                       </Typography>
                     )}
                   </Box>
@@ -2583,6 +2631,119 @@ const PurchaseOrders = () => {
         <DialogActions>
           <Button onClick={() => setDeleteDialog({ open: false, id: null })}>Cancel</Button>
           <Button color="error" variant="contained" onClick={confirmDelete}>Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reject with Observations Dialog */}
+      <Dialog
+        open={rejectDialog.open}
+        onClose={() => {
+          if (!rejectingOrder) {
+            setRejectDialog({ open: false, order: null });
+            setRejectionComments('');
+            setRejectObservations([{ observation: '', severity: 'medium' }]);
+          }
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Reject with Observation</DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            This will reject the Purchase Order and record your observations. The procurement team can review these observations and make necessary adjustments.
+          </Alert>
+
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Rejection Comments / Reason"
+            value={rejectionComments}
+            onChange={(e) => setRejectionComments(e.target.value)}
+            placeholder="Enter general comments for rejection..."
+            sx={{ mb: 3 }}
+            required
+          />
+
+          <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
+            Observations
+          </Typography>
+
+          {rejectObservations.map((obs, index) => (
+            <Box key={index} sx={{ mb: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: '#fafafa' }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} md={8}>
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={2}
+                    size="small"
+                    label={`Observation ${index + 1}`}
+                    value={obs.observation}
+                    onChange={(e) => updateRejectObservation(index, 'observation', e.target.value)}
+                    placeholder="Describe specific observation/issue..."
+                  />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <TextField
+                    select
+                    fullWidth
+                    size="small"
+                    label="Severity"
+                    value={obs.severity || 'medium'}
+                    onChange={(e) => updateRejectObservation(index, 'severity', e.target.value)}
+                  >
+                    <MenuItem value="low">Low</MenuItem>
+                    <MenuItem value="medium">Medium</MenuItem>
+                    <MenuItem value="high">High</MenuItem>
+                    <MenuItem value="critical">Critical</MenuItem>
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} md={1}>
+                  {rejectObservations.length > 1 && (
+                    <IconButton
+                      color="error"
+                      onClick={() => removeRejectObservation(index)}
+                      size="small"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                </Grid>
+              </Grid>
+            </Box>
+          ))}
+
+          <Button
+            startIcon={<AddIcon />}
+            onClick={addRejectObservation}
+            variant="outlined"
+            size="small"
+            sx={{ mt: 1 }}
+          >
+            Add Observation
+          </Button>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={() => {
+              setRejectDialog({ open: false, order: null });
+              setRejectionComments('');
+              setRejectObservations([{ observation: '', severity: 'medium' }]);
+            }}
+            disabled={rejectingOrder}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmReject}
+            variant="contained"
+            color="error"
+            startIcon={rejectingOrder ? <CircularProgress size={16} color="inherit" /> : <RejectIcon />}
+            disabled={rejectingOrder || (!rejectionComments.trim() && rejectObservations.every(o => !o.observation.trim()))}
+          >
+            {rejectingOrder ? 'Rejecting...' : 'Reject with Observation'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
