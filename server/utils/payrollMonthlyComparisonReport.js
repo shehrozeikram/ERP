@@ -183,10 +183,21 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
 
   const current = aggregatePayrollTotals(currentUnique);
   const previous = aggregatePayrollTotals(previousUnique);
-  const headcountChange = current.payrollCount - previous.payrollCount;
-  const headcountChangePercent = previous.payrollCount > 0
+  
+  // If previous month has payroll records, compare directly.
+  // If previous month has no payroll records, calculate net change from this month's hirings & separations
+  // so it accurately reflects actual workforce movements rather than comparing against 0.
+  const hasPreviousPayrolls = previous.payrollCount > 0;
+  const netHiringSeparationChange = (hirings.length + addedEmployees.length) - (separationsByDate.length + removedEmployees.length);
+  const headcountChange = hasPreviousPayrolls
+    ? current.payrollCount - previous.payrollCount
+    : (current.payrollCount > 0 ? (hirings.length - separationsByDate.length) : 0);
+
+  const headcountChangePercent = hasPreviousPayrolls
     ? Math.round((headcountChange / previous.payrollCount) * 1000) / 10
-    : (current.payrollCount > 0 ? 100 : 0);
+    : (current.payrollCount > 0 && headcountChange !== 0
+        ? Math.round((headcountChange / Math.max(1, current.payrollCount - headcountChange)) * 1000) / 10
+        : 0);
 
   const reinstatedEmployees = [];
   const reinstatedSeen = new Set();
