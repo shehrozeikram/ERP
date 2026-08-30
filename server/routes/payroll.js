@@ -200,7 +200,7 @@ const resolvePayrollPreviewPeriod = (month, year) => ({
   year: parseInt(year, 10) || new Date().getFullYear()
 });
 
-const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, year) => {
+const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, year, loanDeductions = 0) => {
   if (figures.skipPayroll) {
     return {
       skipPayroll: true,
@@ -215,6 +215,8 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
   const proratedGross = figures.grossSalary ?? gross;
   const workingDays = figures.proration?.workingDaysFromJoining || 26;
   const { month: previewMonth, year: previewYear } = resolvePayrollPreviewPeriod(month, year);
+  const totalDeductions = Math.round(finalTax + eobiDeduction + employeeSecurityDeduction + loanDeductions);
+  const netSalary = Math.round(figures.totalEarnings - totalDeductions);
   return {
     month: previewMonth,
     year: previewYear,
@@ -230,7 +232,7 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
       taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome
     ),
     monthlyTax: finalTax,
-    netSalary: Math.round(figures.netSalary),
+    netSalary: netSalary,
     allowances: payrollAllowancesFromEmployee(figures.effectiveAllowances || employee.allowances),
     overtimeHours: 0,
     overtimeAmount: 0,
@@ -242,11 +244,11 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
     employeeSecurity: employeeSecurityDeduction,
     healthInsurance: 0,
     providentFund: calculateProvidentFundForEmployee(employee, figures.basic),
-    loanDeductions: 0,
+    loanDeductions: loanDeductions,
     attendanceDeduction: 0,
     leaveDeduction: 0,
     otherDeductions: 0,
-    totalDeductions: Math.round(finalTax + eobiDeduction + employeeSecurityDeduction),
+    totalDeductions: totalDeductions,
     totalWorkingDays: workingDays,
     presentDays: workingDays,
     absentDays: 0,
@@ -1274,6 +1276,24 @@ router.get('/current-overview',
         req.query.year
       );
 
+      // Fetch active loans for all active employees for current month preview
+      const LoanModel = require('../models/hr/Loan');
+      const activeLoans = await LoanModel.find({
+        employee: { $in: employeeIds },
+        status: { $in: ['Active', 'Disbursed', 'Approved'] }
+      });
+
+      const loanDeductionsMap = new Map();
+      activeLoans.forEach(loan => {
+        const empIdStr = loan.employee.toString();
+        // Paused → skip
+        if (loan.pausedMonths && loan.pausedMonths.some((p) => p.month === overviewMonth && p.year === overviewYear)) {
+          return;
+        }
+        const currentLoanDeduction = loanDeductionsMap.get(empIdStr) || 0;
+        loanDeductionsMap.set(empIdStr, currentLoanDeduction + (loan.monthlyInstallment || 0));
+      });
+
       for (const employee of activeEmployees) {
         const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
         const figures = computeEmployeeCurrentPayrollFigures(
@@ -1289,8 +1309,9 @@ router.get('/current-overview',
         const monthlyTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
         const taxableIncome =
           taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome;
+        const empLoanDeduction = Math.round(loanDeductionsMap.get(employee._id.toString()) || 0);
         const netSalary = Math.round(
-          figures.totalEarnings - monthlyTax - figures.eobiDeduction - (figures.employeeSecurityDeduction || 0)
+          figures.totalEarnings - monthlyTax - figures.eobiDeduction - (figures.employeeSecurityDeduction || 0) - empLoanDeduction
         );
 
         totalBasicSalary += figures.basic;
@@ -1316,6 +1337,7 @@ router.get('/current-overview',
           monthlyTax: monthlyTax,
           eobi: Math.round(figures.eobiDeduction),
           employeeSecurity: Math.round(figures.employeeSecurityDeduction || 0),
+          loanDeductions: empLoanDeduction,
           netSalary: netSalary,
           isManualTax: Boolean(employee?.manualTax?.isActive),
           department: employee.department,
@@ -1386,6 +1408,18 @@ const fetchEmployeePayrollDetailPayload = async (employeeId, req) => {
     previewYear
   );
 
+  const LoanModel = require('../models/hr/Loan');
+  const activeLoans = await LoanModel.find({
+    employee: employeeId,
+    status: { $in: ['Active', 'Disbursed', 'Approved'] }
+  });
+  const loanDeductions = activeLoans.reduce((total, loan) => {
+    if (loan.pausedMonths && loan.pausedMonths.some((p) => p.month === previewMonth && p.year === previewYear)) {
+      return total;
+    }
+    return total + (loan.monthlyInstallment || 0);
+  }, 0);
+
   const existingPayrolls = await Payroll.find({ employee: employeeId })
     .sort({ year: -1, month: -1 })
     .limit(12);
@@ -1406,7 +1440,8 @@ const fetchEmployeePayrollDetailPayload = async (employeeId, req) => {
       gross,
       figures,
       previewMonth,
-      previewYear
+      previewYear,
+      Math.round(loanDeductions)
     ),
     existingPayrolls
   };

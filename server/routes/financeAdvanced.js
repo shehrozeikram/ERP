@@ -85,6 +85,66 @@ const attachCashApprovalWorkflowFlags = async (entries) => {
     };
   });
 };
+
+const attachBillPaymentDetails = async (entries) => {
+  const docs = entries.map((e) => (e.toObject ? e.toObject() : { ...e }));
+  const billRows = docs.filter((e) => e.referenceType === 'bill');
+  if (!billRows.length) return docs;
+
+  const entryIds = billRows.map((e) => e._id);
+  const refIds = billRows.map((e) => e.referenceId).filter(Boolean);
+
+  const matchedBills = await AccountsPayable.find({
+    $or: [
+      { _id: { $in: refIds } },
+      { voucherEntryId: { $in: entryIds } },
+      { journalEntryId: { $in: entryIds } }
+    ]
+  })
+    .select('_id status totalAmount amountPaid paidAmount advanceApplied advancePending paymentPending balanceDue billNumber vendor voucherEntryId journalEntryId')
+    .lean();
+
+  const billByRef = new Map(matchedBills.map((b) => [String(b._id), b]));
+  const billByVoucher = new Map();
+  matchedBills.forEach((b) => {
+    if (b.voucherEntryId) billByVoucher.set(String(b.voucherEntryId), b);
+    if (b.journalEntryId) billByVoucher.set(String(b.journalEntryId), b);
+  });
+
+  return docs.map((e) => {
+    if (e.referenceType !== 'bill') return e;
+    const bill = billByRef.get(String(e.referenceId)) || billByVoucher.get(String(e._id));
+    if (!bill) return e;
+
+    const total = Number(bill.totalAmount || 0);
+    const paid = Number(bill.paidAmount ?? bill.amountPaid ?? 0);
+    const advance = Number(bill.advanceApplied || 0);
+    const settled = Math.round((paid + advance) * 100) / 100;
+    const balance = Math.round(Math.max(0, total - settled) * 100) / 100;
+
+    let paymentStatus = 'unpaid';
+    if (bill.status === 'cancelled' || e.status === 'cancelled' || e.status === 'reversed') {
+      paymentStatus = 'cancelled';
+    } else if (bill.status === 'paid' || (total > 0 && settled >= total - 0.01)) {
+      paymentStatus = 'paid';
+    } else if (settled > 0 || bill.status === 'partial') {
+      paymentStatus = 'partial';
+    } else {
+      paymentStatus = 'unpaid';
+    }
+
+    return {
+      ...e,
+      billId: bill._id,
+      billNumber: bill.billNumber,
+      billStatus: bill.status,
+      billTotalAmount: total,
+      billSettledAmount: settled,
+      billBalanceDue: balance,
+      billPaymentStatus: paymentStatus
+    };
+  });
+};
 const {
   isFullAdvancePaymentTerm,
   buildJournalEntrySignedMapForVendorAdvances,
@@ -723,11 +783,12 @@ router.get('/journal-entries',
 
     const totalPages = Math.ceil(totalCount / parseInt(limit));
     const entriesWithCaFlags = await attachCashApprovalWorkflowFlags(entries);
+    const enrichedEntries = await attachBillPaymentDetails(entriesWithCaFlags);
 
     // Safely enrich department ObjectId references with Department documents
     const Department = mongoose.model('Department');
     const deptIds = new Set();
-    entriesWithCaFlags.forEach((e) => {
+    enrichedEntries.forEach((e) => {
       if (e.department && mongoose.Types.ObjectId.isValid(e.department)) {
         deptIds.add(String(e.department));
       }
@@ -743,7 +804,7 @@ router.get('/journal-entries',
       const deptMap = new Map();
       depts.forEach((d) => deptMap.set(String(d._id), d));
 
-      entriesWithCaFlags.forEach((e) => {
+      enrichedEntries.forEach((e) => {
         if (e.department && deptMap.has(String(e.department))) {
           e.department = deptMap.get(String(e.department));
         }
@@ -759,7 +820,7 @@ router.get('/journal-entries',
       success: true,
       data: {
         company,
-        entries: entriesWithCaFlags,
+        entries: enrichedEntries,
         pagination: {
           currentPage: parseInt(page),
           totalPages,
@@ -2258,6 +2319,55 @@ router.get('/accounts-payable/payee-cash-approvals',
     }));
 
     res.json({ success: true, data: rows });
+  })
+);
+
+// @route   GET /api/finance/accounts-payable/vendor-advance-balance
+// @desc    Get open unapplied Vendor Advances for a vendor
+router.get('/accounts-payable/vendor-advance-balance',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const vendorId = String(req.query.vendorId || '').trim();
+    const vendorName = String(req.query.vendorName || '').trim();
+    if (!vendorId && !vendorName) {
+      return res.status(400).json({ success: false, message: 'vendorId or vendorName is required' });
+    }
+
+    const company = await resolveCompanyForFinanceRoute(req);
+    const filter = {
+      voucherWorkflowStatus: { $in: ['immediate', 'fully_approved'] },
+      ...companyQuery({}, company)
+    };
+
+    if (vendorId) {
+      filter['vendor.vendorId'] = vendorId;
+    } else {
+      filter['vendor.name'] = { $regex: `^${vendorName}$`, $options: 'i' };
+    }
+
+    const rawAdvances = await VendorAdvance.find(filter)
+      .select('reference amount appliedAmount paymentDate paymentMethod bankAccountId vendor')
+      .sort({ paymentDate: 1 })
+      .lean();
+
+    const advances = rawAdvances.map((adv) => {
+      const amount = Math.round((Number(adv.amount) || 0) * 100) / 100;
+      const applied = Math.round((Number(adv.appliedAmount) || 0) * 100) / 100;
+      const open = Math.round(Math.max(0, amount - applied) * 100) / 100;
+      return {
+        vendorAdvanceId: String(adv._id),
+        reference: adv.reference,
+        amount,
+        applied,
+        open,
+        paymentDate: adv.paymentDate,
+        paymentMethod: adv.paymentMethod,
+        vendor: adv.vendor
+      };
+    }).filter((r) => r.open > 0);
+
+    const totalOpen = Math.round(advances.reduce((s, r) => s + r.open, 0) * 100) / 100;
+    res.json({ success: true, data: { totalOpen, advances } });
   })
 );
 

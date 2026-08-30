@@ -61,9 +61,38 @@ const formatDateForPrint = (date) => {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-/** User-facing voucher status (journal status + signed / clearance workflow). */
+/** User-facing voucher status (journal status + signed / clearance workflow + bill payment status). */
 function getVoucherStatusDisplay(row) {
   const journalStatus = String(row?.status || '').toLowerCase();
+  const refType = String(row?.referenceType || '').toLowerCase();
+
+  // For BILL vouchers, display the settlement/payment status (Paid, Partial, Unpaid)
+  if (refType === 'bill') {
+    if (journalStatus === 'reversed') return { label: 'Reversed', color: 'default', tooltip: 'Journal entry reversed' };
+    if (journalStatus === 'cancelled' || row?.billPaymentStatus === 'cancelled' || row?.billStatus === 'cancelled') {
+      return { label: 'Cancelled', color: 'default', tooltip: 'Bill / Voucher Cancelled' };
+    }
+    if (row?.billPaymentStatus === 'paid' || row?.billStatus === 'paid') {
+      return { label: 'Paid', color: 'success', tooltip: 'Bill fully paid' };
+    }
+    if (row?.billPaymentStatus === 'partial' || row?.billStatus === 'partial') {
+      const settled = row?.billSettledAmount ? ` (Paid: ${Number(row.billSettledAmount).toLocaleString()})` : '';
+      const balance = row?.billBalanceDue ? ` - Bal: ${Number(row.billBalanceDue).toLocaleString()}` : '';
+      return {
+        label: 'Partially Paid',
+        color: 'warning',
+        tooltip: `Bill partially paid${settled}${balance}`
+      };
+    }
+    // Default for active bill with no payments recorded yet
+    return {
+      label: 'Unpaid',
+      color: 'error',
+      variant: 'outlined',
+      tooltip: 'Bill is posted/open, awaiting payment'
+    };
+  }
+
   const signed =
     row?.signedDocumentStatus === 'signed' && Boolean(row?.signedDocumentAt);
   const cleared = row?.clearanceStatus === 'cleared';
@@ -611,14 +640,19 @@ const Vouchers = () => {
                     <TableCell>
                       {(() => {
                         const display = getVoucherStatusDisplay(row);
-                        return (
+                        const chip = (
                           <Chip
                             size="small"
                             label={display.label}
                             color={display.color}
-                            variant={display.color === 'default' ? 'outlined' : 'filled'}
+                            variant={display.variant || (display.color === 'default' ? 'outlined' : 'filled')}
                           />
                         );
+                        return display.tooltip ? (
+                          <Tooltip title={display.tooltip} arrow>
+                            {chip}
+                          </Tooltip>
+                        ) : chip;
                       })()}
                     </TableCell>
                     <TableCell align="center">

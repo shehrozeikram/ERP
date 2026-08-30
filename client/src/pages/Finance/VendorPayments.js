@@ -2,15 +2,18 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, CircularProgress, Alert, TextField, Grid,
-  InputAdornment, Card, CardContent, Button
+  InputAdornment, Card, CardContent, Button, Stack
 } from '@mui/material';
 import {
   Search as SearchIcon, AccountBalance as BankIcon,
-  Refresh as RefreshIcon, Payment as PaymentIcon
+  Refresh as RefreshIcon, Payment as PaymentIcon,
+  Add as AddIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import FinanceCompanyPageHeader from '../../components/Finance/FinanceCompanyPageHeader';
 import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import QuickbooksPayBillsModal from '../../components/Finance/QuickbooksPayBillsModal';
 
 const METHOD_COLORS = {
   bank_transfer: 'primary', check: 'secondary', cheque: 'secondary',
@@ -18,10 +21,12 @@ const METHOD_COLORS = {
 };
 
 export default function VendorPayments() {
+  const { selectedCompanyId } = useFinanceCompany();
   const [data, setData]       = useState({ payments: [], totalAmount: 0, count: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [filters, setFilters] = useState({ fromDate: '', toDate: '', search: '' });
+  const [payBillsModalOpen, setPayBillsModalOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,7 +55,21 @@ export default function VendorPayments() {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <FinanceCompanyPageHeader title="Vendor Payments" icon={PaymentIcon}>
-        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">Refresh</Button>
+        <Stack direction="row" spacing={1.5}>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PaymentIcon />}
+            onClick={() => setPayBillsModalOpen(true)}
+            size="small"
+            sx={{ fontWeight: 700 }}
+          >
+            Pay Bills (Multi-Bill)
+          </Button>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} size="small">
+            Refresh
+          </Button>
+        </Stack>
       </FinanceCompanyPageHeader>
 
       {/* Summary */}
@@ -151,6 +170,14 @@ export default function VendorPayments() {
           </Table>
         </TableContainer>
       )}
+
+      {/* QuickBooks-style Pay Bills Dialog */}
+      <QuickbooksPayBillsModal
+        open={payBillsModalOpen}
+        onClose={() => setPayBillsModalOpen(false)}
+        onSuccess={load}
+        selectedCompanyId={selectedCompanyId}
+      />
     </Box>
   );
 }
