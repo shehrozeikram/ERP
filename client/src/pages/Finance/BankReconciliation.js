@@ -18,7 +18,8 @@ import {
   Delete as DeleteIcon,
   GetApp as DownloadIcon,
   InsertDriveFile as FileIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Undo as UndoIcon
 } from '@mui/icons-material';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
@@ -55,6 +56,8 @@ export default function BankReconciliation() {
   const [error, setError]     = useState('');
   const [success, setSuccess] = useState('');
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [rowClearDates, setRowClearDates] = useState({});
+  const [clearingLoading, setClearingLoading] = useState({});
   
   const [filters, setFilters] = useState({
     asOfDate: new Date().toISOString().split('T')[0],
@@ -282,6 +285,71 @@ export default function BankReconciliation() {
     }
   };
 
+  const handleDirectClear = async (txn) => {
+    if (!txn?._id) return;
+    const rawId = String(txn._id);
+    const targetJeId = txn.journalEntryId || rawId.split('-')[0];
+    const selectedDate = rowClearDates[txn._id] ?? (txn.clearingDate ? clearedAtToYmd(txn.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
+
+    if (!selectedDate) {
+      setError('Please provide a valid clearing date.');
+      return;
+    }
+
+    const clearedAt = new Date(`${selectedDate}T12:00:00.000Z`).toISOString();
+    setClearingLoading((prev) => ({ ...prev, [txn._id]: true }));
+    setError('');
+
+    try {
+      const idsToSend = [rawId];
+      if (targetJeId && targetJeId !== rawId && /^[0-9a-fA-F]{24}$/.test(targetJeId)) {
+        idsToSend.push(targetJeId);
+      }
+      await api.post('/finance/reports/bank-reconciliation/reconcile', {
+        transactionIds: idsToSend,
+        clearanceStatus: 'cleared',
+        clearedAt
+      });
+      setRowClearDates((prev) => ({ ...prev, [txn._id]: selectedDate }));
+      setSuccess(`Voucher ${txn.vrNo || ''} marked as cleared and removed from unpresented cheques.`);
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not clear transaction');
+    } finally {
+      setClearingLoading((prev) => ({ ...prev, [txn._id]: false }));
+    }
+  };
+
+  const handleDirectUnclear = async (txn) => {
+    if (!txn?._id) return;
+    const rawId = String(txn._id);
+    const targetJeId = txn.journalEntryId || rawId.split('-')[0];
+    const existingDate = txn.clearingDate ? clearedAtToYmd(txn.clearingDate) : (rowClearDates[txn._id] || null);
+    setClearingLoading((prev) => ({ ...prev, [txn._id]: true }));
+    setError('');
+
+    try {
+      const idsToSend = [rawId];
+      if (targetJeId && targetJeId !== rawId && /^[0-9a-fA-F]{24}$/.test(targetJeId)) {
+        idsToSend.push(targetJeId);
+      }
+      await api.post('/finance/reports/bank-reconciliation/reconcile', {
+        transactionIds: idsToSend,
+        clearanceStatus: 'pending',
+        clearedAt: existingDate ? new Date(`${existingDate}T12:00:00.000Z`).toISOString() : null
+      });
+      if (existingDate) {
+        setRowClearDates((prev) => ({ ...prev, [txn._id]: existingDate }));
+      }
+      setSuccess(`Voucher ${txn.vrNo || ''} moved back to unpresented cheques.`);
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not revert clearance');
+    } finally {
+      setClearingLoading((prev) => ({ ...prev, [txn._id]: false }));
+    }
+  };
+
   const selectedAccount = bankAccounts.find(a => a._id === filters.bankAccountId);
 
   return (
@@ -424,8 +492,8 @@ export default function BankReconciliation() {
                   <TableCell sx={{ fontWeight: 700, minWidth: 130 }}>Signed Document</TableCell>
                   <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>Signed By</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Signed Date</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700 }}>Clearing.Date</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700 }}>Action</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, minWidth: 155 }}>Clearing.Date</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, minWidth: 100 }}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -440,6 +508,7 @@ export default function BankReconciliation() {
                     {(data.unpresentedTransactions || []).map((t, idx) => {
                       const hasAttachment = (t.attachments || []).length > 0;
                       const isSigned = t.signedDocumentStatus === 'signed';
+                      const defaultClearDate = rowClearDates[t._id] ?? (t.clearingDate ? clearedAtToYmd(t.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
                       return (
                         <TableRow key={t._id || idx} hover>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
@@ -517,14 +586,48 @@ export default function BankReconciliation() {
                             {t.signedDocumentAt ? formatDate(t.signedDocumentAt) : '—'}
                           </TableCell>
                           <TableCell align="center">
-                            {t.clearingDate ? formatDate(t.clearingDate) : '—'}
+                            <TextField
+                              type="date"
+                              size="small"
+                              value={defaultClearDate}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setRowClearDates((prev) => ({ ...prev, [t._id]: val }));
+                              }}
+                              InputLabelProps={{ shrink: true }}
+                              inputProps={{ style: { fontSize: '0.85rem', padding: '6px 8px' } }}
+                              sx={{ width: 145 }}
+                            />
                           </TableCell>
                           <TableCell align="center">
-                            <Tooltip title="Mark / Edit Clearance">
-                              <IconButton size="small" color="primary" onClick={() => openClearanceDialog(t)}>
-                                <EditDateIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                            <Stack direction="row" spacing={0.5} justifyContent="center" alignItems="center">
+                              <Tooltip title="Clear cheque & reconcile (removes from unpresented)">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="success"
+                                    disabled={Boolean(clearingLoading[t._id])}
+                                    onClick={() => handleDirectClear(t)}
+                                    sx={{
+                                      bgcolor: 'rgba(46, 125, 50, 0.1)',
+                                      border: '1px solid rgba(46, 125, 50, 0.3)',
+                                      '&:hover': { bgcolor: 'success.main', color: '#fff' }
+                                    }}
+                                  >
+                                    {clearingLoading[t._id] ? (
+                                      <CircularProgress size={16} color="inherit" />
+                                    ) : (
+                                      <ReconcileIcon fontSize="small" />
+                                    )}
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title="Clearance dialog / custom options">
+                                <IconButton size="small" color="primary" onClick={() => openClearanceDialog(t)}>
+                                  <EditDateIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
                           </TableCell>
                         </TableRow>
                       );
@@ -598,6 +701,7 @@ export default function BankReconciliation() {
                   <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 700 }}>Clearing.Date</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700 }}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -614,6 +718,7 @@ export default function BankReconciliation() {
                     </Typography>
                   </TableCell>
                   <TableCell align="center">{formatDate(filters.fromDate)}</TableCell>
+                  <TableCell align="center">—</TableCell>
                 </TableRow>
 
                 {/* Period Transactions */}
@@ -632,6 +737,29 @@ export default function BankReconciliation() {
                     <TableCell align="center">
                       {t.clearingDate ? formatDate(t.clearingDate) : '—'}
                     </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Un-clear / Move back to Unpresented Cheques">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            disabled={Boolean(clearingLoading[t._id])}
+                            onClick={() => handleDirectUnclear(t)}
+                            sx={{
+                              bgcolor: 'rgba(237, 108, 2, 0.08)',
+                              border: '1px solid rgba(237, 108, 2, 0.3)',
+                              '&:hover': { bgcolor: 'warning.main', color: '#fff' }
+                            }}
+                          >
+                            {clearingLoading[t._id] ? (
+                              <CircularProgress size={16} color="inherit" />
+                            ) : (
+                              <UndoIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
 
@@ -646,7 +774,7 @@ export default function BankReconciliation() {
                       {data.bankStatementBalanceType}.
                     </Typography>
                   </TableCell>
-                  <TableCell />
+                  <TableCell colSpan={2} />
                 </TableRow>
               </TableBody>
             </Table>

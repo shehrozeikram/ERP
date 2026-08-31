@@ -5214,67 +5214,92 @@ router.post('/reports/bank-reconciliation/reconcile',
   asyncHandler(async (req, res) => {
     const { transactionIds, clearanceStatus, clearedAt } = req.body;
     const isCleared = clearanceStatus === 'cleared' || !clearanceStatus;
-    const clearDate = clearedAt ? new Date(clearedAt) : new Date();
+    const hasValidDate = clearedAt && !Number.isNaN(new Date(clearedAt).getTime());
+    const clearDate = hasValidDate ? new Date(clearedAt) : new Date();
 
     if (Array.isArray(transactionIds) && transactionIds.length > 0) {
+      const bankingUpdate = {
+        'transactions.$[elem].isReconciled': isCleared,
+        'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
+        'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending')
+      };
+      if (isCleared || hasValidDate) {
+        bankingUpdate['transactions.$[elem].clearedAt'] = clearDate;
+      }
+
       await Banking.updateMany(
         { 'transactions._id': { $in: transactionIds } },
-        {
-          $set: {
-            'transactions.$[elem].isReconciled': isCleared,
-            'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
-            'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-            'transactions.$[elem].clearedAt': isCleared ? clearDate : null
-          }
-        },
+        { $set: bankingUpdate },
         { arrayFilters: [{ 'elem._id': { $in: transactionIds } }] }
       );
+
+      const bankingDocUpdate = {
+        isReconciled: isCleared,
+        reconciledAt: isCleared ? clearDate : null,
+        reconciledBy: req.user.id,
+        clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
+      };
+      if (isCleared || hasValidDate) {
+        bankingDocUpdate.clearedAt = clearDate;
+      }
+
       await Banking.updateMany(
         { _id: { $in: transactionIds } },
-        {
-          $set: {
-            isReconciled: isCleared,
-            reconciledAt: isCleared ? clearDate : null,
-            reconciledBy: req.user.id,
-            clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-            clearedAt: isCleared ? clearDate : null
-          }
-        }
+        { $set: bankingDocUpdate }
       );
 
-      // Update GeneralLedger documents
+      // Update GeneralLedger and JournalEntry documents
       const GeneralLedger = require('../models/finance/GeneralLedger');
       const JournalEntry = require('../models/finance/JournalEntry');
-      const validObjIds = transactionIds.filter(id => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id));
+      const validObjIds = transactionIds
+        .map(id => String(id).split('-')[0])
+        .filter(id => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id));
       
       if (validObjIds.length > 0) {
-        // Specifically update the selected GeneralLedger document(s)
+        const glUpdate = {
+          isReconciled: isCleared,
+          reconciledAt: isCleared ? clearDate : null,
+          clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
+        };
+        if (isCleared || hasValidDate) {
+          glUpdate.clearedAt = clearDate;
+        }
+
+        // 1. Update GL docs matching _id or journalEntry
         await GeneralLedger.updateMany(
-          { _id: { $in: validObjIds } },
-          {
-            $set: {
-              isReconciled: isCleared,
-              reconciledAt: isCleared ? clearDate : null,
-              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-              clearedAt: isCleared ? clearDate : null
-            }
-          }
+          { $or: [{ _id: { $in: validObjIds } }, { journalEntry: { $in: validObjIds } }] },
+          { $set: glUpdate }
         );
 
-        // Find the parent journal entries for these GL rows
-        const targetGls = await GeneralLedger.find({ _id: { $in: validObjIds } }).select('journalEntry').lean();
+        const jeUpdate = {
+          isReconciled: isCleared,
+          reconciledAt: isCleared ? clearDate : null,
+          clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
+        };
+        if (isCleared || hasValidDate) {
+          jeUpdate.clearedAt = clearDate;
+        }
+
+        // 2. Update JournalEntry docs directly matching _id
+        await JournalEntry.updateMany(
+          { _id: { $in: validObjIds } },
+          { $set: jeUpdate }
+        );
+
+        // 3. Find parent journal entries for any updated GL rows to keep status synchronized
+        const targetGls = await GeneralLedger.find({
+          $or: [{ _id: { $in: validObjIds } }, { journalEntry: { $in: validObjIds } }]
+        }).select('journalEntry').lean();
         const parentJeIds = Array.from(new Set(targetGls.map(g => String(g.journalEntry || '')).filter(Boolean)));
 
         for (const parentJeId of parentJeIds) {
-          // Check if there are any remaining uncleared GL rows for this journal entry
           const unclearedCount = await GeneralLedger.countDocuments({
             journalEntry: parentJeId,
             clearanceStatus: { $ne: 'cleared' },
             isReconciled: { $ne: true }
           });
 
-          if (unclearedCount === 0) {
-            // All lines are cleared, mark entire JE as cleared
+          if (unclearedCount === 0 && isCleared) {
             await JournalEntry.updateOne(
               { _id: parentJeId },
               {
@@ -5286,16 +5311,18 @@ router.post('/reports/bank-reconciliation/reconcile',
                 }
               }
             );
-          } else {
-            // Partial lines cleared
+          } else if (!isCleared) {
+            const revertJe = {
+              isReconciled: false,
+              clearanceStatus: 'pending',
+              reconciledAt: null
+            };
+            if (hasValidDate) {
+              revertJe.clearedAt = clearDate;
+            }
             await JournalEntry.updateOne(
               { _id: parentJeId },
-              {
-                $set: {
-                  isReconciled: false,
-                  clearanceStatus: 'pending'
-                }
-              }
+              { $set: revertJe }
             );
           }
         }

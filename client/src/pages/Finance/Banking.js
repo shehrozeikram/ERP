@@ -167,10 +167,15 @@ const Banking = () => {
 
     try {
       setLoading(true);
+      const existingDate = t.clearingDate || t.clearedAt;
+      const idsToSend = [String(t._id)];
+      if (t.journalEntryId && String(t.journalEntryId) !== String(t._id)) {
+        idsToSend.push(String(t.journalEntryId));
+      }
       await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: [String(t._id)],
+        transactionIds: idsToSend,
         clearanceStatus: 'pending',
-        clearedAt: null
+        clearedAt: existingDate || null
       });
       await fetchTransactions();
     } catch (err) {
