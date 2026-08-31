@@ -1148,7 +1148,8 @@ router.get('/monthly-comparison/:month/:year',
     if (!month || month < 1 || month > 12 || !year) {
       return res.status(400).json({ success: false, message: 'Invalid month or year' });
     }
-    const result = await getPayrollMonthlyComparisonReport(month, year);
+    const regenerate = req.query.regenerate === 'true' || req.query.force === 'true';
+    const result = await getPayrollMonthlyComparisonReport(month, year, { regenerate });
     const approvalDoc = await populateMonthlyApproval(
       PayrollMonthlyApproval.findOne({ month, year })
     );
@@ -1180,7 +1181,7 @@ router.post('/monthly-comparison/:month/:year/generate',
         message: 'No payroll records found for this month. Generate payroll first.'
       });
     }
-    const saved = await savePayrollMonthlyComparisonReport(month, year, req.user.id);
+    const saved = await savePayrollMonthlyComparisonReport(month, year, req.user.id, { force: true });
     // Clear late-entry/late-termination flags so they don't bleed into next month's report
     await clearLateEntryFlags(month, year);
     const approvalDoc = await populateMonthlyApproval(

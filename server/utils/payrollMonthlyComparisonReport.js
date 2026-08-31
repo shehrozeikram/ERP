@@ -52,17 +52,24 @@ const mapEmployeeRow = (emp, extra = {}) => ({
   ...extra
 });
 
-const mapIncrementRow = (increment) => {
-  const emp = increment?.employee;
-  const prevSal = Number(increment?.previousSalary) || 0;
-  const newSal = Number(increment?.newSalary) || 0;
+const mapIncrementRow = (increment, empMap = new Map()) => {
+  let emp = increment?.employee;
+  if (!emp || typeof emp === 'string' || !emp.firstName) {
+    const empIdStr = String(emp?._id || emp || '');
+    if (empMap.has(empIdStr)) {
+      emp = empMap.get(empIdStr);
+    }
+  }
+
+  const prevSal = Number(increment?.previousSalary) || (emp?.salary?.gross ? Number(emp.salary.gross) - Number(increment?.incrementAmount || 0) : 0);
+  const newSal = Number(increment?.newSalary) || (prevSal + Number(increment?.incrementAmount || 0));
   const incAmt = Number(increment?.incrementAmount) || (newSal - prevSal);
   const incPct = Number(increment?.incrementPercentage) || (prevSal > 0 ? Number(((incAmt / prevSal) * 100).toFixed(2)) : 0);
   const rawStatus = increment?.status || 'approved';
   const displayStatus = String(rawStatus).charAt(0).toUpperCase() + String(rawStatus).slice(1);
 
   return {
-    employeeId: emp?.employeeId || '—',
+    employeeId: emp?.employeeId || (typeof increment?.employee === 'string' ? increment.employee : '—'),
     name: employeeName(emp),
     department: employeeDepartment(emp),
     incrementType: increment?.incrementType || 'annual',
@@ -104,13 +111,53 @@ const uniqueEmployeesById = (rows = []) => {
 
 const isDateInMonth = (dateVal, m, y) => {
   if (!dateVal) return false;
-  const d = new Date(dateVal);
-  if (Number.isNaN(d.getTime())) return false;
-  const utcM = d.getUTCMonth() + 1;
-  const utcY = d.getUTCFullYear();
-  const locM = d.getMonth() + 1;
-  const locY = d.getFullYear();
-  return (utcM === Number(m) && utcY === Number(y)) || (locM === Number(m) && locY === Number(y));
+  const targetM = Number(m);
+  const targetY = Number(y);
+
+  if (dateVal instanceof Date && !Number.isNaN(dateVal.getTime())) {
+    const utcM = dateVal.getUTCMonth() + 1;
+    const utcY = dateVal.getUTCFullYear();
+    const locM = dateVal.getMonth() + 1;
+    const locY = dateVal.getFullYear();
+    return (utcM === targetM && utcY === targetY) || (locM === targetM && locY === targetY);
+  }
+
+  const str = String(dateVal).trim();
+  if (!str) return false;
+
+  const parsedDate = new Date(str);
+  if (!Number.isNaN(parsedDate.getTime())) {
+    const utcM = parsedDate.getUTCMonth() + 1;
+    const utcY = parsedDate.getUTCFullYear();
+    const locM = parsedDate.getMonth() + 1;
+    const locY = parsedDate.getFullYear();
+    if ((utcM === targetM && utcY === targetY) || (locM === targetM && locY === targetY)) {
+      return true;
+    }
+  }
+
+  // Fallback for custom formatted strings like "1/8/2026", "01/08/2026", "2026-08-01", etc.
+  const parts = str.split(/[\/\-\.T\s]/).filter(Boolean);
+  if (parts.length >= 3) {
+    let partY = null;
+    let partM = null;
+    if (parts[0].length === 4) {
+      partY = parseInt(parts[0], 10);
+      partM = parseInt(parts[1], 10);
+    } else if (parts[2].length === 4) {
+      partY = parseInt(parts[2], 10);
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      if (p1 === targetM || p0 === targetM) {
+        partM = targetM;
+      }
+    }
+    if (partY === targetY && partM === targetM) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 const buildPayrollMonthlyComparisonReport = async (month, year) => {
@@ -156,10 +203,6 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       .sort({ terminationDate: 1 })
       .lean(),
     EmployeeIncrement.find({
-      $or: [
-        { effectiveDate: { $gte: queryStart, $lte: queryEnd } },
-        { effectiveDate: { $gte: start, $lte: end } }
-      ],
       status: { $nin: ['rejected', 'Rejected'] }
     })
       .populate({
@@ -167,7 +210,7 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
         select: EMPLOYEE_REPORT_SELECT,
         populate: EMPLOYEE_POPULATE
       })
-      .sort({ effectiveDate: 1 })
+      .sort({ effectiveDate: 1, createdAt: -1 })
       .lean()
   ]);
 
@@ -336,10 +379,10 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
 
 const LOCKED_STATUSES = ['Approved', 'Approved by AVP'];
 
-const savePayrollMonthlyComparisonReport = async (month, year, actorId) => {
+const savePayrollMonthlyComparisonReport = async (month, year, actorId, { force = false } = {}) => {
   const existingDoc = await PayrollMonthlyComparisonReport.findOne({ month, year });
-  // Only lock if the report has reached a FINAL approval status
-  if (existingDoc && existingDoc.report && LOCKED_STATUSES.includes(existingDoc.status)) {
+  // Only lock if the report has reached a FINAL approval status AND force is not requested
+  if (!force && existingDoc && existingDoc.report && LOCKED_STATUSES.includes(existingDoc.status)) {
     console.log(`🔒 Returning locked Monthly Comparison Report for ${month}/${year} (status: ${existingDoc.status})`);
     return {
       report: existingDoc.report,
