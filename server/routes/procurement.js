@@ -7397,7 +7397,8 @@ router.post('/quotations/by-indent/:indentId/create-split-pos',
         const unitPrice = quoteItem ? (quoteItem.unitPrice || 0) : 0;
         const taxRate = quoteItem ? (quoteItem.taxRate || 0) : 0;
         const discount = quoteItem ? (quoteItem.discount || 0) : 0;
-        const quantity = indentItem.quantity || 0;
+        const remainingQty = Math.max(0, (indentItem.quantity || 0) - (indentItem.orderedQuantity || 0));
+        const quantity = (quoteItem && Number(quoteItem.quantity) > 0) ? Number(quoteItem.quantity) : (remainingQty > 0 ? remainingQty : (indentItem.quantity || 0));
         const amount = (quantity * unitPrice) - discount + ((quantity * unitPrice - discount) * taxRate / 100);
         return {
           description: indentItem.itemName || indentItem.description || '',

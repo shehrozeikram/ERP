@@ -163,8 +163,7 @@ const Quotations = () => {
     try {
       const probe = await procurementService.getRequisitions({
         page: 1,
-        limit: 1,
-        status: 'Approved'
+        limit: 1
       });
       const canManageAssignments = Boolean(probe?.data?.canManageAssignments);
       setRequisitionsFilteredToAssignee(!canManageAssignments);

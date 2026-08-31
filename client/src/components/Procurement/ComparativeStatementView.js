@@ -398,9 +398,23 @@ const ComparativeStatementView = ({
                 })()}
                 <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
                   <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>TOTAL</td>
-                  {quotations.map((quote, idx) => (
-                    <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>{formatNumber(quote.totalAmount || 0)}</td>
-                  ))}
+                  {quotations.map((quote, idx) => {
+                    const visibleTotal = (selectedRequisition?.items || []).reduce((sum, item, itemIndex) => {
+                      const isQuoted = quotations.some(q => getQuoteItemForIndentItem(q, item, itemIndex) != null);
+                      if (!isQuoted) return sum;
+                      const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
+                      if (!quoteItem) return sum;
+                      const itemTotal = !((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)
+                        ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
+                        : 0;
+                      return sum + (Number(itemTotal) || 0);
+                    }, 0);
+                    return (
+                      <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
+                        {formatNumber(visibleTotal || quote.totalAmount || 0)}
+                      </td>
+                    );
+                  })}
                 </tr>
                 <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
                   <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>Discount</td>
@@ -420,9 +434,24 @@ const ComparativeStatementView = ({
                 </tr>
                 <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#d0d0d0', fontWeight: 700 }}>
                   <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>Grand Total</td>
-                  {quotations.map((quote, idx) => (
-                    <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>{formatNumber(quote.totalAmount || 0)}</td>
-                  ))}
+                  {quotations.map((quote, idx) => {
+                    const visibleTotal = (selectedRequisition?.items || []).reduce((sum, item, itemIndex) => {
+                      const isQuoted = quotations.some(q => getQuoteItemForIndentItem(q, item, itemIndex) != null);
+                      if (!isQuoted) return sum;
+                      const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
+                      if (!quoteItem) return sum;
+                      const itemTotal = !((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)
+                        ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
+                        : 0;
+                      return sum + (Number(itemTotal) || 0);
+                    }, 0);
+                    const grand = Math.max(0, (visibleTotal || quote.totalAmount || 0) - (quote.discountAmount || 0));
+                    return (
+                      <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>
+                        {formatNumber(grand)}
+                      </td>
+                    );
+                  })}
                 </tr>
               </tbody>
             </table>
