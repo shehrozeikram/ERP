@@ -178,7 +178,6 @@ const MyTasks = () => {
     try {
       setLoading(true);
       setNotRecoveryMember(false);
-      const ruleFilter = selectedRuleId ? rules.find((r) => String(r._id) === String(selectedRuleId)) : null;
       const params = {
         ...pagination.getApiParams(),
         ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
@@ -186,8 +185,8 @@ const MyTasks = () => {
         ...(statusFilter && { status: statusFilter }),
         ...(unreadFilter === 'unread' && { unread: 'true' }),
         ...(dueSort && { dueSort }),
-        ...(selectedTaskId && !ruleFilter && { recoveryTaskId: selectedTaskId }),
-        ...(selectedRuleId && { recoveryRuleId: selectedRuleId })
+        ...(selectedTaskId ? { recoveryTaskId: selectedTaskId } : {}),
+        ...(selectedRuleId ? { recoveryRuleId: selectedRuleId } : {})
       };
       const res = await fetchMyRecoveryTasks(params);
       const data = res.data?.data || [];
@@ -853,6 +852,7 @@ const MyTasks = () => {
                     onChange={(e) => {
                       const v = e.target.value || '';
                       userChoseAllTasksRef.current = v === '';
+                      setSelectedRuleId('');
                       setSelectedTaskId(v);
                     }}
                     label="Filter by task"

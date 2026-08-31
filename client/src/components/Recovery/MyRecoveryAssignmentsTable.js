@@ -54,8 +54,9 @@ const MyRecoveryAssignmentsTable = ({
   });
 
   const isRowSelected = (row) => {
-    if (row.kind === 'task') return selectedTaskId === row.id;
-    if (row.kind === 'rule') return selectedRuleId === row.id;
+    if (!row) return false;
+    if (row.kind === 'task') return Boolean(selectedTaskId && String(selectedTaskId) === String(row.id));
+    if (row.kind === 'rule') return Boolean(selectedRuleId && String(selectedRuleId) === String(row.id));
     return false;
   };
 
@@ -109,8 +110,8 @@ const MyRecoveryAssignmentsTable = ({
                         hover
                         selected={isRowSelected(row)}
                         onClick={() => {
-                          if (row.kind === 'task' && onSelectTask) onSelectTask(row.task);
-                          if (row.kind === 'rule' && onSelectRule) onSelectRule(row.rule);
+                          if (row.kind === 'task' && onSelectTask) onSelectTask(row.task || { _id: row.id });
+                          if (row.kind === 'rule' && onSelectRule) onSelectRule(row.rule || { _id: row.id });
                         }}
                         sx={{ cursor: 'pointer' }}
                       >

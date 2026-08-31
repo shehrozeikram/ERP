@@ -60,15 +60,47 @@ function sectorExactRegex(value) {
   return new RegExp(`^${escapeRegex(trimmed)}$`, 'i');
 }
 
-function resolveAssignedMember(record, sectorRules, slabRules) {
+function resolveAssignedMember(record, sectorRules = [], slabRules = [], recoveryTasks = []) {
   const sector = normalizeSectorValue(record.sector);
   const due = Number(record.currentlyDue) || 0;
   const actionFromRule = (rule) => rule.action && ['whatsapp', 'call', 'both'].includes(rule.action) ? rule.action : 'both';
 
+  // 1. Check matching time-bound recovery tasks first
+  if (Array.isArray(recoveryTasks) && recoveryTasks.length > 0) {
+    const matchedTask = recoveryTasks.find((t) => {
+      if (!t.assignedTo) return false;
+      const tSector = normalizeSectorValue(t.sector);
+      if (t.scopeType === 'sector') {
+        return tSector === sector;
+      }
+      if (t.scopeType === 'slab') {
+        const min = Number(t.minAmount) || 0;
+        const max = t.maxAmount != null && t.maxAmount !== '' ? Number(t.maxAmount) : null;
+        const sectorMatch = !tSector || tSector === sector;
+        const inRange = due >= min && (max === null || due < max);
+        return sectorMatch && inRange;
+      }
+      return false;
+    });
+
+    if (matchedTask && matchedTask.assignedTo) {
+      const emp = matchedTask.assignedTo.employee;
+      const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId : (matchedTask.assignedTo.name || '');
+      const createdBy = matchedTask.createdBy
+        ? {
+            _id: matchedTask.createdBy._id,
+            name: [matchedTask.createdBy.firstName, matchedTask.createdBy.lastName].filter(Boolean).join(' ').trim() || matchedTask.createdBy.email
+          }
+        : null;
+      return { _id: matchedTask.assignedTo._id, name: name || '—', action: actionFromRule(matchedTask), assignedBy: createdBy, taskTitle: matchedTask.title };
+    }
+  }
+
+  // 2. Check sector rules
   const sectorRule = sectorRules.find((r) => normalizeSectorValue(r.sector) === sector);
   if (sectorRule && sectorRule.assignedTo) {
     const emp = sectorRule.assignedTo.employee;
-    const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId : '';
+    const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId : (sectorRule.assignedTo.name || '');
     const createdBy = sectorRule.createdBy
       ? {
           _id: sectorRule.createdBy._id,
@@ -78,6 +110,7 @@ function resolveAssignedMember(record, sectorRules, slabRules) {
     return { _id: sectorRule.assignedTo._id, name: name || '—', action: actionFromRule(sectorRule), assignedBy: createdBy };
   }
 
+  // 3. Check slab rules
   const slabRule = slabRules.find((r) => {
     const min = Number(r.minAmount) || 0;
     const max = r.maxAmount != null && r.maxAmount !== '' ? Number(r.maxAmount) : null;
@@ -87,7 +120,7 @@ function resolveAssignedMember(record, sectorRules, slabRules) {
   });
   if (slabRule && slabRule.assignedTo) {
     const emp = slabRule.assignedTo.employee;
-    const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId : '';
+    const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId : (slabRule.assignedTo.name || '');
     const createdBy = slabRule.createdBy
       ? {
           _id: slabRule.createdBy._id,
@@ -100,15 +133,37 @@ function resolveAssignedMember(record, sectorRules, slabRules) {
   return null;
 }
 
-function isTaskAssignedToMember(record, memberId, sectorRules, slabRules) {
+function isTaskAssignedToMember(record, memberId, sectorRules = [], slabRules = [], recoveryTasks = []) {
+  if (!memberId) return false;
   const sector = normalizeSectorValue(record.sector);
   const due = Number(record.currentlyDue) || 0;
+  const memIdStr = String(memberId);
 
-  const memberSectorRule = sectorRules.find(r => r.assignedTo && r.assignedTo._id.toString() === memberId.toString() && normalizeSectorValue(r.sector) === sector);
+  // Check matching recovery tasks for this member
+  if (Array.isArray(recoveryTasks)) {
+    const taskMatch = recoveryTasks.find((t) => {
+      const assignedId = t.assignedTo?._id || t.assignedTo;
+      if (!assignedId || String(assignedId) !== memIdStr) return false;
+      const tSector = normalizeSectorValue(t.sector);
+      if (t.scopeType === 'sector') return tSector === sector;
+      if (t.scopeType === 'slab') {
+        const min = Number(t.minAmount) || 0;
+        const max = t.maxAmount != null && t.maxAmount !== '' ? Number(t.maxAmount) : null;
+        const sectorMatch = !tSector || tSector === sector;
+        const inRange = due >= min && (max === null || due < max);
+        return sectorMatch && inRange;
+      }
+      return false;
+    });
+    if (taskMatch) return true;
+  }
+
+  const memberSectorRule = sectorRules.find(r => r.assignedTo && String(r.assignedTo._id || r.assignedTo) === memIdStr && normalizeSectorValue(r.sector) === sector);
   if (memberSectorRule) return true;
 
   const memberSlabRule = slabRules.find(r => {
-    if (!r.assignedTo || r.assignedTo._id.toString() !== memberId.toString()) return false;
+    const assignedId = r.assignedTo?._id || r.assignedTo;
+    if (!assignedId || String(assignedId) !== memIdStr) return false;
     const min = Number(r.minAmount) || 0;
     const max = r.maxAmount != null && r.maxAmount !== '' ? Number(r.maxAmount) : null;
     const sectorMatch = !normalizeSectorValue(r.sector) || normalizeSectorValue(r.sector) === sector;
@@ -264,14 +319,6 @@ router.get(
       };
     }
 
-    const applyRecoveryTaskScope = (query) => {
-      if (!recoveryTaskFilter?.scopeQuery) return query;
-      const scopeKeys = Object.keys(recoveryTaskFilter.scopeQuery);
-      if (!scopeKeys.length) return query;
-      const next = { ...query };
-      next.$and = (next.$and || []).concat([recoveryTaskFilter.scopeQuery]);
-      return next;
-    };
     const requestedLimit = Math.max(1, parseInt(limit, 10) || 50);
     const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimit);
     const skip = (Math.max(1, parseInt(page, 10) || 1) - 1) * limitNum;
@@ -289,13 +336,22 @@ router.get(
 
     if (isManagerOversight) {
       let ruleFilter = { isActive: true };
+      let taskFilter = { status: { $ne: 'cancelled' } };
       if (req.query.memberId && String(req.query.memberId).trim()) {
-        ruleFilter.assignedTo = String(req.query.memberId).trim();
+        const memId = String(req.query.memberId).trim();
+        ruleFilter.assignedTo = memId;
+        taskFilter.assignedTo = memId;
       }
-      const allRules = await RecoveryTaskAssignmentRule.find(ruleFilter)
-        .sort({ createdAt: -1 })
-        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
-        .lean();
+      const [allRules, allTasks] = await Promise.all([
+        RecoveryTaskAssignmentRule.find(ruleFilter)
+          .sort({ createdAt: -1 })
+          .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+          .lean(),
+        RecoveryTask.find(taskFilter)
+          .sort({ createdAt: -1 })
+          .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+          .lean()
+      ]);
       const sectorRulesAll = allRules.filter((r) => r.type === 'sector');
       const slabRulesAll = allRules.filter((r) => r.type === 'slab');
 
@@ -313,6 +369,21 @@ router.get(
           orConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
         } else {
           orConditions.push({ currentlyDue: dueCondition });
+        }
+      });
+      allTasks.forEach((t) => {
+        const tSector = (t.sector || '').trim();
+        if (t.scopeType === 'sector' && tSector) {
+          orConditions.push({ sector: sectorExactRegex(tSector) });
+        } else if (t.scopeType === 'slab') {
+          const min = Number(t.minAmount) || 0;
+          const max = t.maxAmount != null && t.maxAmount !== '' ? Number(t.maxAmount) : null;
+          const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
+          if (tSector) {
+            orConditions.push({ sector: sectorExactRegex(tSector), currentlyDue: dueCondition });
+          } else {
+            orConditions.push({ currentlyDue: dueCondition });
+          }
         }
       });
 
@@ -354,7 +425,7 @@ router.get(
       );
       const activeStatusFilter = isSpecificSelection ? { $nin: ['unassigned'] } : MY_TASKS_ACTIVE_STATUS_FILTER;
 
-      let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: activeStatusFilter });
+      let query = { $or: orConditions, taskStatus: activeStatusFilter };
       if (search && search.trim()) {
         const searchRegex = { $regex: search.trim(), $options: 'i' };
         query.$and = (query.$and || []).concat([
@@ -394,7 +465,7 @@ router.get(
 
       const data = await decorateWithERPData(records.map((r) => ({
         ...r,
-        assignedToMember: resolveAssignedMember(r, sectorRulesAll, slabRulesAll)
+        assignedToMember: resolveAssignedMember(r, sectorRulesAll, slabRulesAll, allTasks)
       })));
 
       return res.json({
@@ -423,9 +494,10 @@ router.get(
       });
     }
 
+    const taskAssignedToId = recoveryTaskFilter?.task?.assignedTo?._id || recoveryTaskFilter?.task?.assignedTo;
     if (
       recoveryTaskFilter?.task &&
-      String(recoveryTaskFilter.task.assignedTo) !== String(recoveryMember._id)
+      String(taskAssignedToId) !== String(recoveryMember._id)
     ) {
       return res.json({
         success: true,
@@ -438,18 +510,28 @@ router.get(
       });
     }
 
-    const rules = await RecoveryTaskAssignmentRule.find({ isActive: true, assignedTo: recoveryMember._id })
-      .sort({ createdAt: -1 })
-      .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
-      .lean();
-    const sectorRulesAll = await RecoveryTaskAssignmentRule.find({ isActive: true, type: 'sector' })
-      .sort({ createdAt: -1 })
-      .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
-      .lean();
-    const slabRulesAll = await RecoveryTaskAssignmentRule.find({ isActive: true, type: 'slab' })
-      .sort({ createdAt: -1 })
-      .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
-      .lean();
+    const [rules, myTasksList, sectorRulesAll, slabRulesAll, allTasksAll] = await Promise.all([
+      RecoveryTaskAssignmentRule.find({ isActive: true, assignedTo: recoveryMember._id })
+        .sort({ createdAt: -1 })
+        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+        .lean(),
+      RecoveryTask.find({ status: { $ne: 'cancelled' }, assignedTo: recoveryMember._id })
+        .sort({ createdAt: -1 })
+        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+        .lean(),
+      RecoveryTaskAssignmentRule.find({ isActive: true, type: 'sector' })
+        .sort({ createdAt: -1 })
+        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+        .lean(),
+      RecoveryTaskAssignmentRule.find({ isActive: true, type: 'slab' })
+        .sort({ createdAt: -1 })
+        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+        .lean(),
+      RecoveryTask.find({ status: { $ne: 'cancelled' } })
+        .sort({ createdAt: -1 })
+        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+        .lean()
+    ]);
 
     const mySectors = rules.filter((r) => r.type === 'sector').map((r) => String(r.sector || '').trim()).filter(Boolean);
     const mySlabs = rules.filter((r) => r.type === 'slab');
@@ -467,6 +549,21 @@ router.get(
         orConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
       } else {
         orConditions.push({ currentlyDue: dueCondition });
+      }
+    });
+    myTasksList.forEach((t) => {
+      const tSector = (t.sector || '').trim();
+      if (t.scopeType === 'sector' && tSector) {
+        orConditions.push({ sector: sectorExactRegex(tSector) });
+      } else if (t.scopeType === 'slab') {
+        const min = Number(t.minAmount) || 0;
+        const max = t.maxAmount != null && t.maxAmount !== '' ? Number(t.maxAmount) : null;
+        const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
+        if (tSector) {
+          orConditions.push({ sector: sectorExactRegex(tSector), currentlyDue: dueCondition });
+        } else {
+          orConditions.push({ currentlyDue: dueCondition });
+        }
       }
     });
 
@@ -508,7 +605,7 @@ router.get(
     );
     const activeStatusFilter = isSpecificSelection ? { $nin: ['unassigned'] } : MY_TASKS_ACTIVE_STATUS_FILTER;
 
-    let query = applyRecoveryTaskScope({ $or: orConditions, taskStatus: activeStatusFilter });
+    let query = { $or: orConditions, taskStatus: activeStatusFilter };
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       query.$and = (query.$and || []).concat([
@@ -550,7 +647,7 @@ router.get(
     const slabRules = slabRulesAll;
     const data = await decorateWithERPData(records.map((r) => ({
       ...r,
-      assignedToMember: resolveAssignedMember(r, sectorRules, slabRules)
+      assignedToMember: resolveAssignedMember(r, sectorRules, slabRules, allTasksAll)
     })));
 
     res.json({
@@ -599,12 +696,19 @@ router.get(
     if (sector && sector.trim()) query.sector = new RegExp(sector.trim(), 'i');
     if (status && status.trim()) query.status = new RegExp(status.trim(), 'i');
 
-    // Optional: filter assignments by a specific recovery member's current assignment rules
+    // Optional: filter assignments by a specific recovery member's current assignment rules & tasks
     if (memberId && String(memberId).trim()) {
-      const rules = await RecoveryTaskAssignmentRule.find({
-        isActive: true,
-        assignedTo: String(memberId).trim()
-      }).lean();
+      const memId = String(memberId).trim();
+      const [rules, tasks] = await Promise.all([
+        RecoveryTaskAssignmentRule.find({
+          isActive: true,
+          assignedTo: memId
+        }).lean(),
+        RecoveryTask.find({
+          status: { $ne: 'cancelled' },
+          assignedTo: memId
+        }).lean()
+      ]);
       const sectorRules = rules.filter((r) => r.type === 'sector');
       const slabRules = rules.filter((r) => r.type === 'slab');
 
@@ -624,8 +728,23 @@ router.get(
           memberOrConditions.push({ currentlyDue: dueCondition });
         }
       });
+      tasks.forEach((t) => {
+        const tSector = (t.sector || '').trim();
+        if (t.scopeType === 'sector' && tSector) {
+          memberOrConditions.push({ sector: sectorExactRegex(tSector) });
+        } else if (t.scopeType === 'slab') {
+          const min = Number(t.minAmount) || 0;
+          const max = t.maxAmount != null && t.maxAmount !== '' ? Number(t.maxAmount) : null;
+          const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
+          if (tSector) {
+            memberOrConditions.push({ sector: sectorExactRegex(tSector), currentlyDue: dueCondition });
+          } else {
+            memberOrConditions.push({ currentlyDue: dueCondition });
+          }
+        }
+      });
 
-      // If selected member has no active rules, return empty quickly
+      // If selected member has no active rules or tasks, return empty quickly
       if (memberOrConditions.length === 0) {
         return res.json({
           success: true,
@@ -667,16 +786,23 @@ router.get(
       ]);
     }
 
-    const rules = await RecoveryTaskAssignmentRule.find({ isActive: true })
-      .sort({ createdAt: -1 })
-      .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
-      .populate('createdBy', 'firstName lastName email')
-      .lean();
+    const [rules, allTasks] = await Promise.all([
+      RecoveryTaskAssignmentRule.find({ isActive: true })
+        .sort({ createdAt: -1 })
+        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+        .populate('createdBy', 'firstName lastName email')
+        .lean(),
+      RecoveryTask.find({ status: { $ne: 'cancelled' } })
+        .sort({ createdAt: -1 })
+        .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
+        .populate('createdBy', 'firstName lastName email')
+        .lean()
+    ]);
     const sectorRules = rules.filter((r) => r.type === 'sector');
     const slabRules = rules.filter((r) => r.type === 'slab');
     const data = await decorateWithERPData(records.map((r) => ({
       ...r,
-      assignedToMember: resolveAssignedMember(r, sectorRules, slabRules)
+      assignedToMember: resolveAssignedMember(r, sectorRules, slabRules, allTasks)
     })));
 
     res.json({
