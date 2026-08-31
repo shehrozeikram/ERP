@@ -22,9 +22,14 @@ const prevPeriod = (month, year) => {
 };
 
 const monthRange = (month, year) => {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0, 23, 59, 59, 999);
-  return { start, end };
+  const m = Number(month);
+  const y = Number(year);
+  const start = new Date(y, m - 1, 1, 0, 0, 0, 0);
+  const end = new Date(y, m, 0, 23, 59, 59, 999);
+  // Wide bounds to catch timezone offsets between UTC and local time
+  const queryStart = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0) - 24 * 3600 * 1000);
+  const queryEnd = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999) + 24 * 3600 * 1000);
+  return { start, end, queryStart, queryEnd };
 };
 
 const employeeName = (emp) =>
@@ -49,17 +54,24 @@ const mapEmployeeRow = (emp, extra = {}) => ({
 
 const mapIncrementRow = (increment) => {
   const emp = increment?.employee;
+  const prevSal = Number(increment?.previousSalary) || 0;
+  const newSal = Number(increment?.newSalary) || 0;
+  const incAmt = Number(increment?.incrementAmount) || (newSal - prevSal);
+  const incPct = Number(increment?.incrementPercentage) || (prevSal > 0 ? Number(((incAmt / prevSal) * 100).toFixed(2)) : 0);
+  const rawStatus = increment?.status || 'approved';
+  const displayStatus = String(rawStatus).charAt(0).toUpperCase() + String(rawStatus).slice(1);
+
   return {
     employeeId: emp?.employeeId || '—',
     name: employeeName(emp),
     department: employeeDepartment(emp),
-    incrementType: increment?.incrementType || '—',
-    previousSalary: Number(increment?.previousSalary) || 0,
-    newSalary: Number(increment?.newSalary) || 0,
-    incrementAmount: Number(increment?.incrementAmount) || 0,
-    incrementPercentage: Number(increment?.incrementPercentage) || 0,
+    incrementType: increment?.incrementType || 'annual',
+    previousSalary: prevSal,
+    newSalary: newSal,
+    incrementAmount: incAmt,
+    incrementPercentage: incPct,
     effectiveDate: increment?.effectiveDate || null,
-    status: increment?.status || '',
+    status: displayStatus,
     reason: increment?.reason || ''
   };
 };
@@ -90,13 +102,24 @@ const uniqueEmployeesById = (rows = []) => {
   return [...map.values()];
 };
 
+const isDateInMonth = (dateVal, m, y) => {
+  if (!dateVal) return false;
+  const d = new Date(dateVal);
+  if (Number.isNaN(d.getTime())) return false;
+  const utcM = d.getUTCMonth() + 1;
+  const utcY = d.getUTCFullYear();
+  const locM = d.getMonth() + 1;
+  const locY = d.getFullYear();
+  return (utcM === Number(m) && utcY === Number(y)) || (locM === Number(m) && locY === Number(y));
+};
+
 const buildPayrollMonthlyComparisonReport = async (month, year) => {
   const prev = prevPeriod(month, year);
-  const { start, end } = monthRange(month, year);
+  const { start, end, queryStart, queryEnd } = monthRange(month, year);
 
   const SalaryAdvance = require('../models/hr/SalaryAdvance');
 
-  const [currentPayrolls, previousPayrolls, currentAdvances, previousAdvances, hirings, separationsByDate, salaryIncrements] = await Promise.all([
+  const [currentPayrolls, previousPayrolls, currentAdvances, previousAdvances, hirings, separationsByDate, rawSalaryIncrements] = await Promise.all([
     Payroll.find({ month, year })
       .populate({ path: 'employee', select: EMPLOYEE_REPORT_SELECT, populate: EMPLOYEE_POPULATE })
       .lean(),
@@ -123,17 +146,21 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       .lean(),
     Employee.find({
       $or: [
-        { terminationDate: { $gte: start, $lte: end } },
-        { isLateTerminationEntryForPayroll: true }
-      ]
+        { terminationDate: { $gte: queryStart, $lte: queryEnd } },
+        { terminationDate: { $gte: start, $lte: end } }
+      ],
+      employmentStatus: { $nin: ['Active', 'Reinstated'] }
     })
       .select(EMPLOYEE_REPORT_SELECT)
       .populate(EMPLOYEE_POPULATE)
       .sort({ terminationDate: 1 })
       .lean(),
     EmployeeIncrement.find({
-      effectiveDate: { $gte: start, $lte: end },
-      status: { $in: ['approved', 'implemented'] }
+      $or: [
+        { effectiveDate: { $gte: queryStart, $lte: queryEnd } },
+        { effectiveDate: { $gte: start, $lte: end } }
+      ],
+      status: { $nin: ['rejected', 'Rejected'] }
     })
       .populate({
         path: 'employee',
@@ -143,6 +170,10 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
       .sort({ effectiveDate: 1 })
       .lean()
   ]);
+
+  const salaryIncrements = (rawSalaryIncrements || []).filter((inc) =>
+    isDateInMonth(inc?.effectiveDate, month, year)
+  );
 
   const currentUnique = uniqueEmployeesById(currentPayrolls);
   const previousUnique = uniqueEmployeesById(previousPayrolls);
@@ -173,11 +204,22 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
   ]);
 
   const separationMap = new Map();
-  separationsByDate.forEach((emp) => separationMap.set(String(emp._id), mapEmployeeRow(emp)));
-  removedEmployees.forEach((emp) => {
+  (separationsByDate || []).forEach((emp) => {
+    // 1. Exclude Active and Reinstated employees
+    if (emp?.employmentStatus === 'Active' || emp?.employmentStatus === 'Reinstated') return;
+    // 2. Only include if terminationDate falls strictly in this month & year
+    if (!isDateInMonth(emp?.terminationDate, month, year)) return;
+    separationMap.set(String(emp._id), mapEmployeeRow(emp));
+  });
+
+  (removedEmployees || []).forEach((emp) => {
+    // Exclude Active and Reinstated employees from separations
+    if (emp?.employmentStatus === 'Active' || emp?.employmentStatus === 'Reinstated') return;
+    // Only include in separations if their termination date falls in this month & year
+    if (!isDateInMonth(emp?.terminationDate, month, year)) return;
     const id = String(emp._id);
     if (!separationMap.has(id)) {
-      separationMap.set(id, mapEmployeeRow(emp, { note: 'Not on current month payroll' }));
+      separationMap.set(id, mapEmployeeRow(emp));
     }
   });
 
@@ -188,10 +230,10 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
   // If previous month has no payroll records, calculate net change from this month's hirings & separations
   // so it accurately reflects actual workforce movements rather than comparing against 0.
   const hasPreviousPayrolls = previous.payrollCount > 0;
-  const netHiringSeparationChange = (hirings.length + addedEmployees.length) - (separationsByDate.length + removedEmployees.length);
+  const netHiringSeparationChange = (hirings.length + addedEmployees.length) - (separationMap.size);
   const headcountChange = hasPreviousPayrolls
     ? current.payrollCount - previous.payrollCount
-    : (current.payrollCount > 0 ? (hirings.length - separationsByDate.length) : 0);
+    : (current.payrollCount > 0 ? (hirings.length - separationMap.size) : 0);
 
   const headcountChangePercent = hasPreviousPayrolls
     ? Math.round((headcountChange / previous.payrollCount) * 1000) / 10
@@ -228,16 +270,22 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
   });
 
   const hiringMap = new Map();
-  hirings.forEach((emp) => {
+  (hirings || []).forEach((emp) => {
     const id = String(emp._id);
     if (emp?.employmentStatus === 'Reinstated' || reinstatedSeen.has(id)) return;
-    hiringMap.set(id, mapEmployeeRow(emp));
+    const joinDate = emp?.joiningDate || emp?.hireDate || emp?.appointmentDate;
+    if (isDateInMonth(joinDate, month, year) || emp?.isLateEntryForPayroll) {
+      hiringMap.set(id, mapEmployeeRow(emp));
+    }
   });
-  addedEmployees.forEach((emp) => {
+  (addedEmployees || []).forEach((emp) => {
     const id = String(emp._id);
     if (emp?.employmentStatus === 'Reinstated' || reinstatedSeen.has(id)) return;
-    if (!hiringMap.has(id)) {
-      hiringMap.set(id, mapEmployeeRow(emp, { note: 'Added to payroll this month' }));
+    const joinDate = emp?.joiningDate || emp?.hireDate || emp?.appointmentDate;
+    if (isDateInMonth(joinDate, month, year) || emp?.isLateEntryForPayroll) {
+      if (!hiringMap.has(id)) {
+        hiringMap.set(id, mapEmployeeRow(emp, { note: 'Added to payroll this month' }));
+      }
     }
   });
 
