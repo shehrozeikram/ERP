@@ -277,8 +277,10 @@ const CreateIncrement = () => {
                       <DatePicker
                         label="Effective Date *"
                         value={formData.effectiveDate}
+                        inputFormat="dd/MM/yyyy"
+                        format="dd/MM/yyyy"
                         onChange={(date) => handleInputChange('effectiveDate', date)}
-                        renderInput={(params) => <TextField {...params} fullWidth required />}
+                        renderInput={(params) => <TextField {...params} fullWidth required helperText="DD/MM/YYYY" />}
                       />
                     </Grid>
 

@@ -109,7 +109,7 @@ const uniqueEmployeesById = (rows = []) => {
   return [...map.values()];
 };
 
-const isDateInMonth = (dateVal, m, y) => {
+const isDateInMonth = (dateVal, m, y, createdAt = null) => {
   if (!dateVal) return false;
   const targetM = Number(m);
   const targetY = Number(y);
@@ -119,7 +119,17 @@ const isDateInMonth = (dateVal, m, y) => {
     const utcY = dateVal.getUTCFullYear();
     const locM = dateVal.getMonth() + 1;
     const locY = dateVal.getFullYear();
-    return (utcM === targetM && utcY === targetY) || (locM === targetM && locY === targetY);
+    const utcDay = dateVal.getUTCDate();
+    const locDay = dateVal.getDate();
+
+    if ((utcM === targetM && utcY === targetY) || (locM === targetM && locY === targetY)) {
+      return true;
+    }
+
+    // Inverted DD/MM vs MM/DD match (e.g. 1/8/2026 was saved as Month 1, Day 8)
+    if ((utcDay === targetM && utcM === 1 && utcY === targetY) || (locDay === targetM && locM === 1 && locY === targetY)) {
+      return true;
+    }
   }
 
   const str = String(dateVal).trim();
@@ -131,7 +141,12 @@ const isDateInMonth = (dateVal, m, y) => {
     const utcY = parsedDate.getUTCFullYear();
     const locM = parsedDate.getMonth() + 1;
     const locY = parsedDate.getFullYear();
+    const utcDay = parsedDate.getUTCDate();
+    const locDay = parsedDate.getDate();
     if ((utcM === targetM && utcY === targetY) || (locM === targetM && locY === targetY)) {
+      return true;
+    }
+    if ((utcDay === targetM && utcM === 1 && utcY === targetY) || (locDay === targetM && locM === 1 && locY === targetY)) {
       return true;
     }
   }
@@ -215,7 +230,7 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
   ]);
 
   const salaryIncrements = (rawSalaryIncrements || []).filter((inc) =>
-    isDateInMonth(inc?.effectiveDate, month, year)
+    isDateInMonth(inc?.effectiveDate, month, year, inc?.createdAt)
   );
 
   const currentUnique = uniqueEmployeesById(currentPayrolls);
@@ -393,15 +408,19 @@ const savePayrollMonthlyComparisonReport = async (month, year, actorId, { force 
   }
   // Draft or intermediate-approval reports regenerate with fresh data
   const report = await buildPayrollMonthlyComparisonReport(month, year);
+  const mongoose = require('mongoose');
+  const updateFields = {
+    month,
+    year,
+    report,
+    generatedAt: new Date()
+  };
+  if (actorId && mongoose.Types.ObjectId.isValid(actorId)) {
+    updateFields.generatedBy = actorId;
+  }
   const doc = await PayrollMonthlyComparisonReport.findOneAndUpdate(
     { month, year },
-    {
-      month,
-      year,
-      report,
-      generatedBy: actorId,
-      generatedAt: new Date()
-    },
+    updateFields,
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
   await syncComparisonReportStatusFromApproval(month, year);
