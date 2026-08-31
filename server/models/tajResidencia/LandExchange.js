@@ -20,6 +20,11 @@ const outLandLineSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'LandRegistry'
   },
+  sourceExchange: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'LandExchange'
+  },
+  exchangeInId: { type: String, trim: true, default: '' },
   registryNo: { type: String, trim: true, default: '' },
   inteqalNo: { type: String, trim: true, default: '' },
   moza: {

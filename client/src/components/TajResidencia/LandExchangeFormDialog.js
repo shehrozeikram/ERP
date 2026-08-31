@@ -248,7 +248,7 @@ export default function LandExchangeFormDialog({
           setOutLandLines(
             (d.outLandLines || []).map((l) => ({
               id: l._id || Math.random().toString(36).substring(2, 9),
-              registryId: l.registry?._id || l.registry || '',
+              registryId: l.registry?._id || l.registry || l.exchangeInId || (l.sourceExchange ? `exchange-in-${l.sourceExchange?._id || l.sourceExchange}-0` : ''),
               registryNo: l.registryNo || l.registry?.registryNo || '',
               inteqalNo: l.inteqalNo || l.registry?.inteqalNo || '',
               moza: l.moza?._id || l.moza || '',

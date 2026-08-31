@@ -372,7 +372,9 @@ async function attachExchangeDataToRegistries(mappedRegistries = []) {
 
       exchanges.forEach((exc) => {
         (exc.outLandLines || []).forEach((outL) => {
-          const outRegId = outL.registry ? String(outL.registry?._id || outL.registry) : null;
+          const outRegId = outL.registry
+            ? String(outL.registry?._id || outL.registry)
+            : (outL.exchangeInId ? String(outL.exchangeInId) : null);
           const outRegNo = String(outL.registryNo || '').trim().toLowerCase();
           const outIntNo = String(outL.inteqalNo || '').trim().toLowerCase();
           const outMozaId = String(outL.moza?._id || outL.moza || exc.moza?._id || exc.moza || '');
@@ -412,7 +414,9 @@ async function attachExchangeDataToRegistries(mappedRegistries = []) {
     // Compute total registry exchanged out
     exchanges.forEach((exc) => {
       (exc.outLandLines || []).forEach((outL) => {
-        const outRegId = outL.registry ? String(outL.registry?._id || outL.registry) : null;
+        const outRegId = outL.registry
+          ? String(outL.registry?._id || outL.registry)
+          : (outL.exchangeInId ? String(outL.exchangeInId) : null);
         const outRegNo = String(outL.registryNo || '').trim().toLowerCase();
         const outIntNo = String(outL.inteqalNo || '').trim().toLowerCase();
         const outMozaId = String(outL.moza?._id || outL.moza || exc.moza?._id || exc.moza || '');
@@ -585,8 +589,24 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
         if (!matches) return;
       }
 
+      const excInId = `exchange-in-${exc._id}-${idx}`;
+      const matchingOutAreas = [];
+      activeExchanges.forEach((e) => {
+        (e.outLandLines || []).forEach((ol) => {
+          const isIdMatch = ol.exchangeInId === excInId;
+          const isSourceMatch = ol.sourceExchange &&
+            String(ol.sourceExchange?._id || ol.sourceExchange) === String(exc._id) &&
+            String(ol.khasraNo).trim() === khasraNo;
+          if (isIdMatch || isSourceMatch) {
+            matchingOutAreas.push(normalizeArea(ol.surrenderedArea));
+          }
+        });
+      });
+      const exchangedOutArea = addAreas(...matchingOutAreas);
+      const netRemainingArea = subtractAreas(inArea, exchangedOutArea);
+
       exchangeInRows.push({
-        _id: `exchange-in-${exc._id}-${idx}`,
+        _id: excInId,
         isExchangeIn: true,
         exchangeId: exc._id,
         exchangeRef: exc.exchangeRef,
@@ -600,8 +620,8 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
         purchaser: { name: 'Taj Residencia (Exchange In)' },
         dealer: null,
         totalArea: inArea,
-        exchangedOutArea: { kanal: 0, marla: 0, sarsai: 0 },
-        netRemainingArea: inArea,
+        exchangedOutArea,
+        netRemainingArea,
         lines: [{
           _id: inL._id || `in-line-${idx}`,
           khewatNo,
@@ -610,6 +630,8 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
           acquiredArea: inArea,
           landWithMalkiyat: inArea,
           transferPercent: 100,
+          exchangedOutArea,
+          netRemainingArea,
           remarks: inL.remarks || `Acquired via Land Exchange ${exc.exchangeRef}`
         }],
         registryDocAttachments: (exc.attachments || []).map((att) => ({

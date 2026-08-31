@@ -183,6 +183,7 @@ router.get('/exchanges', authMiddleware, asyncHandler(async (req, res) => {
       .populate('moza', 'name slug')
       .populate('outLandLines.moza', 'name')
       .populate('outLandLines.registry', 'registryNo inteqalNo registryDate totalArea')
+      .populate('outLandLines.sourceExchange', 'exchangeRef exchangeDate dealNo')
       .populate('inLandLines.moza', 'name')
       .populate('createdBy', 'firstName lastName name email')
       .sort({ exchangeDate: -1, createdAt: -1 })
@@ -216,6 +217,7 @@ router.get('/exchanges/:id', authMiddleware, asyncHandler(async (req, res) => {
     .populate('moza', 'name slug')
     .populate('outLandLines.moza', 'name')
     .populate('outLandLines.registry', 'registryNo inteqalNo registryDate totalArea')
+    .populate('outLandLines.sourceExchange', 'exchangeRef exchangeDate dealNo')
     .populate('inLandLines.moza', 'name')
     .populate('createdBy', 'firstName lastName name email')
     .lean();
@@ -245,30 +247,58 @@ router.post('/exchanges', authMiddleware, handleExchangeUpload, asyncHandler(asy
     }
   }
 
-  const outLandLines = (body.outLandLines || []).map((line) => ({
-    registry: line.registry || undefined,
-    registryNo: String(line.registryNo || '').trim(),
-    inteqalNo: String(line.inteqalNo || '').trim(),
-    moza: line.moza,
-    khasraEntry: line.khasraEntry || undefined,
-    khewatNo: String(line.khewatNo || '').trim(),
-    khasraNo: String(line.khasraNo || '').trim(),
-    khasraArea: parseAreaInput(line.khasraArea),
-    surrenderedArea: parseAreaInput(line.surrenderedArea || line.area),
-    remarks: String(line.remarks || '').trim()
-  }));
+  const outLandLines = (body.outLandLines || []).map((line) => {
+    let registryId = undefined;
+    let exchangeId = undefined;
+    let exchangeInId = '';
 
-  const inLandLines = (body.inLandLines || []).map((line) => ({
-    moza: line.moza,
-    khasraEntry: line.khasraEntry || undefined,
-    khewatNo: String(line.khewatNo || '').trim(),
-    khasraNo: String(line.khasraNo || '').trim(),
-    khasraArea: parseAreaInput(line.khasraArea),
-    acquiredArea: parseAreaInput(line.acquiredArea || line.area),
-    registryNo: String(line.registryNo || '').trim(),
-    inteqalNo: String(line.inteqalNo || '').trim(),
-    remarks: String(line.remarks || '').trim()
-  }));
+    const rawReg = line.registry || line.registryId;
+    if (typeof rawReg === 'string' && rawReg.startsWith('exchange-in-')) {
+      exchangeInId = rawReg;
+      const parts = rawReg.split('-');
+      if (parts.length >= 3 && mongoose.Types.ObjectId.isValid(parts[2])) {
+        exchangeId = parts[2];
+      }
+    } else if (rawReg && mongoose.Types.ObjectId.isValid(rawReg)) {
+      registryId = rawReg;
+    }
+
+    const khasraEntryId = line.khasraEntry && mongoose.Types.ObjectId.isValid(line.khasraEntry)
+      ? line.khasraEntry
+      : undefined;
+
+    return {
+      registry: registryId,
+      sourceExchange: exchangeId || (line.sourceExchange && mongoose.Types.ObjectId.isValid(line.sourceExchange) ? line.sourceExchange : undefined),
+      exchangeInId: exchangeInId || String(line.exchangeInId || '').trim(),
+      registryNo: String(line.registryNo || '').trim(),
+      inteqalNo: String(line.inteqalNo || '').trim(),
+      moza: line.moza,
+      khasraEntry: khasraEntryId,
+      khewatNo: String(line.khewatNo || '').trim(),
+      khasraNo: String(line.khasraNo || '').trim(),
+      khasraArea: parseAreaInput(line.khasraArea),
+      surrenderedArea: parseAreaInput(line.surrenderedArea || line.area),
+      remarks: String(line.remarks || '').trim()
+    };
+  });
+
+  const inLandLines = (body.inLandLines || []).map((line) => {
+    const khasraEntryId = line.khasraEntry && mongoose.Types.ObjectId.isValid(line.khasraEntry)
+      ? line.khasraEntry
+      : undefined;
+    return {
+      moza: line.moza,
+      khasraEntry: khasraEntryId,
+      khewatNo: String(line.khewatNo || '').trim(),
+      khasraNo: String(line.khasraNo || '').trim(),
+      khasraArea: parseAreaInput(line.khasraArea),
+      acquiredArea: parseAreaInput(line.acquiredArea || line.area),
+      registryNo: String(line.registryNo || '').trim(),
+      inteqalNo: String(line.inteqalNo || '').trim(),
+      remarks: String(line.remarks || '').trim()
+    };
+  });
 
   if (!outLandLines.length && !inLandLines.length) {
     return res.status(400).json({ success: false, message: 'At least one Out Land line or In Land line is required' });
@@ -317,6 +347,7 @@ router.post('/exchanges', authMiddleware, handleExchangeUpload, asyncHandler(asy
     .populate('moza', 'name slug')
     .populate('outLandLines.moza', 'name')
     .populate('outLandLines.registry', 'registryNo inteqalNo registryDate totalArea')
+    .populate('outLandLines.sourceExchange', 'exchangeRef exchangeDate dealNo')
     .populate('inLandLines.moza', 'name')
     .populate('createdBy', 'firstName lastName name email')
     .lean();
@@ -363,32 +394,60 @@ router.put('/exchanges/:id', authMiddleware, handleExchangeUpload, asyncHandler(
   if (body.remarks !== undefined) existingDoc.remarks = String(body.remarks).trim();
 
   if (body.outLandLines) {
-    existingDoc.outLandLines = body.outLandLines.map((line) => ({
-      registry: line.registry || undefined,
-      registryNo: String(line.registryNo || '').trim(),
-      inteqalNo: String(line.inteqalNo || '').trim(),
-      moza: line.moza,
-      khasraEntry: line.khasraEntry || undefined,
-      khewatNo: String(line.khewatNo || '').trim(),
-      khasraNo: String(line.khasraNo || '').trim(),
-      khasraArea: parseAreaInput(line.khasraArea),
-      surrenderedArea: parseAreaInput(line.surrenderedArea || line.area),
-      remarks: String(line.remarks || '').trim()
-    }));
+    existingDoc.outLandLines = body.outLandLines.map((line) => {
+      let registryId = undefined;
+      let exchangeId = undefined;
+      let exchangeInId = '';
+
+      const rawReg = line.registry || line.registryId;
+      if (typeof rawReg === 'string' && rawReg.startsWith('exchange-in-')) {
+        exchangeInId = rawReg;
+        const parts = rawReg.split('-');
+        if (parts.length >= 3 && mongoose.Types.ObjectId.isValid(parts[2])) {
+          exchangeId = parts[2];
+        }
+      } else if (rawReg && mongoose.Types.ObjectId.isValid(rawReg)) {
+        registryId = rawReg;
+      }
+
+      const khasraEntryId = line.khasraEntry && mongoose.Types.ObjectId.isValid(line.khasraEntry)
+        ? line.khasraEntry
+        : undefined;
+
+      return {
+        registry: registryId,
+        sourceExchange: exchangeId || (line.sourceExchange && mongoose.Types.ObjectId.isValid(line.sourceExchange) ? line.sourceExchange : undefined),
+        exchangeInId: exchangeInId || String(line.exchangeInId || '').trim(),
+        registryNo: String(line.registryNo || '').trim(),
+        inteqalNo: String(line.inteqalNo || '').trim(),
+        moza: line.moza,
+        khasraEntry: khasraEntryId,
+        khewatNo: String(line.khewatNo || '').trim(),
+        khasraNo: String(line.khasraNo || '').trim(),
+        khasraArea: parseAreaInput(line.khasraArea),
+        surrenderedArea: parseAreaInput(line.surrenderedArea || line.area),
+        remarks: String(line.remarks || '').trim()
+      };
+    });
   }
 
   if (body.inLandLines) {
-    existingDoc.inLandLines = body.inLandLines.map((line) => ({
-      moza: line.moza,
-      khasraEntry: line.khasraEntry || undefined,
-      khewatNo: String(line.khewatNo || '').trim(),
-      khasraNo: String(line.khasraNo || '').trim(),
-      khasraArea: parseAreaInput(line.khasraArea),
-      acquiredArea: parseAreaInput(line.acquiredArea || line.area),
-      registryNo: String(line.registryNo || '').trim(),
-      inteqalNo: String(line.inteqalNo || '').trim(),
-      remarks: String(line.remarks || '').trim()
-    }));
+    existingDoc.inLandLines = body.inLandLines.map((line) => {
+      const khasraEntryId = line.khasraEntry && mongoose.Types.ObjectId.isValid(line.khasraEntry)
+        ? line.khasraEntry
+        : undefined;
+      return {
+        moza: line.moza,
+        khasraEntry: khasraEntryId,
+        khewatNo: String(line.khewatNo || '').trim(),
+        khasraNo: String(line.khasraNo || '').trim(),
+        khasraArea: parseAreaInput(line.khasraArea),
+        acquiredArea: parseAreaInput(line.acquiredArea || line.area),
+        registryNo: String(line.registryNo || '').trim(),
+        inteqalNo: String(line.inteqalNo || '').trim(),
+        remarks: String(line.remarks || '').trim()
+      };
+    });
   }
 
   existingDoc.totalOutArea = addAreas(...existingDoc.outLandLines.map((l) => l.surrenderedArea));
@@ -419,6 +478,7 @@ router.put('/exchanges/:id', authMiddleware, handleExchangeUpload, asyncHandler(
     .populate('moza', 'name slug')
     .populate('outLandLines.moza', 'name')
     .populate('outLandLines.registry', 'registryNo inteqalNo registryDate totalArea')
+    .populate('outLandLines.sourceExchange', 'exchangeRef exchangeDate dealNo')
     .populate('inLandLines.moza', 'name')
     .populate('createdBy', 'firstName lastName name email')
     .lean();
