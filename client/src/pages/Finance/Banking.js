@@ -168,10 +168,9 @@ const Banking = () => {
     try {
       setLoading(true);
       const existingDate = t.clearingDate || t.clearedAt;
+      // Only send the specific GL entry ID - NOT the parent journalEntryId
+      // This ensures only this one row is reverted, not all lines of the voucher
       const idsToSend = [String(t._id)];
-      if (t.journalEntryId && String(t.journalEntryId) !== String(t._id)) {
-        idsToSend.push(String(t.journalEntryId));
-      }
       await api.post('/finance/reports/bank-reconciliation/reconcile', {
         transactionIds: idsToSend,
         clearanceStatus: 'pending',

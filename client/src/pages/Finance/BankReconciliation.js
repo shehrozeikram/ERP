@@ -301,12 +301,10 @@ export default function BankReconciliation() {
     setError('');
 
     try {
-      const idsToSend = [rawId];
-      if (targetJeId && targetJeId !== rawId && /^[0-9a-fA-F]{24}$/.test(targetJeId)) {
-        idsToSend.push(targetJeId);
-      }
+      // Only send the specific GL entry ID - NOT the parent journalEntryId
+      // This ensures only this one row is cleared, not all lines of the voucher
       await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: idsToSend,
+        transactionIds: [rawId],
         clearanceStatus: 'cleared',
         clearedAt
       });
@@ -329,12 +327,10 @@ export default function BankReconciliation() {
     setError('');
 
     try {
-      const idsToSend = [rawId];
-      if (targetJeId && targetJeId !== rawId && /^[0-9a-fA-F]{24}$/.test(targetJeId)) {
-        idsToSend.push(targetJeId);
-      }
+      // Only send the specific GL entry ID - NOT the parent journalEntryId
+      // This ensures only this one row is reverted, not all lines of the voucher
       await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: idsToSend,
+        transactionIds: [rawId],
         clearanceStatus: 'pending',
         clearedAt: existingDate ? new Date(`${existingDate}T12:00:00.000Z`).toISOString() : null
       });

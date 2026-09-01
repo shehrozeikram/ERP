@@ -5268,6 +5268,8 @@ router.post('/reports/bank-reconciliation/reconcile',
       );
 
       // Update GeneralLedger and JournalEntry documents
+      // IMPORTANT: Only update the SPECIFIC GL entries passed in transactionIds,
+      // NOT all GL entries belonging to the same JournalEntry.
       const GeneralLedger = require('../models/finance/GeneralLedger');
       const JournalEntry = require('../models/finance/JournalEntry');
       const validObjIds = transactionIds
@@ -5284,41 +5286,28 @@ router.post('/reports/bank-reconciliation/reconcile',
           glUpdate.clearedAt = clearDate;
         }
 
-        // 1. Update GL docs matching _id or journalEntry
+        // 1. Update ONLY the specific GL docs matching _id (not siblings via journalEntry)
         await GeneralLedger.updateMany(
-          { $or: [{ _id: { $in: validObjIds } }, { journalEntry: { $in: validObjIds } }] },
+          { _id: { $in: validObjIds } },
           { $set: glUpdate }
         );
 
-        const jeUpdate = {
-          isReconciled: isCleared,
-          reconciledAt: isCleared ? clearDate : null,
-          clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
-        };
-        if (isCleared || hasValidDate) {
-          jeUpdate.clearedAt = clearDate;
-        }
-
-        // 2. Update JournalEntry docs directly matching _id
-        await JournalEntry.updateMany(
-          { _id: { $in: validObjIds } },
-          { $set: jeUpdate }
-        );
-
-        // 3. Find parent journal entries for any updated GL rows to keep status synchronized
+        // 2. Find parent journal entries for the updated GL rows
         const targetGls = await GeneralLedger.find({
-          $or: [{ _id: { $in: validObjIds } }, { journalEntry: { $in: validObjIds } }]
+          _id: { $in: validObjIds }
         }).select('journalEntry').lean();
         const parentJeIds = Array.from(new Set(targetGls.map(g => String(g.journalEntry || '')).filter(Boolean)));
 
+        // 3. For each parent JE, check if ALL its GL entries are now cleared
         for (const parentJeId of parentJeIds) {
-          const unclearedCount = await GeneralLedger.countDocuments({
+          const totalGLCount = await GeneralLedger.countDocuments({ journalEntry: parentJeId });
+          const clearedGLCount = await GeneralLedger.countDocuments({
             journalEntry: parentJeId,
-            clearanceStatus: { $ne: 'cleared' },
-            isReconciled: { $ne: true }
+            clearanceStatus: 'cleared'
           });
 
-          if (unclearedCount === 0 && isCleared) {
+          if (isCleared && totalGLCount > 0 && clearedGLCount === totalGLCount) {
+            // ALL GL entries for this JE are cleared → mark JE as cleared
             await JournalEntry.updateOne(
               { _id: parentJeId },
               {
@@ -5331,21 +5320,32 @@ router.post('/reports/bank-reconciliation/reconcile',
               }
             );
           } else if (!isCleared) {
-            const revertJe = {
-              isReconciled: false,
-              clearanceStatus: 'pending',
-              reconciledAt: null
-            };
-            if (hasValidDate) {
-              revertJe.clearedAt = clearDate;
-            }
+            // At least one GL entry is being reverted → mark JE as pending
             await JournalEntry.updateOne(
               { _id: parentJeId },
-              { $set: revertJe }
+              {
+                $set: {
+                  isReconciled: false,
+                  clearanceStatus: 'pending',
+                  reconciledAt: null
+                }
+              }
+            );
+          } else {
+            // Some cleared, some not → JE stays pending (partial clearance)
+            await JournalEntry.updateOne(
+              { _id: parentJeId },
+              {
+                $set: {
+                  isReconciled: false,
+                  clearanceStatus: 'pending'
+                }
+              }
             );
           }
         }
       }
+
     }
     res.json({ success: true, message: `${transactionIds?.length || 0} transactions updated` });
   })

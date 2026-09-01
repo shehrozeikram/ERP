@@ -66,9 +66,58 @@ async function run() {
   }
   console.log(`Target Bank Account: ${ablAccount.name} (${ablAccount.accountNumber}, ID: ${ablAccount._id})`);
 
-  // Read Excel File
+  // ============================================================
+  // STEP 1: REVERT ALL GL entries & JEs for this ABL bank account to pending
+  // ============================================================
+  console.log('\n=== STEP 1: Reverting ALL GL entries on ABL account to pending ===');
+  const revertGLResult = await GeneralLedger.updateMany(
+    { account: ablAccount._id },
+    {
+      $set: {
+        clearanceStatus: 'pending',
+        isReconciled: false,
+        reconciledAt: null,
+        clearedAt: null
+      }
+    }
+  );
+  console.log(`Reverted ${revertGLResult.modifiedCount} GL entries to pending.`);
+
+  // Also revert all CICON JEs that were cleared
+  const revertJEResult = await JournalEntry.updateMany(
+    { companyId: ciconCompany._id, clearanceStatus: 'cleared' },
+    {
+      $set: {
+        clearanceStatus: 'pending',
+        isReconciled: false,
+        reconciledAt: null,
+        clearedAt: null
+      }
+    }
+  );
+  console.log(`Reverted ${revertJEResult.modifiedCount} JEs to pending.`);
+
+  // Also revert ALL GL entries for any CICON JE (non-bank GL entries that got cleared by mistake)
+  const ciconJeIds = await JournalEntry.find({ companyId: ciconCompany._id }).select('_id').lean();
+  const ciconJeIdList = ciconJeIds.map(j => j._id);
+  const revertAllGLResult = await GeneralLedger.updateMany(
+    { journalEntry: { $in: ciconJeIdList }, clearanceStatus: 'cleared' },
+    {
+      $set: {
+        clearanceStatus: 'pending',
+        isReconciled: false,
+        reconciledAt: null,
+        clearedAt: null
+      }
+    }
+  );
+  console.log(`Reverted ${revertAllGLResult.modifiedCount} additional non-bank GL entries to pending.`);
+
+  // ============================================================
+  // STEP 2: Read Excel and match each row to a SPECIFIC GL entry
+  // ============================================================
   const filePath = path.join(__dirname, '..', '..', 'docs', 'Journal_Vouchers_Statement.xlsx');
-  console.log('Reading Excel file:', filePath);
+  console.log('\n=== STEP 2: Reading Excel file ===');
   const wb = xlsx.readFile(filePath);
   const ws = wb.Sheets[wb.SheetNames[0]];
   const data = xlsx.utils.sheet_to_json(ws, { header: 1, raw: false });
@@ -77,18 +126,15 @@ async function run() {
   for (let i = 4; i < data.length; i++) {
     const r = data[i];
     if (!r || !r[0] || r[0] === 'Total') continue;
+    const rawAmount = parseAmount(r[4]);
     excelRows.push({
       rowIdx: i + 1,
-      dateStr: r[0],
       date: parseExcelDate(r[0]),
       vrNo: String(r[1] || '').trim(),
       narration: String(r[2] || '').trim(),
       reference: String(r[3] || '').trim(),
-      amount: parseAmount(r[4]),
-      absAmount: Math.abs(parseAmount(r[4])),
-      type: parseAmount(r[4]) < 0 ? 'Cr' : 'Dr',
-      status: String(r[5] || '').trim(),
-      clearingDateStr: r[6],
+      amount: Math.abs(rawAmount),
+      isCredit: rawAmount < 0,       // Negative = credit (payment out)
       clearingDate: parseExcelDate(r[6]),
       paymentType: String(r[7] || '').trim(),
       mainAccountHead: String(r[8] || '').trim(),
@@ -99,61 +145,64 @@ async function run() {
   }
   console.log(`Loaded ${excelRows.length} transaction rows from Excel.`);
 
-  // 1. Group excel rows by vrNo
-  const excelVouchers = new Map();
-  excelRows.forEach(r => {
-    if (!excelVouchers.has(r.vrNo)) {
-      excelVouchers.set(r.vrNo, []);
-    }
-    excelVouchers.get(r.vrNo).push(r);
+  // ============================================================
+  // STEP 3: For each Excel row, find the EXACT matching GL entry
+  // ============================================================
+  console.log('\n=== STEP 3: Matching Excel rows to specific GL entries ===');
+  
+  // Cache all CICON JEs by entryNumber
+  const allCiconJEs = await JournalEntry.find({ companyId: ciconCompany._id }).lean();
+  const jeByEntryNumber = {};
+  allCiconJEs.forEach(je => {
+    jeByEntryNumber[je.entryNumber] = je;
   });
-  console.log(`Grouped into ${excelVouchers.size} distinct vouchers.`);
 
-  // 2. Fetch all Journal Entries and GeneralLedger entries for CICON
-  const ciconJEs = await JournalEntry.find({ companyId: ciconCompany._id });
-  console.log(`Found ${ciconJEs.length} Journal Entries for CICON.`);
+  let matchedCount = 0;
+  let unmatchedCount = 0;
+  const matchedGlIds = new Set(); // Track which GL IDs have been matched to avoid double-matching
 
-  let reconciledJEsCount = 0;
-  let reconciledGLCount = 0;
-
-  for (const [vrNo, rows] of excelVouchers.entries()) {
-    // Find matching Journal Entry in DB
-    const je = ciconJEs.find(j => j.entryNumber === vrNo || j.reference === rows[0].reference);
+  for (const row of excelRows) {
+    const je = jeByEntryNumber[row.vrNo];
     if (!je) {
-      console.warn(`WARNING: Journal entry ${vrNo} (${rows[0].reference}) not found in CICON!`);
+      console.warn(`  WARNING: JE ${row.vrNo} not found in DB!`);
+      unmatchedCount++;
       continue;
     }
 
-    // Determine clearing date from Excel (use first row or latest if multiple)
-    const primaryRow = rows[0];
-    const clearingDate = primaryRow.clearingDate || primaryRow.date || new Date();
+    // Find GL entries for this JE that hit the ABL bank account
+    const glEntries = await GeneralLedger.find({
+      journalEntry: je._id,
+      account: ablAccount._id
+    }).lean();
 
-    // Custom metadata from Excel
-    const customPaymentType = primaryRow.paymentType || (primaryRow.type === 'Cr' ? 'Payment' : 'Receipt');
-    const customMainAccountHead = primaryRow.mainAccountHead || 'General';
-    const customSubAccountHead = primaryRow.subAccountHead || '—';
-    const customCompany = primaryRow.company || 'CHC';
-    const customProject = primaryRow.project || '—';
+    // Match by: amount AND debit/credit direction
+    // Excel: isCredit=true means amount is in credit column (payment out of bank)
+    //         isCredit=false means amount is in debit column (receipt into bank)
+    let matchedGl = null;
+    for (const gl of glEntries) {
+      if (matchedGlIds.has(String(gl._id))) continue; // Already used
 
-    // Update Journal Entry
-    je.clearanceStatus = 'cleared';
-    je.isReconciled = true;
-    je.reconciledAt = clearingDate;
-    je.clearedAt = clearingDate;
-    je.signedDocumentStatus = 'signed';
-    je.signedDocumentAt = je.signedDocumentAt || clearingDate;
-    je.customPaymentType = customPaymentType;
-    je.customMainAccountHead = customMainAccountHead;
-    je.customSubAccountHead = customSubAccountHead;
-    je.customCompany = customCompany;
-    je.customProject = customProject;
+      const glIsCredit = (Number(gl.credit) || 0) > 0;
+      const glAmount = glIsCredit ? Number(gl.credit) : Number(gl.debit);
 
-    await je.save();
-    reconciledJEsCount++;
+      if (glIsCredit === row.isCredit && Math.abs(glAmount - row.amount) < 0.01) {
+        matchedGl = gl;
+        break;
+      }
+    }
 
-    // Update corresponding General Ledger entries for this JE
-    const glRes = await GeneralLedger.updateMany(
-      { journalEntry: je._id },
+    if (!matchedGl) {
+      console.warn(`  WARNING: No matching GL for Excel row ${row.rowIdx} (${row.vrNo}, ${row.isCredit ? 'Cr' : 'Dr'} ${row.amount})`);
+      unmatchedCount++;
+      continue;
+    }
+
+    matchedGlIds.add(String(matchedGl._id));
+
+    // Update ONLY this specific GL entry
+    const clearingDate = row.clearingDate || row.date || new Date();
+    await GeneralLedger.updateOne(
+      { _id: matchedGl._id },
       {
         $set: {
           clearanceStatus: 'cleared',
@@ -163,70 +212,69 @@ async function run() {
         }
       }
     );
-    reconciledGLCount += glRes.modifiedCount;
+
+    // Update the parent JE with custom metadata (these are display fields on JE level)
+    await JournalEntry.updateOne(
+      { _id: je._id },
+      {
+        $set: {
+          customPaymentType: row.paymentType || (row.isCredit ? 'Payment' : 'Receipt'),
+          customMainAccountHead: row.mainAccountHead || 'General',
+          customSubAccountHead: row.subAccountHead || '—',
+          customCompany: row.company || 'CHC',
+          customProject: row.project || '—',
+          signedDocumentStatus: 'signed',
+          signedDocumentAt: je.signedDocumentAt || clearingDate
+        }
+      }
+    );
+
+    matchedCount++;
   }
 
-  console.log(`\nSuccessfully reconciled ${reconciledJEsCount} Journal Entries and updated ${reconciledGLCount} General Ledger entries from Excel.`);
+  console.log(`\nMatched and cleared: ${matchedCount} GL entries`);
+  console.log(`Unmatched: ${unmatchedCount} Excel rows`);
 
-  // Also reconcile any remaining unpresented draft/stray items on this ABL bank account (like BPV-000018 & BPV-000035) so unpresented is completely clear
-  const strayGls = await GeneralLedger.find({
-    account: ablAccount._id,
-    clearanceStatus: { $ne: 'cleared' }
-  });
-  console.log(`Found ${strayGls.length} remaining uncleared GL rows on ABL account.`);
-  for (const sgl of strayGls) {
-    const sDate = sgl.date || new Date();
-    sgl.clearanceStatus = 'cleared';
-    sgl.isReconciled = true;
-    sgl.reconciledAt = sDate;
-    sgl.clearedAt = sDate;
-    await sgl.save();
+  // ============================================================
+  // STEP 4: Sync JE clearance status based on whether ALL its GL entries are cleared
+  // ============================================================
+  console.log('\n=== STEP 4: Syncing JE clearance status ===');
+  for (const je of allCiconJEs) {
+    const totalGLCount = await GeneralLedger.countDocuments({ journalEntry: je._id });
+    const clearedGLCount = await GeneralLedger.countDocuments({ journalEntry: je._id, clearanceStatus: 'cleared' });
 
-    if (sgl.journalEntry) {
+    if (totalGLCount > 0 && clearedGLCount === totalGLCount) {
+      // ALL GL entries cleared → mark JE as cleared
       await JournalEntry.updateOne(
-        { _id: sgl.journalEntry },
+        { _id: je._id },
         {
           $set: {
             clearanceStatus: 'cleared',
             isReconciled: true,
-            reconciledAt: sDate,
-            clearedAt: sDate
+            reconciledAt: je.reconciledAt || new Date(),
+            clearedAt: je.clearedAt || new Date()
           }
         }
       );
     }
+    // Otherwise JE stays pending (individual GL entries may be cleared)
   }
 
-  // Also clear any other draft Journal Entries pointing to this account that had lines
-  const strayJEs = await JournalEntry.find({
-    companyId: ciconCompany._id,
-    'lines.account': ablAccount._id,
-    clearanceStatus: { $ne: 'cleared' }
-  });
-  console.log(`Found ${strayJEs.length} remaining uncleared JEs on ABL account.`);
-  for (const sje of strayJEs) {
-    const sDate = sje.date || new Date();
-    sje.clearanceStatus = 'cleared';
-    sje.isReconciled = true;
-    sje.reconciledAt = sDate;
-    sje.clearedAt = sDate;
-    await sje.save();
-  }
+  // ============================================================
+  // STEP 5: Verification
+  // ============================================================
+  console.log('\n=== VERIFICATION ===');
+  const finalClearedGL = await GeneralLedger.countDocuments({ account: ablAccount._id, clearanceStatus: 'cleared' });
+  const finalTotalGL = await GeneralLedger.countDocuments({ account: ablAccount._id });
+  const finalPendingGL = finalTotalGL - finalClearedGL;
+  console.log(`ABL account GL: ${finalClearedGL} cleared, ${finalPendingGL} pending, ${finalTotalGL} total`);
+  console.log(`Expected cleared: ${excelRows.length} (from Excel)`);
 
-  console.log('\n--- Sync Verification ---');
-  const remainingUnclearedGL = await GeneralLedger.countDocuments({
-    account: ablAccount._id,
-    clearanceStatus: { $ne: 'cleared' }
-  });
-  console.log(`Remaining uncleared GL on ABL account: ${remainingUnclearedGL}`);
-
-  const totalClearedGL = await GeneralLedger.countDocuments({
-    account: ablAccount._id,
-    clearanceStatus: 'cleared'
-  });
-  console.log(`Total cleared GL entries on ABL account: ${totalClearedGL}`);
+  const finalClearedJE = await JournalEntry.countDocuments({ companyId: ciconCompany._id, clearanceStatus: 'cleared' });
+  console.log(`CICON JEs cleared: ${finalClearedJE}`);
 
   await mongoose.disconnect();
+  console.log('\nDone!');
 }
 
 run().catch(err => {
