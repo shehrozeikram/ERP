@@ -587,11 +587,33 @@ const HRDashboard = () => {
   }
 
   const nowForFilter = new Date();
+  const prevMonthDate = new Date(nowForFilter.getFullYear(), nowForFilter.getMonth() - 1, 1);
+  const getNewHireFilterLabel = (filter) => {
+    if (filter === 'year') return 'This Year';
+    if (filter === 'previous_month') return 'Previous Month';
+    return 'This Month';
+  };
+
+  const getNewHireFilterSubtitle = (filter) => {
+    if (filter === 'year') return `${nowForFilter.getFullYear()} (hire-date based)`;
+    if (filter === 'previous_month') {
+      const monthName = prevMonthDate.toLocaleString('default', { month: 'short' });
+      return `${monthName} ${prevMonthDate.getFullYear()} (hire-date based)`;
+    }
+    return 'This month (hire-date based)';
+  };
+
   const filteredNewHires = employeesWithHireDate.filter(emp => {
     const hireDate = getEmployeeHireDate(emp);
     if (!hireDate) return false;
     if (newHireFilter === 'year') {
       return hireDate.getFullYear() === nowForFilter.getFullYear();
+    }
+    if (newHireFilter === 'previous_month') {
+      return (
+        hireDate.getMonth() === prevMonthDate.getMonth() &&
+        hireDate.getFullYear() === prevMonthDate.getFullYear()
+      );
     }
     return (
       hireDate.getMonth() === nowForFilter.getMonth() &&
@@ -770,22 +792,21 @@ const HRDashboard = () => {
                     {filteredNewHires.length}
                   </Typography>
                   <Typography variant="caption" color="textSecondary">
-                    {newHireFilter === 'year'
-                      ? `${new Date().getFullYear()} (hire-date based)`
-                      : 'This month (hire-date based)'}
+                    {getNewHireFilterSubtitle(newHireFilter)}
                   </Typography>
                 </Box>
                 <Box>
                   <FormControl
                     size="small"
                     onClick={(e) => e.stopPropagation()}
-                    sx={{ minWidth: 150 }}
+                    sx={{ minWidth: 160 }}
                   >
                     <Select
                       value={newHireFilter}
                       onChange={(e) => setNewHireFilter(e.target.value)}
                     >
                       <MenuItem value="month">This Month</MenuItem>
+                      <MenuItem value="previous_month">Previous Month</MenuItem>
                       <MenuItem value="year">This Year</MenuItem>
                     </Select>
                   </FormControl>
@@ -849,7 +870,7 @@ const HRDashboard = () => {
         maxWidth="md"
       >
         <DialogTitle sx={{ pr: 6 }}>
-          {`New Hires - ${newHireFilter === 'year' ? 'This Year' : 'This Month'} (${filteredNewHires.length})`}
+          {`New Hires - ${getNewHireFilterLabel(newHireFilter)} (${filteredNewHires.length})`}
           <IconButton
             onClick={() => setHireListDialogOpen(false)}
             sx={{ position: 'absolute', right: 8, top: 8 }}
