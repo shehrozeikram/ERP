@@ -308,13 +308,13 @@ const Quotations = () => {
     setDeleteDialog({ open: true, id });
   };
 
-  const handleFinalize = async (id, groupQuotes = []) => {
-    // Check if another quote in this group is already finalized or shortlisted
+  const handleFinalize = async (id, groupQuotes = [], indentStatus = '') => {
+    const isPartiallyFulfilled = indentStatus === 'Partially Fulfilled';
     const otherActive = (groupQuotes || []).find(
-      (q) => q._id !== id && ['Finalized', 'Shortlisted'].includes(q.status)
+      (q) => q._id !== id && (isPartiallyFulfilled ? q.status === 'Shortlisted' : ['Finalized', 'Shortlisted'].includes(q.status))
     );
     if (otherActive) {
-      setError(`Cannot finalize: Quotation ${otherActive.quotationNumber} is already ${otherActive.status.toLowerCase()} for this requisition.`);
+      setError(`Cannot finalize: Quotation ${otherActive.quotationNumber} is currently ${otherActive.status.toLowerCase()} for this requisition.`);
       return;
     }
 
@@ -696,14 +696,17 @@ const Quotations = () => {
                         </TableHead>
                         <TableBody>
                           {group.quotations.map((quote) => {
+                            const isPartiallyFulfilled = group.indent?.status === 'Partially Fulfilled';
                             const otherActiveQuote = group.quotations.find(
-                              (q) => q._id !== quote._id && ['Finalized', 'Shortlisted'].includes(q.status)
+                              (q) => q._id !== quote._id && (isPartiallyFulfilled ? q.status === 'Shortlisted' : ['Finalized', 'Shortlisted'].includes(q.status))
                             );
-                            const groupHasPO = (group.indent?.items || []).some((it) => (it.orderedQuantity || 0) > 0) ||
-                              group.quotations.some((q) => q._id !== quote._id && (q.items || []).some((it) => (it.orderedQuantity || 0) > 0));
+                            const groupHasPO = !isPartiallyFulfilled && (
+                              (group.indent?.items || []).some((it) => (it.orderedQuantity || 0) > 0) ||
+                              group.quotations.some((q) => q._id !== quote._id && (q.items || []).some((it) => (it.orderedQuantity || 0) > 0))
+                            );
                             const isBlockedByOther = Boolean(otherActiveQuote || groupHasPO);
                             const blockReason = otherActiveQuote
-                              ? `Quotation ${otherActiveQuote.quotationNumber} is already ${otherActiveQuote.status.toLowerCase()} for this requisition`
+                              ? `Quotation ${otherActiveQuote.quotationNumber} is currently ${otherActiveQuote.status.toLowerCase()} for this requisition`
                               : (groupHasPO ? 'A Purchase Order has already been created for this requisition' : '');
 
                             return (
@@ -733,7 +736,7 @@ const Quotations = () => {
                                             size="small"
                                             color="success"
                                             disabled={isBlockedByOther}
-                                            onClick={() => handleFinalize(quote._id, group.quotations)}
+                                            onClick={() => handleFinalize(quote._id, group.quotations, group.indent?.status)}
                                           >
                                             <ApproveIcon fontSize="small" />
                                           </IconButton>
@@ -962,12 +965,14 @@ const Quotations = () => {
                 value="Shortlisted"
                 disabled={(() => {
                   if (!formData.indent) return false;
-                  const indentId = typeof formData.indent === 'object' ? formData.indent._id : formData.indent;
+                  const indentObj = typeof formData.indent === 'object' ? formData.indent : null;
+                  const indentId = indentObj ? indentObj._id : formData.indent;
+                  const isPartiallyFulfilled = indentObj?.status === 'Partially Fulfilled';
                   const otherQuotes = quotations.filter(q => {
                     const qIndentId = typeof q.indent === 'object' ? q.indent?._id : q.indent;
                     return qIndentId === indentId && q._id !== formDialog.data?._id;
                   });
-                  return otherQuotes.some(q => ['Shortlisted', 'Finalized'].includes(q.status));
+                  return otherQuotes.some(q => isPartiallyFulfilled ? q.status === 'Shortlisted' : ['Shortlisted', 'Finalized'].includes(q.status));
                 })()}
               >
                 Shortlisted
@@ -976,12 +981,14 @@ const Quotations = () => {
                 value="Finalized"
                 disabled={(() => {
                   if (!formData.indent) return false;
-                  const indentId = typeof formData.indent === 'object' ? formData.indent._id : formData.indent;
+                  const indentObj = typeof formData.indent === 'object' ? formData.indent : null;
+                  const indentId = indentObj ? indentObj._id : formData.indent;
+                  const isPartiallyFulfilled = indentObj?.status === 'Partially Fulfilled';
                   const otherQuotes = quotations.filter(q => {
                     const qIndentId = typeof q.indent === 'object' ? q.indent?._id : q.indent;
                     return qIndentId === indentId && q._id !== formDialog.data?._id;
                   });
-                  return otherQuotes.some(q => ['Shortlisted', 'Finalized'].includes(q.status));
+                  return otherQuotes.some(q => isPartiallyFulfilled ? q.status === 'Shortlisted' : ['Shortlisted', 'Finalized'].includes(q.status));
                 })()}
               >
                 Finalized

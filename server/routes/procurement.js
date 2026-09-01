@@ -7020,28 +7020,47 @@ router.put('/quotations/:id', [
   if (['Finalized', 'Shortlisted'].includes(req.body.status) && quotation.status !== req.body.status) {
     const indentId = quotation.indent?._id || quotation.indent;
     if (indentId) {
-      const existingActiveQuote = await Quotation.findOne({
-        indent: indentId,
-        _id: { $ne: quotation._id },
-        status: { $in: ['Finalized', 'Shortlisted'] }
-      });
-      if (existingActiveQuote) {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot mark quotation as ${req.body.status.toLowerCase()}: Quotation ${existingActiveQuote.quotationNumber} is already ${existingActiveQuote.status.toLowerCase()} for this requisition.`
-        });
-      }
+      const indentDoc = await Indent.findById(indentId);
+      const isPartiallyFulfilled = indentDoc?.status === 'Partially Fulfilled';
 
-      const existingPO = await PurchaseOrder.findOne({
-        indent: indentId,
-        quotation: { $ne: quotation._id },
-        status: { $ne: 'Cancelled' }
-      });
-      if (existingPO) {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot mark quotation as ${req.body.status.toLowerCase()}: A Purchase Order (${existingPO.poNumber}) has already been created for this requisition.`
+      // If requisition is not partially fulfilled, enforce single active quote rule
+      if (!isPartiallyFulfilled) {
+        const existingActiveQuote = await Quotation.findOne({
+          indent: indentId,
+          _id: { $ne: quotation._id },
+          status: { $in: ['Finalized', 'Shortlisted'] }
         });
+        if (existingActiveQuote) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot mark quotation as ${req.body.status.toLowerCase()}: Quotation ${existingActiveQuote.quotationNumber} is already ${existingActiveQuote.status.toLowerCase()} for this requisition.`
+          });
+        }
+
+        const existingPO = await PurchaseOrder.findOne({
+          indent: indentId,
+          quotation: { $ne: quotation._id },
+          status: { $ne: 'Cancelled' }
+        });
+        if (existingPO) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot mark quotation as ${req.body.status.toLowerCase()}: A Purchase Order (${existingPO.poNumber}) has already been created for this requisition.`
+          });
+        }
+      } else {
+        // For partially fulfilled requisitions, ensure no other *un-ordered* active quote conflicts
+        const otherShortlisted = await Quotation.findOne({
+          indent: indentId,
+          _id: { $ne: quotation._id },
+          status: 'Shortlisted'
+        });
+        if (otherShortlisted) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot mark quotation as ${req.body.status.toLowerCase()}: Quotation ${otherShortlisted.quotationNumber} is currently shortlisted for this requisition.`
+          });
+        }
       }
     }
   }
