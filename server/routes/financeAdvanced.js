@@ -2780,6 +2780,8 @@ router.get('/accounts-payable',
       limit = 20, 
       status,
       vendorId,
+      vendor,
+      employeeId,
       startDate,
       endDate,
       search 
@@ -2795,6 +2797,10 @@ router.get('/accounts-payable',
       baseFilters.status = { $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
     }
     if (vendorId) baseFilters['vendor.vendorId'] = vendorId;
+    else if (vendor) {
+      baseFilters['vendor.name'] = { $regex: vendor, $options: 'i' };
+    }
+    if (employeeId) baseFilters.payeeEmployee = employeeId;
     if (search) {
       baseFilters.$or = [
         { billNumber: { $regex: search, $options: 'i' } },
