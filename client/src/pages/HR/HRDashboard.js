@@ -81,9 +81,9 @@ import {
   getTurnoverPeriodLabel
 } from '../../utils/turnoverMetrics';
 
-/** Hire date used for HR reporting (new hires, tenure charts). Falls back to appointmentDate / joiningDate if hireDate is unset. */
+/** Hire date used for HR reporting (new hires, tenure charts). Falls back to appointmentDate, joiningDate, or createdAt if hireDate is unset. */
 function getEmployeeHireDate(employee) {
-  const rawDate = employee?.hireDate || employee?.appointmentDate || employee?.joiningDate;
+  const rawDate = employee?.hireDate || employee?.appointmentDate || employee?.joiningDate || employee?.createdAt;
   if (!rawDate) return null;
   const d = new Date(rawDate);
   return Number.isNaN(d.getTime()) ? null : d;
@@ -115,14 +115,18 @@ function computeEmployeeStats(employees, departments, allEmployees = employees) 
     activeEmployees: activeEmployees.length,
     totalDepartments: departments.length,
     newThisMonth: employees.filter((emp) => {
-      const hireDate = getEmployeeHireDate(emp);
-      return hireDate &&
-        hireDate.getMonth() === now.getMonth() &&
-        hireDate.getFullYear() === now.getFullYear();
+      const dates = [emp.hireDate, emp.appointmentDate, emp.joiningDate, emp.createdAt]
+        .filter(Boolean)
+        .map(d => new Date(d))
+        .filter(d => !Number.isNaN(d.getTime()));
+      return dates.some(d => d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear());
     }).length,
     newThisYear: employees.filter((emp) => {
-      const hireDate = getEmployeeHireDate(emp);
-      return hireDate && hireDate.getFullYear() === now.getFullYear();
+      const dates = [emp.hireDate, emp.appointmentDate, emp.joiningDate, emp.createdAt]
+        .filter(Boolean)
+        .map(d => new Date(d))
+        .filter(d => !Number.isNaN(d.getTime()));
+      return dates.some(d => d.getFullYear() === now.getFullYear());
     }).length,
     resignations: allEmployees.filter((emp) => emp.employmentStatus === 'Resigned').length,
     disciplinaryCases: allEmployees.filter((emp) => isDisciplinaryTermination(emp)).length,
@@ -596,31 +600,36 @@ const HRDashboard = () => {
   };
 
   const getNewHireFilterSubtitle = (filter) => {
-    if (filter === 'year') return `${nowForFilter.getFullYear()} (hire-date based)`;
+    if (filter === 'year') return `${nowForFilter.getFullYear()}`;
     if (filter === 'previous_month') {
       const monthName = prevMonthDate.toLocaleString('default', { month: 'short' });
-      return `${monthName} ${prevMonthDate.getFullYear()} (hire-date based)`;
+      return `${monthName} ${prevMonthDate.getFullYear()}`;
     }
-    return 'This month (hire-date based)';
+    return 'This month';
   };
 
-  const filteredNewHires = employeesWithHireDate.filter(emp => {
-    const hireDate = getEmployeeHireDate(emp);
-    if (!hireDate) return false;
-    if (newHireFilter === 'year') {
-      return hireDate.getFullYear() === nowForFilter.getFullYear();
+  const isEmployeeInPeriod = (emp, filter) => {
+    const dates = [emp.hireDate, emp.appointmentDate, emp.joiningDate, emp.createdAt]
+      .filter(Boolean)
+      .map(d => new Date(d))
+      .filter(d => !Number.isNaN(d.getTime()));
+    
+    if (dates.length === 0) return false;
+
+    if (filter === 'year') {
+      return dates.some(d => d.getFullYear() === nowForFilter.getFullYear());
     }
-    if (newHireFilter === 'previous_month') {
-      return (
-        hireDate.getMonth() === prevMonthDate.getMonth() &&
-        hireDate.getFullYear() === prevMonthDate.getFullYear()
+    if (filter === 'previous_month') {
+      return dates.some(
+        d => d.getMonth() === prevMonthDate.getMonth() && d.getFullYear() === prevMonthDate.getFullYear()
       );
     }
-    return (
-      hireDate.getMonth() === nowForFilter.getMonth() &&
-      hireDate.getFullYear() === nowForFilter.getFullYear()
+    return dates.some(
+      d => d.getMonth() === nowForFilter.getMonth() && d.getFullYear() === nowForFilter.getFullYear()
     );
-  });
+  };
+
+  const filteredNewHires = employeesWithHireDate.filter(emp => isEmployeeInPeriod(emp, newHireFilter));
 
   const filteredStatusEmployees = allEmployees
     .filter(emp => (

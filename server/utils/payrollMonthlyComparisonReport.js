@@ -10,7 +10,7 @@ const MONTH_NAMES = [
 ];
 
 const EMPLOYEE_REPORT_SELECT =
-  'firstName lastName employeeId joiningDate hireDate appointmentDate terminationDate terminationReason employmentStatus placementDepartment department updatedAt isLateEntryForPayroll isLateTerminationEntryForPayroll salary';
+  'firstName lastName employeeId joiningDate hireDate appointmentDate createdAt terminationDate terminationReason employmentStatus placementDepartment department updatedAt isLateEntryForPayroll isLateTerminationEntryForPayroll salary';
 const EMPLOYEE_POPULATE = [
   { path: 'placementDepartment', select: 'name' },
   { path: 'department', select: 'name' }
@@ -42,7 +42,7 @@ const mapEmployeeRow = (emp, extra = {}) => ({
   employeeId: emp?.employeeId || '—',
   name: employeeName(emp),
   department: employeeDepartment(emp),
-  joiningDate: emp?.joiningDate || emp?.hireDate || emp?.appointmentDate || null,
+  joiningDate: emp?.joiningDate || emp?.hireDate || emp?.appointmentDate || emp?.createdAt || null,
   terminationDate: emp?.terminationDate || null,
   employmentStatus: emp?.employmentStatus || '',
   reason: emp?.terminationReason || '',
@@ -199,12 +199,13 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
         { joiningDate: { $gte: start, $lte: end } },
         { hireDate: { $gte: start, $lte: end } },
         { appointmentDate: { $gte: start, $lte: end } },
+        { createdAt: { $gte: start, $lte: end } },
         { isLateEntryForPayroll: true }
       ]
     })
       .select(EMPLOYEE_REPORT_SELECT)
       .populate(EMPLOYEE_POPULATE)
-      .sort({ joiningDate: 1, hireDate: 1, appointmentDate: 1 })
+      .sort({ joiningDate: 1, hireDate: 1, appointmentDate: 1, createdAt: 1 })
       .lean(),
     Employee.find({
       $or: [
@@ -332,7 +333,7 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
     const id = String(emp._id);
     if (emp?.employmentStatus === 'Reinstated' || reinstatedSeen.has(id)) return;
     const joinDate = emp?.joiningDate || emp?.hireDate || emp?.appointmentDate;
-    if (isDateInMonth(joinDate, month, year) || emp?.isLateEntryForPayroll) {
+    if (isDateInMonth(joinDate, month, year) || isDateInMonth(emp?.createdAt, month, year) || emp?.isLateEntryForPayroll) {
       hiringMap.set(id, mapEmployeeRow(emp));
     }
   });
@@ -340,7 +341,7 @@ const buildPayrollMonthlyComparisonReport = async (month, year) => {
     const id = String(emp._id);
     if (emp?.employmentStatus === 'Reinstated' || reinstatedSeen.has(id)) return;
     const joinDate = emp?.joiningDate || emp?.hireDate || emp?.appointmentDate;
-    if (isDateInMonth(joinDate, month, year) || emp?.isLateEntryForPayroll) {
+    if (isDateInMonth(joinDate, month, year) || isDateInMonth(emp?.createdAt, month, year) || emp?.isLateEntryForPayroll) {
       if (!hiringMap.has(id)) {
         hiringMap.set(id, mapEmployeeRow(emp, { note: 'Added to payroll this month' }));
       }

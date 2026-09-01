@@ -1,7 +1,7 @@
 import { isEmployedEmployee, isSeparatedEmployee } from './employeeStatus';
 
 function getEmployeeHireDate(employee) {
-  const rawDate = employee?.hireDate || employee?.appointmentDate || employee?.joiningDate;
+  const rawDate = employee?.hireDate || employee?.appointmentDate || employee?.joiningDate || employee?.createdAt;
   if (!rawDate) return null;
   const date = new Date(rawDate);
   return Number.isNaN(date.getTime()) ? null : date;
