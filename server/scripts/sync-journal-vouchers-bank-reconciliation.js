@@ -7,7 +7,7 @@ const mongoose = require('mongoose');
 const JournalEntry = require('../models/finance/JournalEntry');
 const GeneralLedger = require('../models/finance/GeneralLedger');
 const Account = require('../models/finance/Account');
-const Company = require('../models/finance/Company');
+const Company = require('../models/hr/Company');
 
 function parseAmount(val) {
   if (val === undefined || val === null || val === '') return 0;
