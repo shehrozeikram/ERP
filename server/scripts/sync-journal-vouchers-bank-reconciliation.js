@@ -185,7 +185,7 @@ async function run() {
       const glIsCredit = (Number(gl.credit) || 0) > 0;
       const glAmount = glIsCredit ? Number(gl.credit) : Number(gl.debit);
 
-      if (glIsCredit === row.isCredit && Math.abs(glAmount - row.amount) < 0.01) {
+      if (glIsCredit === row.isCredit && Math.abs(glAmount - row.amount) < 1.0) {
         matchedGl = gl;
         break;
       }
