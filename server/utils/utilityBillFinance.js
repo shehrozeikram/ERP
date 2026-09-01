@@ -343,7 +343,19 @@ const postUtilityBillToFinance = async (bill, createdByUserId) => {
 
   try {
     const expenseJournalLines = buildExpenseJournalLines(lineItems);
-    const companyId = await resolveDocumentCompanyId({ employeeId: bill.payeeEmployee });
+    const siteName = (bill.billLines || []).map(l => l.site).find(Boolean) || bill.site || '';
+    let companyId = null;
+    if (siteName) {
+      const PlacementCompany = require('../models/hr/Company');
+      const foundComp = await PlacementCompany.findOne({
+        name: { $regex: `^${siteName.trim()}$`, $options: 'i' },
+        isActive: true
+      }).select('_id').lean();
+      if (foundComp) companyId = foundComp._id;
+    }
+    if (!companyId) {
+      companyId = await resolveDocumentCompanyId({ employeeId: bill.payeeEmployee });
+    }
     const companies = [...new Set((bill.billLines || []).map(l => l.site).filter(Boolean))].join(', ') || bill.site || '';
     const projects = [...new Set((bill.billLines || []).map(l => l.location).filter(Boolean))].join(', ') || bill.location || '';
     const apEntry = await FinanceHelper.createAPFromBill({
