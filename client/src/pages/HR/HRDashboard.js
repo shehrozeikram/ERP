@@ -81,10 +81,11 @@ import {
   getTurnoverPeriodLabel
 } from '../../utils/turnoverMetrics';
 
-/** Hire date used for HR reporting (new hires, tenure charts). */
+/** Hire date used for HR reporting (new hires, tenure charts). Falls back to appointmentDate / joiningDate if hireDate is unset. */
 function getEmployeeHireDate(employee) {
-  if (!employee?.hireDate) return null;
-  const d = new Date(employee.hireDate);
+  const rawDate = employee?.hireDate || employee?.appointmentDate || employee?.joiningDate;
+  if (!rawDate) return null;
+  const d = new Date(rawDate);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
