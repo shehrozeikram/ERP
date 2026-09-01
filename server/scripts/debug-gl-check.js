@@ -1,12 +1,12 @@
 'use strict';
 require('dotenv').config();
 const mongoose = require('mongoose');
-require('./server/models/hr/Company');
-require('./server/models/hr/Department');
-require('./server/models/hr/Employee');
-const JournalEntry = require('./server/models/finance/JournalEntry');
-const GeneralLedger = require('./server/models/finance/GeneralLedger');
-const Account = require('./server/models/finance/Account');
+require('../models/hr/Company');
+require('../models/hr/Department');
+require('../models/hr/Employee');
+const JournalEntry = require('../models/finance/JournalEntry');
+const GeneralLedger = require('../models/finance/GeneralLedger');
+const Account = require('../models/finance/Account');
 
 (async () => {
   await mongoose.connect(process.env.MONGODB_URI);
