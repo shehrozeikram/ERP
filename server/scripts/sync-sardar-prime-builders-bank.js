@@ -58,20 +58,22 @@ async function run() {
   }
   console.log(`Target Company: ${targetCompany.name} (${targetCompany._id})`);
 
-  // Target Bank Account: 1000 — Bank Alfalah
-  const targetAccount = await Account.findOne({ companyId: targetCompany._id, accountNumber: '1000' });
-  if (!targetAccount) {
-    console.error('Account 1000 not found for Sardar Prime Builder!');
-    process.exit(1);
-  }
-  console.log(`Target Bank Account: ${targetAccount.name} (${targetAccount.accountNumber}, ID: ${targetAccount._id})`);
+  // Cache all SPB accounts for quick lookup by accountNumber
+  const accountsList = await Account.find({ companyId: targetCompany._id }).lean();
+  const accByNumber = {};
+  accountsList.forEach(a => {
+    accByNumber[String(a.accountNumber).trim()] = a;
+  });
 
   // ============================================================
-  // STEP 1: REVERT ALL GL entries & JEs for this bank account to pending
+  // STEP 1: REVERT ALL GL entries & JEs for this company to pending
   // ============================================================
-  console.log('\n=== STEP 1: Reverting ALL GL entries on target account to pending ===');
-  const revertGLResult = await GeneralLedger.updateMany(
-    { account: targetAccount._id },
+  console.log('\n=== STEP 1: Reverting ALL GL entries for target company to pending ===');
+
+  const jeIds = await JournalEntry.find({ companyId: targetCompany._id }).select('_id').lean();
+  const jeIdList = jeIds.map(j => j._id);
+  const revertAllGLResult = await GeneralLedger.updateMany(
+    { journalEntry: { $in: jeIdList } },
     {
       $set: {
         clearanceStatus: 'pending',
@@ -81,10 +83,10 @@ async function run() {
       }
     }
   );
-  console.log(`Reverted ${revertGLResult.modifiedCount} GL entries to pending.`);
+  console.log(`Reverted ${revertAllGLResult.modifiedCount} GL entries to pending.`);
 
   const revertJEResult = await JournalEntry.updateMany(
-    { companyId: targetCompany._id, clearanceStatus: 'cleared' },
+    { companyId: targetCompany._id },
     {
       $set: {
         clearanceStatus: 'pending',
@@ -95,21 +97,6 @@ async function run() {
     }
   );
   console.log(`Reverted ${revertJEResult.modifiedCount} JEs to pending.`);
-
-  const jeIds = await JournalEntry.find({ companyId: targetCompany._id }).select('_id').lean();
-  const jeIdList = jeIds.map(j => j._id);
-  const revertAllGLResult = await GeneralLedger.updateMany(
-    { journalEntry: { $in: jeIdList }, clearanceStatus: 'cleared' },
-    {
-      $set: {
-        clearanceStatus: 'pending',
-        isReconciled: false,
-        reconciledAt: null,
-        clearedAt: null
-      }
-    }
-  );
-  console.log(`Reverted ${revertAllGLResult.modifiedCount} additional non-bank GL entries to pending.`);
 
   // ============================================================
   // STEP 2: Read Excel and match each row to a SPECIFIC GL entry
@@ -132,16 +119,20 @@ async function run() {
     const rawCr = parseAmount(r[6]);
     const amount = rawDr > 0 ? rawDr : rawCr;
     const isCredit = rawCr > 0;
+    
+    const accountHeadStr = String(r[2] || '');
+    const code = accountHeadStr.split('—')[0].trim();
 
     excelRows.push({
       rowIdx: i + 1,
       date: parseExcelDate(r[0]),
       vrNo: String(r[1] || '').trim(),
-      narration: String(r[4] || '').trim(), // VrNarration
-      reference: String(r[3] || '').trim(), // DocRef
+      accountCode: code,
+      narration: String(r[4] || '').trim(),
+      reference: String(r[3] || '').trim(),
       amount: Math.abs(amount),
       isCredit,
-      clearingDate: parseExcelDate(r[7]), // ClearingDate
+      clearingDate: parseExcelDate(r[7]),
       paymentType: String(r[9] || '').trim(),
       mainAccountHead: String(r[10] || '').trim(),
       subAccountHead: String(r[11] || '').trim(),
@@ -170,6 +161,13 @@ async function run() {
     const je = jeByEntryNumber[row.vrNo];
     if (!je) {
       console.warn(`  WARNING: JE ${row.vrNo} not found in DB!`);
+      unmatchedCount++;
+      continue;
+    }
+    
+    const targetAccount = accByNumber[row.accountCode];
+    if (!targetAccount) {
+      console.warn(`  WARNING: Account Code ${row.accountCode} not found in DB!`);
       unmatchedCount++;
       continue;
     }
@@ -261,10 +259,13 @@ async function run() {
   // STEP 5: Verification
   // ============================================================
   console.log('\n=== VERIFICATION ===');
-  const finalClearedGL = await GeneralLedger.countDocuments({ account: targetAccount._id, clearanceStatus: 'cleared' });
-  const finalTotalGL = await GeneralLedger.countDocuments({ account: targetAccount._id });
+  const bankAccounts = await Account.find({ companyId: targetCompany._id, name: /bank/i }).select('_id').lean();
+  const bankAccIds = bankAccounts.map(a => a._id);
+  
+  const finalClearedGL = await GeneralLedger.countDocuments({ account: { $in: bankAccIds }, clearanceStatus: 'cleared' });
+  const finalTotalGL = await GeneralLedger.countDocuments({ account: { $in: bankAccIds } });
   const finalPendingGL = finalTotalGL - finalClearedGL;
-  console.log(`Target account GL: ${finalClearedGL} cleared, ${finalPendingGL} pending, ${finalTotalGL} total`);
+  console.log(`Target accounts GL: ${finalClearedGL} cleared, ${finalPendingGL} pending, ${finalTotalGL} total`);
   console.log(`Expected cleared: ${excelRows.length} (from Excel)`);
 
   const finalClearedJE = await JournalEntry.countDocuments({ companyId: targetCompany._id, clearanceStatus: 'cleared' });
