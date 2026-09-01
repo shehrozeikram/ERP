@@ -3221,7 +3221,26 @@ router.get('/banking/transactions',
     // 1. Identify Target Bank Accounts (COA)
     let targetAccountIds = [];
     if (accountId || bankAccount) {
-      targetAccountIds = [accountId || bankAccount];
+      const selectedAccId = accountId || bankAccount;
+      const selectedAccountObj = await Account.findById(selectedAccId).lean();
+      if (selectedAccountObj) {
+        const allCompanyAccounts = await Account.find({
+          ...(selectedAccountObj.companyId ? { companyId: selectedAccountObj.companyId } : {})
+        }).lean();
+
+        const findChildren = (parentId) => {
+          let ids = [parentId];
+          const directKids = allCompanyAccounts.filter((a) => String(a.parentAccount || '') === String(parentId));
+          directKids.forEach((child) => {
+            ids = ids.concat(findChildren(child._id));
+          });
+          return ids;
+        };
+
+        targetAccountIds = findChildren(selectedAccountObj._id);
+      } else {
+        targetAccountIds = [selectedAccId];
+      }
     } else {
       const bankAccounts = await Account.find(
         q({
@@ -3238,13 +3257,13 @@ router.get('/banking/transactions',
     }
 
     // 2. Query GeneralLedger where transaction is cleared / reconciled
-    const glQuery = q({
+    const glQuery = {
       account: { $in: targetAccountIds },
       $or: [
         { clearanceStatus: 'cleared' },
         { isReconciled: true }
       ]
-    });
+    };
 
     if (effectiveCompanyId) {
       glQuery.companyId = effectiveCompanyId;
