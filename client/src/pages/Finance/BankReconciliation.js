@@ -187,6 +187,12 @@ export default function BankReconciliation() {
         }));
       }
 
+      // Filter out Cash in Hand accounts (Bank reconciliation is only for banks)
+      accountsList = accountsList.filter((a) => {
+        const name = (a.accountName || '').toLowerCase();
+        return !name.includes('cash in hand') && !name.includes('cash');
+      });
+
       setBankAccounts(accountsList);
       if (accountsList.length > 0) {
         setFilters((prev) => {
