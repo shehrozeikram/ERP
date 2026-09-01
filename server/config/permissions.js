@@ -600,8 +600,12 @@ const getUserAllowedSubmodules = async (userId, module) => {
   const user = await User.findById(userId);
   if (!user) return [];
   
-  // Super admin and higher management have access to everything
-  if (user.role === ROLES.SUPER_ADMIN || user.role === ROLES.HIGHER_MANAGEMENT) {
+  // Super admin, higher management, and developer have access to everything
+  if (
+    user.role === ROLES.SUPER_ADMIN ||
+    user.role === ROLES.HIGHER_MANAGEMENT ||
+    user.role === ROLES.DEVELOPER
+  ) {
     return SUBMODULES[module] || [];
   }
   

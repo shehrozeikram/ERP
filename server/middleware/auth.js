@@ -250,29 +250,8 @@ const authorize = (...roles) => {
 
     const userRole = req.user.role;
     
-    // Super Admin and Higher Management have access to everything
-    if (userRole === 'super_admin' || userRole === 'higher_management') {
-      return next();
-    }
-
-    // Developer: full access except core Finance API and CEO Secretariat API (Recovery under /api/finance is allowed)
-    if (userRole === 'developer') {
-      const url = req.originalUrl || '';
-      const isCeoRoute = url.includes('/ceo-secretariat');
-      const isFinanceRoute = url.startsWith('/api/finance');
-      const isDeveloperFinanceRecovery =
-        url.startsWith('/api/finance/recovery-members') ||
-        url.startsWith('/api/finance/recovery-assignments') ||
-        url.startsWith('/api/finance/recovery-task-rules') ||
-        url.startsWith('/api/finance/recovery-tasks') ||
-        url.startsWith('/api/finance/recovery-campaigns');
-      if (isCeoRoute || (isFinanceRoute && !isDeveloperFinanceRecovery)) {
-        return res.status(403).json({
-          success: false,
-          message:
-            'Access denied. Developer role does not have access to this Finance or CEO Secretariat resource.'
-        });
-      }
+    // Super Admin, Higher Management, and Developer have access to everything
+    if (userRole === 'super_admin' || userRole === 'higher_management' || userRole === 'developer') {
       return next();
     }
 

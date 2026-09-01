@@ -464,35 +464,10 @@ const Sidebar = () => {
       // We'll filter based on actual permissions, not the legacy role field
       let baseMenuItems = getMenuItems('super_admin') || [];
 
-      // Super admin and higher management: full menu
-      if (['super_admin', 'higher_management'].includes(userRole)) {
+      // Super admin, higher management, and developer: full menu
+      if (['super_admin', 'higher_management', 'developer'].includes(userRole)) {
         return baseMenuItems;
       }
-
-      // Developer: full menu except core Finance (allow Taj Utilities & Charges + Recovery only) and CEO Secretariat
-      if (userRole === 'developer') {
-      return baseMenuItems.map((item) => {
-        if (item.path === '/finance') {
-          const allowedFinanceRoots = new Set([
-            '/finance/taj-utilities-charges',
-            '/finance/recovery'
-          ]);
-          const filteredSubs = (item.subItems || []).filter((sub) =>
-            allowedFinanceRoots.has(sub.path)
-          );
-          return { ...item, subItems: filteredSubs };
-        }
-        if (!item.subItems) return item;
-        const filteredSubs = item.subItems.filter(
-          (sub) =>
-            sub.path !== '/finance' &&
-            !sub.path?.startsWith('/finance/') &&
-            sub.path !== '/general/ceo-secretariat' &&
-            !sub.path?.startsWith('/general/ceo-secretariat/')
-        );
-        return { ...item, subItems: filteredSubs };
-      });
-    }
     
     // If that doesn't work, build from MODULES directly
     if (baseMenuItems.length === 0) {

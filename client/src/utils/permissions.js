@@ -56,14 +56,9 @@ export const PERMISSIONS = {
   },
 
   [ROLES.DEVELOPER]: {
-    canAccessAll: false,
-    modules: [
-      ...Object.values(MODULE_KEYS).filter((m) => m !== MODULE_KEYS.FINANCE && m !== MODULE_KEYS.DEVELOPER_MODULE),
-      MODULE_KEYS.FINANCE,
-      MODULE_KEYS.DEVELOPER_MODULE
-    ],
-    description:
-      'Full system access except core Finance, CEO Secretariat, and Finance API; includes Taj Utilities & Charges and Recovery (developer / Tovus)'
+    canAccessAll: true,
+    modules: Object.values(MODULE_KEYS),
+    description: 'Full system access (developer / Tovus)'
   },
   
   // Admin has access to admin module and general module
@@ -1219,12 +1214,6 @@ export const getModuleMenuItems = (userRole) => {
       filteredSubItems = module.subItems.filter(subItem => 
         subItem.path === '/finance/taj-utilities-charges'
       );
-    } else if (userRole === ROLES.DEVELOPER && moduleKey === MODULE_KEYS.FINANCE && module.subItems) {
-      filteredSubItems = module.subItems.filter(
-        (subItem) =>
-          subItem.path === '/finance/taj-utilities-charges' ||
-          subItem.path === '/finance/recovery'
-      );
     }
     
     return {
@@ -1300,22 +1289,10 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   // General cash approval document (shared view from audit, CEO, notifications).
   if (/^\/cash-approvals\/[^/]+\/view/.test(path)) return true;
   
-  // Developer: full access except core Finance and CEO Secretariat; allow Taj Utilities & Charges + Recovery
-  if (userRole === ROLES.DEVELOPER) {
-    if (path === '/general/ceo-secretariat' || path.startsWith('/general/ceo-secretariat/')) return false;
-    if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) return true;
-    if (path === '/finance' || path.startsWith('/finance/')) {
-      if (path.startsWith('/finance/taj-utilities-charges')) return true;
-      if (path.startsWith('/finance/recovery')) return true;
-      return false;
-    }
-    return true;
-  }
-
-  // Super Admin and Higher Management have access to everything
-  if (userRole === 'super_admin' || userRole === 'higher_management') {
+  // Super Admin, Higher Management, and Developer have access to everything
+  if (userRole === 'super_admin' || userRole === 'higher_management' || userRole === 'developer') {
     if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) {
-      return userRole === 'super_admin';
+      return userRole === 'super_admin' || userRole === 'developer';
     }
     return true;
   }
