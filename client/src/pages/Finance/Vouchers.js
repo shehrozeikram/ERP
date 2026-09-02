@@ -53,6 +53,9 @@ import QuotationDetailView from '../../components/Procurement/QuotationDetailVie
 import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { numberToWords } from '../../utils/numberToWords';
+import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 const formatDateForPrint = (date) => {
   if (!date) return '—';
@@ -129,6 +132,8 @@ const VOUCHER_TYPE_FILTER_OPTIONS = [
 const Vouchers = () => {
   const navigate = useNavigate();
   const { selectedCompanyId } = useFinanceCompany();
+  const { user } = useAuth();
+  const isDeveloper = user?.role === 'developer' || (user?.roles && user?.roles.includes('developer'));
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
@@ -169,6 +174,20 @@ const Vouchers = () => {
   
   const [newVoucherDialog, setNewVoucherDialog] = useState(false);
   const [selectedNewVoucherType, setSelectedNewVoucherType] = useState('');
+
+  const handleDeleteVoucher = async (voucherId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this voucher and its ledger entries? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      await api.delete(`/finance/journal-entries/${voucherId}`);
+      toast.success('Voucher and ledger entries deleted successfully');
+      fetchEntries(); // Refresh the list
+    } catch (err) {
+      console.error('Error deleting voucher:', err);
+      toast.error(err.response?.data?.message || 'Failed to delete voucher');
+    }
+  };
 
   const handleCreateVoucher = () => {
     if (!selectedNewVoucherType) return;
@@ -667,6 +686,13 @@ const Vouchers = () => {
                             <DescriptionIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
+                        {isDeveloper && (
+                          <Tooltip title="Delete Voucher (Developer Only)">
+                            <IconButton size="small" color="error" onClick={() => handleDeleteVoucher(row._id)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </Box>
                     </TableCell>
                   </TableRow>

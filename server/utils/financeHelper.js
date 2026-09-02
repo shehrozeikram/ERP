@@ -932,7 +932,8 @@ const FinanceHelper = {
           workflowStatus: { $ne: 'rejected' },
           ...(paymentData.batchId ? { 'paymentMeta.batchId': { $ne: paymentData.batchId } } : {})
         };
-        const existingRef2 = await ApPayment.findOne(query2).select('billNumber');
+        const ApPaymentAppModel = mongoose.model('ApPaymentApplication');
+        const existingRef2 = await ApPaymentAppModel.findOne(query2).select('billNumber');
         if (existingRef2) {
           throw new Error(`Cheque / TT / Reference number '${reference}' is already pending for bill ${existingRef2.billNumber}.`);
         }

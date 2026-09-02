@@ -870,6 +870,64 @@ router.get('/journal-entries/:id',
   })
 );
 
+// @route   DELETE /api/finance/journal-entries/:id
+// @desc    Delete a voucher (Only for developers)
+// @access  Private (Developer)
+router.delete('/journal-entries/:id',
+  authorize('developer', 'super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    // Check if the user is a developer
+    const isDeveloper = req.user.role === 'developer' || (req.user.roles && req.user.roles.includes('developer'));
+    if (!isDeveloper) {
+      return res.status(403).json({ success: false, message: 'Only developers are authorized to delete vouchers.' });
+    }
+
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Voucher not found' });
+    }
+
+    // Check if voucher is linked to an AP Bill Payment
+    const ApPaymentApplication = require('../models/finance/ApPaymentApplication');
+    const apPaymentApp = await ApPaymentApplication.findOne({ journalEntryId: entry._id });
+    if (apPaymentApp) {
+      if (apPaymentApp.sourceType === 'bank_payment') {
+        const AccountsPayable = require('../models/finance/AccountsPayable');
+        const bill = await AccountsPayable.findById(apPaymentApp.accountsPayableId);
+        if (bill) {
+          const amountToRemove = apPaymentApp.amount;
+          const refToMatch = apPaymentApp.paymentMeta?.reference;
+          
+          if (Array.isArray(bill.payments)) {
+            const paymentIndex = bill.payments.findIndex(
+              (p) => p.reference === refToMatch && p.amount === amountToRemove
+            );
+            if (paymentIndex > -1) {
+              bill.payments.splice(paymentIndex, 1);
+            }
+          }
+          
+          bill.amountPaid = Math.round((Number(bill.amountPaid || 0) - amountToRemove) * 100) / 100;
+          if (bill.amountPaid < 0) bill.amountPaid = 0;
+          
+          const FinanceHelper = require('../utils/financeHelper');
+          FinanceHelper._updateDocumentStatus(bill);
+          await bill.save();
+        }
+      }
+      await ApPaymentApplication.findByIdAndDelete(apPaymentApp._id);
+    }
+
+    // Delete associated General Ledger entries
+    await GeneralLedger.deleteMany({ journalEntry: entry._id });
+
+    // Delete the Journal Entry itself
+    await JournalEntry.findByIdAndDelete(entry._id);
+
+    res.json({ success: true, message: 'Voucher and its ledger entries have been successfully deleted.' });
+  })
+);
+
 /** Post draft BPV/CPV linked to a cash approval so Trial Balance includes it (legacy drafts + safety net). */
 const postLinkedCashApprovalJournalIfDraft = async (entry, userId) => {
   if (!entry || entry.status !== 'draft') return entry;
