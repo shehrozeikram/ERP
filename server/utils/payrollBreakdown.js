@@ -178,7 +178,6 @@ const extractPayrollBreakdown = (payroll = {}) => {
     companyLoan +
     advanceDeduction +
     eobiEmployee +
-    eobiEmployer +
     empSecurityDed +
     healthInsurance +
     attendanceDeduction +
@@ -241,7 +240,6 @@ const aggregatePayrollBreakdown = (payrolls = []) => {
         totals.companyLoan -
         totals.advanceDeduction -
         totals.eobiEmployee -
-        totals.eobiEmployer -
         totals.empSecurityDed -
         totals.healthInsurance -
         totals.attendanceDeduction -
