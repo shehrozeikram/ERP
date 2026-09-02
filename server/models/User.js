@@ -73,7 +73,7 @@ const userSchema = new mongoose.Schema({
       validator: function(v) {
         // Allow empty/null values or valid phone numbers
         if (!v || v === '') return true;
-        return /^[\+]?[1-9][\d]{0,15}$/.test(v);
+        return /^[\+]?[0-9][\d]{0,15}$/.test(v);
       },
       message: 'Please enter a valid phone number'
     }
