@@ -155,6 +155,7 @@ const {
   sumPostedVendorAdvancesForPo,
   vendorAdvancesLinkedToPurchaseOrderFilter
 } = require('../utils/fullAdvancePoGate');
+const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
 
 const router = express.Router();
 
@@ -2682,6 +2683,15 @@ router.post('/accounts-payable/:id/payment',
       const message = pending
         ? `Payment submitted: PKR ${Number(pending.amount || 0).toLocaleString('en-PK')} pending finance voucher approval. Bill will show as paid after all authorities approve.`
         : 'Payment recorded successfully';
+      // Notify finance authorities via WhatsApp
+      if (pending?.applicationId) {
+        try {
+          const apApp = await ApPaymentApplication.findById(pending.applicationId).select('financeApprovalAuthorities').lean();
+          const fa = apApp?.financeApprovalAuthorities || {};
+          const authIds = [fa.accountsManagerUser, fa.financeControllerUser].filter(Boolean);
+          notifyApprovers(authIds, { docType: 'Bill Payment', docNumber: updatedBill.billNumber || '' }).catch(() => {});
+        } catch (_) {}
+      }
       res.json({ success: true, message, data: updatedBill });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message || 'Failed to record payment' });

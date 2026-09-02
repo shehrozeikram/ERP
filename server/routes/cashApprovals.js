@@ -15,6 +15,7 @@ const User = require('../models/User');
 const Account = require('../models/finance/Account');
 const JournalEntry = require('../models/finance/JournalEntry');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
 
 const FinanceHelper = require('../utils/financeHelper');
 const { getCashApprovalNarration, withVoucherNarration } = require('../utils/documentNarration');
@@ -379,6 +380,7 @@ const notifyNextGeneralDepartmentApprover = async (ca, actorId) => {
     entityId: ca._id,
     module: 'general'
   });
+  notifyApprovers([recipientId], { docType: 'Cash Approval', docNumber: ca.caNumber || '' }).catch(() => {});
 };
 
 const notifyAfterGeneralResubmit = async (ca, actorId, target) => {

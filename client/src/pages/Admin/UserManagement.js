@@ -1050,13 +1050,14 @@ const CreateUserForm = ({ onSave, onCancel, departments }) => {
       
       <TextField
         fullWidth
-        label="Phone"
+        label="Phone (WhatsApp Number)"
         value={formData.phone}
+        onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
         margin="normal"
         variant="outlined"
         InputLabelProps={{ shrink: true }}
-        InputProps={{ readOnly: true }}
-        sx={{ backgroundColor: 'action.disabledBackground' }}
+        placeholder="e.g. 03001234567"
+        helperText="Used for WhatsApp approval notifications"
       />
       </Box>
       

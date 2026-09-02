@@ -27,6 +27,7 @@ const Project = require('../models/hr/Project');
 const User = require('../models/User');
 const { canMutateComparativeAuthorityUsers } = require('../utils/comparativeStatementAuthorityLock');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
 
 console.log('✅ Procurement routes loaded successfully');
 
@@ -1761,6 +1762,7 @@ router.put('/purchase-orders/:id/send-to-audit',
         targetTab: 'pre_audit'
       }
     });
+    notifyApprovers(auditRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
 
     res.json({
       success: true,
@@ -1902,6 +1904,7 @@ router.put('/purchase-orders/:id/audit-approve',
         targetTab: 'ceo_secretariat'
       }
     });
+    notifyApprovers(ceoSecretariatRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
 
     res.json({
       success: true,
@@ -2065,6 +2068,7 @@ router.put('/purchase-orders/:id/forward-to-ceo',
         targetTab: 'ceo_approval'
       }
     });
+    notifyApprovers(ceoRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
 
     res.json({
       success: true,
@@ -2169,6 +2173,7 @@ router.put('/purchase-orders/:id/ceo-approve',
           targetTab: isVendorAdvanceFlow ? 'vendor-advance' : 'accounts-payable'
         }
       });
+      notifyApprovers(financeRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
     } else {
       const procurementRecipients = await getProcurementWorkflowRecipients();
       await notifyDocumentRecipients({
@@ -5837,6 +5842,7 @@ router.post('/requisitions/:id/comparative-submit',
         entityType: 'Indent',
         module: 'procurement'
       });
+      notifyApprovers(pendingApproverIds, { docType: 'Requisition', docNumber: indent.indentNumber || '' }).catch(() => {});
     }
 
     const updated = await Indent.findById(indent._id)

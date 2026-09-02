@@ -12,6 +12,7 @@ const User = require('../models/User');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const Quotation = require('../models/procurement/Quotation');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
 const {
   canMutateComparativeAuthorityUsers,
   authorityUserRefsChanged
@@ -1283,6 +1284,7 @@ router.post('/:id/submit',
         entityType: 'Indent'
       }
     });
+    notifyApprovers([approver._id], { docType: 'Indent', docNumber: indent.indentNumber || '' }).catch(() => {});
 
     res.json({
       success: true,
