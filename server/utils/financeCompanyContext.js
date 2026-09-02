@@ -61,6 +61,10 @@ const resolveCompanyId = async (companyIdOrName) => {
   }
 
   const name = String(companyIdOrName || '').trim();
+  if (name.toLowerCase() === 'all') {
+    return { _id: 'all', name: 'All Companies', isAll: true };
+  }
+
   if (!name) {
     const err = new Error('Finance company is required');
     err.statusCode = 400;
@@ -125,7 +129,7 @@ const resolveCompanyForFinanceRoute = async (req) => {
 /** Apply companyId filter to a Mongo query object. */
 const companyQuery = (filters = {}, company) => {
   const base = { ...filters };
-  if (!company?._id) return base;
+  if (!company?._id || company.isAll) return base;
 
   const companyFilter = isHistoricalCompany(company)
     ? {

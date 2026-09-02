@@ -26,7 +26,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Pagination
+  Pagination,
+  Snackbar
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -36,23 +37,30 @@ import {
   CheckCircle as ClearedIcon,
   ReceiptLong as VoucherIcon,
   Visibility as ViewIcon,
-  Undo as UndoIcon
+  Undo as UndoIcon,
+  Save as SaveIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
+import { fetchPayFromAccounts } from '../../utils/payFromAccounts';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 
 const Banking = () => {
   const navigate = useNavigate();
   const theme = useTheme();
+  const { selectedCompanyId } = useFinanceCompany();
   
   const [bankAccounts, setBankAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [companiesList, setCompaniesList] = useState([]);
+  const [projectsList, setProjectsList] = useState([]);
+  const [bankingSetup, setBankingSetup] = useState({ paymentTypes: [], mainAccountHeads: [], subAccountHeads: [] });
   const [filters, setFilters] = useState({
     accountId: '',
     startDate: '',
@@ -74,6 +82,31 @@ const Banking = () => {
   });
 
   useEffect(() => {
+    const fetchOptions = async () => {
+      try {
+        const [compRes, projRes, setupRes] = await Promise.all([
+          api.get('/hr/companies', { params: { limit: 1000 } }).catch(() => ({ data: { data: [] } })),
+          api.get('/hr/projects', { params: { limit: 1000 } }).catch(() => ({ data: { data: [] } })),
+          api.get('/finance/banking-setup').catch(() => ({ data: { data: {} } }))
+        ]);
+        setCompaniesList(compRes.data?.data?.companies || compRes.data?.data || []);
+        setProjectsList(projRes.data?.data?.projects || projRes.data?.data || []);
+        if (setupRes.data?.success && setupRes.data?.data) {
+          setBankingSetup({
+            paymentTypes: setupRes.data.data.paymentTypes || [],
+            mainAccountHeads: setupRes.data.data.mainAccountHeads || [],
+            subAccountHeads: setupRes.data.data.subAccountHeads || []
+          });
+        }
+
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchOptions();
+  }, []);
+
+  useEffect(() => {
     fetchBankAccounts();
     fetchTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when filters/page change only
@@ -86,10 +119,55 @@ const Banking = () => {
 
   const fetchBankAccounts = async () => {
     try {
-      const response = await api.get('/finance/reports/bank-reconciliation');
-      if (response.data.success) {
-        setBankAccounts(response.data.data.bankAccounts || []);
+      // Fetch COA accounts (Asset bank/cash accounts & sub-accounts) for selected company
+      const coaList = await fetchPayFromAccounts(api, { companyId: selectedCompanyId });
+      let accountsList = (coaList || []).map((item) => ({
+        _id: item.account?._id || item._id,
+        accountName: item.account?.name || item.name,
+        accountNumber: item.account?.accountNumber || item.accountNumber,
+        bankName: item.account?.category || item.account?.detailType || 'Bank Account',
+        depth: item.depth || 0
+      }));
+
+      // If empty, fallback to broad bank/cash search
+      if (!accountsList.length) {
+        const res = await api.get('/finance/accounts', {
+          params: {
+            type: 'Asset',
+            limit: 500,
+            ...(selectedCompanyId && selectedCompanyId !== 'all' ? { companyId: selectedCompanyId } : {})
+          }
+        });
+        const list = res.data?.data?.accounts || res.data?.accounts || [];
+        accountsList = list
+          .filter(a => a.category?.match(/cash|bank|current/i) || a.detailType?.match(/cash|bank/i) || a.accountCode === 'BANK' || a.accountCode === 'CASH')
+          .map(a => ({
+            _id: a._id,
+            accountName: a.name,
+            accountNumber: a.accountNumber,
+            bankName: a.category || a.detailType || 'Bank Account',
+            depth: 0
+          }));
       }
+
+      // Filter out 'Cash' accounts, keeping only true bank accounts
+      const filteredAccounts = accountsList.filter((a) => {
+        const nameLower = String(a.accountName || '').toLowerCase();
+        return !nameLower.includes('cash');
+      });
+
+      setBankAccounts(filteredAccounts);
+
+      setFilters((prev) => {
+        if (!prev.accountId && filteredAccounts.length > 0) {
+          return { ...prev, accountId: filteredAccounts[0]._id };
+        }
+        // If the currently selected accountId is no longer in the list (e.g. company changed), select the first one
+        if (prev.accountId && !filteredAccounts.find(a => a._id === prev.accountId) && filteredAccounts.length > 0) {
+          return { ...prev, accountId: filteredAccounts[0]._id };
+        }
+        return prev;
+      });
     } catch (err) {
       console.error('Error fetching bank accounts:', err);
     }
@@ -123,6 +201,8 @@ const Banking = () => {
     }
   };
 
+  const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
+
   const handleFilterChange = (field) => (event) => {
     setFilters(prev => ({
       ...prev,
@@ -135,52 +215,28 @@ const Banking = () => {
     setPagination(prev => ({ ...prev, currentPage: page }));
   };
 
-  const handleUpdateCustomMeta = async (t, field, value) => {
-    if (!t.journalEntryId) return;
+  const handleSaveRow = async (t) => {
+    if (!t.journalEntryId) {
+      setToast({ open: true, message: 'Cannot save: No linked Journal Entry found.', severity: 'error' });
+      return;
+    }
     try {
-      setTransactions(prev => prev.map(item => {
-        if (item._id === t._id) {
-          return { ...item, [field]: value };
-        }
-        return item;
-      }));
-
       const payload = {
         journalEntryId: t.journalEntryId,
-        customPaymentType: field === 'paymentType' ? value : t.paymentType,
-        customMainAccountHead: field === 'mainAccountHead' ? value : t.mainAccountHead,
-        customSubAccountHead: field === 'subAccountHead' ? value : t.subAccountHead,
-        customCompany: field === 'companies' ? value : t.companies,
-        customProject: field === 'project' ? value : t.project
+        customPaymentType: t.paymentType,
+        customMainAccountHead: t.mainAccountHead,
+        customSubAccountHead: t.subAccountHead,
+        customCompany: t.companies,
+        customProject: t.project
       };
 
-      await api.put(`/finance/banking/transactions/${t.journalEntryId}/custom-meta`, payload);
+      const res = await api.put(`/finance/banking/transactions/${t.journalEntryId}/custom-meta`, payload);
+      if (res.data.success) {
+        setToast({ open: true, message: 'Row saved successfully!', severity: 'success' });
+      }
     } catch (err) {
-      console.error('Failed to update custom meta:', err);
-    }
-  };
-
-  const handleRevertTransaction = async (t) => {
-    if (!t._id) return;
-    const confirmMsg = `Are you sure you want to revert voucher ${t.vNo || ''} (Amount: PKR ${fmt(t.amount)}) back to Bank Reconciliation?`;
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      setLoading(true);
-      const existingDate = t.clearingDate || t.clearedAt;
-      // Only send the specific GL entry ID - NOT the parent journalEntryId
-      // This ensures only this one row is reverted, not all lines of the voucher
-      const idsToSend = [String(t._id)];
-      await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: idsToSend,
-        clearanceStatus: 'pending',
-        clearedAt: existingDate || null
-      });
-      await fetchTransactions();
-    } catch (err) {
-      console.error('Failed to revert transaction:', err);
-      setError(err.response?.data?.message || 'Failed to revert transaction back to Bank Reconciliation');
-      setLoading(false);
+      console.error('Failed to save row custom meta:', err);
+      setToast({ open: true, message: err.response?.data?.message || 'Failed to save changes.', severity: 'error' });
     }
   };
 
@@ -205,7 +261,7 @@ const Banking = () => {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <FinanceCompanySelector showHelper={false} minWidth={220} />
+            <FinanceCompanySelector showHelper={false} minWidth={220} allowAll={true} />
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
@@ -338,7 +394,6 @@ const Banking = () => {
                   onChange={handleFilterChange('accountId')}
                   label="Filter Bank"
                 >
-                  <MenuItem value="">All Banks</MenuItem>
                   {bankAccounts.map((account) => (
                     <MenuItem key={account._id} value={account._id}>
                       {account.accountName} {account.accountNumber ? `(${account.accountNumber})` : ''}
@@ -456,83 +511,98 @@ const Banking = () => {
                         </TableCell>
                         {/* Editable Payment Type */}
                         <TableCell sx={{ minWidth: 140 }}>
-                          <TextField
-                            size="small"
-                            variant="standard"
-                            fullWidth
-                            value={t.paymentType || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, paymentType: val } : item));
-                            }}
-                            onBlur={(e) => handleUpdateCustomMeta(t, 'paymentType', e.target.value)}
-                            placeholder="e.g. BPV / Online"
-                            inputProps={{ style: { fontSize: '0.8125rem' } }}
-                          />
+                          <FormControl fullWidth size="small" variant="standard">
+                            <Select
+                              value={t.paymentType || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, paymentType: val } : item));
+                              }}
+                              displayEmpty
+                              sx={{ fontSize: '0.8125rem' }}
+                            >
+                              <MenuItem value=""><em>None</em></MenuItem>
+                              {bankingSetup.paymentTypes.map((pt, i) => (
+                                <MenuItem key={i} value={pt}>{pt}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
                         </TableCell>
                         {/* Editable MAIN ACCOUNT HEADS */}
                         <TableCell sx={{ minWidth: 170 }}>
-                          <TextField
-                            size="small"
-                            variant="standard"
-                            fullWidth
-                            value={t.mainAccountHead || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, mainAccountHead: val } : item));
-                            }}
-                            onBlur={(e) => handleUpdateCustomMeta(t, 'mainAccountHead', e.target.value)}
-                            placeholder="Main Head"
-                            inputProps={{ style: { fontSize: '0.8125rem' } }}
-                          />
+                          <FormControl fullWidth size="small" variant="standard">
+                            <Select
+                              value={t.mainAccountHead || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, mainAccountHead: val } : item));
+                              }}
+                              displayEmpty
+                              sx={{ fontSize: '0.8125rem' }}
+                            >
+                              <MenuItem value=""><em>None</em></MenuItem>
+                              {bankingSetup.mainAccountHeads.map((mh, i) => (
+                                <MenuItem key={i} value={mh}>{mh}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
                         </TableCell>
                         {/* Editable SUB ACCOUNT HEAD */}
                         <TableCell sx={{ minWidth: 170 }}>
-                          <TextField
-                            size="small"
-                            variant="standard"
-                            fullWidth
-                            value={t.subAccountHead || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, subAccountHead: val } : item));
-                            }}
-                            onBlur={(e) => handleUpdateCustomMeta(t, 'subAccountHead', e.target.value)}
-                            placeholder="Sub Head"
-                            inputProps={{ style: { fontSize: '0.8125rem', fontWeight: 500 } }}
-                          />
+                          <FormControl fullWidth size="small" variant="standard">
+                            <Select
+                              value={t.subAccountHead || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, subAccountHead: val } : item));
+                              }}
+                              displayEmpty
+                              sx={{ fontSize: '0.8125rem', fontWeight: 500 }}
+                            >
+                              <MenuItem value=""><em>None</em></MenuItem>
+                              {bankingSetup.subAccountHeads.map((sh, i) => (
+                                <MenuItem key={i} value={sh}>{sh}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
                         </TableCell>
                         {/* Editable COMPANIES */}
                         <TableCell sx={{ minWidth: 140 }}>
-                          <TextField
-                            size="small"
-                            variant="standard"
-                            fullWidth
-                            value={t.companies || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, companies: val } : item));
-                            }}
-                            onBlur={(e) => handleUpdateCustomMeta(t, 'companies', e.target.value)}
-                            placeholder="Company"
-                            inputProps={{ style: { fontSize: '0.8125rem' } }}
-                          />
+                          <FormControl fullWidth size="small" variant="standard">
+                            <Select
+                              value={t.companies || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, companies: val } : item));
+                              }}
+                              displayEmpty
+                              sx={{ fontSize: '0.8125rem' }}
+                            >
+                              <MenuItem value=""><em>None</em></MenuItem>
+                              {companiesList.map(c => (
+                                <MenuItem key={c._id} value={c.name}>{c.name}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
                         </TableCell>
                         {/* Editable PROJECT */}
                         <TableCell sx={{ minWidth: 140 }}>
-                          <TextField
-                            size="small"
-                            variant="standard"
-                            fullWidth
-                            value={t.project || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, project: val } : item));
-                            }}
-                            onBlur={(e) => handleUpdateCustomMeta(t, 'project', e.target.value)}
-                            placeholder="Project"
-                            inputProps={{ style: { fontSize: '0.8125rem' } }}
-                          />
+                          <FormControl fullWidth size="small" variant="standard">
+                            <Select
+                              value={t.project || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, project: val } : item));
+                              }}
+                              displayEmpty
+                              sx={{ fontSize: '0.8125rem' }}
+                            >
+                              <MenuItem value=""><em>None</em></MenuItem>
+                              {projectsList.map(p => (
+                                <MenuItem key={p._id} value={p.name}>{p.name}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
                         </TableCell>
                         <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
@@ -547,13 +617,13 @@ const Banking = () => {
                                 </IconButton>
                               </Tooltip>
                             )}
-                            <Tooltip title="Revert to Bank Reconciliation (Mark Pending)">
+                            <Tooltip title="Save Row Changes">
                               <IconButton
                                 size="small"
-                                color="warning"
-                                onClick={() => handleRevertTransaction(t)}
+                                color="success"
+                                onClick={() => handleSaveRow(t)}
                               >
-                                <UndoIcon fontSize="small" />
+                                <SaveIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           </Box>
@@ -603,6 +673,17 @@ const Banking = () => {
           )}
         </CardContent>
       </Card>
+
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={4000}
+        onClose={() => setToast({ ...toast, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={() => setToast({ ...toast, open: false })} severity={toast.severity} sx={{ width: '100%' }}>
+          {toast.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

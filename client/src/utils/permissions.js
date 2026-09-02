@@ -697,6 +697,7 @@ export const MODULES = {
           { name: 'Inventory Categories', path: '/finance/inventory-categories'   },
           { name: 'Companies & Banks',    path: '/finance/companies'              },
           { name: 'Company Profile',      path: '/finance/company-profile'        },
+          { name: 'Banking Setup',        path: '/finance/banking-setup'          },
           { name: '⚙ Finance Setup Wizard', path: '/finance/setup'              },
         ]
       },

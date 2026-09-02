@@ -16,7 +16,8 @@ export default function FinanceCompanySelector({
   size = 'small',
   minWidth = 280,
   showHelper = true,
-  required = true
+  required = true,
+  allowAll = false
 }) {
   const {
     companies,
@@ -45,7 +46,7 @@ export default function FinanceCompanySelector({
 
   return (
     <Box sx={sx}>
-      <FormControl size={size} sx={{ minWidth }} required={required}>
+      <FormControl size={size} sx={{ minWidth }} required={required && !allowAll}>
         <InputLabel id="finance-company-selector-label">Finance Company</InputLabel>
         <Select
           labelId="finance-company-selector-label"
@@ -53,6 +54,11 @@ export default function FinanceCompanySelector({
           label="Finance Company"
           onChange={(e) => setSelectedCompanyId(e.target.value)}
         >
+          {allowAll && (
+            <MenuItem value="all">
+              <em>All Companies</em>
+            </MenuItem>
+          )}
           {companies.map((company) => (
             <MenuItem key={company._id} value={company._id}>
               {company.name}
@@ -65,6 +71,10 @@ export default function FinanceCompanySelector({
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
           Finance data is scoped to {selectedCompany.name}
           {selectedCompany.accountCount != null ? ` · ${selectedCompany.accountCount} COA account(s)` : ''}
+        </Typography>
+      ) : showHelper && allowAll && selectedCompanyId === 'all' ? (
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+          Finance data is scoped to All Companies
         </Typography>
       ) : null}
     </Box>

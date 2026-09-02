@@ -43,6 +43,7 @@ const GoodsReceive = require('../models/procurement/GoodsReceive');
 const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
 const UtilityBill = require('../models/hr/UtilityBill');
+const BankingSetup = require('../models/finance/BankingSetup');
 
 const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -3359,7 +3360,7 @@ router.get('/banking/transactions',
       ]
     };
 
-    if (effectiveCompanyId) {
+    if (effectiveCompanyId && effectiveCompanyId !== 'all') {
       glQuery.companyId = effectiveCompanyId;
     }
 
@@ -3395,7 +3396,7 @@ router.get('/banking/transactions',
       .populate('companyId', 'name companyCode')
       .populate({
         path: 'journalEntry',
-        select: 'status isReconciled reconciledAt clearanceStatus clearedAt signedDocumentStatus signedDocumentAt signedBySignatory attachments entryNumber reference description lines date project companyId',
+        select: 'status isReconciled reconciledAt clearanceStatus clearedAt signedDocumentStatus signedDocumentAt signedBySignatory attachments entryNumber reference description lines date project companyId customPaymentType customMainAccountHead customSubAccountHead customCompany customProject',
         populate: [
           { path: 'lines.account', select: 'name accountNumber category detailType type' },
           { path: 'lines.costCenter', select: 'name code' },
@@ -3468,7 +3469,7 @@ router.get('/banking/transactions',
       'lines.account': { $in: targetAccountIds }
     });
 
-    if (effectiveCompanyId) {
+    if (effectiveCompanyId && effectiveCompanyId !== 'all') {
       jeDirectQuery.companyId = effectiveCompanyId;
     }
 
@@ -7934,6 +7935,35 @@ router.put('/payroll-period-payments/:id/finance-reject',
       message: 'Payroll payment rejected with observation. Draft BPV cancelled; company payroll remains unpaid. Sr Manager Accounts can correct and resubmit.',
       data: fresh?.toObject ? fresh.toObject() : fresh
     });
+  })
+);
+
+// @route   GET /api/finance/banking-setup
+router.get('/banking-setup',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    let setup = await BankingSetup.findOne();
+    if (!setup) {
+      setup = await BankingSetup.create({});
+    }
+    res.json({ success: true, data: setup });
+  })
+);
+
+// @route   PUT /api/finance/banking-setup
+router.put('/banking-setup',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { paymentTypes, mainAccountHeads, subAccountHeads } = req.body;
+    let setup = await BankingSetup.findOne();
+    if (!setup) {
+      setup = new BankingSetup();
+    }
+    if (paymentTypes !== undefined) setup.paymentTypes = paymentTypes;
+    if (mainAccountHeads !== undefined) setup.mainAccountHeads = mainAccountHeads;
+    if (subAccountHeads !== undefined) setup.subAccountHeads = subAccountHeads;
+    await setup.save();
+    res.json({ success: true, message: 'Banking setup updated successfully', data: setup });
   })
 );
 
