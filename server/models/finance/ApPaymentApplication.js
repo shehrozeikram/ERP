@@ -19,6 +19,7 @@ const apPaymentApplicationSchema = new mongoose.Schema({
   paymentMeta: {
     paymentMethod: { type: String },
     reference: { type: String, trim: true },
+    batchId: { type: String, trim: true },
     whtRate: { type: Number, default: 0 },
     bankAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     allocations: [{ grnId: mongoose.Schema.Types.ObjectId, amount: Number }]

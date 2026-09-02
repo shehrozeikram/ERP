@@ -2616,7 +2616,8 @@ router.post('/accounts-payable/:id/payment',
         bankAccountId: req.body.bankAccountId    || null,
         allocations:   req.body.allocations      || [],
         createdBy:     req.user._id,
-        financeApprovalAuthorities: req.body.financeApprovalAuthorities
+        financeApprovalAuthorities: req.body.financeApprovalAuthorities,
+        batchId:       req.body.batchId
       });
 
       const pending = updatedBill?._pendingSettlement;

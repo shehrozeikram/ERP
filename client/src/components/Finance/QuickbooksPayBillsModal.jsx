@@ -340,6 +340,7 @@ export default function QuickbooksPayBillsModal({
     try {
       setProcessing(true);
       let successCount = 0;
+      const batchId = `PAY-BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
       for (const bill of selectedBills) {
         await api.post(`/finance/accounts-payable/${bill.billId}/payment`, {
@@ -349,7 +350,8 @@ export default function QuickbooksPayBillsModal({
           paymentDate: paymentForm.paymentDate,
           whtRate: Number(paymentForm.whtRate) || 0,
           bankAccountId: paymentForm.bankAccountId || null,
-          financeApprovalAuthorities
+          financeApprovalAuthorities,
+          batchId
         });
         successCount++;
       }

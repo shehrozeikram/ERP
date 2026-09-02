@@ -182,6 +182,7 @@ const finalizeApplication = async (app, userId) => {
       paymentDate: je?.date || new Date(),
       paymentMethod: meta.paymentMethod || 'bank_transfer',
       reference: meta.reference || bill.billNumber,
+      batchId: meta.batchId || null,
       createdBy: app.createdBy,
       allocations: normalizedAllocations
     });

@@ -910,6 +910,34 @@ const FinanceHelper = {
         throw new Error(`Payment amount PKR ${amount_} exceeds outstanding balance PKR ${balance}`);
       }
 
+      // Check for Reference/Cheque uniqueness
+      if (reference) {
+        // 1. Check already fully paid bills
+        const query1 = {
+          payments: {
+            $elemMatch: {
+              reference: reference,
+              ...(paymentData.batchId ? { batchId: { $ne: paymentData.batchId } } : {})
+            }
+          }
+        };
+        const existingRef1 = await AccountsPayable.findOne(query1).select('billNumber');
+        if (existingRef1) {
+          throw new Error(`Cheque / TT / Reference number '${reference}' has already been used in bill ${existingRef1.billNumber}. It cannot be reused.`);
+        }
+
+        // 2. Check pending payment applications
+        const query2 = {
+          'paymentMeta.reference': reference,
+          workflowStatus: { $ne: 'rejected' },
+          ...(paymentData.batchId ? { 'paymentMeta.batchId': { $ne: paymentData.batchId } } : {})
+        };
+        const existingRef2 = await ApPayment.findOne(query2).select('billNumber');
+        if (existingRef2) {
+          throw new Error(`Cheque / TT / Reference number '${reference}' is already pending for bill ${existingRef2.billNumber}.`);
+        }
+      }
+
       const whtAmount = whtRate > 0 ? Math.round(amount_ * (whtRate / 100) * 100) / 100 : 0;
       const netBankAmount = Math.round((amount_ - whtAmount) * 100) / 100;
 
@@ -986,6 +1014,7 @@ const FinanceHelper = {
         paymentMeta: {
           paymentMethod,
           reference: reference || bill.billNumber,
+          batchId: paymentData.batchId || null,
           whtRate,
           bankAccountId: bankAccount._id,
           allocations: normalizedAllocations

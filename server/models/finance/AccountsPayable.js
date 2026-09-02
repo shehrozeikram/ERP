@@ -332,6 +332,10 @@ const accountsPayableSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: [true, 'Created by user is required']
+    },
+    batchId: {
+      type: String,
+      trim: true
     }
   }],
   // Aging information

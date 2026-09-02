@@ -1662,7 +1662,17 @@ const AccountsPayable = () => {
                         <TableCell>
                           <Box sx={{ display: 'flex', gap: 0.5 }}>
                             <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon fontSize="small" /></IconButton></Tooltip>
-                            <Tooltip title="Make Payment"><IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)} disabled={bill.status === 'paid'}><PaymentIcon fontSize="small" /></IconButton></Tooltip>
+                            {bill.status === 'paid' || outstanding <= 0 ? (
+                              <Tooltip title="Fully Paid">
+                                <Chip label="PAID" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem' }} />
+                              </Tooltip>
+                            ) : (
+                              <Tooltip title="Make Payment">
+                                <IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)}>
+                                  <PaymentIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
                             <Tooltip title={canEditVendorBill(bill) ? 'Edit Bill' : 'Cannot edit after payment'}>
                               <span>
                                 <IconButton size="small" onClick={() => handleOpenEdit(bill)} disabled={!canEditVendorBill(bill)}>
