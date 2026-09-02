@@ -365,7 +365,7 @@ const AccountsPayable = () => {
     financeControllerUser: null
   });
   const [filters, setFilters] = useState({
-    status: '',
+    status: 'unpaid',
     vendor: '',
     startDate: new Date(new Date().getFullYear(), 6, 1).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
@@ -1349,6 +1349,7 @@ const AccountsPayable = () => {
                 label="Status"
               >
                 <MenuItem value="">All Status</MenuItem>
+                <MenuItem value="unpaid">Unpaid / Unsettled</MenuItem>
                 <MenuItem value="draft">Draft</MenuItem>
                 <MenuItem value="received">Received</MenuItem>
                 <MenuItem value="approved">Approved</MenuItem>
@@ -1739,16 +1740,16 @@ const AccountsPayable = () => {
           {filteredBills.length === 0 && (
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <Typography variant="h6" color="textSecondary">
-                {searchInput || filters.search || vendorInput || filters.vendor || filters.status || filters.billType
+                {searchInput || filters.search || vendorInput || filters.vendor || (filters.status && filters.status !== 'unpaid') || filters.billType
                   ? 'No matching bills found'
                   : 'No bills found'}
               </Typography>
               <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                {searchInput || filters.search || vendorInput || filters.vendor || filters.status || filters.billType
+                {searchInput || filters.search || vendorInput || filters.vendor || (filters.status && filters.status !== 'unpaid') || filters.billType
                   ? 'Try adjusting your search terms or filters'
                   : 'Create your first bill to get started'}
               </Typography>
-              {searchInput || filters.search || vendorInput || filters.vendor || filters.status || filters.billType ? (
+              {searchInput || filters.search || vendorInput || filters.vendor || (filters.status && filters.status !== 'unpaid') || filters.billType ? (
                 <Button
                   variant="outlined"
                   size="small"
@@ -1759,7 +1760,7 @@ const AccountsPayable = () => {
                       ...prev,
                       search: '',
                       vendor: '',
-                      status: '',
+                      status: 'unpaid',
                       billType: ''
                     }));
                     setPagination((prev) => ({ ...prev, currentPage: 1 }));

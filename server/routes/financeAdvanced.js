@@ -2793,7 +2793,11 @@ router.get('/accounts-payable',
     const baseFilters = {};
 
     if (status) {
-      baseFilters.status = status;
+      if (status === 'unpaid') {
+        baseFilters.status = { $ne: 'paid', $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
+      } else {
+        baseFilters.status = status;
+      }
     } else {
       // By default in Finance AP, hide bills that are pending pre-audit / audit director approval
       baseFilters.status = { $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
