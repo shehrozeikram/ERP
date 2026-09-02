@@ -44,6 +44,8 @@ const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
 const UtilityBill = require('../models/hr/UtilityBill');
 
+const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const cashApprovalFinanceAuthoritiesComplete = (ca) => {
   if (!ca) return false;
   const slots = getRequiredFinanceAuthoritySlots(ca);
@@ -2798,17 +2800,99 @@ router.get('/accounts-payable',
     }
     if (vendorId) baseFilters['vendor.vendorId'] = vendorId;
     else if (vendor) {
-      baseFilters['vendor.name'] = { $regex: vendor, $options: 'i' };
+      baseFilters['vendor.name'] = { $regex: escapeRegex(String(vendor).trim()), $options: 'i' };
     }
     if (employeeId) baseFilters.payeeEmployee = employeeId;
-    if (search) {
-      baseFilters.$or = [
-        { billNumber: { $regex: search, $options: 'i' } },
-        { vendorInvoiceNumber: { $regex: search, $options: 'i' } },
-        { 'vendor.name': { $regex: search, $options: 'i' } },
-        { notes: { $regex: search, $options: 'i' } },
-        { 'lineItems.description': { $regex: search, $options: 'i' } }
-      ];
+    if (search && String(search).trim()) {
+      const rawSearch = String(search).trim();
+      const tokens = rawSearch.split(/\s+/).filter(Boolean);
+      const tokenConditions = [];
+
+      for (const token of tokens) {
+        const escapedToken = escapeRegex(token);
+        const tokenRegex = new RegExp(escapedToken, 'i');
+        const orConditions = [
+          { billNumber: tokenRegex },
+          { vendorInvoiceNumber: tokenRegex },
+          { 'vendor.name': tokenRegex },
+          { 'vendor.email': tokenRegex },
+          { 'vendor.phone': tokenRegex },
+          { 'vendor.taxId': tokenRegex },
+          { company: tokenRegex },
+          { project: tokenRegex },
+          { department: tokenRegex },
+          { module: tokenRegex },
+          { status: tokenRegex },
+          { paymentTerms: tokenRegex },
+          { referenceType: tokenRegex },
+          { notes: tokenRegex },
+          { internalNotes: tokenRegex },
+          { description: tokenRegex },
+          { forWhat: tokenRegex },
+          { 'lineItems.description': tokenRegex },
+          { 'lineItems.itemName': tokenRegex },
+          { 'lineItems.company': tokenRegex },
+          { 'lineItems.project': tokenRegex },
+          { 'linkedGRNs.grnNumber': tokenRegex },
+          { 'linkedGRNs.poNumber': tokenRegex }
+        ];
+
+        // Search employee payees by first/last name or code
+        const matchingEmployees = await Employee.find({
+          $or: [
+            { firstName: tokenRegex },
+            { lastName: tokenRegex },
+            { employeeId: tokenRegex }
+          ]
+        }).select('_id').lean();
+
+        if (matchingEmployees.length > 0) {
+          orConditions.push({
+            payeeEmployee: { $in: matchingEmployees.map((e) => e._id) }
+          });
+        }
+
+        // Match numeric / amount fields
+        const cleanDigits = token.replace(/[^0-9.]/g, '');
+        if (cleanDigits && !isNaN(cleanDigits)) {
+          const numVal = parseFloat(cleanDigits);
+          orConditions.push({ totalAmount: numVal });
+          orConditions.push({ amountPaid: numVal });
+          orConditions.push({ advanceApplied: numVal });
+          orConditions.push({
+            $expr: {
+              $or: [
+                {
+                  $regexMatch: {
+                    input: { $toString: { $ifNull: ['$totalAmount', 0] } },
+                    regex: escapeRegex(cleanDigits)
+                  }
+                },
+                {
+                  $regexMatch: {
+                    input: { $toString: { $ifNull: ['$amountPaid', 0] } },
+                    regex: escapeRegex(cleanDigits)
+                  }
+                },
+                {
+                  $regexMatch: {
+                    input: { $toString: { $ifNull: ['$advanceApplied', 0] } },
+                    regex: escapeRegex(cleanDigits)
+                  }
+                }
+              ]
+            }
+          });
+        }
+
+        tokenConditions.push({ $or: orConditions });
+      }
+
+      if (tokenConditions.length === 1) {
+        baseFilters.$or = tokenConditions[0].$or;
+      } else if (tokenConditions.length > 1) {
+        baseFilters.$and = baseFilters.$and ? [...baseFilters.$and, ...tokenConditions] : tokenConditions;
+      }
     }
     if (startDate || endDate) {
       baseFilters.billDate = {};

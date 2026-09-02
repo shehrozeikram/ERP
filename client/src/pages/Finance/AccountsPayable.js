@@ -36,7 +36,8 @@ import {
   Tab,
   Stack,
   ToggleButton,
-  ToggleButtonGroup
+  ToggleButtonGroup,
+  InputAdornment
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -55,7 +56,9 @@ import {
   Print as PrintIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -96,6 +99,57 @@ const getBillPayeeEmployeeDisplayName = (bill) => {
     if (pe.employeeId) return String(pe.employeeId);
   }
   return bill?.vendorName || bill?.vendor?.name || '';
+};
+
+const calculateAge = (date) => {
+  if (!date) return 0;
+  const today = new Date();
+  const billDate = new Date(date);
+  const diffTime = Math.abs(today - billDate);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
+};
+
+const levenshtein = (a, b) => {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const row = Array(b.length + 1).fill(0).map((_, i) => i);
+  for (let i = 0; i < a.length; i++) {
+    let prev = i + 1;
+    for (let j = 0; j < b.length; j++) {
+      const cost = a[i] === b[j] ? 0 : 1;
+      const val = Math.min(row[j + 1] + 1, prev + 1, row[j] + cost);
+      row[j] = prev;
+      prev = val;
+    }
+    row[b.length] = prev;
+  }
+  return row[b.length];
+};
+
+const matchesFuzzyToken = (token, corpus, words) => {
+  if (!token) return true;
+  // 1. Direct substring match in full corpus
+  if (corpus.includes(token)) return true;
+
+  // 2. Numeric / amount match without formatting
+  const cleanDigits = token.replace(/[^0-9.]/g, '');
+  if (cleanDigits && corpus.replace(/[^0-9.]/g, ' ').includes(cleanDigits)) {
+    return true;
+  }
+
+  // 3. Typo-tolerant match against individual words (for words of length >= 5)
+  if (token.length >= 5) {
+    const maxDist = token.length <= 7 ? 1 : 2;
+    for (const w of words) {
+      if (w.length >= 5 && Math.abs(w.length - token.length) <= maxDist) {
+        if (levenshtein(token, w) <= maxDist) return true;
+      }
+    }
+  }
+
+  return false;
 };
 
 const AccountsPayable = () => {
@@ -235,6 +289,7 @@ const AccountsPayable = () => {
   
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedBill, setSelectedBill] = useState(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -317,6 +372,32 @@ const AccountsPayable = () => {
     search: '',
     billType: ''
   });
+  const [searchInput, setSearchInput] = useState('');
+  const [vendorInput, setVendorInput] = useState('');
+
+  // Debounce search input into filters.search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) => {
+        if (prev.search === searchInput) return prev;
+        return { ...prev, search: searchInput };
+      });
+      setPagination((prev) => ({ ...prev, currentPage: 1 }));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Debounce vendor input into filters.vendor
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) => {
+        if (prev.vendor === vendorInput) return prev;
+        return { ...prev, vendor: vendorInput };
+      });
+      setPagination((prev) => ({ ...prev, currentPage: 1 }));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [vendorInput]);
 
   const getBillTypeBadge = (bill) => {
     if (bill.referenceType === 'utility_bill' || bill.module === 'taj_utilities') {
@@ -371,15 +452,120 @@ const AccountsPayable = () => {
     return '—';
   };
 
+  const getBillSearchCorpus = useCallback((bill) => {
+    const parts = [];
+    // Bill # & Vendor Invoice #
+    if (bill.billNumber) parts.push(String(bill.billNumber));
+    if (bill.vendorInvoiceNumber) parts.push(String(bill.vendorInvoiceNumber));
+
+    // Bill Type
+    if (bill.referenceType === 'utility_bill' || bill.module === 'taj_utilities') {
+      parts.push('centralized store utility bill');
+    } else if (bill.referenceType === 'purchase_order' || bill.referenceType === 'grn') {
+      parts.push('purchase order po grn');
+    } else {
+      parts.push('chart of accounts coa manual finance');
+    }
+
+    // Vendor / Payee
+    if (bill.vendorName) parts.push(String(bill.vendorName));
+    if (bill.vendor?.name) parts.push(String(bill.vendor.name));
+    if (bill.vendorEmail) parts.push(String(bill.vendorEmail));
+    if (bill.vendor?.email) parts.push(String(bill.vendor.email));
+    const payeeEmp = getBillPayeeEmployeeDisplayName(bill);
+    if (payeeEmp) parts.push(payeeEmp);
+    if (bill.payeeEmployee?.employeeId) parts.push(String(bill.payeeEmployee.employeeId));
+
+    // Company & Project
+    const comp = getBillCompany(bill);
+    if (comp && comp !== '—') parts.push(comp);
+    const proj = getBillProject(bill);
+    if (proj && proj !== '—') parts.push(proj);
+
+    // Narration / Description (all variants)
+    const narration = getBillNarrationDisplay(bill);
+    if (narration && narration !== '—') parts.push(narration);
+    if (bill.notes) parts.push(String(bill.notes));
+    if (bill.internalNotes) parts.push(String(bill.internalNotes));
+    if (bill.forWhat) parts.push(String(bill.forWhat));
+    if (bill.description) parts.push(String(bill.description));
+    if (Array.isArray(bill.lineItems)) {
+      bill.lineItems.forEach((li) => {
+        if (li.description) parts.push(String(li.description));
+        if (li.itemName) parts.push(String(li.itemName));
+        if (li.company) parts.push(String(li.company));
+        if (li.project) parts.push(String(li.project));
+      });
+    }
+
+    // Dates
+    if (bill.billDate) {
+      parts.push(formatDate(bill.billDate));
+      parts.push(String(bill.billDate));
+    }
+    if (bill.dueDate) {
+      parts.push(formatDate(bill.dueDate));
+      parts.push(String(bill.dueDate));
+    }
+
+    // Amounts: Total Amount, Paid, Outstanding
+    const total = Number(bill.totalAmount || 0);
+    const paid = getSettledAmount(bill);
+    const outstanding = getOutstanding(bill);
+    parts.push(String(total));
+    parts.push(formatPKR(total));
+    parts.push(String(Math.round(total)));
+    parts.push(String(paid));
+    parts.push(formatPKR(paid));
+    parts.push(String(Math.round(paid)));
+    parts.push(String(outstanding));
+    parts.push(formatPKR(outstanding));
+    parts.push(String(Math.round(outstanding)));
+
+    // Status & approvals
+    if (bill.status) parts.push(String(bill.status));
+    if (getSettlementPending(bill) > 0) parts.push('pending approval');
+
+    // Aging
+    const days = calculateAge(bill.billDate);
+    parts.push(`${days} days`);
+
+    // Linked GRNs & POs
+    if (Array.isArray(bill.linkedGRNs)) {
+      bill.linkedGRNs.forEach((g) => {
+        if (g.grnNumber) parts.push(String(g.grnNumber));
+        if (g.poNumber) parts.push(String(g.poNumber));
+      });
+    }
+
+    const fullText = parts.join(' ').toLowerCase();
+    const words = fullText.split(/[\s,/;:\-–—_()[\]{}]+/).filter(Boolean);
+    return { fullText, words };
+  }, []);
+
   const filteredBills = useMemo(() => {
-    if (!filters.billType) return bills;
-    return bills.filter((b) => {
-      if (filters.billType === 'store') return b.referenceType === 'utility_bill' || b.module === 'taj_utilities';
-      if (filters.billType === 'category') return b.referenceType === 'manual' || b.module === 'finance' || (!b.referenceType && b.lineItems?.length > 0);
-      if (filters.billType === 'po') return b.referenceType === 'purchase_order' || b.referenceType === 'grn';
-      return true;
+    let list = bills;
+
+    if (filters.billType) {
+      list = list.filter((b) => {
+        if (filters.billType === 'store') return b.referenceType === 'utility_bill' || b.module === 'taj_utilities';
+        if (filters.billType === 'category') return b.referenceType === 'manual' || b.module === 'finance' || (!b.referenceType && b.lineItems?.length > 0);
+        if (filters.billType === 'po') return b.referenceType === 'purchase_order' || b.referenceType === 'grn';
+        return true;
+      });
+    }
+
+    const query = (searchInput || '').trim().toLowerCase();
+    if (!query) return list;
+
+    const tokens = query.split(/\s+/).filter(Boolean);
+    if (!tokens.length) return list;
+
+    return list.filter((bill) => {
+      const { fullText, words } = getBillSearchCorpus(bill);
+      return tokens.every((token) => matchesFuzzyToken(token, fullText, words));
     });
-  }, [bills, filters.billType]);
+  }, [bills, filters.billType, searchInput, getBillSearchCorpus]);
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
@@ -495,12 +681,14 @@ const AccountsPayable = () => {
       setError('Failed to fetch accounts payable data');
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   }, [filters, pagination.currentPage, pagination.limit, selectedCompanyId]);
 
   useEffect(() => {
     if (!selectedCompanyId) {
       setLoading(false);
+      setInitialLoading(false);
       return;
     }
     fetchAccountsPayable();
@@ -1023,14 +1211,6 @@ const AccountsPayable = () => {
     return iconMap[status] || <AccountBalanceIcon />;
   };
 
-  const calculateAge = (date) => {
-    const today = new Date();
-    const billDate = new Date(date);
-    const diffTime = Math.abs(today - billDate);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  };
-
   const getAgingColor = (days) => {
     if (days <= 30) return 'success';
     if (days <= 60) return 'warning';
@@ -1054,7 +1234,7 @@ const AccountsPayable = () => {
     setExpandedRows((prev) => ({ ...prev, [billId]: !prev[billId] }));
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <Box sx={{ p: 3 }}>
         <LinearProgress />
@@ -1198,20 +1378,63 @@ const AccountsPayable = () => {
             <TextField
               fullWidth
               label="Vendor"
-              value={filters.vendor}
-              onChange={handleFilterChange('vendor')}
+              value={vendorInput}
+              onChange={(e) => setVendorInput(e.target.value)}
               placeholder="Search vendors"
               size="small"
+              InputProps={{
+                endAdornment: vendorInput ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setVendorInput('');
+                        setFilters((prev) => ({ ...prev, vendor: '' }));
+                        setPagination((prev) => ({ ...prev, currentPage: 1 }));
+                      }}
+                    >
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null
+              }}
             />
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
             <TextField
               fullWidth
-              label="Search"
-              value={filters.search}
-              onChange={handleFilterChange('search')}
-              placeholder="Search bills"
+              label="Search All Columns"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setFilters((prev) => ({ ...prev, search: searchInput }));
+                  setPagination((prev) => ({ ...prev, currentPage: 1 }));
+                }
+              }}
+              placeholder="Search bills..."
               size="small"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon color="action" fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: searchInput ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setSearchInput('');
+                        setFilters((prev) => ({ ...prev, search: '' }));
+                        setPagination((prev) => ({ ...prev, currentPage: 1 }));
+                      }}
+                    >
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null
+              }}
             />
           </Grid>
         </Grid>
@@ -1361,6 +1584,7 @@ const AccountsPayable = () => {
           <Typography variant="h6" sx={{ mb: 2 }}>
             Bill Details
           </Typography>
+          {loading && <LinearProgress sx={{ height: 4, mb: 1.5, borderRadius: 1 }} />}
           <TableContainer>
             <Table>
               <TableHead>
@@ -1512,21 +1736,46 @@ const AccountsPayable = () => {
             </Table>
           </TableContainer>
 
-          {bills.length === 0 && (
+          {filteredBills.length === 0 && (
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <Typography variant="h6" color="textSecondary">
-                No bills found
+                {searchInput || filters.search || vendorInput || filters.vendor || filters.status || filters.billType
+                  ? 'No matching bills found'
+                  : 'No bills found'}
               </Typography>
               <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                Create your first bill to get started
+                {searchInput || filters.search || vendorInput || filters.vendor || filters.status || filters.billType
+                  ? 'Try adjusting your search terms or filters'
+                  : 'Create your first bill to get started'}
               </Typography>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => navigate('/finance/accounts-payable/new')}
-              >
-                Create First Bill
-              </Button>
+              {searchInput || filters.search || vendorInput || filters.vendor || filters.status || filters.billType ? (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => {
+                    setSearchInput('');
+                    setVendorInput('');
+                    setFilters((prev) => ({
+                      ...prev,
+                      search: '',
+                      vendor: '',
+                      status: '',
+                      billType: ''
+                    }));
+                    setPagination((prev) => ({ ...prev, currentPage: 1 }));
+                  }}
+                >
+                  Reset Search & Filters
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => navigate('/finance/accounts-payable/new')}
+                >
+                  Create First Bill
+                </Button>
+              )}
             </Box>
           )}
 
