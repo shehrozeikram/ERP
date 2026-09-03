@@ -400,7 +400,12 @@ router.get(
         if (targetRule) {
           orConditions.length = 0; // Clear other conditions
           if (targetRule.type === 'sector') {
-            orConditions.push({ sector: sectorExactRegex(String(targetRule.sector || '').trim()) });
+            const sReg = sectorExactRegex(String(targetRule.sector || '').trim());
+            if (sReg) {
+              orConditions.push({ sector: sReg });
+            } else {
+              orConditions.push({});
+            }
           } else if (targetRule.type === 'slab') {
             const min = Number(targetRule.minAmount) || 0;
             const max = targetRule.maxAmount != null && targetRule.maxAmount !== '' ? Number(targetRule.maxAmount) : null;
@@ -575,7 +580,12 @@ router.get(
       if (targetRule) {
         orConditions.length = 0; // Clear other conditions
         if (targetRule.type === 'sector') {
-          orConditions.push({ sector: sectorExactRegex(String(targetRule.sector || '').trim()) });
+          const sReg = sectorExactRegex(String(targetRule.sector || '').trim());
+          if (sReg) {
+            orConditions.push({ sector: sReg });
+          } else {
+            orConditions.push({});
+          }
         } else if (targetRule.type === 'slab') {
           const min = Number(targetRule.minAmount) || 0;
           const max = targetRule.maxAmount != null && targetRule.maxAmount !== '' ? Number(targetRule.maxAmount) : null;
