@@ -18,8 +18,13 @@ function escapeRegex(value) {
 }
 
 function sectorExactRegex(value) {
-  const trimmed = String(value || '').trim();
+  let trimmed = String(value || '').trim();
   if (!trimmed) return null;
+  if (/^(all|all sectors)$/i.test(trimmed)) return null;
+  const cleanSector = trimmed.replace(/^sector[\s-]+/i, '').trim();
+  if (cleanSector) {
+    return new RegExp(`^(?:sector[\\s-]*)?${escapeRegex(cleanSector)}$`, 'i');
+  }
   return new RegExp(`^${escapeRegex(trimmed)}$`, 'i');
 }
 
