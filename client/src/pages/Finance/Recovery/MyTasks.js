@@ -285,10 +285,10 @@ const MyTasks = () => {
             }
           }
         } else {
-          if (selectedTaskId && !sorted.some((t) => t._id === selectedTaskId)) {
+          if (selectedTaskId && !sorted.some((t) => String(t._id) === String(selectedTaskId))) {
             setSelectedTaskId('');
           }
-          if (selectedRuleId && !rulesList.some((r) => r._id === selectedRuleId)) {
+          if (selectedRuleId && !rulesList.some((r) => String(r._id) === String(selectedRuleId))) {
             setSelectedRuleId('');
           }
         }
