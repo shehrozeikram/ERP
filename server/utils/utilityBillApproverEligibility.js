@@ -103,18 +103,7 @@ async function isUserEligibleAsUtilityBillApprover(userId) {
 }
 
 async function assertUtilityBillApproversEligible(approverIds = []) {
-  const unique = [...new Set(approverIds.map(String).filter(Boolean))];
-  for (const id of unique) {
-    const ok = await isUserEligibleAsUtilityBillApprover(id);
-    if (!ok) {
-      return {
-        ok: false,
-        message:
-          'Approvers must be active users whose department in User Management is Administration.'
-      };
-    }
-  }
-  return { ok: true };
+  return assertActiveUserApproversEligible(approverIds);
 }
 
 async function assertActiveUserApproversEligible(approverIds = []) {

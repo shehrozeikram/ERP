@@ -41,7 +41,7 @@ import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
 import utilityBillService from '../../../services/utilityBillService';
@@ -75,6 +75,10 @@ const getBillCategories = (bill) => {
 
 const CentralizedStoreBills = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isGeneral = location.pathname.startsWith('/general/centralized-store');
+  const newBillPath = isGeneral ? '/general/centralized-store/bill/new' : '/admin/centralized-store/bill/new';
+  const getBillViewPath = (billId) => isGeneral ? `/general/centralized-store/bills/${billId}` : `/admin/centralized-store/bills/${billId}`;
   const { user } = useAuth();
   const [bills, setBills] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -244,7 +248,7 @@ const CentralizedStoreBills = () => {
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => navigate('/admin/centralized-store/bill/new')}
+          onClick={() => navigate(newBillPath)}
         >
           Create Bill
         </Button>
@@ -424,7 +428,7 @@ const CentralizedStoreBills = () => {
                                 <Tooltip title="View bill">
                                   <IconButton
                                     size="small"
-                                    onClick={() => navigate(`/admin/centralized-store/bills/${bill._id}`)}
+                                    onClick={() => navigate(getBillViewPath(bill._id))}
                                   >
                                     <ViewIcon fontSize="small" />
                                   </IconButton>

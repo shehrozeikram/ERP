@@ -276,23 +276,26 @@ const UtilityBillForm = () => {
   const { id } = useParams();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
+  const isGeneralStoreBill = location.pathname.startsWith('/general/centralized-store');
   const isFinanceBill = location.pathname.startsWith('/finance/accounts-payable');
   const isProcurementBill = location.pathname.startsWith('/procurement/vendor-bills');
-  const isCentralizedStoreBill = location.pathname.startsWith('/admin/centralized-store/bill') || isFinanceBill || isProcurementBill;
+  const isCentralizedStoreBill = location.pathname.startsWith('/admin/centralized-store/bill') || isGeneralStoreBill || isFinanceBill || isProcurementBill;
   const isEdit = Boolean(id);
   const fromQuery = searchParams.get('from');
   const backPath = fromQuery 
     ? fromQuery 
-    : isFinanceBill 
-      ? '/finance/accounts-payable' 
-      : isProcurementBill 
-        ? '/procurement/vendor-bills' 
-        : isCentralizedStoreBill 
-          ? '/admin/centralized-store/bills' 
-          : '/admin/utility-bills';
+    : isGeneralStoreBill
+      ? '/general/centralized-store/bills'
+      : isFinanceBill 
+        ? '/finance/accounts-payable' 
+        : isProcurementBill 
+          ? '/procurement/vendor-bills' 
+          : isCentralizedStoreBill 
+            ? '/admin/centralized-store/bills' 
+            : '/admin/utility-bills';
   const defaultType = searchParams.get('type') || 'Electricity';
   const accountHeadOptions = ['President Personal', 'SGCHQ', 'Boly.pk', 'Usman Solar'];
-  const defaultMode = searchParams.get('mode') || (location.pathname.startsWith('/admin/centralized-store') ? 'store' : 'category');
+  const defaultMode = searchParams.get('mode') || (isCentralizedStoreBill ? 'store' : 'category');
   const [billMode, setBillMode] = useState(defaultMode);
 
   const [formData, setFormData] = useState({
@@ -812,6 +815,10 @@ const UtilityBillForm = () => {
         submitData.append(key, val);
       });
 
+      if (isCentralizedStoreBill || useStoreBill) {
+        submitData.append('useCentralizedStore', 'true');
+      }
+
       if (useStoreBill) {
         const linesPayload = billLines.map((l) => ({
           storeItem: getStoreItemId(l.storeItem) || l.storeItem,
@@ -881,6 +888,8 @@ const UtilityBillForm = () => {
           navigate(`/finance/utility-bills/${savedBill._id}`);
         } else if (isProcurementBill) {
           navigate('/procurement/vendor-bills');
+        } else if (isGeneralStoreBill) {
+          navigate(`/general/centralized-store/bills/${savedBill._id}`);
         } else {
           navigate(
             isCentralizedStoreBill
@@ -896,6 +905,8 @@ const UtilityBillForm = () => {
           navigate(`/finance/utility-bills/${id}`);
         } else if (isProcurementBill) {
           navigate('/procurement/vendor-bills');
+        } else if (isGeneralStoreBill) {
+          navigate(`/general/centralized-store/bills/${id}`);
         } else {
           navigate(
             isCentralizedStoreBill

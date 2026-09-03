@@ -792,6 +792,24 @@ function App() {
               element={<ProtectedRoute><CashApprovalGeneralViewPage /></ProtectedRoute>}
             />
 
+            {/* General Module - Centralized Store Routes (accessible to all departments/employees) */}
+            <Route
+              path="/general/centralized-store/bills"
+              element={<ProtectedRoute><CentralizedStoreBills /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/centralized-store/bills/:id"
+              element={<ProtectedRoute><UtilityBillDetails /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/centralized-store/bill/new"
+              element={<ProtectedRoute><UtilityBillForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/centralized-store/bill/:id/edit"
+              element={<ProtectedRoute><UtilityBillForm /></ProtectedRoute>}
+            />
+
             <Route
               path="/general/ceo-secretariat/payments"
               element={<ProtectedRoute><Payments /></ProtectedRoute>}

@@ -157,6 +157,7 @@ const SUBMODULES = {
   general: [
     'document_tracking',
     'indents',
+    'centralized_store',
     'user_tracking',
     'ceo_secretariat'
   ]

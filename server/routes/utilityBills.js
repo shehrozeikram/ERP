@@ -241,6 +241,31 @@ const normalizeApproverIds = (value) => {
 const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
 const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
 
+const canAccessUtilityBillAction = async (req, action = 'read') => {
+  const actorId = getActorId(req);
+  if (!actorId) return false;
+  const isStore = req.body?.useCentralizedStore === true || req.body?.useCentralizedStore === 'true' || req.query?.centralizedStoreOnly === 'true';
+  if (isStore) return true;
+  const hasAdmin = await checkSubRoleAccess(actorId, 'admin', 'utility_bills_management', action);
+  const hasFinance = await checkSubRoleAccess(actorId, 'finance', 'accounts_payable', action);
+  const hasGeneral = await checkSubRoleAccess(actorId, 'general', 'centralized_store', action);
+  return hasAdmin || hasFinance || hasGeneral;
+};
+
+const requireBillPermission = (action = 'read') => async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+    const ok = await canAccessUtilityBillAction(req, action);
+    if (ok) return next();
+    return res.status(403).json({ success: false, message: 'Insufficient permissions to perform this action' });
+  } catch (err) {
+    console.error('requireBillPermission error:', err);
+    return res.status(500).json({ success: false, message: 'Error checking permissions' });
+  }
+};
+
 /** Bill is with Pre-Audit / director and must not be edited until returned. */
 const auditStatusesBlockingEdit = [
   'Send to Audit',
@@ -308,7 +333,7 @@ const buildUtilityBillStoreScope = (queryParams = {}) => {
   return {};
 };
 
-router.get('/', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
+router.get('/', requireBillPermission('read'), async (req, res) => {
   try {
     const { 
       search, 
@@ -609,16 +634,8 @@ router.get('/form-master-data', authMiddleware, async (req, res) => {
 });
 
 // Get single utility bill
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireBillPermission('read'), async (req, res) => {
   try {
-    const actorId = req.user?._id || req.user?.id;
-    const hasAdminAccess = await checkSubRoleAccess(actorId, 'admin', 'utility_bills_management', 'read');
-    const hasFinanceAccess = await checkSubRoleAccess(actorId, 'finance', 'accounts_payable', 'read');
-
-    if (!hasAdminAccess && !hasFinanceAccess) {
-      return res.status(403).json({ success: false, message: 'Insufficient sub-role permissions to perform this action' });
-    }
-
     let bill = await populateUtilityBill(UtilityBill.findById(req.params.id));
 
     if (!bill) {
@@ -642,7 +659,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new utility bill
-router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'), upload.any(), async (req, res) => {
+router.post('/', upload.any(), requireBillPermission('create'), async (req, res) => {
   try {
     const billData = {
       ...req.body,
@@ -732,7 +749,7 @@ router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_mana
 });
 
 // Update utility bill
-router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), upload.any(), async (req, res) => {
+router.put('/:id', upload.any(), requireBillPermission('update'), async (req, res) => {
   try {
     const updateData = { ...req.body };
     delete updateData.approvalChain;
@@ -778,7 +795,6 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
       delete updateData.billImage;
     }
 
-    // Convert string values to appropriate types
     if (updateData.amount) updateData.amount = parseFloat(updateData.amount);
     if (updateData.paidAmount) updateData.paidAmount = parseFloat(updateData.paidAmount);
     if (updateData.lastMonthAmount) updateData.lastMonthAmount = parseFloat(updateData.lastMonthAmount);
@@ -851,7 +867,7 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_ma
 });
 
 // Submit utility bill for approval
-router.post('/:id/submit', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
+router.post('/:id/submit', requireBillPermission('update'), async (req, res) => {
   try {
     const bill = await UtilityBill.findById(req.params.id);
     if (!bill) {

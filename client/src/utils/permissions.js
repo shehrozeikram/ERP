@@ -371,6 +371,7 @@ export const SUBMODULES = {
     'document_tracking',
     'indents',
     'general_cash_approvals',
+    'centralized_store',
     'user_tracking',
     'project_management',
     'ceo_secretariat'
@@ -1081,6 +1082,14 @@ export const MODULES = {
           { name: 'Daily Reports', path: '/general/project-management/workspace/dpr' },
           { name: 'Gantt Chart', path: '/general/project-management/workspace/gantt' },
           { name: 'Invoices', path: '/general/project-management/workspace/invoices' }
+        ]
+      },
+      {
+        name: 'Centralized Store',
+        path: '/general/centralized-store/bills',
+        subItems: [
+          { name: 'Bills', path: '/general/centralized-store/bills' },
+          { name: 'Create Bill', path: '/general/centralized-store/bill/new' }
         ]
       },
       {
