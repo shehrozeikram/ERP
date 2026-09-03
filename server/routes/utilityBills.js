@@ -244,8 +244,28 @@ const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
 const canAccessUtilityBillAction = async (req, action = 'read') => {
   const actorId = getActorId(req);
   if (!actorId) return false;
-  const isStore = req.body?.useCentralizedStore === true || req.body?.useCentralizedStore === 'true' || req.query?.centralizedStoreOnly === 'true';
-  if (isStore) return true;
+  
+  // If it's a centralized store bill in the request body/query, allow authenticated access
+  const isStoreInReq = req.body?.useCentralizedStore === true || req.body?.useCentralizedStore === 'true' || req.query?.centralizedStoreOnly === 'true';
+  if (isStoreInReq) return true;
+
+  // If a specific bill ID is accessed, check if bill is centralized store OR if user is one of the approvers or creator
+  if (req.params?.id && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    try {
+      const bill = await UtilityBill.findById(req.params.id).select('useCentralizedStore createdBy approvalChain').lean();
+      if (bill) {
+        if (bill.useCentralizedStore) return true;
+        if (String(bill.createdBy) === actorId) return true;
+        const isApprover = (bill.approvalChain || []).some(
+          (step) => String(step.approver) === actorId
+        );
+        if (isApprover) return true;
+      }
+    } catch (e) {
+      console.error('canAccessUtilityBillAction bill lookup error:', e);
+    }
+  }
+
   const hasAdmin = await checkSubRoleAccess(actorId, 'admin', 'utility_bills_management', action);
   const hasFinance = await checkSubRoleAccess(actorId, 'finance', 'accounts_payable', action);
   const hasGeneral = await checkSubRoleAccess(actorId, 'general', 'centralized_store', action);
@@ -259,7 +279,7 @@ const requireBillPermission = (action = 'read') => async (req, res, next) => {
     }
     const ok = await canAccessUtilityBillAction(req, action);
     if (ok) return next();
-    return res.status(403).json({ success: false, message: 'Insufficient permissions to perform this action' });
+    return res.status(403).json({ success: false, message: 'Insufficient sub-role permissions to perform this action' });
   } catch (err) {
     console.error('requireBillPermission error:', err);
     return res.status(500).json({ success: false, message: 'Error checking permissions' });
@@ -928,7 +948,7 @@ router.post('/:id/submit', requireBillPermission('update'), async (req, res) => 
 });
 
 // Approve utility bill
-router.post('/:id/approve', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
+router.post('/:id/approve', requireBillPermission('update'), async (req, res) => {
   try {
     const bill = await UtilityBill.findById(req.params.id);
     if (!bill) {
@@ -982,7 +1002,7 @@ router.post('/:id/approve', permissions.checkSubRolePermission('admin', 'utility
 });
 
 // Reject utility bill
-router.post('/:id/reject', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
+router.post('/:id/reject', requireBillPermission('update'), async (req, res) => {
   try {
     const reason = String(req.body?.rejectionReason || '').trim();
     if (!reason) {
@@ -1034,7 +1054,7 @@ router.post('/:id/reject', permissions.checkSubRolePermission('admin', 'utility_
 });
 
 // After audit return: save optional observation replies and send bill back to Pre-Audit queue
-router.post('/:id/resend-to-audit', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
+router.post('/:id/resend-to-audit', requireBillPermission('update'), async (req, res) => {
   try {
     const bill = await UtilityBill.findById(req.params.id);
     if (!bill) {
