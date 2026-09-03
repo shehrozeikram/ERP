@@ -28,8 +28,6 @@ function userHasRecoveryTaskAssignmentUnrestrictedAccess(req) {
   const primaryUnrestricted = new Set([
     'super_admin',
     'admin',
-    'higher_management',
-    'finance_manager',
     'recovery_manager',
     'developer'
   ]);
@@ -41,21 +39,12 @@ function userHasRecoveryTaskAssignmentUnrestrictedAccess(req) {
   for (const c of candidates) {
     if (primaryUnrestricted.has(normRole(c))) return true;
   }
-  // Extra assigned roles: do not treat "finance_manager" here — Recovery Officers sometimes have a
-  // stale secondary role; full-list access for finance should come from primary roleRef / legacy role only.
-  const secondaryUnrestricted = new Set([
-    'super_admin',
-    'admin',
-    'higher_management',
-    'recovery_manager',
-    'developer'
-  ]);
   const multi = req.user?.roles;
   if (Array.isArray(multi)) {
     for (const r of multi) {
       if (
-        secondaryUnrestricted.has(normRole(r?.name)) ||
-        secondaryUnrestricted.has(normRole(r?.displayName))
+        primaryUnrestricted.has(normRole(r?.name)) ||
+        primaryUnrestricted.has(normRole(r?.displayName))
       ) {
         return true;
       }
@@ -65,19 +54,23 @@ function userHasRecoveryTaskAssignmentUnrestrictedAccess(req) {
 }
 
 /**
- * Full list: finance oversight (tryAuthorize) and not a field-only recovery user, OR unrestricted roles above.
- * Field agents: active RecoveryMember without unrestricted role → only rows where assignedTo = their member id.
+ * Full list: oversight roles (super_admin, admin, recovery_manager, developer).
+ * Recovery members: active RecoveryMember → strictly scoped to 'self' so each member only sees their own assigned tasks/rules.
  */
 const recoveryTaskAssignmentListAccess = asyncHandler(async (req, res, next) => {
+  const selfMember = await getActiveRecoveryMemberForUser(req);
+
+  // If user is a recovery member, unless they are super_admin/admin/developer/recovery_manager,
+  // they MUST only see their own tasks
   const unrestricted = userHasRecoveryTaskAssignmentUnrestrictedAccess(req);
-  if (unrestricted) {
-    req.recoveryTaskAssignmentListScope = 'all';
+
+  if (selfMember && !unrestricted) {
+    req.recoveryTaskAssignmentListScope = 'self';
+    req.recoveryTaskAssignmentSelfMemberId = selfMember._id;
     return next();
   }
 
-  const selfMember = await getActiveRecoveryMemberForUser(req);
-  const allowedAll = await tryAuthorize(req, 'super_admin', 'admin', 'finance_manager', 'recovery_manager');
-  if (allowedAll) {
+  if (unrestricted) {
     req.recoveryTaskAssignmentListScope = 'all';
     return next();
   }
@@ -85,6 +78,12 @@ const recoveryTaskAssignmentListAccess = asyncHandler(async (req, res, next) => 
   if (selfMember) {
     req.recoveryTaskAssignmentListScope = 'self';
     req.recoveryTaskAssignmentSelfMemberId = selfMember._id;
+    return next();
+  }
+
+  const allowedAll = await tryAuthorize(req, 'super_admin', 'admin', 'finance_manager', 'recovery_manager');
+  if (allowedAll) {
+    req.recoveryTaskAssignmentListScope = 'all';
     return next();
   }
 

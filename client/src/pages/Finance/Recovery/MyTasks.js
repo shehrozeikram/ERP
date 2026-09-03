@@ -679,8 +679,10 @@ const MyTasks = () => {
     try {
       await completeRecoveryTask(completingId);
       setSnackbar({ open: true, message: 'Task marked as completed', severity: 'success' });
+      setRecords((prev) => prev.filter((r) => r._id !== completingId));
       setCompletingId(null);
       loadMyTasks();
+      loadMemberAssignments();
     } catch (err) {
       setSnackbar({
         open: true,

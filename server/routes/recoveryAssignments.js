@@ -327,12 +327,14 @@ router.get(
     const dueDir = dueSort === 'asc' ? 1 : -1;
     const dueSortObj = sortByDue ? { currentlyDue: dueDir, sortOrder: 1, orderCode: 1 } : { sortOrder: 1, orderCode: 1 };
 
-    // Super admin, admin, recovery_manager, developer: see all assignments assigned to any recovery member (oversight)
+    // Only platform super_admin, admin, developer, or recovery_manager have manager oversight over all members' tasks
+    const activeMember = await getActiveRecoveryMemberForUser(req);
     const isManagerOversight =
-      req.user.role === 'super_admin' ||
-      req.user.role === 'developer' ||
-      req.user.role === 'admin' ||
-      userHasRecoveryTaskAssignmentUnrestrictedAccess(req);
+      !activeMember &&
+      (req.user.role === 'super_admin' ||
+        req.user.role === 'developer' ||
+        req.user.role === 'admin' ||
+        userHasRecoveryTaskAssignmentUnrestrictedAccess(req));
 
     if (isManagerOversight) {
       let ruleFilter = { isActive: true };
@@ -419,13 +421,7 @@ router.get(
         });
       }
 
-      const isSpecificSelection = Boolean(
-        (recoveryRuleId && String(recoveryRuleId).trim()) ||
-        (recoveryTaskId && String(recoveryTaskId).trim())
-      );
-      const activeStatusFilter = isSpecificSelection ? { $nin: ['unassigned'] } : MY_TASKS_ACTIVE_STATUS_FILTER;
-
-      let query = { $or: orConditions, taskStatus: activeStatusFilter };
+      let query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
       if (search && search.trim()) {
         const searchRegex = { $regex: search.trim(), $options: 'i' };
         query.$and = (query.$and || []).concat([
@@ -599,13 +595,7 @@ router.get(
       });
     }
 
-    const isSpecificSelection = Boolean(
-      (recoveryRuleId && String(recoveryRuleId).trim()) ||
-      (recoveryTaskId && String(recoveryTaskId).trim())
-    );
-    const activeStatusFilter = isSpecificSelection ? { $nin: ['unassigned'] } : MY_TASKS_ACTIVE_STATUS_FILTER;
-
-    let query = { $or: orConditions, taskStatus: activeStatusFilter };
+    let query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       query.$and = (query.$and || []).concat([
