@@ -173,6 +173,7 @@ import UtilityBillDashboard from './pages/Admin/UtilityBillManagement/UtilityBil
 import UtilityBillList from './pages/Admin/UtilityBillManagement/UtilityBillList';
 import UtilityBillForm from './pages/Admin/UtilityBillManagement/UtilityBillForm';
 import StandardVendorBillForm from './pages/Finance/StandardVendorBillForm';
+import StandardCustomerInvoiceForm from './pages/Finance/StandardCustomerInvoiceForm';
 import UtilityBillDetails from './pages/Admin/UtilityBillManagement/UtilityBillDetails';
 import CentralizedStoreManagement from './pages/Admin/UtilityBillManagement/CentralizedStoreManagement';
 import CentralizedStoreBills from './pages/Admin/UtilityBillManagement/CentralizedStoreBills';
@@ -1119,6 +1120,10 @@ function App() {
             <Route 
               path="/finance/accounts-receivable" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AccountsReceivable /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/accounts-receivable/new" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><StandardCustomerInvoiceForm /></ProtectedRoute>} 
             />
             <Route 
               path="/finance/accounts-payable" 

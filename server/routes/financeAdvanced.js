@@ -1644,6 +1644,14 @@ router.post('/accounts-receivable',
 
     // Use FinanceHelper to create AR and post to GL
     const company = await resolveCompanyForFinanceRoute(req);
+    const lineItems = (req.body.lineItems || []).map(item => ({
+      description: item.description || 'Line Item',
+      quantity: Number(item.quantity) || 1,
+      unitPrice: Number(item.unitPrice) || Number(item.amount) || 0,
+      amount: Number(item.amount) || (Number(item.quantity || 1) * Number(item.unitPrice || 0)),
+      account: item.account || null
+    }));
+
     const arEntry = await FinanceHelper.createARFromInvoice({
       companyId: company._id,
       customerName: req.body.customer.name,
@@ -1654,13 +1662,15 @@ router.post('/accounts-receivable',
       dueDate: req.body.dueDate,
       amount: req.body.totalAmount,
       department: req.body.department || 'general',
-      module: 'general',
-      referenceId: null,
-      charges: req.body.lineItems.map(item => ({
-        type: 'OTHER',
+      module: req.body.module || 'general',
+      referenceId: req.body.referenceId || null,
+      lineItems,
+      charges: lineItems.map(item => ({
+        type: item.type || 'OTHER',
         description: item.description,
         amount: item.amount,
-        total: item.total || item.amount
+        total: item.amount,
+        account: item.account
       })),
       createdBy: req.user._id
     });
@@ -8008,31 +8018,49 @@ router.put('/payroll-period-payments/:id/finance-reject',
 );
 
 // @route   GET /api/finance/banking-setup
+// @desc    Get global banking setup options (Payment Types, Main Heads, Sub Heads) - shared across all companies
+// @access  Private (Finance and Admin)
 router.get('/banking-setup',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    let setup = await BankingSetup.findOne();
+    let setup = await BankingSetup.findOne().lean();
     if (!setup) {
-      setup = await BankingSetup.create({});
+      setup = await BankingSetup.create({
+        paymentTypes: ['BPV', 'BRV', 'CPV', 'CRV', 'Online Transfer', 'Cheque', 'Pay Order', 'Direct Deposit', 'Misc Receipt'],
+        mainAccountHeads: ['Bank Charges', 'Current Assets', 'Current Liabilities', 'Operational Expenses', 'Revenue'],
+        subAccountHeads: ['Bank Charges', 'Cash in Hand', 'Petty Cash', 'Vendor Settlement']
+      });
     }
     res.json({ success: true, data: setup });
   })
 );
 
 // @route   PUT /api/finance/banking-setup
+// @desc    Update global banking setup options - applies globally to all companies
+// @access  Private (Finance and Admin)
 router.put('/banking-setup',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { paymentTypes, mainAccountHeads, subAccountHeads } = req.body;
-    let setup = await BankingSetup.findOne();
-    if (!setup) {
-      setup = new BankingSetup();
+    
+    const updateDoc = {};
+    if (Array.isArray(paymentTypes)) {
+      updateDoc.paymentTypes = [...new Set(paymentTypes.map(s => String(s || '').trim()).filter(Boolean))];
     }
-    if (paymentTypes !== undefined) setup.paymentTypes = paymentTypes;
-    if (mainAccountHeads !== undefined) setup.mainAccountHeads = mainAccountHeads;
-    if (subAccountHeads !== undefined) setup.subAccountHeads = subAccountHeads;
-    await setup.save();
-    res.json({ success: true, message: 'Banking setup updated successfully', data: setup });
+    if (Array.isArray(mainAccountHeads)) {
+      updateDoc.mainAccountHeads = [...new Set(mainAccountHeads.map(s => String(s || '').trim()).filter(Boolean))];
+    }
+    if (Array.isArray(subAccountHeads)) {
+      updateDoc.subAccountHeads = [...new Set(subAccountHeads.map(s => String(s || '').trim()).filter(Boolean))];
+    }
+
+    const setup = await BankingSetup.findOneAndUpdate(
+      {},
+      { $set: updateDoc },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    res.json({ success: true, message: 'Banking setup updated successfully for all companies', data: setup });
   })
 );
 

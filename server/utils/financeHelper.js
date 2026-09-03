@@ -7,6 +7,7 @@ const AccountsReceivable = require('../models/finance/AccountsReceivable');
 const VendorAdvance = require('../models/finance/VendorAdvance');
 const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
+const Department = require('../models/hr/Department');
 const FiscalPeriod = require('../models/finance/FiscalPeriod');
 const FinanceJournal = require('../models/finance/FinanceJournal');
 const { ensureStaffAdvanceAccount } = require('./staffAdvanceAccount');
@@ -542,6 +543,12 @@ const FinanceHelper = {
         dueDate,
         totalAmount: amount,
         subtotal: amount,
+        lineItems: Array.isArray(options.lineItems) ? options.lineItems : (charges || []).map(c => ({
+          description: c.description || 'Line Item',
+          quantity: c.quantity || 1,
+          unitPrice: c.amount || amount,
+          amount: c.total || c.amount || amount
+        })),
         status: 'draft',
         department,
         module,
@@ -559,7 +566,7 @@ const FinanceHelper = {
         const lines = [{ account: arAccount._id, description: `Receivable from ${customerName}`, debit: amountRounded, department }];
 
         if (charges && charges.length > 0) {
-          const fallbackRev = await A.resolve(FinanceHelper.ACCOUNTS.REVENUE_CAM);
+          const fallbackRev = (await A.resolve('4001')) || (await A.resolve(FinanceHelper.ACCOUNTS.REVENUE_CAM)) || (await A.resolve('4000'));
           let sumCredits = 0;
           const creditLines = [];
 
@@ -567,13 +574,24 @@ const FinanceHelper = {
             const chargeAmt = round2(charge.total ?? charge.amount ?? 0);
             if (chargeAmt <= 0) continue;
 
-            const revAccountNum = {
-              'CAM': FinanceHelper.ACCOUNTS.REVENUE_CAM,
-              'ELECTRICITY': FinanceHelper.ACCOUNTS.REVENUE_ELECTRICITY,
-              'RENT': FinanceHelper.ACCOUNTS.REVENUE_RENT
-            }[String(charge.type || '').toUpperCase()] || FinanceHelper.ACCOUNTS.REVENUE_CAM;
+            let revAccount = null;
+            if (charge.account) {
+              revAccount = await A.map(charge.account);
+            }
+            if (!revAccount && charge.accountNumber) {
+              revAccount = await A.resolve(String(charge.accountNumber));
+            }
+            if (!revAccount) {
+              const revAccountNum = {
+                'CAM': FinanceHelper.ACCOUNTS.REVENUE_CAM,
+                'ELECTRICITY': FinanceHelper.ACCOUNTS.REVENUE_ELECTRICITY,
+                'RENT': FinanceHelper.ACCOUNTS.REVENUE_RENT,
+                'SALES': '4001',
+                'SERVICE': '4100'
+              }[String(charge.type || '').toUpperCase()] || null;
 
-            let revAccount = await A.resolve(revAccountNum);
+              if (revAccountNum) revAccount = await A.resolve(revAccountNum);
+            }
             if (!revAccount) revAccount = fallbackRev;
             if (!revAccount) continue;
 
@@ -604,8 +622,10 @@ const FinanceHelper = {
         }
 
         if (lines.length === 1) {
-          const revAccountNum = options.revenueAccountNum || FinanceHelper.ACCOUNTS.REVENUE_CAM;
-          const revAccount = await A.resolve(revAccountNum);
+          const revAccountNum = options.revenueAccountNum || '4001';
+          let revAccount = await A.resolve(revAccountNum);
+          if (!revAccount) revAccount = await A.resolve(FinanceHelper.ACCOUNTS.REVENUE_CAM);
+          if (!revAccount) revAccount = await A.resolve('4000');
           if (revAccount) {
             lines.push({ account: revAccount._id, description: `Revenue from ${invoiceNumber}`, credit: amountRounded, department });
           }

@@ -522,7 +522,10 @@ const Banking = () => {
                               sx={{ fontSize: '0.8125rem' }}
                             >
                               <MenuItem value=""><em>None</em></MenuItem>
-                              {bankingSetup.paymentTypes.map((pt, i) => (
+                              {Array.from(new Set([
+                                ...(bankingSetup.paymentTypes || []),
+                                ...(t.paymentType ? [t.paymentType] : [])
+                              ])).map((pt, i) => (
                                 <MenuItem key={i} value={pt}>{pt}</MenuItem>
                               ))}
                             </Select>
@@ -541,7 +544,10 @@ const Banking = () => {
                               sx={{ fontSize: '0.8125rem' }}
                             >
                               <MenuItem value=""><em>None</em></MenuItem>
-                              {bankingSetup.mainAccountHeads.map((mh, i) => (
+                              {Array.from(new Set([
+                                ...(bankingSetup.mainAccountHeads || []),
+                                ...(t.mainAccountHead ? [t.mainAccountHead] : [])
+                              ])).map((mh, i) => (
                                 <MenuItem key={i} value={mh}>{mh}</MenuItem>
                               ))}
                             </Select>
@@ -560,7 +566,10 @@ const Banking = () => {
                               sx={{ fontSize: '0.8125rem', fontWeight: 500 }}
                             >
                               <MenuItem value=""><em>None</em></MenuItem>
-                              {bankingSetup.subAccountHeads.map((sh, i) => (
+                              {Array.from(new Set([
+                                ...(bankingSetup.subAccountHeads || []),
+                                ...(t.subAccountHead ? [t.subAccountHead] : [])
+                              ])).map((sh, i) => (
                                 <MenuItem key={i} value={sh}>{sh}</MenuItem>
                               ))}
                             </Select>
@@ -579,8 +588,11 @@ const Banking = () => {
                               sx={{ fontSize: '0.8125rem' }}
                             >
                               <MenuItem value=""><em>None</em></MenuItem>
-                              {companiesList.map(c => (
-                                <MenuItem key={c._id} value={c.name}>{c.name}</MenuItem>
+                              {Array.from(new Set([
+                                ...companiesList.map(c => c.name),
+                                ...(t.companies ? [t.companies] : [])
+                              ])).map((cName, idx) => (
+                                <MenuItem key={idx} value={cName}>{cName}</MenuItem>
                               ))}
                             </Select>
                           </FormControl>
@@ -598,8 +610,11 @@ const Banking = () => {
                               sx={{ fontSize: '0.8125rem' }}
                             >
                               <MenuItem value=""><em>None</em></MenuItem>
-                              {projectsList.map(p => (
-                                <MenuItem key={p._id} value={p.name}>{p.name}</MenuItem>
+                              {Array.from(new Set([
+                                ...projectsList.map(p => p.name),
+                                ...(t.project ? [t.project] : [])
+                              ])).map((pName, idx) => (
+                                <MenuItem key={idx} value={pName}>{pName}</MenuItem>
                               ))}
                             </Select>
                           </FormControl>
