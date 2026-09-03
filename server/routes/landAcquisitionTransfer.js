@@ -76,15 +76,24 @@ const parseJsonField = (val) => {
   return val;
 };
 
+const cleanObjectId = (val) => {
+  if (!val || val === 'null' || val === 'undefined') return undefined;
+  const str = String(val).trim();
+  return mongoose.Types.ObjectId.isValid(str) ? str : undefined;
+};
+
 const parseLines = (lines = []) => {
   const arr = parseJsonField(lines);
   if (!Array.isArray(arr)) return [];
-  return arr.map((line) => ({
-    khasraEntry: line.khasraEntry || undefined,
-    khewatNo: String(line.khewatNo || '').trim(),
-    khasraNo: String(line.khasraNo || '').trim(),
-    khasraArea: parseAreaInput(line.khasraArea)
-  })).filter((line) => line.khasraEntry || line.khasraNo);
+  return arr.map((line) => {
+    const validKhasraEntry = cleanObjectId(line.khasraEntry);
+    return {
+      khasraEntry: validKhasraEntry,
+      khewatNo: String(line.khewatNo || '').trim(),
+      khasraNo: String(line.khasraNo || '').trim(),
+      khasraArea: parseAreaInput(line.khasraArea)
+    };
+  }).filter((line) => line.khasraEntry || line.khasraNo);
 };
 
 const parseTransferPayments = (payments = []) => {
@@ -169,10 +178,10 @@ const buildTransferPayload = (req, purchase) => {
     registryNo: String(body.registryNo || '').trim(),
     inteqalAttachment,
     registryAttachment,
-    purchaser: body.purchaser || undefined,
+    purchaser: cleanObjectId(body.purchaser),
     purchaserCnic: String(body.purchaserCnic || '').trim(),
     purchaserName: String(body.purchaserName || '').trim(),
-    seller: body.seller || undefined,
+    seller: cleanObjectId(body.seller),
     sellerCnic: String(body.sellerCnic || '').trim(),
     sellerName: String(body.sellerName || '').trim(),
     lines: parseLines(body.lines),
@@ -228,7 +237,8 @@ const validateTransferPayload = async (payload, purchase, { isCreate = false } =
   }
 
   if (payload.purchaser) {
-    const purchaser = await LandParty.findOne({ _id: payload.purchaser, partyType: 'buyer', isActive: true });
+    const purchaserQuery = isCreate ? { _id: payload.purchaser, partyType: 'buyer', isActive: true } : { _id: payload.purchaser };
+    const purchaser = await LandParty.findOne(purchaserQuery);
     if (!purchaser) {
       const err = new Error('Purchaser not found');
       err.status = 404;
@@ -242,7 +252,8 @@ const validateTransferPayload = async (payload, purchase, { isCreate = false } =
     throw err;
   }
 
-  const seller = await LandParty.findOne({ _id: payload.seller, partyType: 'seller', isActive: true });
+  const sellerQuery = isCreate ? { _id: payload.seller, partyType: 'seller', isActive: true } : { _id: payload.seller };
+  const seller = await LandParty.findOne(sellerQuery);
   if (!seller) {
     const err = new Error('Seller not found');
     err.status = 404;
@@ -252,11 +263,10 @@ const validateTransferPayload = async (payload, purchase, { isCreate = false } =
   const mozaId = purchase.moza?._id || purchase.moza;
   for (const line of payload.lines) {
     if (!line.khasraEntry) continue;
-    const entry = await LandMozaKhasraEntry.findOne({ _id: line.khasraEntry, moza: mozaId });
+    const entry = await LandMozaKhasraEntry.findOne({ _id: line.khasraEntry });
     if (!entry) {
-      const err = new Error('Selected khasra is not part of this moza');
-      err.status = 400;
-      throw err;
+      // If khasra entry doesn't exist by ID, clear the ID and retain khasraNo
+      line.khasraEntry = undefined;
     }
   }
 };
@@ -501,7 +511,10 @@ router.put('/transfers/:id', handleTransferUpload, asyncHandler(async (req, res)
     return res.status(404).json({ success: false, message: 'Land transfer not found' });
   }
 
-  const purchase = await LandPurchase.findOne({ _id: existing.landPurchase, isActive: true });
+  let purchase = await LandPurchase.findOne({ _id: existing.landPurchase, isActive: true });
+  if (!purchase) {
+    purchase = await LandPurchase.findById(existing.landPurchase);
+  }
   if (!purchase) {
     return res.status(404).json({ success: false, message: 'Linked land purchase not found' });
   }

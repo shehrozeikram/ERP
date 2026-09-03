@@ -170,8 +170,16 @@ export default function LandTransferDialog({
         const transferRes = await landAcquisitionTransferService.getTransfer(transferId);
         const transfer = transferRes.data;
         const linkedPurchaseId = transfer.landPurchase?._id || transfer.landPurchase;
-        const purchaseRes = await landAcquisitionPurchaseService.getPurchase(linkedPurchaseId);
-        const purchaseRow = purchaseRes.data;
+        let purchaseRow = null;
+        if (linkedPurchaseId) {
+          try {
+            const purchaseRes = await landAcquisitionPurchaseService.getPurchase(linkedPurchaseId);
+            purchaseRow = purchaseRes.data;
+          } catch (e) {
+            console.warn('Could not load linked purchase:', e);
+            purchaseRow = transfer.landPurchase || null;
+          }
+        }
         setPurchase(purchaseRow);
 
         const mozaId = purchaseRow?.moza?._id || purchaseRow?.moza || transfer.moza?._id || transfer.moza;
@@ -379,23 +387,26 @@ export default function LandTransferDialog({
   };
 
   const buildPayload = () => {
-    const lines = form.selectedKhasras.map((entry) => ({
-      khasraEntry: entry._id,
-      khewatNo: entry.khewatNo || '',
-      khasraNo: entry.khasraNo || '',
-      khasraArea: entry.landInKhasra || {}
-    }));
+    const lines = form.selectedKhasras.map((entry) => {
+      const isSynthetic = !entry._id || String(entry._id).startsWith('khasra-');
+      return {
+        khasraEntry: isSynthetic ? undefined : entry._id,
+        khewatNo: entry.khewatNo || '',
+        khasraNo: entry.khasraNo || '',
+        khasraArea: entry.landInKhasra || {}
+      };
+    });
 
     return {
-      landPurchase: purchase?._id,
+      landPurchase: purchase?._id || '',
       referenceNo: form.referenceNo.trim(),
       transferDate: form.transferDate,
       intiqalNo: form.intiqalNo.trim(),
       registryNo: form.registryNo.trim(),
-      seller: form.seller?._id || null,
+      seller: form.seller?._id || '',
       sellerCnic: form.seller?.cnic || '',
       sellerName: form.seller?.name || '',
-      purchaser: form.purchaser?._id || null,
+      purchaser: form.purchaser?._id || '',
       purchaserCnic: form.purchaser?.cnic || '',
       purchaserName: form.purchaser?.name || '',
       lines,

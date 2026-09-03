@@ -575,11 +575,16 @@ router.get('/form-master-data', authMiddleware, async (req, res) => {
       fullName: `${employee.firstName || ''} ${employee.lastName || ''}`.trim()
     }));
 
-    // Same employee pool as Finance → Vendors & Employees (Active), for centralized store payee dropdown
-    const financePayeeEmployees = await Employee.find({ employmentStatus: 'Active' })
+    // Employee pool for centralized store payee dropdown (all non-deleted employees, sorted by name)
+    const financePayeeEmployees = await Employee.find({
+      isDeleted: false,
+      $or: [
+        { isActive: true },
+        { employmentStatus: 'Active' }
+      ]
+    })
       .select('firstName lastName employeeId')
       .sort({ firstName: 1, lastName: 1 })
-      .limit(500)
       .lean()
       .then((rows) =>
         rows.map((e) => ({

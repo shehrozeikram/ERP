@@ -425,12 +425,21 @@ router.get('/purchases', asyncHandler(async (req, res) => {
 
 // GET /purchases/:id
 router.get('/purchases/:id', asyncHandler(async (req, res) => {
-  const purchase = await LandPurchase.findOne({ _id: req.params.id, isActive: true })
+  let purchase = await LandPurchase.findOne({ _id: req.params.id, isActive: true })
     .populate('seller', 'name cnic phoneNumber partyDate')
     .populate('purchaser', 'name cnic phoneNumber partyDate')
     .populate('dealer', 'name cnic phoneNumber partyDate')
     .populate('moza', 'name slug')
     .populate('installments.paidBy', 'firstName lastName');
+
+  if (!purchase) {
+    purchase = await LandPurchase.findById(req.params.id)
+      .populate('seller', 'name cnic phoneNumber partyDate')
+      .populate('purchaser', 'name cnic phoneNumber partyDate')
+      .populate('dealer', 'name cnic phoneNumber partyDate')
+      .populate('moza', 'name slug')
+      .populate('installments.paidBy', 'firstName lastName');
+  }
 
   if (!purchase) {
     return res.status(404).json({ success: false, message: 'Land purchase not found' });

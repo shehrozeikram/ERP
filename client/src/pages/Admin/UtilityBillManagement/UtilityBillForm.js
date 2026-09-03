@@ -1152,6 +1152,14 @@ const UtilityBillForm = () => {
                           getOptionLabel={(o) =>
                             o?.employeeId ? `${o.employeeId} — ${o.name}` : (o?.name || '')
                           }
+                          filterOptions={(options, state) => {
+                            const term = (state.inputValue || '').trim().toLowerCase();
+                            if (!term) return options;
+                            return options.filter((o) =>
+                              (o.name || '').toLowerCase().includes(term) ||
+                              String(o.employeeId || '').toLowerCase().includes(term)
+                            );
+                          }}
                           value={selectedEmployee}
                           onChange={(_, emp) => {
                             setSelectedEmployee(emp);
