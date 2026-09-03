@@ -268,7 +268,7 @@ const MyTasks = () => {
       setTasks(sorted);
       setRules(rulesList);
 
-      if (sorted.length === 0) {
+      if (sorted.length === 0 && rulesList.length === 0) {
         taskCountRef.current = 0;
         return;
       }
@@ -864,6 +864,26 @@ const MyTasks = () => {
                       <MenuItem key={t._id} value={t._id}>
                         {index === 0 ? 'Latest · ' : ''}
                         {t.title?.trim() || 'Task'} — {formatRecoveryTaskScope(t)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 220 }}>
+                  <InputLabel>Filter by rule</InputLabel>
+                  <Select
+                    value={selectedRuleId}
+                    onChange={(e) => {
+                      const v = e.target.value || '';
+                      userChoseAllTasksRef.current = v === '';
+                      setSelectedTaskId('');
+                      setSelectedRuleId(v);
+                    }}
+                    label="Filter by rule"
+                  >
+                    <MenuItem value="">All rules</MenuItem>
+                    {rules.map((r) => (
+                      <MenuItem key={r._id} value={r._id}>
+                        {r.type === 'sector' ? `Sector: ${r.sector}` : `Slab: ${r.minAmount || 0} - ${r.maxAmount || 'above'}`}
                       </MenuItem>
                     ))}
                   </Select>
