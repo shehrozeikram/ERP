@@ -2026,7 +2026,9 @@ router.get('/accounts-payable/vendor-advance-po-queue',
   asyncHandler(async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
 
-    const pos = await PurchaseOrder.find({ status: 'Pending Finance' })
+    const { q } = await financeScope(req);
+
+    const pos = await PurchaseOrder.find(q({ status: 'Pending Finance' }))
       .populate('vendor', 'name email phone')
       .populate('companyId', 'name companyCode')
       .sort({ updatedAt: -1 })
@@ -2035,8 +2037,6 @@ router.get('/accounts-payable/vendor-advance-po-queue',
 
     const advancePos = pos.filter((po) => isFullAdvancePaymentTerm(po.paymentTerms));
     const poIds = advancePos.map((p) => p._id);
-
-    const { q } = await financeScope(req);
     const advances = poIds.length
       ? await VendorAdvance.find(q({
         referenceId: { $in: poIds },
