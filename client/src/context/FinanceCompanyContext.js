@@ -32,10 +32,10 @@ export const FinanceCompanyProvider = ({ children }) => {
       );
       const fallbackId = storedExists
         ? storedId
-        : String(historical?._id || list[0]?._id || '');
+        : (storedId === 'all' ? 'all' : String(historical?._id || list[0]?._id || 'all'));
 
       setSelectedCompanyIdState(fallbackId);
-      if (fallbackId) {
+      if (fallbackId && fallbackId !== 'all') {
         localStorage.setItem(STORAGE_KEY, fallbackId);
       }
     } catch {

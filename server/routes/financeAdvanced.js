@@ -2028,6 +2028,7 @@ router.get('/accounts-payable/vendor-advance-po-queue',
 
     const pos = await PurchaseOrder.find({ status: 'Pending Finance' })
       .populate('vendor', 'name email phone')
+      .populate('companyId', 'name companyCode')
       .sort({ updatedAt: -1 })
       .limit(limit)
       .lean();
@@ -2075,10 +2076,13 @@ router.get('/accounts-payable/vendor-advance-po-queue',
         const needsPayment = remaining > 0.009;
         const hasPendingVoucherApproval = pendingVoucherByPo.has(id);
         const ven = po.vendor || {};
+        const comp = po.companyId || {};
         return {
           _id: po._id,
           orderNumber: po.orderNumber,
           paymentTerms: po.paymentTerms,
+          company: comp.name || po.company || '—',
+          companyId: comp._id || po.companyId || null,
           totalAmount: total,
           advanceRecordedAmount: recorded,
           remainingAdvanceDue: Math.max(0, remaining),

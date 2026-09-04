@@ -135,7 +135,12 @@ const VendorAdvance = () => {
   const [bankAccounts, setBankAccounts] = useState([]);
   const advanceHistorySectionRef = useRef(null);
   const [highlightPoId, setHighlightPoId] = useState(null);
-  const { selectedCompanyId } = useFinanceCompany();
+  const { selectedCompanyId, setSelectedCompanyId } = useFinanceCompany();
+
+  useEffect(() => {
+    // Always default finance company selection to "all" when visiting Vendor Advance
+    setSelectedCompanyId('all');
+  }, [setSelectedCompanyId]);
 
   const [viewDialog, setViewDialog] = useState({
     open: false,
@@ -642,7 +647,7 @@ const VendorAdvance = () => {
         <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <PaymentsIcon color="primary" /> Vendor Advance
         </Typography>
-        <FinanceCompanySelector minWidth={280} showHelper={false} />
+        <FinanceCompanySelector minWidth={280} showHelper={false} allowAll={true} />
       </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Record prepayment to a supplier (DR Advance to suppliers / CR pay-from account). Link an optional PO for traceability.
@@ -673,6 +678,7 @@ const VendorAdvance = () => {
               <TableHead>
                 <TableRow sx={{ bgcolor: 'background.paper' }}>
                   <TableCell><b>PO</b></TableCell>
+                  <TableCell><b>Company</b></TableCell>
                   <TableCell><b>Vendor</b></TableCell>
                   <TableCell><b>Terms</b></TableCell>
                   <TableCell align="right"><b>PO total</b></TableCell>
@@ -686,6 +692,7 @@ const VendorAdvance = () => {
                 {poQueue.map((row) => (
                   <TableRow key={row._id} hover>
                     <TableCell>{row.orderNumber || row._id}</TableCell>
+                    <TableCell>{row.company || '—'}</TableCell>
                     <TableCell>
                       {row.vendor?.name || '—'}
                       {row.vendor?.email ? (
