@@ -28,6 +28,23 @@ const { isAuditDirectorUser, canActAsAuditDirector } = require('../utils/auditDi
 const { hasAuditAccess, canPerformInitialPreAuditActions } = require('../utils/auditAccess');
 const { resolveAuditStampMeta } = require('../utils/auditStampMeta');
 
+const normalizePreAuditDepartmentName = (dept) => {
+  if (!dept) return 'Admin';
+  const raw = String(dept).trim();
+  if (!raw) return 'Admin';
+  const lower = raw.toLowerCase();
+  if (lower === 'general') return 'General';
+  if (lower === 'admin' || lower === 'administration') return 'Admin';
+  if (lower === 'procurement') return 'Procurement';
+  if (lower === 'hr' || lower === 'human resources') return 'HR';
+  if (lower === 'finance' || lower === 'accounts') return 'Finance';
+  if (lower === 'sales') return 'Sales';
+  if (lower === 'audit') return 'Audit';
+  if (lower === 'taj_utilities' || lower === 'utilities') return 'Utilities';
+  // Standard capitalize words for custom departments
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+};
+
 /** Cash approvals in Pre-Audit (includes post–Audit Director statuses for Approved tab). */
 const CA_PRE_AUDIT_VISIBLE_STATUSES = [
   'Pending Audit',
@@ -299,8 +316,8 @@ router.get('/',
             documentNumber: doc[config.titleField] || doc._id.toString(),
             title: `${submodule === 'utility_bills_management' && doc.utilityType ? doc.utilityType : config.name}: ${doc[config.titleField] || 'Untitled'}`,
             description: doc[config.descriptionField] || '',
-            sourceModule: 'admin',
-            sourceDepartmentName: 'Admin',
+            sourceModule: doc.department ? String(doc.department).trim().toLowerCase() : (doc.originatingModule || 'admin'),
+            sourceDepartmentName: normalizePreAuditDepartmentName(doc.department || doc.fromDepartment || doc.originatingModule || 'Admin'),
             documentType: submodule === 'utility_bills_management' && doc.utilityType ? doc.utilityType : config.name,
             documentDate: doc[config.dateField] || doc.createdAt,
             amount: doc[config.amountField] || 0,
@@ -452,10 +469,14 @@ router.get('/',
     try {
       const AccountsPayableModel = require('../models/finance/AccountsPayable');
       const vbAuditStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit', 'approved'];
-      const vbQuery = { status: { $in: vbAuditStatuses } };
+      const vbQuery = { 
+        status: { $in: vbAuditStatuses },
+        referenceType: { $ne: 'utility_bill' }
+      };
       if (search) {
         vbQuery.$and = [
           { status: { $in: vbAuditStatuses } },
+          { referenceType: { $ne: 'utility_bill' } },
           {
             $or: [
               { billNumber: { $regex: search, $options: 'i' } },
@@ -466,6 +487,7 @@ router.get('/',
           }
         ];
         delete vbQuery.status;
+        delete vbQuery.referenceType;
       }
       const vbDocs = await AccountsPayableModel.find(vbQuery)
         .populate('vendor.vendorId', 'name email phone')
@@ -481,13 +503,16 @@ router.get('/',
         else if (doc.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
         else if (doc.status === 'Pending Audit' && doc.preAuditInitialApprovedAt) preAuditStatus = 'under_review';
 
+        const apModule = (doc.module || doc.department || 'procurement').toLowerCase();
+        const apDeptName = normalizePreAuditDepartmentName(doc.department || doc.module || 'Procurement');
+
         workflowDocs.push({
           _id: doc._id,
           documentNumber: doc.billNumber || doc._id.toString(),
           title: `Vendor Bill: ${doc.billNumber || 'Bill'} (${doc.vendor?.name || 'Vendor'})`,
           description: doc.notes || (doc.vendor?.name ? `Vendor Bill for ${doc.vendor.name}` : 'Vendor Bill'),
-          sourceModule: 'procurement',
-          sourceDepartmentName: 'Procurement',
+          sourceModule: apModule,
+          sourceDepartmentName: apDeptName,
           sourceDepartment: null,
           documentType: 'Vendor Bill',
           documentDate: doc.billDate || doc.createdAt,
@@ -514,11 +539,31 @@ router.get('/',
       console.error('Error fetching vendor bills for pre-audit:', vbErr);
     }
 
-    // Combine Pre Audit and workflow documents
-    const allDocuments = [
+    // Combine Pre Audit and workflow documents with deduplication
+    const rawCombinedDocs = [
       ...preAuditDocs.map(doc => ({ ...doc, isWorkflowDocument: false })), 
       ...workflowDocs
     ];
+
+    // Deduplicate documents: If the same documentNumber appears (e.g. across workflow and AP),
+    // prefer the workflow document (which has the complete workflow history & proper module origin).
+    const seenDocNumbers = new Set();
+    const allDocuments = [];
+    // Prioritize workflowDocs first
+    const prioritizedDocs = [
+      ...rawCombinedDocs.filter(d => d.isWorkflowDocument),
+      ...rawCombinedDocs.filter(d => !d.isWorkflowDocument)
+    ];
+    for (const doc of prioritizedDocs) {
+      const docKey = String(doc.documentNumber || doc.referenceNumber || doc._id).trim().toUpperCase();
+      if (docKey && seenDocNumbers.has(docKey)) {
+        continue;
+      }
+      if (docKey) {
+        seenDocNumbers.add(docKey);
+      }
+      allDocuments.push(doc);
+    }
     
     // Apply status filter if provided (for tab filtering)
     let filteredDocuments = allDocuments;
@@ -858,6 +903,9 @@ router.get('/:id',
         else if (vb.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
         else if (vb.status === 'Pending Audit' && vb.preAuditInitialApprovedAt) preAuditStatus = 'under_review';
 
+        const apModule = (vb.module || vb.department || 'procurement').toLowerCase();
+        const apDeptName = normalizePreAuditDepartmentName(vb.department || vb.module || 'Procurement');
+
         return res.json({
           success: true,
           data: {
@@ -865,8 +913,8 @@ router.get('/:id',
             documentNumber: vb.billNumber,
             title: `Vendor Bill: ${vb.billNumber || 'Bill'} (${vb.vendor?.name || 'Vendor'})`,
             description: vb.notes || (vb.vendor?.name ? `Vendor Bill for ${vb.vendor.name}` : 'Vendor Bill'),
-            sourceModule: 'procurement',
-            sourceDepartmentName: 'Procurement',
+            sourceModule: apModule,
+            sourceDepartmentName: apDeptName,
             documentType: 'Vendor Bill',
             documentDate: vb.billDate,
             amount: vb.totalAmount,
@@ -935,6 +983,9 @@ router.get('/:id',
             const preAuditStatus = mapWorkflowDocumentToPreAuditStatus(workflowDoc, config.workflowStatusField);
             const initialApproved = hasWorkflowInitialAuditApproval(workflowDoc);
 
+            const wfModule = workflowDoc.department ? String(workflowDoc.department).trim().toLowerCase() : (workflowDoc.originatingModule || 'admin');
+            const wfDeptName = normalizePreAuditDepartmentName(workflowDoc.department || workflowDoc.fromDepartment || workflowDoc.originatingModule || 'Admin');
+
             return res.json({
               success: true,
               data: {
@@ -942,8 +993,8 @@ router.get('/:id',
                 documentNumber: workflowDoc[config.titleField] || workflowDoc._id.toString(),
                 title: `${submodule === 'utility_bills_management' && workflowDoc.utilityType ? workflowDoc.utilityType : config.name}: ${workflowDoc[config.titleField] || 'Untitled'}`,
                 description: workflowDoc[config.descriptionField] || '',
-                sourceModule: 'admin',
-                sourceDepartmentName: 'Admin',
+                sourceModule: wfModule,
+                sourceDepartmentName: wfDeptName,
                 documentType: submodule === 'utility_bills_management' && workflowDoc.utilityType ? workflowDoc.utilityType : config.name,
                 documentDate: workflowDoc[config.dateField] || workflowDoc.createdAt,
                 amount: workflowDoc[config.amountField] || 0,

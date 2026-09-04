@@ -71,8 +71,7 @@ const getUserId = (value) => {
   return String(value._id || value.id || value.userId || '');
 };
 
-/** Server-required header fields when UI only collects vendor + line items */
-const applyCentralizedStoreBillDefaults = (payload, lines, total) => {
+const applyCentralizedStoreBillDefaults = (payload, lines, total, department = 'Admin') => {
   const today = new Date();
   const todayYmd = today.toISOString().split('T')[0];
   payload.billDate = todayYmd;
@@ -101,8 +100,7 @@ const applyCentralizedStoreBillDefaults = (payload, lines, total) => {
   const first = lines[0] || {};
   payload.site = first.site || 'Head Office';
   payload.location = first.location || 'Main Office';
-  payload.accountNumber = first.meterNumber ? String(first.meterNumber) : '';
-  payload.department = '';
+  payload.department = (department || 'Admin').trim();
   payload.custodian = '';
   return payload;
 };
@@ -799,7 +797,7 @@ const UtilityBillForm = () => {
         payload.useCentralizedStore = true;
         payload.utilityType = billLines[0]?.utilityType || 'Other';
         if (isCentralizedStoreBill) {
-          applyCentralizedStoreBillDefaults(payload, billLines, billLinesTotal);
+          applyCentralizedStoreBillDefaults(payload, billLines, billLinesTotal, formData.department || (isGeneralStoreBill ? 'General' : 'Admin'));
         } else if (billLines[0]?.site) {
           payload.site = billLines[0].site;
           if (billLines[0]?.location) payload.location = billLines[0].location;
@@ -1288,6 +1286,32 @@ const UtilityBillForm = () => {
                             : 'Auto-filled from employee; edit if needed'
                         }
                       />
+                    </Grid>
+                  )}
+                  {isCentralizedStoreBill && (
+                    <Grid item xs={12} md={3}>
+                      <FormControl fullWidth disabled={masterDataLoading}>
+                        <InputLabel>Department</InputLabel>
+                        <Select
+                          value={formData.department || (isGeneralStoreBill ? 'General' : 'Admin')}
+                          onChange={handleChange('department')}
+                          label="Department"
+                        >
+                          <MenuItem value="">
+                            <em>Select department</em>
+                          </MenuItem>
+                          {formData.department && !departments.some((department) => department.name === formData.department) && (
+                            <MenuItem value={formData.department}>
+                              {formData.department}
+                            </MenuItem>
+                          )}
+                          {departments.map((department) => (
+                            <MenuItem key={department._id} value={department.name}>
+                              {department.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
                     </Grid>
                   )}
                   <Grid item xs={12} md={isCentralizedStoreBill ? 3 : 4}>

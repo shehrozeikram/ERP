@@ -154,7 +154,7 @@ function buildScopeQueryFromRecoveryTask(task) {
 module.exports = {
   UNASSIGNED_TASK_STATUS,
   MY_TASKS_ACTIVE_STATUS_FILTER: { $nin: ['completed', UNASSIGNED_TASK_STATUS] },
-  REOPEN_FROM_STATUSES: [UNASSIGNED_TASK_STATUS],
+  REOPEN_FROM_STATUSES: ['completed', UNASSIGNED_TASK_STATUS],
   buildScopeQuery,
   buildScopeQueryFromRecoveryTask,
   buildOrConditionsFromRules,
