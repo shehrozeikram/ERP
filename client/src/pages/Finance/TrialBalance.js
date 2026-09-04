@@ -12,6 +12,15 @@ import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelec
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFmt = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
 
+const formatCellText = (val) => {
+  if (!val) return '—';
+  if (typeof val === 'string' || typeof val === 'number') return String(val);
+  if (typeof val === 'object') {
+    return val.name || val.code || val.title || val.departmentName || JSON.stringify(val);
+  }
+  return '—';
+};
+
 export default function TrialBalance() {
   const { selectedCompanyId } = useFinanceCompany();
   const [data, setData]       = useState(null);
@@ -261,9 +270,9 @@ export default function TrialBalance() {
                       <TableCell sx={{ py: 0.45, fontSize: 12 }}>{row.entryNumber || row.journalEntry?.entryNumber || '—'}</TableCell>
                       <TableCell sx={{ py: 0.45, fontSize: 12 }}>{row.description || row.journalEntry?.description || '—'}</TableCell>
                       <TableCell sx={{ py: 0.45, fontSize: 12 }}>{row.reference || row.journalEntry?.reference || '—'}</TableCell>
-                      <TableCell sx={{ py: 0.45, fontSize: 12 }}>{row.project || 'null'}</TableCell>
-                      <TableCell sx={{ py: 0.45, fontSize: 12 }}>{row.department || 'null'}</TableCell>
-                      <TableCell sx={{ py: 0.45, fontSize: 12 }}>{row.party || 'null'}</TableCell>
+                      <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(row.project)}</TableCell>
+                      <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(row.department)}</TableCell>
+                      <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(row.party)}</TableCell>
                       <TableCell sx={{ py: 0.45, fontSize: 12 }} align="right">{row.debit ? fmt(row.debit) : '0.00'}</TableCell>
                       <TableCell sx={{ py: 0.45, fontSize: 12 }} align="right">{row.credit ? fmt(row.credit) : '0.00'}</TableCell>
                     </TableRow>
@@ -315,9 +324,9 @@ export default function TrialBalance() {
                           </TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }}>{line.description || voucher.description || '—'}</TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }}>{voucher.reference || '—'}</TableCell>
-                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{voucher.module || 'null'}</TableCell>
-                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{voucher.department || 'null'}</TableCell>
-                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{voucher.party || 'null'}</TableCell>
+                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(voucher.project)}</TableCell>
+                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(voucher.department)}</TableCell>
+                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(voucher.party)}</TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }} align="right">{fmt(line.debit || 0)}</TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }} align="right">{fmt(line.credit || 0)}</TableCell>
                         </TableRow>

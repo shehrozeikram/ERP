@@ -165,9 +165,11 @@ const Vouchers = () => {
     voucher: true,
     indent: true,
     po: true,
+    bills: true,
     comparative: true,
     quotations: true,
-    grns: true
+    grns: true,
+    attachments: true
   });
   const [multiPrintMode, setMultiPrintMode] = useState(false); // true when printing all or selected
   const [printMenuAnchor, setPrintMenuAnchor] = useState(null);
@@ -403,16 +405,31 @@ const Vouchers = () => {
         poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
       }
 
+      if (caData && caData.attachments) {
+        pushDocs(caData.attachments, 'Cash Approval Attachment');
+      }
+
+      if (vaData && vaData.attachments) {
+        pushDocs(vaData.attachments, 'Vendor Advance Attachment');
+      }
+
+      if (apData && apData.attachments) {
+        pushDocs(apData.attachments, 'Payment App Attachment');
+      }
+
       poBills.forEach((b) => {
         pushDocs(b.attachments, `Vendor Bill (${b.billNumber})`);
       });
 
       (fullVoucher.attachments || []).forEach((att, idx) => {
+        const url = att.filename
+          ? `${(api.defaults.baseURL || '').replace(/\/api\/?$/, '')}/uploads/finance/${encodeURIComponent(att.filename)}`
+          : (att.path ? `${(api.defaults.baseURL || '').replace(/\/api\/?$/, '')}/${att.path.replace(/^\/+/, '')}` : (att.url || ''));
         poLinkedDocs.push({
           id: att._id || `v-att-${idx}`,
           source: 'Voucher Attachment',
           name: att.originalName || att.filename || `Attachment ${idx + 1}`,
-          url: att.filename ? `${(api.defaults.baseURL || '').replace(/\/api\/?$/, '')}/uploads/finance/${encodeURIComponent(att.filename)}` : '',
+          url,
           uploadedAt: att.uploadedAt || null
         });
       });
@@ -470,7 +487,8 @@ const Vouchers = () => {
       bills: Boolean(viewDialog.poBills?.length > 0),
       comparative: Boolean(viewDialog.poQuotations?.length > 0 || viewDialog.po?.indent?.comparativeApproval),
       quotations: Boolean(viewDialog.poQuotations?.length > 0),
-      grns: Boolean(viewDialog.poGrns?.length > 0)
+      grns: Boolean(viewDialog.poGrns?.length > 0),
+      attachments: Boolean(viewDialog.poLinkedDocs?.length > 0)
     });
     setPrintMenuAnchor(null);
     setTimeout(() => {
@@ -486,7 +504,8 @@ const Vouchers = () => {
       bills: Boolean(viewDialog.poBills?.length > 0),
       comparative: Boolean(viewDialog.poQuotations?.length > 0 || viewDialog.po?.indent?.comparativeApproval),
       quotations: Boolean(viewDialog.poQuotations?.length > 0),
-      grns: Boolean(viewDialog.poGrns?.length > 0)
+      grns: Boolean(viewDialog.poGrns?.length > 0),
+      attachments: Boolean(viewDialog.poLinkedDocs?.length > 0)
     });
     setPrintMenuAnchor(null);
     setPrintSelectDialogOpen(true);
@@ -1834,41 +1853,94 @@ const Vouchers = () => {
               )}
 
               {/* ----------------- SECTION 7: ATTACHED DOCUMENTS ----------------- */}
-              {(!multiPrintMode && viewDialog.poAuditTab === 7) && (
-                <Box sx={{ p: 2 }}>
+              {(multiPrintMode ? printSelection.attachments && viewDialog.poLinkedDocs?.length > 0 : viewDialog.poAuditTab === 7) && (
+                <Box sx={{ p: 2, pageBreakBefore: multiPrintMode ? 'always' : 'auto' }}>
+                  <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+                    Attached Documents ({viewDialog.poLinkedDocs?.length || 0})
+                  </Typography>
                   {(!viewDialog.poLinkedDocs || viewDialog.poLinkedDocs.length === 0) ? (
                     <Typography color="text.secondary">No attached documents found.</Typography>
                   ) : (
-                    <TableContainer component={Paper} variant="outlined">
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>#</TableCell>
-                            <TableCell>Source</TableCell>
-                            <TableCell>Document</TableCell>
-                            <TableCell>Date</TableCell>
-                            <TableCell align="right">Action</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {viewDialog.poLinkedDocs.map((doc, idx) => (
-                            <TableRow key={doc.id || idx}>
-                              <TableCell>{idx + 1}</TableCell>
-                              <TableCell>{doc.source || 'Attachment'}</TableCell>
-                              <TableCell>{doc.name || 'Document'}</TableCell>
-                              <TableCell>{doc.uploadedAt ? formatDateForPrint(doc.uploadedAt) : '—'}</TableCell>
-                              <TableCell align="right">
-                                {doc.url ? (
-                                  <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
-                                    Open
-                                  </Button>
-                                ) : '—'}
-                              </TableCell>
+                    <>
+                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>#</TableCell>
+                              <TableCell>Source</TableCell>
+                              <TableCell>Document</TableCell>
+                              <TableCell>Date</TableCell>
+                              <TableCell align="right" className="no-print">Action</TableCell>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
+                          </TableHead>
+                          <TableBody>
+                            {viewDialog.poLinkedDocs.map((doc, idx) => (
+                              <TableRow key={doc.id || idx}>
+                                <TableCell>{idx + 1}</TableCell>
+                                <TableCell>{doc.source || 'Attachment'}</TableCell>
+                                <TableCell>{doc.name || 'Document'}</TableCell>
+                                <TableCell>{doc.uploadedAt ? formatDateForPrint(doc.uploadedAt) : '—'}</TableCell>
+                                <TableCell align="right" className="no-print">
+                                  {doc.url ? (
+                                    <Button size="small" variant="outlined" onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}>
+                                      Open in New Tab
+                                    </Button>
+                                  ) : '—'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+
+                      {/* Render full preview of attachments for viewing and printing */}
+                      {viewDialog.poLinkedDocs.map((doc, idx) => {
+                        if (!doc.url) return null;
+                        const cleanUrl = doc.url.toLowerCase();
+                        const isImg = cleanUrl.match(/\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i) || doc.mimeType?.startsWith('image/') || (!cleanUrl.match(/\.pdf(\?.*)?$/i) && !doc.mimeType?.includes('pdf'));
+                        
+                        return (
+                          <Box key={`img-attach-${doc.id || idx}`} sx={{ my: 3, pageBreakInside: 'avoid' }}>
+                            <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: 'text.secondary' }}>
+                              Attachment #{idx + 1}: {doc.name || 'Document'} ({doc.source || 'Attachment'})
+                            </Typography>
+                            {isImg ? (
+                              <Box
+                                component="img"
+                                src={doc.url}
+                                alt={doc.name || 'Attached Document'}
+                                sx={{
+                                  maxWidth: '100%',
+                                  maxHeight: '900px',
+                                  objectFit: 'contain',
+                                  border: '1px solid #ddd',
+                                  borderRadius: 1,
+                                  display: 'block',
+                                  mx: 'auto'
+                                }}
+                              />
+                            ) : (
+                              <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50' }}>
+                                <Typography variant="subtitle1" fontWeight={600} color="primary" sx={{ mb: 1 }}>
+                                  📄 {doc.name || 'PDF Document Attachment'}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                  Source: {doc.source || 'Attachment'}
+                                </Typography>
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  className="no-print"
+                                  onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
+                                >
+                                  Open / Download Attachment
+                                </Button>
+                              </Paper>
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </>
                   )}
                 </Box>
               )}
@@ -2004,6 +2076,22 @@ const Vouchers = () => {
                 <Box>
                   <Typography variant="body2" fontWeight={600}>GRN(s) ({viewDialog.poGrns?.length || 0})</Typography>
                   <Typography variant="caption" color="text.secondary">Goods Receipt Notes for delivered items</Typography>
+                </Box>
+              }
+              sx={{ mb: 1 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={printSelection.attachments}
+                  disabled={!viewDialog.poLinkedDocs || viewDialog.poLinkedDocs.length === 0}
+                  onChange={(e) => setPrintSelection((prev) => ({ ...prev, attachments: e.target.checked }))}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>Attached Documents ({viewDialog.poLinkedDocs?.length || 0})</Typography>
+                  <Typography variant="caption" color="text.secondary">All attached receipts, bills, approval files &amp; image documents</Typography>
                 </Box>
               }
             />
