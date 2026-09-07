@@ -1143,14 +1143,14 @@ const PurchaseOrders = () => {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat' || order.status === 'Rejected') && (
+                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat' || order.status === 'Returned from Finance' || order.status === 'Rejected') && (
                         <Tooltip title="Edit">
                           <IconButton size="small" onClick={() => handleEdit(order)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
-                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat') && (
+                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat' || order.status === 'Returned from Finance') && (
                         <Tooltip title="Send to Audit">
                           <IconButton size="small" color="primary" onClick={() => handleSendToAudit(order._id, order)}>
                             <SendIcon fontSize="small" />
@@ -1332,6 +1332,7 @@ const PurchaseOrders = () => {
                   <MenuItem value="Received">Received</MenuItem>
                   <MenuItem value="Rejected">Rejected</MenuItem>
                   <MenuItem value="Returned from Audit">Returned from Audit</MenuItem>
+                  <MenuItem value="Returned from Finance">Returned from Finance</MenuItem>
                   <MenuItem value="Returned from CEO Office">Returned from CEO Office</MenuItem>
                   <MenuItem value="Returned from CEO Secretariat">Returned from CEO Secretariat</MenuItem>
                   <MenuItem value="Cancelled">Cancelled</MenuItem>
@@ -1383,18 +1384,18 @@ const PurchaseOrders = () => {
               </Grid>
             )}
             
-            {/* Audit Observations with Answer Fields - Show when PO was returned from audit */}
-            {formDialog.mode === 'edit' && formDialog.data?.status === 'Returned from Audit' && formDialog.data?.auditObservations && formDialog.data.auditObservations.length > 0 && (
+            {/* Audit Observations with Answer Fields - Show when PO was returned from audit or finance */}
+            {formDialog.mode === 'edit' && ['Returned from Audit', 'Returned from Finance'].includes(formDialog.data?.status) && formDialog.data?.auditObservations && formDialog.data.auditObservations.length > 0 && (
               <Grid item xs={12}>
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2 }}>
-                    Audit Observations - Please provide responses before resubmitting:
+                    {formDialog.data.status === 'Returned from Finance' ? 'Finance Observations' : 'Audit Observations'} - Please provide responses before resubmitting:
                   </Typography>
-                  {formDialog.data.auditReturnComments && (
+                  {(formDialog.data.auditReturnComments || formDialog.data.financeReturnComments) && (
                     <Box sx={{ mb: 1.5 }}>
                       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Return Comments:</Typography>
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {formDialog.data.auditReturnComments}
+                        {formDialog.data.financeReturnComments || formDialog.data.auditReturnComments}
                       </Typography>
                     </Box>
                   )}

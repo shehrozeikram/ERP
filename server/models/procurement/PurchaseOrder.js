@@ -34,7 +34,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Draft', 'Pending Approval', 'Pending Audit', 'Forwarded to Audit Director', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'GRN Created', 'Sent to Procurement', 'Sent to Audit', 'Sent to Finance', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
+    enum: ['Draft', 'Pending Approval', 'Pending Audit', 'Forwarded to Audit Director', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'GRN Created', 'Sent to Procurement', 'Sent to Audit', 'Sent to Finance', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat', 'Returned from Finance'],
     default: 'Draft'
   },
   indent: {
@@ -109,6 +109,9 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: Date
   },
   financeRemarks: String,
+  financeReturnedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  financeReturnedAt: { type: Date },
+  financeReturnComments: { type: String },
   // Post-GRN audit step: Procurement sends to Audit before Finance
   sentToPostGrnAuditBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   sentToPostGrnAuditAt: { type: Date },

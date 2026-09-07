@@ -539,9 +539,12 @@ const Payments = () => {
       try {
         setActionLoading(true);
         setError(null);
-        const endpoint = isForwardedToCeo
-          ? `/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-return`
-          : `/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-secretariat-return`;
+        let endpoint = `/procurement/purchase-orders/${returnDialog.settlement._id}/finance-return`;
+        if (isForwardedToCeo) {
+          endpoint = `/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-return`;
+        } else if (returnDialog.settlement?.workflowStatus === 'Send to CEO Office') {
+          endpoint = `/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-secretariat-return`;
+        }
 
         await api.put(endpoint, {
           returnComments,
@@ -549,7 +552,7 @@ const Payments = () => {
           digitalSignature: returnSignature,
           observations: observations.length > 0 ? observations : undefined
         });
-        toast.success('Purchase order returned with observations successfully');
+        toast.success('Purchase order returned with observations to Procurement successfully');
         setReturnDialog({ open: false, settlement: null });
         setReturnComments('');
         setReturnSignature('');
@@ -1786,6 +1789,19 @@ const Payments = () => {
                                                      </Tooltip>
                                                    </>
                                                  )}
+
+                                                  {/* Pending Finance: Return with Observations to Procurement */}
+                                                  {['Pending Finance', 'Sent to Finance'].includes(settlement.workflowStatus) && (
+                                                    <Tooltip title="Return with Observations to Procurement">
+                                                      <IconButton
+                                                        size="small"
+                                                        color="warning"
+                                                        onClick={() => openReturnDialog(settlement)}
+                                                      >
+                                                        <WarningIcon fontSize="small" />
+                                                      </IconButton>
+                                                    </Tooltip>
+                                                  )}
 
                                                  {/* Returned from CEO Office: Forward again */}
                                                  {settlement.workflowStatus === 'Returned from CEO Office' && (

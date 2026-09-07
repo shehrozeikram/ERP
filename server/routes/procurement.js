@@ -1701,15 +1701,15 @@ router.put('/purchase-orders/:id/send-to-audit',
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    if (!['Draft', 'Returned from Audit', 'Returned from CEO Secretariat', 'Rejected'].includes(purchaseOrder.status)) {
+    if (!['Draft', 'Returned from Audit', 'Returned from CEO Secretariat', 'Returned from Finance', 'Rejected'].includes(purchaseOrder.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only Draft, Returned from Audit, Returned from CEO Secretariat, or Rejected purchase orders can be sent to audit'
+        message: 'Only Draft, Returned from Audit, Returned from CEO Secretariat, Returned from Finance, or Rejected purchase orders can be sent to audit'
       });
     }
     
-    // Handle answers to observations when resubmitting from "Returned from Audit" or "Rejected"
-    if ((purchaseOrder.status === 'Returned from Audit' || purchaseOrder.status === 'Rejected') && req.body.observationAnswers) {
+    // Handle answers to observations when resubmitting from "Returned from Audit", "Returned from Finance", or "Rejected"
+    if (['Returned from Audit', 'Returned from Finance', 'Rejected'].includes(purchaseOrder.status) && req.body.observationAnswers) {
       const { observationAnswers } = req.body; // Array of { observationId, answer }
       
       if (Array.isArray(observationAnswers) && purchaseOrder.auditObservations && purchaseOrder.auditObservations.length > 0) {
@@ -1726,7 +1726,7 @@ router.put('/purchase-orders/:id/send-to-audit',
     }
     
     // When resubmitting after return/reject, compute change summary from snapshot so audit can see what was edited
-    if (purchaseOrder.status === 'Returned from Audit' || purchaseOrder.status === 'Rejected') {
+    if (['Returned from Audit', 'Returned from Finance', 'Rejected'].includes(purchaseOrder.status)) {
       const snapshot = purchaseOrder.auditSnapshotAtReturn;
       if (snapshot && (purchaseOrder.items || []).length >= 0) {
         const summary = buildPOChangeSummary(purchaseOrder.items, snapshot);
@@ -2328,6 +2328,69 @@ router.put('/purchase-orders/:id/finance-approve',
     res.json({
       success: true,
       message: 'Purchase order approved by Finance successfully',
+      data: updatedOrder
+    });
+  })
+);
+
+// @route   PUT /api/procurement/purchase-orders/:id/finance-return
+// @desc    Finance module returns PO to procurement with observations/comments (status -> Returned from Finance)
+// @access  Private (Super Admin, Admin, Finance Manager)
+router.put('/purchase-orders/:id/finance-return',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const { returnComments, observations } = req.body;
+    const purchaseOrder = await PurchaseOrder.findById(req.params.id);
+    if (!purchaseOrder) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+    const assignedAuthorityAccess =
+      await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+    if (!hasFinanceAccess(req.user) && !assignedAuthorityAccess) {
+      return res.status(403).json({ success: false, message: 'Finance access required' });
+    }
+    if (!['Pending Finance', 'Sent to Finance'].includes(purchaseOrder.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only purchase orders in Pending Finance or Sent to Finance can be returned by Finance'
+      });
+    }
+
+    // Save snapshot before return if not already created
+    purchaseOrder.auditSnapshotAtReturn = snapshotPOItemsAndTotals(purchaseOrder);
+
+    // If observations were provided by Finance, add them to auditObservations array
+    if (Array.isArray(observations) && observations.length > 0) {
+      observations.forEach(obs => {
+        const obsText = typeof obs === 'string' ? obs : obs.observation;
+        if (obsText && obsText.trim()) {
+          purchaseOrder.auditObservations.push({
+            observation: obsText.trim(),
+            severity: obs.severity || 'medium',
+            addedBy: req.user.id,
+            addedAt: new Date()
+          });
+        }
+      });
+    }
+
+    pushPOWorkflowHistory(purchaseOrder, purchaseOrder.status, 'Returned from Finance', req.user.id, returnComments || 'Returned by Finance with observations', 'Finance');
+    purchaseOrder.status = 'Returned from Finance';
+    purchaseOrder.financeReturnedBy = req.user.id;
+    purchaseOrder.financeReturnedAt = new Date();
+    purchaseOrder.financeReturnComments = returnComments || '';
+    purchaseOrder.updatedBy = req.user.id;
+    await purchaseOrder.save();
+
+    const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
+      .populate('vendor', 'name email phone')
+      .populate('financeReturnedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
+
+    res.json({
+      success: true,
+      message: 'Purchase order returned to Procurement by Finance successfully',
       data: updatedOrder
     });
   })
