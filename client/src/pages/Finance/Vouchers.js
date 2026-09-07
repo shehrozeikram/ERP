@@ -1431,13 +1431,13 @@ const Vouchers = () => {
                                     {item.brand || viewDialog.po.indent?.items?.[index]?.brand || '___________'}
                                   </td>
                                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'top' }}>
-                                    {item.quantity ? `${Number(item.quantity).toLocaleString()} ${item.unit || 'Nos'}` : '___________'}
+                                    {item.quantity ? `${Math.round(Number(item.quantity)).toLocaleString()} ${item.unit || 'Nos'}` : '___________'}
                                   </td>
                                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', verticalAlign: 'top' }}>
-                                    {item.unitPrice ? Number(item.unitPrice).toLocaleString() : '___________'}
+                                    {item.unitPrice ? Math.round(Number(item.unitPrice)).toLocaleString() : '___________'}
                                   </td>
                                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', verticalAlign: 'top' }}>
-                                    {item.totalPrice || item.amount ? Number(item.totalPrice || item.amount).toLocaleString() : '___________'}
+                                    {item.totalPrice || item.amount ? Math.round(Number(item.totalPrice || item.amount)).toLocaleString() : '___________'}
                                   </td>
                                 </tr>
                               ))
@@ -1456,19 +1456,27 @@ const Vouchers = () => {
                       <Box sx={{ mb: 1.5, display: 'flex', justifyContent: 'flex-end', '@media print': { mb: 1 } }}>
                         <Box sx={{ width: '280px', fontSize: '0.82rem', '@media print': { fontSize: '0.74rem' } }}>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
-                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Total (Rupees):</Typography>
-                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Number(viewDialog.po.totalAmount || 0).toLocaleString()}</Typography>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Subtotal:</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Math.round(Number(viewDialog.po.subtotal || viewDialog.po.totalAmount || 0)).toLocaleString()}</Typography>
                           </Box>
+                          {Number(viewDialog.po.taxAmount) > 0 && (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
+                              <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Tax:</Typography>
+                              <Typography component="span" sx={{ fontSize: 'inherit' }}>{Math.round(Number(viewDialog.po.taxAmount)).toLocaleString()}</Typography>
+                            </Box>
+                          )}
+                          {Number(viewDialog.po.shippingCost) > 0 && (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
+                              <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Freight Charges:</Typography>
+                              <Typography component="span" sx={{ fontSize: 'inherit' }}>{Math.round(Number(viewDialog.po.shippingCost)).toLocaleString()}</Typography>
+                            </Box>
+                          )}
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
-                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Net Total:</Typography>
-                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Number(viewDialog.po.totalAmount || 0).toLocaleString()}</Typography>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Total Amount:</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit', fontWeight: 700 }}>{Math.round(Number(viewDialog.po.totalAmount || 0)).toLocaleString()}</Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Freight Charges:</Typography>
-                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Number(viewDialog.po.shippingCost || 0).toLocaleString()}</Typography>
-                          </Box>
-                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, fontStyle: 'italic', '@media print': { fontSize: '0.7rem' } }}>
-                            Rupees {numberToWords(viewDialog.po.totalAmount || 0)}
+                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, fontStyle: 'italic', mt: 0.5, '@media print': { fontSize: '0.7rem' } }}>
+                            Rupees {numberToWords(Math.round(Number(viewDialog.po.totalAmount || 0)))}
                           </Typography>
                         </Box>
                       </Box>
@@ -1497,9 +1505,11 @@ const Vouchers = () => {
                               Delivery within: {viewDialog.po.quotation?.deliveryTime || '03 days'} of confirmed PO &amp; Payment
                             </Typography>
                           </Box>
-                          <Typography sx={{ fontSize: 'inherit' }}>
-                            Rates Are Exclusive Of all The Taxes {viewDialog.po.vendor?.cnic ? `| CNIC: ${viewDialog.po.vendor.cnic}` : ''} {viewDialog.po.vendor?.payeeName ? `| Payee: ${viewDialog.po.vendor.payeeName}` : ''}
-                          </Typography>
+                          {(viewDialog.po.vendor?.cnic || viewDialog.po.vendor?.payeeName) && (
+                            <Typography sx={{ fontSize: 'inherit' }}>
+                              {[viewDialog.po.vendor?.cnic ? `CNIC: ${viewDialog.po.vendor.cnic}` : '', viewDialog.po.vendor?.payeeName ? `Payee: ${viewDialog.po.vendor.payeeName}` : ''].filter(Boolean).join(' | ')}
+                            </Typography>
+                          )}
                         </Box>
                       </Box>
 

@@ -808,8 +808,8 @@ const Payments = () => {
   };
 
   const formatNumber = (num) => {
-    if (num === null || num === undefined) return '0.00';
-    return parseFloat(num).toFixed(2);
+    if (num === null || num === undefined || isNaN(num)) return '0';
+    return Math.round(Number(num)).toLocaleString();
   };
 
   const getCompanyDisplay = (item) => {
@@ -1141,19 +1141,27 @@ const Payments = () => {
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
           <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
-              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
+              <Typography component="span" fontWeight={600}>Subtotal:</Typography>
+              <Typography component="span">{formatNumber(Math.round(Number(poData.subtotal || poData.totalAmount || 0)))}</Typography>
             </Box>
+            {Number(poData.taxAmount) > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography component="span" fontWeight={600}>Tax:</Typography>
+                <Typography component="span">{formatNumber(Math.round(Number(poData.taxAmount)))}</Typography>
+              </Box>
+            )}
+            {Number(poData.shippingCost) > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
+                <Typography component="span">{formatNumber(Math.round(Number(poData.shippingCost)))}</Typography>
+              </Box>
+            )}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Typography component="span" fontWeight={600}>Net Total:</Typography>
-              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
+              <Typography component="span" fontWeight={600}>Total Amount:</Typography>
+              <Typography component="span" fontWeight={700}>{formatNumber(Math.round(Number(poData.totalAmount || 0)))}</Typography>
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
-              <Typography component="span">{formatNumber(poData.shippingCost || 0)}</Typography>
-            </Box>
-            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic' }}>
-              Rupees {numberToWords(poData.totalAmount || 0)}
+            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic', mt: 1 }}>
+              Rupees {numberToWords(Math.round(Number(poData.totalAmount || 0)))}
             </Typography>
           </Box>
         </Box>
@@ -1183,9 +1191,6 @@ const Payments = () => {
                 Delivery within: {poData.quotation?.deliveryTime || '03 days'} of confirmed PO & Payment
               </Typography>
             </Box>
-            <Typography sx={{ mb: 1 }}>
-              Rates Are Exclusive Of all The Taxes
-            </Typography>
             {poData.vendor?.cnic && (
               <Typography sx={{ mb: 1 }}>
                 CNIC {poData.vendor.cnic}
