@@ -1086,8 +1086,9 @@ export const MODULES = {
       },
       {
         name: 'Centralized Store',
-        path: '/general/centralized-store/bills',
+        path: '/general/centralized-store',
         subItems: [
+          { name: 'Store Setup', path: '/general/centralized-store' },
           { name: 'Bills', path: '/general/centralized-store/bills' },
           { name: 'Create Bill', path: '/general/centralized-store/bill/new' }
         ]

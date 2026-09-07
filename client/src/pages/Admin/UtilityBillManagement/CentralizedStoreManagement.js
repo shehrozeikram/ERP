@@ -558,8 +558,17 @@ const CentralizedStoreManagement = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/admin/utility-bills')}>
-          Back to Utility Bills
+        <Button 
+          startIcon={<ArrowBackIcon />} 
+          onClick={() => {
+            if (window.location.pathname.startsWith('/general')) {
+              navigate('/general/centralized-store/bills');
+            } else {
+              navigate('/admin/utility-bills');
+            }
+          }}
+        >
+          {window.location.pathname.startsWith('/general') ? 'Back to Bills' : 'Back to Utility Bills'}
         </Button>
         <Stack direction="row" spacing={1}>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} disabled={loading}>

@@ -245,13 +245,21 @@ const CentralizedStoreBills = () => {
             Centralized store bills created from Create Bill.
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => navigate(newBillPath)}
-        >
-          Create Bill
-        </Button>
+        <Stack direction="row" spacing={1.5}>
+          <Button
+            variant="outlined"
+            onClick={() => navigate(isGeneral ? '/general/centralized-store' : '/admin/centralized-store')}
+          >
+            Store Setup
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => navigate(newBillPath)}
+          >
+            Create Bill
+          </Button>
+        </Stack>
       </Box>
 
       {error && (

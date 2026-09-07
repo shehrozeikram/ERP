@@ -794,6 +794,10 @@ function App() {
 
             {/* General Module - Centralized Store Routes (accessible to all departments/employees) */}
             <Route
+              path="/general/centralized-store"
+              element={<ProtectedRoute><CentralizedStoreManagement /></ProtectedRoute>}
+            />
+            <Route
               path="/general/centralized-store/bills"
               element={<ProtectedRoute><CentralizedStoreBills /></ProtectedRoute>}
             />
