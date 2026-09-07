@@ -185,7 +185,12 @@ const PODocumentView = ({ data }) => {
       <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
         <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
           <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>{data.vendor?.name || 'Vendor Name'}</Typography>
-          <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>{data.vendor?.address || 'Vendor Address'}</Typography>
+          <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 1 }}>{data.vendor?.address || 'Vendor Address'}</Typography>
+          {(data.vendor?.ntnCnic || data.vendor?.ntnNo || data.vendor?.cnic) && (
+            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, mb: 1.5, color: 'text.secondary' }}>
+              ntn / cnic : {data.vendor.ntnCnic || data.vendor.ntnNo || data.vendor.cnic}
+            </Typography>
+          )}
           <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
             <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
             <Typography component="span">

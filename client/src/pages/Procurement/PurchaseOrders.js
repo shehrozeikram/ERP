@@ -1243,12 +1243,20 @@ const PurchaseOrders = () => {
                 value={formData.vendor}
                 onChange={(e) => setFormData({ ...formData, vendor: e.target.value })}
                 required
+                helperText={(() => {
+                  const sel = vendors.find((v) => v._id === formData.vendor);
+                  const val = sel?.ntnCnic || sel?.ntnNo || sel?.cnic;
+                  return val ? `ntn / cnic : ${val}` : '';
+                })()}
               >
-                {vendors.map((vendor) => (
-                  <MenuItem key={vendor._id} value={vendor._id}>
-                    {vendor.name}
-                  </MenuItem>
-                ))}
+                {vendors.map((vendor) => {
+                  const val = vendor.ntnCnic || vendor.ntnNo || vendor.cnic;
+                  return (
+                    <MenuItem key={vendor._id} value={vendor._id}>
+                      {vendor.name} {val ? `(NTN/CNIC: ${val})` : ''}
+                    </MenuItem>
+                  );
+                })}
               </TextField>
             </Grid>
             <Grid item xs={12} md={6}>
@@ -1911,9 +1919,14 @@ const PurchaseOrders = () => {
                     <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
                       {viewDialog.data.vendor?.phone || '—'}
                     </Typography>
-                    <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary' }}>
+                    <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', mb: 0.5 }}>
                       {viewDialog.data.vendor?.address || '—'}
                     </Typography>
+                    {(viewDialog.data.vendor?.ntnCnic || viewDialog.data.vendor?.ntnNo || viewDialog.data.vendor?.cnic) && (
+                      <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', fontWeight: 600, mt: 0.5 }}>
+                        ntn / cnic : {viewDialog.data.vendor.ntnCnic || viewDialog.data.vendor.ntnNo || viewDialog.data.vendor.cnic}
+                      </Typography>
+                    )}
                   </Box>
 
                   {/* Right Column - PO Info */}

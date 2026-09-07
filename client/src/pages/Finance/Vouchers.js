@@ -1322,9 +1322,14 @@ const Vouchers = () => {
                           <Typography variant="h6" fontWeight={600} sx={{ mb: 0.5, fontSize: '0.95rem', '@media print': { fontSize: '0.85rem' } }}>
                             {viewDialog.po.vendor?.name || 'Vendor Name'}
                           </Typography>
-                          <Typography sx={{ fontSize: '0.85rem', lineHeight: 1.4, mb: 1, '@media print': { fontSize: '0.75rem' } }}>
+                          <Typography sx={{ fontSize: '0.85rem', lineHeight: 1.4, mb: 0.5, '@media print': { fontSize: '0.75rem' } }}>
                             {viewDialog.po.vendor?.address || 'Vendor Address'}
                           </Typography>
+                          {(viewDialog.po.vendor?.ntnCnic || viewDialog.po.vendor?.ntnNo || viewDialog.po.vendor?.cnic) && (
+                            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, mb: 1, color: 'text.secondary', '@media print': { fontSize: '0.75rem' } }}>
+                              ntn / cnic : {viewDialog.po.vendor.ntnCnic || viewDialog.po.vendor.ntnNo || viewDialog.po.vendor.cnic}
+                            </Typography>
+                          )}
                           <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.4 }}>
                             <Typography component="span" sx={{ fontWeight: 600, mr: 0.5 }}>Indent Details:</Typography>
                             <Typography component="span">

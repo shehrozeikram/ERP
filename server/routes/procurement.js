@@ -791,7 +791,7 @@ router.get('/purchase-orders',
 
     try {
       const purchaseOrders = await PurchaseOrder.find(query)
-        .populate('vendor', 'name email phone contactPerson')
+        .populate('vendor', 'name email phone contactPerson ntnCnic ntnNo cnic address')
         .populate({
           path: 'indent',
           select: 'comparativeStatementApprovals comparativeApproval',
@@ -934,7 +934,7 @@ router.get('/purchase-orders/:id',
   authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'hr_manager', 'higher_management', 'audit_manager', 'auditor', 'audit_director'), 
   asyncHandler(async (req, res) => {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
-      .populate('vendor', 'name email phone contactPerson address')
+      .populate('vendor', 'name email phone contactPerson address ntnCnic ntnNo cnic')
       .populate({
         path: 'indent',
         select:

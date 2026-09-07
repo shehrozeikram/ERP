@@ -1517,9 +1517,14 @@ const VendorAdvance = () => {
                         <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
                           {viewDialog.po.vendor?.name || 'Vendor Name'}
                         </Typography>
-                        <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>
+                        <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 1 }}>
                           {viewDialog.po.vendor?.address || 'Vendor Address'}
                         </Typography>
+                        {(viewDialog.po.vendor?.ntnCnic || viewDialog.po.vendor?.ntnNo || viewDialog.po.vendor?.cnic) && (
+                          <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, mb: 1.5, color: 'text.secondary' }}>
+                            ntn / cnic : {viewDialog.po.vendor.ntnCnic || viewDialog.po.vendor.ntnNo || viewDialog.po.vendor.cnic}
+                          </Typography>
+                        )}
                         <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
                           <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
                           <Typography component="span">
