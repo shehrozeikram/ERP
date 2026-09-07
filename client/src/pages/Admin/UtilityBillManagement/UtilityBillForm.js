@@ -528,6 +528,8 @@ const UtilityBillForm = () => {
         meterNumber: storeItem.meterNumber || '',
         location: storeItem.location || '',
         site: storeItem.site || '',
+        quantity: 1,
+        unitPrice: storeItem.defaultAmount || 0,
         amount: storeItem.defaultAmount || 0,
         expenseAccount: storeItem.expenseAccount?._id || storeItem.expenseAccount,
         expenseAccountNumber: storeItem.expenseAccount?.accountNumber || '',
@@ -553,7 +555,14 @@ const UtilityBillForm = () => {
   };
 
   const updateBillLine = (index, field, value) => {
-    setBillLines((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+    setBillLines((prev) => prev.map((row, i) => {
+      if (i !== index) return row;
+      const updatedRow = { ...row, [field]: value };
+      if (isCentralizedStoreBill && (field === 'quantity' || field === 'unitPrice')) {
+        updatedRow.amount = (Number(updatedRow.quantity) || 1) * (Number(updatedRow.unitPrice) || 0);
+      }
+      return updatedRow;
+    }));
   };
 
   const removeBillLine = (index) => {
@@ -591,6 +600,8 @@ const UtilityBillForm = () => {
           meterNumber: line.meterNumber || '',
           location: line.location || '',
           site: line.site || '',
+          quantity: Number(line.quantity) || 1,
+          unitPrice: Number(line.unitPrice) || (line.amount && line.quantity ? Number(line.amount) / Number(line.quantity) : line.amount) || 0,
           amount: line.amount || 0,
           expenseAccount: line.expenseAccount?._id || line.expenseAccount,
           expenseAccountNumber: line.expenseAccount?.accountNumber || line.expenseAccountNumber || '',
@@ -829,6 +840,8 @@ const UtilityBillForm = () => {
           meterNumber: l.meterNumber,
           location: l.location,
           site: l.site,
+          quantity: Number(l.quantity) || 1,
+          unitPrice: Number(l.unitPrice) || 0,
           amount: l.amount,
           expenseAccount: l.expenseAccount,
           expenseAccountNumber: l.expenseAccountNumber,
@@ -1201,25 +1214,26 @@ const UtilityBillForm = () => {
                           onChange={handleVendorAutocompleteChange}
                           isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
                           filterOptions={(opts, state) => {
-                            const term = state.inputValue.trim().toLowerCase();
+                            const term = (state?.inputValue || '').trim().toLowerCase();
                             const filtered = opts.filter((o) => {
+                              if (!o) return false;
                               if (o.isAddNew) return true;
                               if (!term) return true;
                               return (o.name || '').toLowerCase().includes(term)
                                 || (o.supplierId || '').toLowerCase().includes(term);
                             });
-                            const addNew = filtered.find((o) => o.isAddNew) || ADD_NEW_VENDOR_OPTION;
-                            const rest = filtered.filter((o) => !o.isAddNew);
+                            const addNew = filtered.find((o) => o?.isAddNew) || ADD_NEW_VENDOR_OPTION;
+                            const rest = filtered.filter((o) => !o?.isAddNew);
                             return [addNew, ...rest];
                           }}
                           renderOption={(props, option) => (
                             <li
                               {...props}
-                              key={option.isAddNew ? '__add_new__' : option._id}
-                              style={option.isAddNew ? { fontWeight: 600, color: '#1976d2' } : undefined}
+                              key={option?.isAddNew ? '__add_new__' : option?._id}
+                              style={option?.isAddNew ? { fontWeight: 600, color: '#1976d2' } : undefined}
                             >
-                              {option.name}
-                              {!option.isAddNew && option.supplierId ? (
+                              {option?.name}
+                              {!option?.isAddNew && option?.supplierId ? (
                                 <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                                   ({option.supplierId})
                                 </Typography>
@@ -1239,25 +1253,26 @@ const UtilityBillForm = () => {
                         onChange={handleVendorAutocompleteChange}
                         isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
                         filterOptions={(opts, state) => {
-                          const term = state.inputValue.trim().toLowerCase();
+                          const term = (state?.inputValue || '').trim().toLowerCase();
                           const filtered = opts.filter((o) => {
+                            if (!o) return false;
                             if (o.isAddNew) return true;
                             if (!term) return true;
                             return (o.name || '').toLowerCase().includes(term)
                               || (o.supplierId || '').toLowerCase().includes(term);
                           });
-                          const addNew = filtered.find((o) => o.isAddNew) || ADD_NEW_VENDOR_OPTION;
-                          const rest = filtered.filter((o) => !o.isAddNew);
+                          const addNew = filtered.find((o) => o?.isAddNew) || ADD_NEW_VENDOR_OPTION;
+                          const rest = filtered.filter((o) => !o?.isAddNew);
                           return [addNew, ...rest];
                         }}
                         renderOption={(props, option) => (
                           <li
                             {...props}
-                            key={option.isAddNew ? '__add_new__' : option._id}
-                            style={option.isAddNew ? { fontWeight: 600, color: '#1976d2' } : undefined}
+                            key={option?.isAddNew ? '__add_new__' : option?._id}
+                            style={option?.isAddNew ? { fontWeight: 600, color: '#1976d2' } : undefined}
                           >
-                            {option.name}
-                            {!option.isAddNew && option.supplierId ? (
+                            {option?.name}
+                            {!option?.isAddNew && option?.supplierId ? (
                               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                                 ({option.supplierId})
                               </Typography>
@@ -1300,14 +1315,14 @@ const UtilityBillForm = () => {
                           <MenuItem value="">
                             <em>Select department</em>
                           </MenuItem>
-                          {formData.department && !departments.some((department) => department.name === formData.department) && (
+                          {!!formData.department && !(departments || []).some((department) => department?.name === formData.department) && (
                             <MenuItem value={formData.department}>
                               {formData.department}
                             </MenuItem>
                           )}
-                          {departments.map((department) => (
-                            <MenuItem key={department._id} value={department.name}>
-                              {department.name}
+                          {(departments || []).map((department) => (
+                            <MenuItem key={department?._id || department?.name} value={department?.name}>
+                              {department?.name}
                             </MenuItem>
                           ))}
                         </Select>
@@ -1321,7 +1336,7 @@ const UtilityBillForm = () => {
                         value={selectedBillCategory?._id || ''}
                         label="Category"
                         onChange={(e) => {
-                          const cat = storeCategories.find((c) => String(c._id) === String(e.target.value));
+                          const cat = (storeCategories || []).find((c) => String(c?._id) === String(e.target.value));
                           setSelectedBillCategory(cat || null);
                           setPendingStoreItem(null);
                         }}
@@ -1329,9 +1344,9 @@ const UtilityBillForm = () => {
                         <MenuItem value="">
                           <em>Select category</em>
                         </MenuItem>
-                        {storeCategories.map((cat) => (
-                          <MenuItem key={cat._id} value={cat._id}>
-                            {cat.name}
+                        {(storeCategories || []).map((cat) => (
+                          <MenuItem key={cat?._id || cat?.name} value={cat?._id}>
+                            {cat?.name}
                           </MenuItem>
                         ))}
                       </Select>
@@ -1413,6 +1428,8 @@ const UtilityBillForm = () => {
                           {!isCentralizedStoreBill && <TableCell>Location</TableCell>}
                           <TableCell>Due date</TableCell>
                           <TableCell>Attachment</TableCell>
+                          {isCentralizedStoreBill && <TableCell align="right">Qty</TableCell>}
+                          {isCentralizedStoreBill && <TableCell align="right">Unit Price</TableCell>}
                           <TableCell align="right">Amount</TableCell>
                           <TableCell width={48} />
                         </TableRow>
@@ -1441,7 +1458,7 @@ const UtilityBillForm = () => {
                                         {c.name}
                                       </MenuItem>
                                     ))}
-                                    {line.site && !companiesList.some((c) => c.name === line.site) && (
+                                    {!!line.site && !companiesList.some((c) => c.name === line.site) && (
                                       <MenuItem value={line.site}>
                                         {line.site}
                                       </MenuItem>
@@ -1466,7 +1483,7 @@ const UtilityBillForm = () => {
                                         {p.name}
                                       </MenuItem>
                                     ))}
-                                    {line.location && !projectsList.some((p) => p.name === line.location) && (
+                                    {!!line.location && !projectsList.some((p) => p.name === line.location) && (
                                       <MenuItem value={line.location}>
                                         {line.location}
                                       </MenuItem>
@@ -1496,8 +1513,18 @@ const UtilityBillForm = () => {
                                 readOnly={workflowLocksEdit}
                               />
                             </TableCell>
+                            {isCentralizedStoreBill && (
+                              <TableCell align="right">
+                                <TextField size="small" type="number" value={line.quantity || ''} onChange={(e) => updateBillLine(idx, 'quantity', e.target.value)} sx={{ width: 80 }} />
+                              </TableCell>
+                            )}
+                            {isCentralizedStoreBill && (
+                              <TableCell align="right">
+                                <TextField size="small" type="number" value={line.unitPrice || ''} onChange={(e) => updateBillLine(idx, 'unitPrice', e.target.value)} sx={{ width: 100 }} />
+                              </TableCell>
+                            )}
                             <TableCell align="right">
-                              <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} />
+                              <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} InputProps={{ readOnly: isCentralizedStoreBill }} />
                             </TableCell>
                             <TableCell>
                               <IconButton size="small" color="error" onClick={() => removeBillLine(idx)}><DeleteIcon /></IconButton>
@@ -1506,7 +1533,7 @@ const UtilityBillForm = () => {
                         ))}
                         {!billLines.length && (
                           <TableRow>
-                            <TableCell colSpan={isCentralizedStoreBill ? 9 : 8} align="center" sx={{ color: 'text.secondary' }}>
+                            <TableCell colSpan={isCentralizedStoreBill ? 11 : 8} align="center" sx={{ color: 'text.secondary' }}>
                               Select category and item, then click Add Item
                             </TableCell>
                           </TableRow>
@@ -1619,7 +1646,7 @@ const UtilityBillForm = () => {
                     <MenuItem value="">
                       <em>Select department</em>
                     </MenuItem>
-                    {formData.department && !departments.some((department) => department.name === formData.department) && (
+                    {!!formData.department && !departments.some((department) => department.name === formData.department) && (
                       <MenuItem value={formData.department}>
                         {formData.department}
                       </MenuItem>
@@ -1644,7 +1671,7 @@ const UtilityBillForm = () => {
                     <MenuItem value="">
                       <em>Select custodian</em>
                     </MenuItem>
-                    {formData.custodian && !employees.some((employee) => getEmployeeOptionValue(employee) === formData.custodian) && (
+                    {!!formData.custodian && !employees.some((employee) => getEmployeeOptionValue(employee) === formData.custodian) && (
                       <MenuItem value={formData.custodian}>
                         {formData.custodian}
                       </MenuItem>
@@ -1828,8 +1855,8 @@ const UtilityBillForm = () => {
                   onChange={(_, value) => setManagerApprover(value)}
                   onOpen={() => loadApproverOptions('')}
                   onInputChange={approverSearchOnInputChange(loadApproverOptions)}
-                  getOptionLabel={(option) => userDisplayName(option)}
-                  isOptionEqualToValue={(option, value) => option._id === value._id}
+                  getOptionLabel={(option) => userDisplayName(option) || ''}
+                  isOptionEqualToValue={(option, value) => !!option?._id && !!value?._id && option._id === value._id}
                   renderInput={(params) => (
                     <TextField
                       {...params}
@@ -1848,8 +1875,8 @@ const UtilityBillForm = () => {
                   onChange={(_, value) => setHodApprover(value)}
                   onOpen={() => loadApproverOptions('')}
                   onInputChange={approverSearchOnInputChange(loadApproverOptions)}
-                  getOptionLabel={(option) => userDisplayName(option)}
-                  isOptionEqualToValue={(option, value) => option._id === value._id}
+                  getOptionLabel={(option) => userDisplayName(option) || ''}
+                  isOptionEqualToValue={(option, value) => !!option?._id && !!value?._id && option._id === value._id}
                   renderInput={(params) => (
                     <TextField
                       {...params}

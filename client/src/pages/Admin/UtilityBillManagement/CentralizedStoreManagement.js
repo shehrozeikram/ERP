@@ -380,12 +380,12 @@ const CentralizedStoreManagement = () => {
         <MenuItem value="">
           <em>Select department</em>
         </MenuItem>
-        {form.department && !departments.some((d) => d.name === form.department) && (
+        {form.department && !(departments || []).some((d) => d?.name === form.department) && (
           <MenuItem value={form.department}>{form.department}</MenuItem>
         )}
-        {departments.map((d) => (
-          <MenuItem key={d._id} value={d.name}>
-            {d.name}
+        {(departments || []).map((d) => (
+          <MenuItem key={d?._id || d?.name} value={d?.name}>
+            {d?.name}
           </MenuItem>
         ))}
       </Select>
@@ -409,10 +409,10 @@ const CentralizedStoreManagement = () => {
         <MenuItem value="">
           <em>Select account</em>
         </MenuItem>
-        {form.site && !siteOptions.includes(form.site) && (
+        {form.site && !(siteOptions || []).includes(form.site) && (
           <MenuItem value={form.site}>{form.site}</MenuItem>
         )}
-        {siteOptions.map((site) => (
+        {(siteOptions || []).map((site) => (
           <MenuItem key={site} value={site}>
             {site}
           </MenuItem>

@@ -89,8 +89,10 @@ const Banking = () => {
           api.get('/hr/projects', { params: { limit: 1000 } }).catch(() => ({ data: { data: [] } })),
           api.get('/finance/banking-setup').catch(() => ({ data: { data: {} } }))
         ]);
-        setCompaniesList(compRes.data?.data?.companies || compRes.data?.data || []);
-        setProjectsList(projRes.data?.data?.projects || projRes.data?.data || []);
+        const rawComps = compRes.data?.data?.companies || compRes.data?.data || [];
+        const rawProjs = projRes.data?.data?.projects || projRes.data?.data || [];
+        setCompaniesList(Array.isArray(rawComps) ? rawComps : []);
+        setProjectsList(Array.isArray(rawProjs) ? rawProjs : []);
         if (setupRes.data?.success && setupRes.data?.data) {
           setBankingSetup({
             paymentTypes: setupRes.data.data.paymentTypes || [],
@@ -159,12 +161,9 @@ const Banking = () => {
       setBankAccounts(filteredAccounts);
 
       setFilters((prev) => {
-        if (!prev.accountId && filteredAccounts.length > 0) {
-          return { ...prev, accountId: filteredAccounts[0]._id };
-        }
-        // If the currently selected accountId is no longer in the list (e.g. company changed), select the first one
-        if (prev.accountId && !filteredAccounts.find(a => a._id === prev.accountId) && filteredAccounts.length > 0) {
-          return { ...prev, accountId: filteredAccounts[0]._id };
+        // If the currently selected accountId is no longer in the list (and not empty 'all'), keep current selection or clear
+        if (prev.accountId && !filteredAccounts.find(a => a._id === prev.accountId)) {
+          return { ...prev, accountId: '' };
         }
         return prev;
       });
@@ -394,6 +393,9 @@ const Banking = () => {
                   onChange={handleFilterChange('accountId')}
                   label="Filter Bank"
                 >
+                  <MenuItem value="">
+                    <em>All Bank Accounts</em>
+                  </MenuItem>
                   {bankAccounts.map((account) => (
                     <MenuItem key={account._id} value={account._id}>
                       {account.accountName} {account.accountNumber ? `(${account.accountNumber})` : ''}
@@ -589,7 +591,7 @@ const Banking = () => {
                             >
                               <MenuItem value=""><em>None</em></MenuItem>
                               {Array.from(new Set([
-                                ...companiesList.map(c => c.name),
+                                ...(Array.isArray(companiesList) ? companiesList : []).map(c => c?.name).filter(Boolean),
                                 ...(t.companies ? [t.companies] : [])
                               ])).map((cName, idx) => (
                                 <MenuItem key={idx} value={cName}>{cName}</MenuItem>
@@ -611,7 +613,7 @@ const Banking = () => {
                             >
                               <MenuItem value=""><em>None</em></MenuItem>
                               {Array.from(new Set([
-                                ...projectsList.map(p => p.name),
+                                ...(Array.isArray(projectsList) ? projectsList : []).map(p => p?.name).filter(Boolean),
                                 ...(t.project ? [t.project] : [])
                               ])).map((pName, idx) => (
                                 <MenuItem key={idx} value={pName}>{pName}</MenuItem>

@@ -286,8 +286,8 @@ const VendorAdvance = () => {
 
         const hrList = Array.isArray(hrProjRes.data?.data) ? hrProjRes.data.data : [];
         const pmList = Array.isArray(pmProjRes.data?.data?.projects) ? pmProjRes.data.data.projects : (Array.isArray(pmProjRes.data?.data) ? pmProjRes.data.data : []);
-        const combinedProjects = [...hrList, ...pmList];
-        const uniqueProjects = Array.from(new Map(combinedProjects.map((p) => [p.name || p.title, p])).values())
+        const combinedProjects = [...hrList, ...pmList].filter((p) => p && typeof p === 'object');
+        const uniqueProjects = Array.from(new Map(combinedProjects.map((p) => [p.name || p.title || p._id, p])).values())
           .filter((p) => p && (p.name || p.title));
         if (!cancelled) setProjectsList(uniqueProjects);
       } catch (err) {

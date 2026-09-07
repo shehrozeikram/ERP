@@ -58,10 +58,18 @@ import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 
 const DEFAULT_TERMS = [
   { value: 'due_on_receipt', label: 'Due on receipt', days: 0 },
+  { value: 'Cash', label: 'Cash / Due on receipt', days: 0 },
   { value: 'net_15', label: 'Net 15', days: 15 },
+  { value: '15 Days', label: '15 Days', days: 15 },
   { value: 'net_30', label: 'Net 30', days: 30 },
+  { value: '30 Days', label: '30 Days', days: 30 },
   { value: 'net_45', label: 'Net 45', days: 45 },
-  { value: 'net_60', label: 'Net 60', days: 60 }
+  { value: '45 Days', label: '45 Days', days: 45 },
+  { value: 'net_60', label: 'Net 60', days: 60 },
+  { value: '60 Days', label: '60 Days', days: 60 },
+  { value: 'net_90', label: 'Net 90', days: 90 },
+  { value: '90 Days', label: '90 Days', days: 90 },
+  { value: 'custom', label: 'Custom', days: 30 }
 ];
 
 const emptyCategoryLine = () => ({
@@ -240,8 +248,8 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
 
         const hrList = Array.isArray(hrProjRes.data?.data) ? hrProjRes.data.data : [];
         const pmList = Array.isArray(pmProjRes.data?.data?.projects) ? pmProjRes.data.data.projects : (Array.isArray(pmProjRes.data?.data) ? pmProjRes.data.data : []);
-        const combinedProjects = [...hrList, ...pmList];
-        const uniqueProjects = Array.from(new Map(combinedProjects.map((p) => [p.name || p.title, p])).values())
+        const combinedProjects = [...hrList, ...pmList].filter((p) => p && typeof p === 'object');
+        const uniqueProjects = Array.from(new Map(combinedProjects.map((p) => [p.name || p.title || p._id, p])).values())
           .filter((p) => p && (p.name || p.title));
 
         setProjectsList(uniqueProjects);
