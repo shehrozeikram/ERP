@@ -181,11 +181,16 @@ const postJournalForUtilityAp = async (apEntry, bill, createdByUserId) => {
 
   let journalLines;
   if (useSplitDebits) {
-    journalLines = lineItems.map((li) => ({
-      account: debitAccount._id,
-      description: (li.description || `Utility — ${apEntry.billNumber}`).slice(0, 200),
-      debit: Math.round((Number(li.quantity) || 1) * (Number(li.unitPrice) || 0) * 100) / 100,
-      department
+    journalLines = await Promise.all(lineItems.map(async (li) => {
+      let accObj = li.expenseAccount ? await A.map(li.expenseAccount) : null;
+      if (!accObj && li.expenseAccountNumber) accObj = await A.resolve(String(li.expenseAccountNumber));
+      const accId = accObj?._id || debitAccount._id;
+      return {
+        account: accId,
+        description: (li.description || `Utility — ${apEntry.billNumber}`).slice(0, 200),
+        debit: Math.round((Number(li.quantity) || 1) * (Number(li.unitPrice) || 0) * 100) / 100,
+        department
+      };
     }));
     const debitSum = journalLines.reduce((s, l) => s + l.debit, 0);
     if (Math.abs(debitSum - amount) > 0.01 && journalLines.length > 0) {

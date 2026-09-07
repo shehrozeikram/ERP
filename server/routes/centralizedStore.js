@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, authorize } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const UtilityCentralStore = require('../models/hr/UtilityCentralStore');
 const UtilityStoreCategory = require('../models/hr/UtilityStoreCategory');
@@ -192,7 +192,7 @@ router.post(
 
 router.put(
   '/categories/:id',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  authorize('super_admin', 'admin', 'finance_manager', 'hr_manager'),
   async (req, res) => {
     try {
       const cat = await UtilityStoreCategory.findById(req.params.id);
@@ -277,7 +277,7 @@ router.post(
 
 router.put(
   '/items/:id',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  authorize('super_admin', 'admin', 'finance_manager', 'hr_manager'),
   async (req, res) => {
     try {
       const item = await UtilityStoreItem.findById(req.params.id);

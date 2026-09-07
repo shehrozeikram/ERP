@@ -1793,6 +1793,72 @@ router.put('/accounts-payable/:id',
     Object.assign(bill, req.body);
     await bill.save();
 
+    // If bill line items or total amount updated, sync linked posted journal entry & GL
+    try {
+      const linkedJournal = await JournalEntry.findOne({
+        $or: [
+          { referenceId: bill._id },
+          { reference: bill.billNumber }
+        ],
+        status: 'posted'
+      });
+
+      if (linkedJournal && Array.isArray(bill.lineItems) && bill.lineItems.length > 0) {
+        const companyId = co(bill) || linkedJournal.companyId;
+        const A = acct(companyId);
+        const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
+
+        // Build new debit lines matching updated AP line items
+        const newLines = [];
+        for (const li of bill.lineItems) {
+          let lineAcc = li.account ? await A.map(li.account) : null;
+          if (!lineAcc && li.expenseAccount) lineAcc = await A.map(li.expenseAccount);
+          if (!lineAcc) lineAcc = await A.resolve(FinanceHelper.ACCOUNTS.UTILITIES || '6200');
+          
+          newLines.push({
+            account: lineAcc._id,
+            description: (li.description || `Expense — ${bill.billNumber}`).slice(0, 200),
+            debit: Math.round((Number(li.quantity || 1) * Number(li.unitPrice || 0)) * 100) / 100,
+            department: bill.department || linkedJournal.department
+          });
+        }
+
+        // Add credit AP line
+        const totalAmount = Math.round(Number(bill.totalAmount || 0) * 100) / 100;
+        const debitSum = newLines.reduce((s, l) => s + l.debit, 0);
+        if (Math.abs(debitSum - totalAmount) > 0.01 && newLines.length > 0) {
+          newLines[newLines.length - 1].debit += (totalAmount - debitSum);
+          newLines[newLines.length - 1].debit = Math.round(newLines[newLines.length - 1].debit * 100) / 100;
+        }
+
+        newLines.push({
+          account: apAccount?._id || linkedJournal.lines.find(l => l.credit > 0)?.account,
+          description: `Payable to ${bill.vendor?.name || 'Vendor'}`,
+          credit: totalAmount,
+          department: bill.department || linkedJournal.department
+        });
+
+        // Revert old account balance increments
+        for (const line of linkedJournal.lines) {
+          await Account.findByIdAndUpdate(line.account, {
+            $inc: { balance: -(line.debit - line.credit) }
+          });
+        }
+
+        // Apply new lines & re-save to trigger new balance increments
+        linkedJournal.lines = newLines;
+        linkedJournal.totalDebits = totalAmount;
+        linkedJournal.totalCredits = totalAmount;
+        await linkedJournal.save();
+
+        // Refresh GL entries for this journal
+        await GeneralLedger.deleteMany({ journalEntry: linkedJournal._id });
+        await FinanceHelper.postToGeneralLedger(linkedJournal._id);
+      }
+    } catch (syncErr) {
+      console.warn('⚠️ Journal sync warning on AP update:', syncErr.message);
+    }
+
     res.json({
       success: true,
       message: 'Bill updated successfully',

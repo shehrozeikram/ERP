@@ -338,6 +338,7 @@ const AccountsPayable = () => {
   });
   const [processingPayment, setProcessingPayment] = useState(false);
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [expenseAccounts, setExpenseAccounts] = useState([]);
   const [posForBilling, setPosForBilling] = useState([]);
   const [loadingPosForBilling, setLoadingPosForBilling] = useState(false);
   const [createFromPoDialog, setCreateFromPoDialog] = useState({ open: false, po: null, billNumber: '', creating: false });
@@ -592,12 +593,19 @@ const AccountsPayable = () => {
     return () => { cancelled = true; };
   }, [paymentDialogOpen]);
 
-  // Load bank/cash accounts from chart of accounts (includes subaccounts under pay-from parents)
+  // Load bank/cash accounts and expense accounts from chart of accounts
   useEffect(() => {
     if (!selectedCompanyId) return;
     fetchPayFromAccounts(api, { companyId: selectedCompanyId })
       .then(setBankAccounts)
       .catch(() => setBankAccounts([]));
+
+    api.get('/finance/accounts', { params: { companyId: selectedCompanyId, limit: 500 } })
+      .then((res) => {
+        const accs = res.data?.data?.accounts || res.data?.data || [];
+        setExpenseAccounts(accs.filter((a) => String(a.type).toLowerCase().includes('expense')));
+      })
+      .catch(() => setExpenseAccounts([]));
   }, [selectedCompanyId]);
 
   useEffect(() => {
@@ -3146,9 +3154,10 @@ const AccountsPayable = () => {
             <TableHead>
               <TableRow sx={{ bgcolor: 'grey.100' }}>
                 <TableCell>Description</TableCell>
-                <TableCell align="right" width={100}>Quantity</TableCell>
-                <TableCell align="right" width={150}>Unit Price</TableCell>
-                <TableCell align="right" width={150}>Amount</TableCell>
+                <TableCell width={220}>Account (COA)</TableCell>
+                <TableCell align="right" width={90}>Quantity</TableCell>
+                <TableCell align="right" width={120}>Unit Price</TableCell>
+                <TableCell align="right" width={120}>Amount</TableCell>
                 <TableCell width={48} />
               </TableRow>
             </TableHead>
@@ -3166,6 +3175,26 @@ const AccountsPayable = () => {
                       }}
                       placeholder="Item description"
                     />
+                  </TableCell>
+                  <TableCell>
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={line.account?._id || line.account || line.expenseAccount || ''}
+                        displayEmpty
+                        onChange={e => {
+                          const newLines = [...editData.lineItems];
+                          newLines[idx].account = e.target.value;
+                          setEditData({ ...editData, lineItems: newLines });
+                        }}
+                      >
+                        <MenuItem value=""><em>Default (Auto/6200)</em></MenuItem>
+                        {expenseAccounts.map((acc) => (
+                          <MenuItem key={acc._id} value={acc._id}>
+                            {acc.accountNumber} - {acc.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                   </TableCell>
                   <TableCell>
                     <TextField 
@@ -3205,7 +3234,7 @@ const AccountsPayable = () => {
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={6}>
                   <Button startIcon={<AddIcon />} size="small" onClick={() => {
                     setEditData({
                       ...editData,

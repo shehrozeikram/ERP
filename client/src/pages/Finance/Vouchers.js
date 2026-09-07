@@ -30,6 +30,7 @@ import {
 } from '@mui/material';
 import {
   Visibility as ViewIcon,
+  Edit as EditIcon,
   ReceiptLong as VoucherIcon,
   Description as DescriptionIcon,
   Print as PrintIcon,
@@ -698,6 +699,11 @@ const Vouchers = () => {
                         <Tooltip title="View Voucher">
                           <IconButton size="small" onClick={() => navigate(`/finance/vouchers/${row._id}`)}>
                             <ViewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Edit Voucher">
+                          <IconButton size="small" color="primary" onClick={() => navigate(`/finance/journal-entries/${row._id}/edit`)}>
+                            <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="View Docs (PO & Audit Trail)">
