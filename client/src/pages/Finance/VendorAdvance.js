@@ -28,7 +28,9 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  DialogActions
+  DialogActions,
+  Checkbox,
+  FormControlLabel
 } from '@mui/material';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
@@ -40,6 +42,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CopyIcon from '@mui/icons-material/ContentCopy';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import WarningIcon from '@mui/icons-material/Warning';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -55,6 +58,8 @@ import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/pay
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
+import { formatDateTime } from '../../utils/dateUtils';
 import { numberToWords } from '../../utils/numberToWords';
 import toast from 'react-hot-toast';
 
@@ -151,6 +156,66 @@ const VendorAdvance = () => {
     poAuditTab: 0,
     loading: false
   });
+
+  const [returnDialog, setReturnDialog] = useState({ open: false, po: null });
+  const [returnComments, setReturnComments] = useState('');
+  const [returnSignature, setReturnSignature] = useState('');
+  const [returnAgree, setReturnAgree] = useState(false);
+  const [returnObservations, setReturnObservations] = useState([{ observation: '', severity: 'medium' }]);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const addObservation = () => {
+    setReturnObservations((prev) => [...prev, { observation: '', severity: 'medium' }]);
+  };
+
+  const removeObservation = (index) => {
+    setReturnObservations((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateObservation = (index, field, value) => {
+    setReturnObservations((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleFinanceReturnPO = async () => {
+    if (!returnAgree || !returnSignature.trim() || !returnComments.trim()) {
+      toast.error('Please provide comments, digital signature, and agree to terms');
+      return;
+    }
+
+    const obs = returnObservations
+      .filter((o) => o.observation.trim())
+      .map((o) => ({ observation: o.observation, severity: o.severity }));
+
+    try {
+      setActionLoading(true);
+      await api.put(`/procurement/purchase-orders/${returnDialog.po._id}/finance-return`, {
+        returnComments,
+        digitalSignature: returnSignature,
+        observations: obs.length > 0 ? obs : undefined
+      });
+      toast.success('Purchase Order returned to Procurement with observations');
+      setReturnDialog({ open: false, po: null });
+      setReturnComments('');
+      setReturnSignature('');
+      setReturnAgree(false);
+      setReturnObservations([{ observation: '', severity: 'medium' }]);
+      if (viewDialog.open && viewDialog.po?._id === returnDialog.po._id) {
+        setViewDialog((prev) => ({ ...prev, open: false, po: null }));
+      }
+      loadPoQueue();
+      if (selectedVendor?._id) {
+        loadPosForVendor(selectedVendor._id);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to return purchase order');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleViewPoDetails = async (poRow) => {
     setViewDialog({
@@ -1273,7 +1338,21 @@ const VendorAdvance = () => {
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
               Purchase Order Documents ({viewDialog.po?.orderNumber || ''})
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              {['Pending Finance', 'Sent to Finance', 'Approved'].includes(viewDialog.po?.status) && (
+                <Button
+                  variant="contained"
+                  color="warning"
+                  startIcon={<WarningIcon />}
+                  size="small"
+                  onClick={() => {
+                    setReturnDialog({ open: true, po: viewDialog.po });
+                  }}
+                  sx={{ '@media print': { display: 'none' } }}
+                >
+                  Return with Observations
+                </Button>
+              )}
               <Button
                 variant="contained"
                 startIcon={<PrintIcon />}
@@ -2014,6 +2093,140 @@ const VendorAdvance = () => {
             disabled={creatingAccount || !newAccountForm.name.trim() || !newAccountForm.accountNumber.trim()}
           >
             {creatingAccount ? 'Saving...' : 'Save & Select'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Return PO with Observations to Procurement */}
+      <Dialog
+        open={returnDialog.open}
+        onClose={() => {
+          setReturnDialog({ open: false, po: null });
+          setReturnComments('');
+          setReturnSignature('');
+          setReturnAgree(false);
+          setReturnObservations([{ observation: '', severity: 'medium' }]);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Return Purchase Order with Observations to Procurement
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            You are returning Purchase Order: <strong>{returnDialog.po?.orderNumber}</strong> to Procurement with observations for revision.
+          </Typography>
+
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Return Comments (Required)"
+            value={returnComments}
+            onChange={(e) => setReturnComments(e.target.value)}
+            required
+            sx={{ mb: 3 }}
+          />
+
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+              Audit Observations / Points for Revision:
+            </Typography>
+            {returnObservations.map((obs, index) => (
+              <Box key={index} sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#fdfdfd' }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={8}>
+                    <TextField
+                      fullWidth
+                      label={`Observation #${index + 1}`}
+                      multiline
+                      rows={2}
+                      placeholder="Enter specific observation or requirement for Procurement..."
+                      value={obs.observation}
+                      onChange={(e) => updateObservation(index, 'observation', e.target.value)}
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Severity</InputLabel>
+                      <Select
+                        value={obs.severity}
+                        label="Severity"
+                        onChange={(e) => updateObservation(index, 'severity', e.target.value)}
+                      >
+                        <MenuItem value="low">Low</MenuItem>
+                        <MenuItem value="medium">Medium</MenuItem>
+                        <MenuItem value="high">High</MenuItem>
+                        <MenuItem value="critical">Critical</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={1}>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => removeObservation(index)}
+                      disabled={returnObservations.length === 1}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Grid>
+                </Grid>
+              </Box>
+            ))}
+            <Button
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={addObservation}
+              variant="outlined"
+            >
+              Add Observation
+            </Button>
+          </Box>
+
+          <TextField
+            fullWidth
+            label="Digital Signature"
+            value={returnSignature}
+            onChange={(e) => setReturnSignature(e.target.value)}
+            placeholder="Type your full name as digital signature"
+            required
+            sx={{ mb: 2 }}
+          />
+
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={returnAgree}
+                onChange={(e) => setReturnAgree(e.target.checked)}
+              />
+            }
+            label="I confirm that I have reviewed this purchase order and am returning it to Procurement with the above observations."
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button
+            onClick={() => {
+              setReturnDialog({ open: false, po: null });
+              setReturnComments('');
+              setReturnSignature('');
+              setReturnAgree(false);
+              setReturnObservations([{ observation: '', severity: 'medium' }]);
+            }}
+            color="inherit"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleFinanceReturnPO}
+            variant="contained"
+            color="warning"
+            disabled={actionLoading || !returnAgree || !returnSignature.trim() || !returnComments.trim()}
+            startIcon={actionLoading ? <CircularProgress size={20} /> : <WarningIcon />}
+          >
+            Return with Observations
           </Button>
         </DialogActions>
       </Dialog>
