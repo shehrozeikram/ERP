@@ -297,7 +297,16 @@ const Vouchers = () => {
       // Fetch Vendor Bills linked to PO or AP payment application or Voucher
       let poBills = [];
       try {
-        if (apData?.accountsPayableId?._id || apData?.accountsPayableId) {
+        if (apData?.bills?.length > 0) {
+          for (const item of apData.bills) {
+            const bId = item.billId?._id || item.billId;
+            if (!bId) continue;
+            const bRes = await api.get(`/finance/accounts-payable/${bId}`).catch(() => null);
+            if (bRes?.data?.data) {
+              poBills.push(bRes.data.data);
+            }
+          }
+        } else if (apData?.accountsPayableId?._id || apData?.accountsPayableId) {
           const bId = apData.accountsPayableId._id || apData.accountsPayableId;
           const bRes = await api.get(`/finance/accounts-payable/${bId}`).catch(() => null);
           if (bRes?.data?.data) {

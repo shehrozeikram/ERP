@@ -7321,47 +7321,20 @@ router.post('/banking/import-statement',
 // BATCH VENDOR PAYMENTS
 // ═════════════════════════════════════════════════════════════════════════════
 router.post('/accounts-payable/batch-payment',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'manager', 'accounts_officer', 'finance_manager', 'finance_controller', 'commercial_director', 'ceo'),
   asyncHandler(async (req, res) => {
-    const { billIds, paymentMethod, reference, date, bankAccountId, whtRate = 0 } = req.body;
+    const paymentData = req.body;
+    const FinanceHelper = require('../utils/financeHelper');
+    const result = await FinanceHelper.recordAPBatchPayment({
+      ...paymentData,
+      createdBy: req.user._id || req.user.id,
+      date: paymentData.paymentDate || new Date()
+    });
 
-    if (!billIds || !Array.isArray(billIds) || billIds.length === 0) {
-      return res.status(400).json({ success: false, message: 'No bills selected' });
-    }
-
-    const results = [];
-    const errors  = [];
-
-    for (const billId of billIds) {
-      try {
-        const bill = await AccountsPayable.findById(billId);
-        if (!bill) { errors.push({ billId, error: 'Bill not found' }); continue; }
-        if (bill.status === 'paid') { errors.push({ billId: bill.billNumber, error: 'Already paid' }); continue; }
-
-        const balance = Math.round((bill.totalAmount - (bill.amountPaid || 0) - (bill.advanceApplied || 0)) * 100) / 100;
-        if (balance <= 0) continue;
-
-        await FinanceHelper.recordAPPayment(billId, {
-          amount:        balance,
-          paymentMethod: paymentMethod || 'bank_transfer',
-          reference:     reference || `BATCH-${Date.now()}`,
-          date:          date ? new Date(date) : new Date(),
-          createdBy:     req.user.id,
-          whtRate:       Number(whtRate) || 0,
-          bankAccountId
-        });
-
-        results.push({ billId, billNumber: bill.billNumber, vendor: bill.vendor?.name || '—', amount: balance });
-      } catch (err) {
-        errors.push({ billId, error: err.message });
-      }
-    }
-
-    const total = results.reduce((s, r) => s + r.amount, 0);
     res.json({
       success: true,
-      message: `${results.length} bill(s) paid | Total: PKR ${total.toLocaleString()}`,
-      data: { paid: results, errors, total: Math.round(total * 100) / 100 }
+      message: 'Batch payment successfully processed and pending authorization',
+      data: result
     });
   })
 );

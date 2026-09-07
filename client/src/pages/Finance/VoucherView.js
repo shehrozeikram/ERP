@@ -531,7 +531,12 @@ const VoucherView = () => {
                       : ' General ledger and account balances update only after final approval.'}
                 </Alert>
               ) : null}
-              {apPaymentApp?.accountsPayableId ? (
+              {apPaymentApp?.bills?.length > 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Bill(s): <strong>{apPaymentApp.bills.map(b => b.billNumber || b.billId?.billNumber || '—').join(', ')}</strong>
+                  {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}
+                </Typography>
+              ) : apPaymentApp?.accountsPayableId ? (
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                   Bill: <strong>{apPaymentApp.billNumber || apPaymentApp.accountsPayableId?.billNumber || '—'}</strong>
                   {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}

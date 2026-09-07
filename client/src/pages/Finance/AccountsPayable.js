@@ -37,7 +37,8 @@ import {
   Stack,
   ToggleButton,
   ToggleButtonGroup,
-  InputAdornment
+  InputAdornment,
+  Checkbox
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -194,8 +195,8 @@ const AccountsPayable = () => {
     }
     const pending = getSettlementPending(bill);
     const afterPending = Math.max(0, Math.round((actualUnpaid - pending) * 100) / 100);
-    // If afterPending is 0 but bill is not yet marked paid, fall back to actual unpaid so user can still view/settle
-    return afterPending > 0 ? afterPending : (bill?.status !== 'paid' ? actualUnpaid : 0);
+    // If there is pending approval, we return the balance after pending so it doesn't allow duplicate payments
+    return afterPending;
   };
 
   const getCashPaidAmount = (bill) => {
@@ -744,6 +745,7 @@ const AccountsPayable = () => {
     const rows = allBills
       .map((b) => {
         const outstanding = Math.max(0, getOutstanding(b));
+        const isSelected = seedBillId ? String(b._id) === String(seedBillId) : false;
         return {
           billId: b._id,
           billNumber: b.billNumber,
@@ -752,11 +754,17 @@ const AccountsPayable = () => {
           totalAmount: Number(b.totalAmount || 0),
           company: b.company || 'Unassigned',
           outstanding,
-          payAmount: seedBillId && String(b._id) === String(seedBillId) ? outstanding : 0,
+          payAmount: isSelected ? outstanding : 0,
           advanceApplyAmount: 0
         };
       })
       .filter((r) => r.outstanding > 0);
+
+    // If no seedBillId matched or provided, default the first bill as selected
+    if (rows.length > 0 && !rows.some((r) => r.payAmount > 0)) {
+      rows[0].payAmount = rows[0].outstanding;
+    }
+
     const totalPay = Math.round(rows.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
     setOutstandingTransactions(rows);
     setPaymentData((prev) => ({ ...prev, amount: totalPay }));
@@ -1109,21 +1117,24 @@ const AccountsPayable = () => {
         setProcessingPayment(false);
         return;
       }
-      let paymentToast = '';
-      for (const row of payRows) {
-        const payRes = await api.post(`/finance/accounts-payable/${row.billId}/payment`, {
-          amount: row.payAmount,
-          paymentMethod: paymentData.paymentMethod,
-          reference: paymentData.reference,
-          paymentDate: paymentData.paymentDate,
-          whtRate: Number(paymentData.whtRate) || 0,
-          bankAccountId: paymentData.bankAccountId || null,
-          financeApprovalAuthorities
-        });
-        paymentToast = payRes?.data?.message || paymentToast;
-      }
+      const billsPayload = payRows.map(row => ({
+        billId: row.billId,
+        amount: row.payAmount
+      }));
+
+      const payRes = await api.post('/finance/accounts-payable/batch-payment', {
+        bills: billsPayload,
+        paymentMethod: paymentData.paymentMethod,
+        reference: paymentData.reference || `BATCH-${Date.now()}`,
+        paymentDate: paymentData.paymentDate,
+        whtRate: Number(paymentData.whtRate) || 0,
+        bankAccountId: paymentData.bankAccountId || null,
+        batchId: `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        financeApprovalAuthorities
+      });
+
       toast.success(
-        paymentToast || `Payment submitted for ${payRows.length} bill(s) — pending finance approval`
+        payRes?.data?.message || `Consolidated batch payment submitted for ${payRows.length} bill(s) — pending finance approval`
       );
       setPaymentDialogOpen(false);
       fetchAccountsPayable();
@@ -2700,6 +2711,31 @@ const AccountsPayable = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            indeterminate={
+                              outstandingTransactions.some((r) => r.payAmount > 0) &&
+                              !outstandingTransactions.every((r) => r.payAmount > 0)
+                            }
+                            checked={
+                              outstandingTransactions.length > 0 &&
+                              outstandingTransactions.every((r) => r.payAmount > 0)
+                            }
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              const next = outstandingTransactions.map((r) => {
+                                const maxBank = roundPay2(
+                                  Math.max(0, (r.outstanding || 0) - (Number(r.advanceApplyAmount) || 0))
+                                );
+                                return { ...r, payAmount: isChecked ? maxBank : 0 };
+                              });
+                              setOutstandingTransactions(next);
+                              const total = roundPay2(next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0));
+                              setPaymentData((prev) => ({ ...prev, amount: total }));
+                            }}
+                          />
+                        </TableCell>
                         <TableCell>Bill #</TableCell>
                         <TableCell>Due Date</TableCell>
                         <TableCell align="right">Original Amount</TableCell>
@@ -2713,37 +2749,82 @@ const AccountsPayable = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {outstandingTransactions.map((row, idx) => (
-                        <TableRow key={row.billId}>
-                          <TableCell>{row.billNumber}</TableCell>
-                          <TableCell>{formatDate(row.dueDate)}</TableCell>
-                          <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
-                          <TableCell align="right">
-                            {formatPKR(
-                              roundPay2(
-                                Math.max(
-                                  0,
-                                  (Number(row.outstanding) || 0) - (Number(row.advanceApplyAmount) || 0)
+                      {outstandingTransactions.map((row, idx) => {
+                        const isChecked = (Number(row.payAmount) || 0) > 0;
+                        const maxBank = roundPay2(
+                          Math.max(0, (row.outstanding || 0) - (Number(row.advanceApplyAmount) || 0))
+                        );
+                        return (
+                          <TableRow key={row.billId} hover selected={isChecked}>
+                            <TableCell padding="checkbox">
+                              <Checkbox
+                                size="small"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  const next = [...outstandingTransactions];
+                                  next[idx] = { ...next[idx], payAmount: checked ? maxBank : 0 };
+                                  setOutstandingTransactions(next);
+                                  const total = roundPay2(
+                                    next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
+                                  );
+                                  setPaymentData((prev) => ({ ...prev, amount: total }));
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell sx={{ fontWeight: isChecked ? 600 : 400 }}>{row.billNumber}</TableCell>
+                            <TableCell>{formatDate(row.dueDate)}</TableCell>
+                            <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
+                            <TableCell align="right">
+                              {formatPKR(
+                                roundPay2(
+                                  Math.max(
+                                    0,
+                                    (Number(row.outstanding) || 0) - (Number(row.advanceApplyAmount) || 0)
+                                  )
                                 )
-                              )
+                              )}
+                            </TableCell>
+                            {payeeType === 'employee' && (
+                              <TableCell align="right">
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  placeholder="0"
+                                  value={row.advanceApplyAmount ?? ''}
+                                  inputProps={{ min: 0, max: row.outstanding, step: 0.01 }}
+                                  onChange={(e) => {
+                                    const next = [...outstandingTransactions];
+                                    const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
+                                    next[idx] = {
+                                      ...next[idx],
+                                      advanceApplyAmount: v,
+                                      payAmount: roundPay2(Math.max(0, (row.outstanding || 0) - v))
+                                    };
+                                    setOutstandingTransactions(next);
+                                    const total = roundPay2(
+                                      next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
+                                    );
+                                    setPaymentData((prev) => ({ ...prev, amount: total }));
+                                  }}
+                                  sx={{ width: 120 }}
+                                />
+                              </TableCell>
                             )}
-                          </TableCell>
-                          {payeeType === 'employee' && (
                             <TableCell align="right">
                               <TextField
                                 size="small"
                                 type="number"
-                                placeholder="0"
-                                value={row.advanceApplyAmount ?? ''}
-                                inputProps={{ min: 0, max: row.outstanding, step: 0.01 }}
+                                value={row.payAmount}
+                                inputProps={{
+                                  min: 0,
+                                  max: maxBank,
+                                  step: 0.01
+                                }}
                                 onChange={(e) => {
                                   const next = [...outstandingTransactions];
-                                  const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
-                                  next[idx] = {
-                                    ...next[idx],
-                                    advanceApplyAmount: v,
-                                    payAmount: roundPay2(Math.max(0, (row.outstanding || 0) - v))
-                                  };
+                                  const v = Math.max(0, Math.min(Number(e.target.value) || 0, maxBank));
+                                  next[idx] = { ...next[idx], payAmount: v };
                                   setOutstandingTransactions(next);
                                   const total = roundPay2(
                                     next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
@@ -2753,37 +2834,9 @@ const AccountsPayable = () => {
                                 sx={{ width: 120 }}
                               />
                             </TableCell>
-                          )}
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={row.payAmount}
-                              inputProps={{
-                                min: 0,
-                                max: roundPay2(
-                                  Math.max(0, (row.outstanding || 0) - (Number(row.advanceApplyAmount) || 0))
-                                ),
-                                step: 0.01
-                              }}
-                              onChange={(e) => {
-                                const next = [...outstandingTransactions];
-                                const maxBank = roundPay2(
-                                  Math.max(0, (row.outstanding || 0) - (Number(row.advanceApplyAmount) || 0))
-                                );
-                                const v = Math.max(0, Math.min(Number(e.target.value) || 0, maxBank));
-                                next[idx] = { ...next[idx], payAmount: v };
-                                setOutstandingTransactions(next);
-                                const total = roundPay2(
-                                  next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
-                                );
-                                setPaymentData((prev) => ({ ...prev, amount: total }));
-                              }}
-                              sx={{ width: 120 }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}
@@ -3014,10 +3067,11 @@ const AccountsPayable = () => {
               </Typography>
             </Grid>
             <Grid item xs={6}>
-              <TextField fullWidth label="Payment Amount (PKR)" type="number"
+              <TextField fullWidth label="Total Payment Amount (PKR)" type="number"
                 value={paymentData.amount}
-                onChange={(e) => setPaymentData({ ...paymentData, amount: Number(e.target.value) })}
-                size="small" inputProps={{ min: 0, step: 0.01 }} />
+                size="small"
+                InputProps={{ readOnly: true }}
+                helperText="Sum of selected bills in the table below" />
             </Grid>
             <Grid item xs={6}>
               <TextField fullWidth label="WHT Rate %" type="number" placeholder="e.g. 4.5"

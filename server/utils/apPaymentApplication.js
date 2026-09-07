@@ -127,89 +127,103 @@ const postDraftJournal = async (je, userId) => {
 };
 
 const finalizeApplication = async (app, userId) => {
-  const bill = await AccountsPayable.findById(app.accountsPayableId);
-  if (!bill) throw new Error('Bill not found');
+  const billsToProcess = app.bills?.length > 0 
+    ? app.bills 
+    : [{ billId: app.accountsPayableId, amount: app.amount }];
 
-  const amount = round2(app.amount);
   const je = await JournalEntry.findById(app.journalEntryId);
   await postDraftJournal(je, userId);
 
-  if (app.sourceType === 'cash_approval') {
-    const ca = await CashApproval.findById(app.cashApprovalId);
-    if (!ca) throw new Error('Cash approval not found');
-    const employee = bill.payeeEmployee ? await Employee.findById(bill.payeeEmployee) : null;
-    if (!employee) throw new Error('Employee payee missing on bill');
+  const meta = app.paymentMeta || {};
+  const normalizedAllocations = Array.isArray(meta.allocations)
+    ? meta.allocations
+      .map((a) => ({
+        grnId: a?.grnId || null,
+        amount: round2(a?.amount)
+      }))
+      .filter((a) => a.grnId && a.amount > 0)
+    : [];
 
-    ca.apAdvanceApplied = round2((Number(ca.apAdvanceApplied) || 0) + amount);
-    await ca.save();
+  for (const item of billsToProcess) {
+    const bill = await AccountsPayable.findById(item.billId);
+    if (!bill) continue;
 
-    bill.advanceApplied = round2((Number(bill.advanceApplied) || 0) + amount);
-    if (!Array.isArray(bill.employeeAdvanceAllocations)) bill.employeeAdvanceAllocations = [];
-    bill.employeeAdvanceAllocations.push({
-      cashApprovalId: ca._id,
-      caNumber: ca.caNumber,
-      amount,
-      appliedAt: new Date()
-    });
-  } else if (app.sourceType === 'vendor_advance') {
-    const adv = await VendorAdvance.findById(app.vendorAdvanceId);
-    if (!adv) throw new Error('Vendor advance not found');
+    const amount = round2(item.amount);
 
-    bill.advanceApplied = round2((Number(bill.advanceApplied) || 0) + amount);
-    adv.appliedAmount = round2((Number(adv.appliedAmount) || 0) + amount);
-    const newRem = round2((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0));
-    adv.status = newRem <= 0.01 ? 'applied' : 'partially_applied';
-    if (!Array.isArray(adv.allocations)) adv.allocations = [];
-    adv.allocations.push({
-      billId: bill._id,
-      billNumber: bill.billNumber,
-      amount,
-      appliedAt: new Date()
-    });
-    await adv.save();
-  } else if (app.sourceType === 'bank_payment') {
-    const meta = app.paymentMeta || {};
-    const normalizedAllocations = Array.isArray(meta.allocations)
-      ? meta.allocations
-        .map((a) => ({
-          grnId: a?.grnId || null,
-          amount: round2(a?.amount)
-        }))
-        .filter((a) => a.grnId && a.amount > 0)
-      : [];
-    bill.payments.push({
-      amount,
-      paymentDate: je?.date || new Date(),
-      paymentMethod: meta.paymentMethod || 'bank_transfer',
-      reference: meta.reference || bill.billNumber,
-      batchId: meta.batchId || null,
-      createdBy: app.createdBy,
-      allocations: normalizedAllocations
-    });
-    bill.amountPaid = round2((Number(bill.amountPaid) || 0) + amount);
-  }
+    if (app.sourceType === 'cash_approval') {
+      const ca = await CashApproval.findById(app.cashApprovalId);
+      if (!ca) throw new Error('Cash approval not found');
+      const employee = bill.payeeEmployee ? await Employee.findById(bill.payeeEmployee) : null;
+      if (!employee) throw new Error('Employee payee missing on bill');
 
-  await releaseBillPending(bill, amount, app.sourceType);
-  FinanceHelper._updateDocumentStatus(bill);
-  await bill.save();
+      ca.apAdvanceApplied = round2((Number(ca.apAdvanceApplied) || 0) + amount);
+      await ca.save();
 
-  try {
-    await syncLinkedUtilityBillsFromApPayment(bill, userId);
-  } catch (syncErr) {
-    console.error('[apPaymentApplication] Admin utility bill sync failed:', syncErr.message);
+      bill.advanceApplied = round2((Number(bill.advanceApplied) || 0) + amount);
+      if (!Array.isArray(bill.employeeAdvanceAllocations)) bill.employeeAdvanceAllocations = [];
+      bill.employeeAdvanceAllocations.push({
+        cashApprovalId: ca._id,
+        caNumber: ca.caNumber,
+        amount,
+        appliedAt: new Date()
+      });
+    } else if (app.sourceType === 'vendor_advance') {
+      const adv = await VendorAdvance.findById(app.vendorAdvanceId);
+      if (!adv) throw new Error('Vendor advance not found');
+
+      bill.advanceApplied = round2((Number(bill.advanceApplied) || 0) + amount);
+      adv.appliedAmount = round2((Number(adv.appliedAmount) || 0) + amount);
+      const newRem = round2((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0));
+      adv.status = newRem <= 0.01 ? 'applied' : 'partially_applied';
+      if (!Array.isArray(adv.allocations)) adv.allocations = [];
+      adv.allocations.push({
+        billId: bill._id,
+        billNumber: bill.billNumber,
+        amount,
+        appliedAt: new Date()
+      });
+      await adv.save();
+    } else if (app.sourceType === 'bank_payment') {
+      bill.payments.push({
+        amount,
+        paymentDate: je?.date || new Date(),
+        paymentMethod: meta.paymentMethod || 'bank_transfer',
+        reference: meta.reference || bill.billNumber,
+        batchId: meta.batchId || null,
+        createdBy: app.createdBy,
+        allocations: normalizedAllocations
+      });
+      bill.amountPaid = round2((Number(bill.amountPaid) || 0) + amount);
+    }
+
+    await releaseBillPending(bill, amount, app.sourceType);
+    FinanceHelper._updateDocumentStatus(bill);
+    await bill.save();
+
+    try {
+      await syncLinkedUtilityBillsFromApPayment(bill, userId);
+    } catch (syncErr) {
+      console.error('[apPaymentApplication] Admin utility bill sync failed:', syncErr.message);
+    }
   }
 
   app.workflowStatus = 'fully_approved';
   app.finalizedAt = new Date();
   await app.save();
 
-  return { app, bill, journalEntry: je };
+  return { app, journalEntry: je };
 };
 
 const rejectApplication = async (app, user, comments) => {
-  const bill = await AccountsPayable.findById(app.accountsPayableId);
-  if (bill) {
-    await releaseBillPending(bill, round2(app.amount), app.sourceType);
+  const billsToProcess = app.bills?.length > 0 
+    ? app.bills 
+    : [{ billId: app.accountsPayableId, amount: app.amount }];
+
+  for (const item of billsToProcess) {
+    const bill = await AccountsPayable.findById(item.billId);
+    if (bill) {
+      await releaseBillPending(bill, round2(item.amount), app.sourceType);
+    }
   }
 
   app.workflowStatus = 'rejected';
@@ -399,6 +413,102 @@ const submitSettlement = async ({
   return { application: app, journalEntry, pendingAmount: amount_ };
 };
 
+const submitBatchSettlement = async ({
+  bills, // array of { bill: Document, amount: Number }
+  sourceType,
+  createdBy,
+  financeApprovalAuthorities,
+  authoritySourceDoc,
+  journalPayload,
+  vendorAdvanceId = null,
+  cashApprovalId = null,
+  paymentMeta = null
+}) => {
+  let totalAmount = 0;
+  const billObjects = [];
+
+  for (const item of bills) {
+    const amount_ = round2(item.amount);
+    if (amount_ <= 0) throw new Error('Settlement amount must be greater than zero');
+    
+    const outstanding = FinanceHelper.getAPOutstanding(item.bill);
+    if (amount_ > outstanding + 0.009) {
+      throw new Error(`Amount PKR ${amount_} exceeds outstanding balance PKR ${outstanding} for bill ${item.bill.billNumber}`);
+    }
+    
+    totalAmount += amount_;
+    billObjects.push({
+      billId: item.bill._id,
+      billNumber: item.bill.billNumber,
+      amount: amount_
+    });
+  }
+
+  totalAmount = round2(totalAmount);
+
+  // We only support bank_payment natively for batch but let's be safe
+  if (sourceType === 'cash_approval' && cashApprovalId) {
+    const ca = await CashApproval.findById(cashApprovalId);
+    if (!ca) throw new Error('Cash approval not found');
+    const caOpen = await getCaOpenForAp(ca);
+    if (totalAmount > caOpen + 0.009) {
+      throw new Error(`Total amount exceeds open balance on ${ca.caNumber} (open: ${caOpen})`);
+    }
+    authoritySourceDoc = authoritySourceDoc || ca;
+  }
+
+  if (sourceType === 'vendor_advance' && vendorAdvanceId) {
+    const adv = await VendorAdvance.findById(vendorAdvanceId);
+    if (!adv) throw new Error('Vendor advance not found');
+    const wf = adv.voucherWorkflowStatus || 'immediate';
+    if (wf === 'pending_authority' || wf === 'rejected') {
+      throw new Error('Vendor advance voucher is not fully approved yet');
+    }
+    const advRemaining = round2((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0));
+    const pendingOnAdv = await sumPendingForVendorAdvance(adv._id);
+    const openAdv = round2(Math.max(0, advRemaining - pendingOnAdv));
+    if (totalAmount > openAdv + 0.009) {
+      throw new Error(`Total amount exceeds open vendor advance balance (${openAdv})`);
+    }
+    authoritySourceDoc = authoritySourceDoc || adv;
+  }
+
+  const hasExplicit =
+    financeApprovalAuthorities
+    && (financeApprovalAuthorities.accountsManagerUser || financeApprovalAuthorities.accountsManager)
+    && (financeApprovalAuthorities.financeControllerUser || financeApprovalAuthorities.financeController);
+  const authorities = hasExplicit
+    ? resolveFinanceAuthorities({ explicit: financeApprovalAuthorities, createdBy })
+    : resolveFinanceAuthorities({ explicit: null, sourceDoc: authoritySourceDoc, createdBy });
+
+  const journalEntry = await FinanceHelper.createDraftJournalEntry({
+    ...journalPayload,
+    date: journalPayload.date || new Date(),
+    referenceId: bills[0].bill._id, // arbitrarily linking to first bill
+    createdBy
+  });
+
+  const app = await ApPaymentApplication.create({
+    bills: billObjects,
+    amount: totalAmount,
+    sourceType,
+    vendorAdvanceId: vendorAdvanceId || null,
+    cashApprovalId: cashApprovalId || null,
+    paymentMeta: paymentMeta || undefined,
+    journalEntryId: journalEntry._id,
+    workflowStatus: 'pending_authority',
+    financeApprovalAuthorities: authorities,
+    financeAuthorityApprovals: [preparerApproval(createdBy)],
+    createdBy
+  });
+
+  for (const item of bills) {
+    await addBillPending(item.bill, round2(item.amount), sourceType);
+  }
+
+  return { application: app, journalEntry, pendingAmount: totalAmount };
+};
+
 const getCaOpenForAp = async (ca) => {
   const advanced = round2(Number(ca.advanceAmount) || Number(ca.totalAmount) || 0);
   const alreadyToAp = round2(Number(ca.apAdvanceApplied) || 0);
@@ -412,7 +522,8 @@ const populateApplication = (query) =>
     .populate('financeApprovalAuthorities.accountsManagerUser', 'firstName lastName email employeeId digitalSignature')
     .populate('financeApprovalAuthorities.financeControllerUser', 'firstName lastName email employeeId digitalSignature')
     .populate('financeAuthorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
-    .populate('accountsPayableId', 'billNumber vendor totalAmount status');
+    .populate('accountsPayableId', 'billNumber vendor totalAmount status')
+    .populate('bills.billId', 'billNumber vendor totalAmount status');
 
 module.exports = {
   round2,
@@ -421,6 +532,7 @@ module.exports = {
   sumPendingForVendorAdvance,
   getCaOpenForAp,
   submitSettlement,
+  submitBatchSettlement,
   finalizeApplication,
   rejectApplication,
   recordAuthorityApproval,

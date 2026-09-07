@@ -4,10 +4,15 @@ const apPaymentApplicationSchema = new mongoose.Schema({
   accountsPayableId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'AccountsPayable',
-    required: true,
+    required: false,
     index: true
   },
   billNumber: { type: String, trim: true },
+  bills: [{
+    billId: { type: mongoose.Schema.Types.ObjectId, ref: 'AccountsPayable' },
+    billNumber: { type: String, trim: true },
+    amount: { type: Number, required: true, min: 0.01 }
+  }],
   amount: { type: Number, required: true, min: 0.01 },
   sourceType: {
     type: String,

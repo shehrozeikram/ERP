@@ -339,24 +339,25 @@ export default function QuickbooksPayBillsModal({
 
     try {
       setProcessing(true);
-      let successCount = 0;
       const batchId = `PAY-BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
-      for (const bill of selectedBills) {
-        await api.post(`/finance/accounts-payable/${bill.billId}/payment`, {
-          amount: bill.payAmount,
-          paymentMethod: paymentForm.paymentMethod,
-          reference: paymentForm.reference || `PAY-${bill.billNumber}`,
-          paymentDate: paymentForm.paymentDate,
-          whtRate: Number(paymentForm.whtRate) || 0,
-          bankAccountId: paymentForm.bankAccountId || null,
-          financeApprovalAuthorities,
-          batchId
-        });
-        successCount++;
-      }
+      const billsPayload = selectedBills.map(b => ({
+        billId: b.billId,
+        amount: b.payAmount
+      }));
 
-      toast.success(`✓ Successfully posted payment for ${successCount} bill(s)! Total: ${formatPKR(totalSelectedPayAmount)}`);
+      await api.post(`/finance/accounts-payable/batch-payment`, {
+        bills: billsPayload,
+        paymentMethod: paymentForm.paymentMethod,
+        reference: paymentForm.reference || `BATCH-${Date.now()}`,
+        paymentDate: paymentForm.paymentDate,
+        whtRate: Number(paymentForm.whtRate) || 0,
+        bankAccountId: paymentForm.bankAccountId || null,
+        financeApprovalAuthorities,
+        batchId
+      });
+
+      toast.success(`✓ Successfully posted consolidated batch payment for ${selectedBills.length} bill(s)! Total: ${formatPKR(totalSelectedPayAmount)}`);
       if (onSuccess) onSuccess();
       onClose();
     } catch (err) {

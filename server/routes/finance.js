@@ -195,4 +195,26 @@ router.get('/statistics',
   })
 );
 
+// @route   POST /api/finance/accounts-payable/batch-payment
+// @desc    Record a batch payment for multiple bills
+// @access  Private
+router.post('/accounts-payable/batch-payment',
+  authorize('admin', 'manager', 'accounts_officer', 'finance_manager', 'finance_controller', 'commercial_director', 'ceo'),
+  asyncHandler(async (req, res) => {
+    const paymentData = req.body;
+    const FinanceHelper = require('../utils/financeHelper');
+    const result = await FinanceHelper.recordAPBatchPayment({
+      ...paymentData,
+      createdBy: req.user._id,
+      date: paymentData.paymentDate || new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Batch payment successfully processed and pending authorization',
+      data: result
+    });
+  })
+);
+
 module.exports = router; 

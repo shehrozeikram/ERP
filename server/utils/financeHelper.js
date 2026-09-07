@@ -498,9 +498,7 @@ const FinanceHelper = {
     return Math.round(
       ((Number(bill.totalAmount) || 0)
         - (Number(bill.amountPaid) || 0)
-        - (Number(bill.advanceApplied) || 0)
-        - (Number(bill.advancePending) || 0)
-        - (Number(bill.paymentPending) || 0)) * 100
+        - (Number(bill.advanceApplied) || 0)) * 100
     ) / 100;
   },
 
@@ -823,15 +821,6 @@ const FinanceHelper = {
         }
       }
 
-      // Auto-apply any open vendor advances to newly created bill (oldest first)
-      try {
-        if (vendorId || vendorName) {
-          await FinanceHelper.applyVendorAdvanceToBill(apEntry._id, null, createdBy);
-        }
-      } catch (advErr) {
-        console.warn('[AP Advance] auto-apply skipped:', advErr.message);
-      }
-
       return apEntry;
     } catch (error) {
       if (apEntry?._id) {
@@ -921,7 +910,8 @@ const FinanceHelper = {
         whtRate = 0,
         bankAccountId,
         allocations,
-        financeApprovalAuthorities
+        financeApprovalAuthorities,
+        batchId
       } = paymentData;
 
       const amount_ = Math.round((Number(amount) || 0) * 100) / 100;
@@ -937,7 +927,7 @@ const FinanceHelper = {
           payments: {
             $elemMatch: {
               reference: reference,
-              ...(paymentData.batchId ? { batchId: { $ne: paymentData.batchId } } : {})
+              ...(batchId ? { batchId: { $ne: batchId } } : {})
             }
           }
         };
@@ -950,7 +940,7 @@ const FinanceHelper = {
         const query2 = {
           'paymentMeta.reference': reference,
           workflowStatus: { $ne: 'rejected' },
-          ...(paymentData.batchId ? { 'paymentMeta.batchId': { $ne: paymentData.batchId } } : {})
+          ...(batchId ? { 'paymentMeta.batchId': { $ne: batchId } } : {})
         };
         const ApPaymentAppModel = mongoose.model('ApPaymentApplication');
         const existingRef2 = await ApPaymentAppModel.findOne(query2).select('billNumber');
@@ -1035,9 +1025,9 @@ const FinanceHelper = {
         paymentMeta: {
           paymentMethod,
           reference: reference || bill.billNumber,
-          batchId: paymentData.batchId || null,
+          batchId: batchId || null,
           whtRate,
-          bankAccountId: bankAccount._id,
+          bankAccountId: bankAccount ? bankAccount._id : null,
           allocations: normalizedAllocations
         }
       });
@@ -1051,7 +1041,176 @@ const FinanceHelper = {
       };
       return fresh;
     } catch (error) {
-      console.error('❌ Error recording AP payment:', error);
+      throw error;
+    }
+  },
+
+  recordAPBatchPayment: async (paymentData) => {
+    try {
+      const AccountsPayable = mongoose.model('AccountsPayable');
+      const ApPayment = require('./apPaymentApplication');
+
+      const {
+        bills, // Array of { billId, amount }
+        paymentMethod,
+        reference,
+        date,
+        createdBy,
+        whtRate = 0,
+        bankAccountId,
+        financeApprovalAuthorities,
+        batchId
+      } = paymentData;
+
+      if (!Array.isArray(bills) || bills.length === 0) {
+        throw new Error('No bills provided for batch payment');
+      }
+
+      const billObjects = [];
+      let totalAmount = 0;
+      let companyId = null;
+      let departmentId = null;
+      let vendorName = '';
+
+      // Validate all bills and calculate total
+      for (const item of bills) {
+        const bill = await AccountsPayable.findById(item.billId).populate('vendor');
+        if (!bill) throw new Error(`Bill not found: ${item.billId}`);
+
+        const amount_ = Math.round((Number(item.amount) || 0) * 100) / 100;
+        const balance = FinanceHelper.getAPOutstanding(bill);
+        if (amount_ > balance + 0.01) {
+          throw new Error(`Payment amount PKR ${amount_} exceeds outstanding balance PKR ${balance} for bill ${bill.billNumber}`);
+        }
+
+        totalAmount += amount_;
+        billObjects.push({ bill, amount: amount_ });
+        
+        // Grab company/department from the first bill to group them
+        if (!companyId) companyId = co(bill);
+        if (!departmentId) departmentId = bill.department;
+        if (!vendorName) vendorName = bill.vendor?.name || 'Vendor';
+      }
+
+      totalAmount = Math.round(totalAmount * 100) / 100;
+
+      // Check for Reference/Cheque uniqueness
+      if (reference) {
+        const query1 = {
+          payments: {
+            $elemMatch: {
+              reference: reference,
+              ...(batchId ? { batchId: { $ne: batchId } } : {})
+            }
+          }
+        };
+        const existingRef1 = await AccountsPayable.findOne(query1).select('billNumber');
+        if (existingRef1) {
+          throw new Error(`Cheque / TT / Reference number '${reference}' has already been used in bill ${existingRef1.billNumber}. It cannot be reused.`);
+        }
+
+        const query2 = {
+          'paymentMeta.reference': reference,
+          workflowStatus: { $ne: 'rejected' },
+          ...(batchId ? { 'paymentMeta.batchId': { $ne: batchId } } : {})
+        };
+        const ApPaymentAppModel = mongoose.model('ApPaymentApplication');
+        const existingRef2 = await ApPaymentAppModel.findOne(query2).select('billNumber');
+        if (existingRef2) {
+          throw new Error(`Cheque / TT / Reference number '${reference}' is already pending for bill ${existingRef2.billNumber || 'in another batch'}.`);
+        }
+      }
+
+      const whtAmount = whtRate > 0 ? Math.round(totalAmount * (whtRate / 100) * 100) / 100 : 0;
+      const netBankAmount = Math.round((totalAmount - whtAmount) * 100) / 100;
+
+      if (companyId) {
+        const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
+        await seedChartOfAccountsForCompany(companyId, { skipExisting: true });
+      }
+      
+      const A = acct(companyId);
+      const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
+      let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
+      if (!bankAccount) {
+        bankAccount = await A.resolve(
+          paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+        );
+      }
+      
+      if (!apAccount || !bankAccount) {
+        const missing = [];
+        if (!apAccount) missing.push('AP account (2001)');
+        if (!bankAccount) {
+          if (bankAccountId) missing.push(`Bank/Cash account (ID: ${bankAccountId})`);
+          else missing.push(`Bank/Cash account (${paymentMethod === 'cash' ? '1001' : '1002'})`);
+        }
+        throw new Error(`${missing.join(' and ')} not found. Please ensure these accounts exist in the Chart of Accounts.`);
+      }
+
+      const lines = [];
+      // Debit AP for each bill
+      for (const item of billObjects) {
+        lines.push({
+          account: apAccount._id,
+          description: `Payment to ${item.bill.vendor?.name || 'Vendor'} – ${item.bill.billNumber}`,
+          debit: item.amount,
+          department: item.bill.department
+        });
+      }
+
+      // Credit Bank for the net amount
+      lines.push({
+        account: bankAccount._id,
+        description: `Bank payment – Batch Payment (pending signatures)`,
+        credit: netBankAmount,
+        department: departmentId
+      });
+
+      if (whtAmount > 0) {
+        const whtAccount = await A.resolve('2004');
+        if (whtAccount) {
+          lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${vendorName}`, credit: whtAmount, department: departmentId });
+        } else {
+          // If no WHT account, fallback to hitting the bank with the full amount
+          lines[lines.length - 1].credit = totalAmount;
+        }
+      }
+
+      const authorities = await ApPayment.resolvePaymentFinanceAuthorities(
+        billObjects[0].bill,
+        financeApprovalAuthorities,
+        createdBy
+      );
+
+      const { application, journalEntry } = await ApPayment.submitBatchSettlement({
+        bills: billObjects,
+        sourceType: 'bank_payment',
+        createdBy,
+        financeApprovalAuthorities: authorities,
+        journalPayload: withVoucherNarration(withCompany({
+          date: date || new Date(),
+          reference: reference || `BATCH-${Date.now()}`,
+          description: `Batch Payment – ${vendorName} (pending finance signatures)`,
+          department: departmentId,
+          module: billObjects[0].bill.module,
+          referenceType: 'payment',
+          journalCode: 'BANK',
+          voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
+          lines
+        }, companyId), `Batch Payment for ${billObjects.length} bills`),
+        paymentMeta: {
+          paymentMethod,
+          reference: reference || `BATCH-${Date.now()}`,
+          batchId: batchId || null,
+          whtRate,
+          bankAccountId: bankAccount ? bankAccount._id : null
+        }
+      });
+
+      return { success: true, applicationId: application._id, journalEntryId: journalEntry._id };
+    } catch (error) {
+      console.error('❌ Error recording AP Batch payment:', error);
       throw error;
     }
   },

@@ -91,8 +91,16 @@ export default function BatchPayment() {
     if (!window.confirm(`Pay ${selected.size} bill(s) totaling ${fmt(totalSelected)}?`)) return;
     setPaying(true); setError(''); setSuccess(''); setResult(null);
     try {
+      const billsPayload = [...selected].map(id => {
+        const bill = bills.find(b => b._id === id);
+        return {
+          billId: id,
+          amount: bill.outstandingAmount ?? ((bill.totalAmount || 0) - (bill.amountPaid || 0) - (bill.advanceApplied || 0))
+        };
+      });
+
       const res = await api.post('/finance/accounts-payable/batch-payment', {
-        billIds: [...selected],
+        bills: billsPayload,
         ...payment
       });
       setResult(res.data.data);
@@ -287,31 +295,13 @@ export default function BatchPayment() {
           <Typography variant="subtitle1" fontWeight={700} mb={1} color="success.main" display="flex" alignItems="center" gap={1}>
             <PaidIcon /> Payment Summary
           </Typography>
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'success.50' }}>
-                  <TableCell>Bill #</TableCell><TableCell>Vendor</TableCell><TableCell>Amount Paid</TableCell><TableCell>Status</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {(result.paid || []).map(r => (
-                  <TableRow key={r.billId}>
-                    <TableCell fontWeight={600}>{r.billNumber}</TableCell>
-                    <TableCell>{r.vendor}</TableCell>
-                    <TableCell sx={{ fontWeight: 700, color: 'success.main' }}>{fmt(r.amount)}</TableCell>
-                    <TableCell><Chip label="Paid" size="small" color="success" icon={<PaidIcon />} /></TableCell>
-                  </TableRow>
-                ))}
-                {(result.errors || []).map((e, i) => (
-                  <TableRow key={i} sx={{ bgcolor: 'error.50' }}>
-                    <TableCell colSpan={3}>{e.billId}</TableCell>
-                    <TableCell><Chip label={e.error} size="small" color="error" /></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Alert severity="success">
+            Batch payment application successfully created and is now pending finance authorization!
+            <br />
+            <strong>Application ID:</strong> {result.applicationId || '—'}
+            <br />
+            <strong>Draft Journal Entry ID:</strong> {result.journalEntryId || '—'}
+          </Alert>
         </Paper>
       )}
     </Box>

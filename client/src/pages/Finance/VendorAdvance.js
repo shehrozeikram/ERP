@@ -181,8 +181,8 @@ const VendorAdvance = () => {
   };
 
   const handleFinanceReturnPO = async () => {
-    if (!returnAgree || !returnSignature.trim() || !returnComments.trim()) {
-      toast.error('Please provide comments, digital signature, and agree to terms');
+    if (!returnAgree || !returnComments.trim()) {
+      toast.error('Please provide return comments and agree to terms');
       return;
     }
 
@@ -194,7 +194,7 @@ const VendorAdvance = () => {
       setActionLoading(true);
       await api.put(`/procurement/purchase-orders/${returnDialog.po._id}/finance-return`, {
         returnComments,
-        digitalSignature: returnSignature,
+        digitalSignature: returnSignature || undefined,
         observations: obs.length > 0 ? obs : undefined
       });
       toast.success('Purchase Order returned to Procurement with observations');
@@ -2186,16 +2186,6 @@ const VendorAdvance = () => {
             </Button>
           </Box>
 
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={returnSignature}
-            onChange={(e) => setReturnSignature(e.target.value)}
-            placeholder="Type your full name as digital signature"
-            required
-            sx={{ mb: 2 }}
-          />
-
           <FormControlLabel
             control={
               <Checkbox
@@ -2223,7 +2213,7 @@ const VendorAdvance = () => {
             onClick={handleFinanceReturnPO}
             variant="contained"
             color="warning"
-            disabled={actionLoading || !returnAgree || !returnSignature.trim() || !returnComments.trim()}
+            disabled={actionLoading || !returnAgree || !returnComments.trim()}
             startIcon={actionLoading ? <CircularProgress size={20} /> : <WarningIcon />}
           >
             Return with Observations
