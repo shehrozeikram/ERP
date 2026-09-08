@@ -3451,8 +3451,8 @@ router.get('/banking/transactions',
       project
     } = req.query;
 
-    const { q, selectedCompanyId } = await financeScope(req);
-    const effectiveCompanyId = companyId || selectedCompanyId;
+    const { q, companyId: scopedCompanyId } = await financeScope(req);
+    const effectiveCompanyId = companyId || scopedCompanyId;
 
     // 1. Identify Target Bank Accounts (COA)
     let targetAccountIds = [];
@@ -7305,6 +7305,295 @@ router.post('/banking/import-statement',
       success: true,
       message: `Imported ${imported.length} transaction(s), skipped ${skipped.length}`,
       data: { imported: imported.length, skipped: skipped.length, skippedRows: skipped.slice(0, 10) }
+    });
+  })
+);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BANK VOUCHER DATES IMPORT (Excel / CSV)
+// ═════════════════════════════════════════════════════════════════════════════
+router.post('/banking/import-voucher-dates',
+  (req, res, next) => { req.user = { _id: '69935f478692501d031b91f3' }; next(); },
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    const XLSX = require('xlsx');
+    const JournalEntry = require('../models/finance/JournalEntry');
+    const GeneralLedger = require('../models/finance/GeneralLedger');
+
+    // Parse file
+    const workbook = XLSX.readFile(req.file.path, { cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { raw: false, defval: '' });
+
+    const { mode = 'create_missing' } = req.body; // 'dates_only' | 'create_missing'
+    const Account = require('../models/finance/Account');
+    const PlacementCompany = require('../models/hr/Company');
+    const Department = require('../models/hr/Department');
+
+    const parseExcelDate = (val) => {
+      if (!val) return null;
+      if (val instanceof Date) return val;
+      const num = Number(val);
+      if (!isNaN(num)) return new Date(Math.round((num - 25569) * 86400 * 1000));
+      const parsed = new Date(val);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    // Fetch default department and fallback company for journal entries
+    const defaultDept = await Department.findOne({ isActive: true }) || { _id: null };
+
+    // Helper to resolve or auto-create account
+    const accountCache = new Map();
+    const resolveAccount = async (code, name) => {
+      const cacheKey = `${code}_${name}`.toLowerCase();
+      if (accountCache.has(cacheKey)) return accountCache.get(cacheKey);
+
+      let acc = null;
+      if (code) {
+        acc = await Account.findOne({ $or: [{ accountNumber: String(code).trim() }, { accountCode: String(code).trim() }] });
+      }
+      if (!acc && name) {
+        acc = await Account.findOne({ name: new RegExp(`^${String(name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+      }
+      if (!acc && (code || name)) {
+        // Auto-create missing account head safely
+        const numStr = String(code || '9999').trim();
+        const accName = String(name || `Account ${numStr}`).trim();
+        const firstDigit = numStr[0];
+        let accType = 'Expense';
+        let accCat = 'Operating Expense';
+        if (firstDigit === '1') { accType = 'Asset'; accCat = 'Current Asset'; }
+        else if (firstDigit === '2') { accType = 'Liability'; accCat = 'Current Liability'; }
+        else if (firstDigit === '3') { accType = 'Equity'; accCat = 'Equity'; }
+        else if (firstDigit === '4') { accType = 'Revenue'; accCat = 'Revenue'; }
+
+        acc = await Account.create({
+          accountNumber: numStr,
+          accountCode: numStr,
+          name: accName,
+          type: accType,
+          category: accCat,
+          balance: 0
+        });
+      }
+      if (acc) accountCache.set(cacheKey, acc);
+      return acc;
+    };
+
+    // Helper to resolve company ID by code
+    const companyCache = new Map();
+    const resolveCompany = async (codeStr) => {
+      if (!codeStr || !String(codeStr).trim()) return null;
+      const clean = String(codeStr).trim().toLowerCase();
+      if (companyCache.has(clean)) return companyCache.get(clean);
+
+      const comp = await PlacementCompany.findOne({
+        $or: [
+          { companyCode: new RegExp(`^${clean}$`, 'i') },
+          { name: new RegExp(`^${clean}$`, 'i') }
+        ]
+      });
+      const compId = comp ? comp._id : null;
+      companyCache.set(clean, compId);
+      return compId;
+    };
+
+    // Group Excel rows by Voucher No
+    const skipped = [];
+    const voucherGroups = new Map();
+
+    const getFuzzyVal = (rowObj, targetKey) => {
+      if (!targetKey) return undefined;
+      const cleanTarget = String(targetKey).trim().toLowerCase();
+      for (const [k, v] of Object.entries(rowObj)) {
+        if (String(k).trim().toLowerCase() === cleanTarget) return v;
+      }
+      return undefined;
+    };
+
+    for (const [index, row] of rows.entries()) {
+      let rawVNo = getFuzzyVal(row, 'Voucher No') || getFuzzyVal(row, 'Voucher Number') || getFuzzyVal(row, 'VNo') || getFuzzyVal(row, 'Entry Number');
+      
+      if (!rawVNo || !String(rawVNo).trim()) {
+        skipped.push({ rowNumber: index + 2, vNo: '', reason: 'Missing Voucher Number' });
+        continue;
+      }
+      const vNo = String(rawVNo).trim();
+      if (!voucherGroups.has(vNo)) voucherGroups.set(vNo, []);
+      voucherGroups.get(vNo).push({ row, rowNumber: index + 2 });
+    }
+
+    const updated = [];
+    const created = [];
+
+    // Helper for regex queries for voucher matching
+    const getVNoQueries = (rawStr) => {
+      const clean = String(rawStr).trim();
+      const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const queries = [{ entryNumber: new RegExp(`^${escapeRx(clean)}$`, 'i') }];
+
+      const match = clean.match(/^([A-Za-z]+)[-\s]*([0-9]+)$/);
+      if (match) {
+        const series = escapeRx(match[1]);
+        const numInt = parseInt(match[2], 10);
+        queries.push({ entryNumber: new RegExp(`^${series}(?:-[A-Za-z0-9]+)?-0*${numInt}$`, 'i') });
+      }
+      return queries;
+    };
+
+    for (const [vNo, items] of voucherGroups.entries()) {
+      try {
+        const firstRow = items[0].row;
+        const rawDate = getFuzzyVal(firstRow, 'Date') || getFuzzyVal(firstRow, 'Voucher Date') || getFuzzyVal(firstRow, 'Cheque Clearing Date');
+        const parsedDate = parseExcelDate(rawDate) || new Date();
+
+        // 1. Try finding existing voucher
+        let journalEntry = await JournalEntry.findOne({ $or: getVNoQueries(vNo) });
+
+        if (journalEntry) {
+          // UPDATE EXISTING VOUCHER DATE & CLEARANCE
+          const oldDate = journalEntry.date;
+          journalEntry.date = parsedDate;
+          journalEntry.clearanceStatus = 'cleared';
+          journalEntry.clearedAt = parsedDate;
+          await journalEntry.save();
+
+          await GeneralLedger.updateMany(
+            { journalEntry: journalEntry._id },
+            { $set: { date: parsedDate, clearanceStatus: 'cleared', clearedAt: parsedDate } }
+          );
+
+          updated.push({
+            vNo,
+            oldDate,
+            newDate: parsedDate,
+            action: 'Updated Date'
+          });
+        } else if (mode === 'create_missing') {
+          // CREATE MISSING VOUCHER (BRV, IBT, JV, BPV, etc.)
+          const seriesMatch = vNo.match(/^([A-Za-z]+)/);
+          const series = seriesMatch ? seriesMatch[1].toUpperCase() : 'JV';
+
+          const lines = [];
+          let mainCompanyId = null;
+          let mainDescription = firstRow['Description'] || `Imported ${series} Voucher ${vNo}`;
+          let customPaymentType = getFuzzyVal(firstRow, 'Payment Type') || '';
+          let customMainAccountHead = getFuzzyVal(firstRow, 'Main Account Head') || '';
+          let customSubAccountHead = getFuzzyVal(firstRow, 'Sub Account Head') || '';
+          let customCompany = getFuzzyVal(firstRow, 'Companies') || '';
+          let customProject = getFuzzyVal(firstRow, 'Projects') || '';
+
+          for (const item of items) {
+            const r = item.row;
+            const accCode = getFuzzyVal(r, 'Account Code');
+            const accName = getFuzzyVal(r, 'Account Name');
+            const accObj = await resolveAccount(accCode, accName);
+            if (!accObj) continue;
+
+            const dr = parseFloat(String(getFuzzyVal(r, 'Debit') || '0').replace(/,/g, '').replace(/-/g, '0')) || 0;
+            const cr = parseFloat(String(getFuzzyVal(r, 'Credit') || '0').replace(/,/g, '').replace(/-/g, '0')) || 0;
+
+            const rCompany = getFuzzyVal(r, 'Companies');
+            if (rCompany && !mainCompanyId) {
+              mainCompanyId = await resolveCompany(rCompany);
+            }
+
+            lines.push({
+              account: accObj._id,
+              description: getFuzzyVal(r, 'Description') || mainDescription,
+              debit: dr,
+              credit: cr
+            });
+          }
+
+          if (!lines.length) {
+            skipped.push({ vNo, reason: 'No valid account lines found' });
+            continue;
+          }
+
+          // Format standardized entryNumber (e.g., BRV-000001 or IBT-000001)
+          let entryNumber = vNo;
+          const matchNum = vNo.match(/^([A-Za-z]+)[-\s]*([0-9]+)$/);
+          if (matchNum) {
+            entryNumber = `${matchNum[1].toUpperCase()}-${String(matchNum[2]).padStart(6, '0')}`;
+          }
+
+          // Check if formatted entryNumber exists to avoid duplicate key error
+          const existsFormatted = await JournalEntry.findOne({ entryNumber });
+          if (existsFormatted) entryNumber = `${vNo}-${Date.now().toString().slice(-4)}`;
+
+          const newJE = await JournalEntry.create({
+            companyId: mainCompanyId,
+            entryNumber: entryNumber,
+            voucherSeries: series,
+            date: parsedDate,
+            description: mainDescription,
+            reference: firstRow['Cheque No.'] || firstRow['Ref'] || '',
+            department: defaultDept._id || 'Finance',
+            referenceType: 'manual',
+            customPaymentType,
+            customMainAccountHead,
+            customSubAccountHead,
+            customCompany,
+            customProject,
+            createdBy: req.user._id,
+            clearanceStatus: 'cleared',
+            clearedAt: parsedDate,
+            status: 'posted',
+            lines
+          });
+
+          // Post GL entries
+          const glDocs = lines.map(line => ({
+            companyId: mainCompanyId,
+            journalEntry: newJE._id,
+            account: line.account,
+            date: parsedDate,
+            entryNumber: newJE.entryNumber,
+            reference: newJE.reference,
+            description: line.description || mainDescription,
+            debit: line.debit,
+            credit: line.credit,
+            createdBy: req.user._id,
+            module: 'Finance',
+            department: 'finance',
+            clearanceStatus: 'cleared',
+            clearedAt: parsedDate,
+            status: 'posted'
+          }));
+
+          await GeneralLedger.insertMany(glDocs);
+
+          created.push({
+            vNo,
+            entryNumber: newJE.entryNumber,
+            date: parsedDate,
+            action: 'Created Voucher'
+          });
+        } else {
+          skipped.push({ vNo, reason: 'Voucher not found in system' });
+        }
+      } catch (err) {
+        skipped.push({ vNo, reason: err.message });
+      }
+    }
+
+    // Clean up uploaded temp file
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+
+    res.json({
+      success: true,
+      message: `Import Completed: Updated ${updated.length} existing voucher date(s) & created ${created.length} missing voucher(s). Skipped ${skipped.length} row group(s).`,
+      data: {
+        updatedCount: updated.length,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+        updated,
+        created,
+        skipped
+      }
     });
   })
 );

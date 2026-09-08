@@ -34,12 +34,21 @@ import {
   Search as SearchIcon,
   Refresh as RefreshIcon,
   Download as DownloadIcon,
+  Upload as UploadIcon,
   CheckCircle as ClearedIcon,
   ReceiptLong as VoucherIcon,
   Visibility as ViewIcon,
   Undo as UndoIcon,
-  Save as SaveIcon
+  Save as SaveIcon,
+  CloudUpload as CloudUploadIcon
 } from '@mui/icons-material';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress
+} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
@@ -202,6 +211,47 @@ const Banking = () => {
 
   const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
 
+  const [importModal, setImportModal] = useState({
+    open: false,
+    file: null,
+    loading: false,
+    error: '',
+    result: null
+  });
+
+  const handleImportVoucherDates = async () => {
+    if (!importModal.file) {
+      setImportModal(prev => ({ ...prev, error: 'Please select an Excel (.xlsx) or CSV file to import.' }));
+      return;
+    }
+    setImportModal(prev => ({ ...prev, loading: true, error: '', result: null }));
+    try {
+      const formData = new FormData();
+      formData.append('file', importModal.file);
+
+      const res = await api.post('/finance/banking/import-voucher-dates', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      if (res.data?.success) {
+        setImportModal(prev => ({
+          ...prev,
+          loading: false,
+          result: res.data.data
+        }));
+        setToast({ open: true, message: res.data.message || 'Voucher dates updated successfully!', severity: 'success' });
+        fetchTransactions();
+      }
+    } catch (err) {
+      console.error('Import error:', err);
+      setImportModal(prev => ({
+        ...prev,
+        loading: false,
+        error: err.response?.data?.message || 'Failed to import voucher dates.'
+      }));
+    }
+  };
+
   const handleFilterChange = (field) => (event) => {
     setFilters(prev => ({
       ...prev,
@@ -261,6 +311,14 @@ const Banking = () => {
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
             <FinanceCompanySelector showHelper={false} minWidth={220} allowAll={true} />
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<UploadIcon />}
+              onClick={() => setImportModal(prev => ({ ...prev, open: true, file: null, result: null, error: '' }))}
+            >
+              Import Voucher Dates
+            </Button>
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
@@ -690,6 +748,174 @@ const Banking = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Import Voucher Dates Dialog */}
+      <Dialog
+        open={importModal.open}
+        onClose={() => setImportModal(prev => ({ ...prev, open: false }))}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CloudUploadIcon color="primary" /> Import & Update Voucher Dates
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Upload an Excel (<code>.xlsx</code>) or CSV file. Rows will be strictly matched by <strong>Voucher Number</strong> (e.g. <code>BPV-1001</code>, <code>CPV-502</code>, or <code>JV-204</code>) and their dates will be updated in both Journal Entries and General Ledger.
+          </Alert>
+
+          {importModal.error && (
+            <Alert severity="error" onClose={() => setImportModal(prev => ({ ...prev, error: '' }))} sx={{ mb: 2 }}>
+              {importModal.error}
+            </Alert>
+          )}
+
+          {!importModal.result ? (
+            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box
+                sx={{
+                  border: `2px dashed ${theme.palette.divider}`,
+                  borderRadius: 2,
+                  p: 4,
+                  textAlign: 'center',
+                  bgcolor: alpha(theme.palette.primary.main, 0.03),
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.08) }
+                }}
+                component="label"
+              >
+                <input
+                  type="file"
+                  hidden
+                  accept=".xlsx, .xls, .csv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setImportModal(prev => ({ ...prev, file, error: '' }));
+                    }
+                  }}
+                />
+                <CloudUploadIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
+                <Typography variant="body1" fontWeight={600}>
+                  {importModal.file ? importModal.file.name : 'Click to select Excel (.xlsx / .csv) file'}
+                </Typography>
+                {importModal.file && (
+                  <Typography variant="caption" color="textSecondary" display="block">
+                    Size: {(importModal.file.size / 1024).toFixed(1)} KB
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ mt: 1 }}>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                Import Completed! Updated <strong>{importModal.result.updatedCount || 0}</strong> existing voucher date(s) & Created <strong>{importModal.result.createdCount || 0}</strong> missing voucher(s).
+              </Alert>
+
+              {importModal.result.created?.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" color="success.main" mb={1}>
+                    Newly Created Vouchers ({importModal.result.created.length}):
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 200 }}>
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: theme.palette.action.hover }}>
+                        <TableRow>
+                          <TableCell>Voucher No</TableCell>
+                          <TableCell>System Entry No</TableCell>
+                          <TableCell>Voucher Date</TableCell>
+                          <TableCell>Action</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {importModal.result.created.map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell><Chip label={item.vNo} size="small" color="success" variant="outlined" /></TableCell>
+                            <TableCell><strong>{item.entryNumber}</strong></TableCell>
+                            <TableCell>{item.date ? formatDate(item.date) : '—'}</TableCell>
+                            <TableCell><Chip label="Created" size="small" color="success" /></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+
+              {importModal.result.updated?.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" mb={1}>
+                    Updated Date Vouchers ({importModal.result.updated.length}):
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 200 }}>
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: theme.palette.action.hover }}>
+                        <TableRow>
+                          <TableCell>Voucher No</TableCell>
+                          <TableCell>Previous Date</TableCell>
+                          <TableCell>New Date</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {importModal.result.updated.map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell><Chip label={item.vNo} size="small" color="primary" variant="outlined" /></TableCell>
+                            <TableCell>{item.oldDate ? formatDate(item.oldDate) : '—'}</TableCell>
+                            <TableCell><strong>{item.newDate ? formatDate(item.newDate) : '—'}</strong></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+
+              {importModal.result.skipped?.length > 0 && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" color="error.main" mb={1}>
+                    Skipped Rows ({importModal.result.skipped.length}):
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 200 }}>
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: theme.palette.action.hover }}>
+                        <TableRow>
+                          <TableCell>Row #</TableCell>
+                          <TableCell>Voucher No</TableCell>
+                          <TableCell>Reason</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {importModal.result.skipped.map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{item.rowNumber}</TableCell>
+                            <TableCell>{item.vNo || '—'}</TableCell>
+                            <TableCell><Typography variant="body2" color="error">{item.reason}</Typography></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportModal(prev => ({ ...prev, open: false }))}>
+            {importModal.result ? 'Close' : 'Cancel'}
+          </Button>
+          {!importModal.result && (
+            <Button
+              variant="contained"
+              disabled={importModal.loading || !importModal.file}
+              onClick={handleImportVoucherDates}
+              startIcon={importModal.loading ? <CircularProgress size={18} /> : <UploadIcon />}
+            >
+              {importModal.loading ? 'Updating Dates...' : 'Upload & Match'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={toast.open}
