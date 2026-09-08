@@ -7313,7 +7313,7 @@ router.post('/banking/import-statement',
 // BANK VOUCHER DATES IMPORT (Excel / CSV)
 // ═════════════════════════════════════════════════════════════════════════════
 router.post('/banking/import-voucher-dates',
-  (req, res, next) => { req.user = { _id: '69935f478692501d031b91f3' }; next(); },
+  authorize('super_admin', 'admin', 'finance_manager', 'finance_user'),
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
