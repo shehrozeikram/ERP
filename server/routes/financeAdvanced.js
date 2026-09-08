@@ -3478,17 +3478,19 @@ router.get('/banking/transactions',
         targetAccountIds = [selectedAccId];
       }
     } else {
-      const bankAccounts = await Account.find(
-        q({
-          $or: [
-            { type: 'Asset' },
-            { category: { $regex: /cash|bank|current/i } },
-            { detailType: { $regex: /cash|bank/i } },
-            { accountCode: 'BANK' },
-            { accountCode: 'CASH' }
-          ]
-        })
-      ).select('_id').lean();
+      const companyAccFilter = (effectiveCompanyId && effectiveCompanyId !== 'all')
+        ? { $or: [{ companyId: effectiveCompanyId }, { companyId: null }, { companyId: { $exists: false } }] }
+        : {};
+      const bankAccounts = await Account.find({
+        ...companyAccFilter,
+        $or: [
+          { type: 'Asset' },
+          { category: { $regex: /cash|bank|current/i } },
+          { detailType: { $regex: /cash|bank/i } },
+          { accountCode: 'BANK' },
+          { accountCode: 'CASH' }
+        ]
+      }).select('_id').lean();
       targetAccountIds = bankAccounts.map(a => a._id);
     }
 
@@ -7321,6 +7323,7 @@ router.post('/banking/import-voucher-dates',
     const XLSX = require('xlsx');
     const JournalEntry = require('../models/finance/JournalEntry');
     const GeneralLedger = require('../models/finance/GeneralLedger');
+    const User = require('../models/User');
 
     // Parse file
     const workbook = XLSX.readFile(req.file.path, { cellDates: true });
@@ -7331,6 +7334,12 @@ router.post('/banking/import-voucher-dates',
     const Account = require('../models/finance/Account');
     const PlacementCompany = require('../models/hr/Company');
     const Department = require('../models/hr/Department');
+
+    let fallbackUserId = req.user?._id || req.user?.id;
+    if (!fallbackUserId) {
+      const defaultUser = await User.findOne({ isActive: true, role: 'super_admin' }) || await User.findOne({ isActive: true });
+      if (defaultUser) fallbackUserId = defaultUser._id;
+    }
 
     const parseExcelDate = (val) => {
       if (!val) return null;
@@ -7417,7 +7426,18 @@ router.post('/banking/import-voucher-dates',
       let rawVNo = getFuzzyVal(row, 'Voucher No') || getFuzzyVal(row, 'Voucher Number') || getFuzzyVal(row, 'VNo') || getFuzzyVal(row, 'Entry Number');
       
       if (!rawVNo || !String(rawVNo).trim()) {
-        skipped.push({ rowNumber: index + 2, vNo: '', reason: 'Missing Voucher Number' });
+        // If row is entirely empty or has no financial data, quietly ignore trailing blank Excel rows
+        const desc = String(getFuzzyVal(row, 'Description') || '').trim().toLowerCase();
+        if (desc === 'total' || desc.includes('difference must be nil')) {
+          continue;
+        }
+        const hasAnyData = Object.values(row).some(v => String(v).trim().length > 0);
+        if (hasAnyData) {
+          const hasAmount = getFuzzyVal(row, 'Debit') || getFuzzyVal(row, 'Credit');
+          if (hasAmount) {
+            skipped.push({ rowNumber: index + 2, vNo: '', reason: 'Missing Voucher Number' });
+          }
+        }
         continue;
       }
       const vNo = String(rawVNo).trim();
@@ -7455,6 +7475,10 @@ router.post('/banking/import-voucher-dates',
         if (journalEntry) {
           // UPDATE EXISTING VOUCHER DATE & CLEARANCE
           const oldDate = journalEntry.date;
+          const effectiveCreatedBy = req.user?._id || req.user?.id || fallbackUserId;
+          if (!journalEntry.createdBy && effectiveCreatedBy) {
+            journalEntry.createdBy = effectiveCreatedBy;
+          }
           journalEntry.date = parsedDate;
           journalEntry.clearanceStatus = 'cleared';
           journalEntry.clearedAt = parsedDate;
@@ -7462,7 +7486,14 @@ router.post('/banking/import-voucher-dates',
 
           await GeneralLedger.updateMany(
             { journalEntry: journalEntry._id },
-            { $set: { date: parsedDate, clearanceStatus: 'cleared', clearedAt: parsedDate } }
+            { 
+              $set: { 
+                date: parsedDate, 
+                clearanceStatus: 'cleared', 
+                clearedAt: parsedDate,
+                ...(effectiveCreatedBy ? { createdBy: effectiveCreatedBy } : {})
+              } 
+            }
           );
 
           updated.push({
@@ -7524,6 +7555,8 @@ router.post('/banking/import-voucher-dates',
           const existsFormatted = await JournalEntry.findOne({ entryNumber });
           if (existsFormatted) entryNumber = `${vNo}-${Date.now().toString().slice(-4)}`;
 
+          const effectiveCreatedBy = req.user?._id || req.user?.id || fallbackUserId;
+
           const newJE = await JournalEntry.create({
             companyId: mainCompanyId,
             entryNumber: entryNumber,
@@ -7538,7 +7571,7 @@ router.post('/banking/import-voucher-dates',
             customSubAccountHead,
             customCompany,
             customProject,
-            createdBy: req.user._id,
+            createdBy: effectiveCreatedBy,
             clearanceStatus: 'cleared',
             clearedAt: parsedDate,
             status: 'posted',
@@ -7556,7 +7589,7 @@ router.post('/banking/import-voucher-dates',
             description: line.description || mainDescription,
             debit: line.debit,
             credit: line.credit,
-            createdBy: req.user._id,
+            createdBy: effectiveCreatedBy,
             module: 'Finance',
             department: 'finance',
             clearanceStatus: 'cleared',
