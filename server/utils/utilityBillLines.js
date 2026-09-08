@@ -64,6 +64,8 @@ const applyBillLinesToPayload = async (billData) => {
       location: raw.location || storeItem?.location || '',
       site: raw.site || storeItem?.site || billData.site || '',
       amount: amt,
+      quantity: raw.quantity !== undefined && raw.quantity !== null && raw.quantity !== '' ? Math.max(Number(raw.quantity), 0) : 1,
+      unitPrice: raw.unitPrice !== undefined && raw.unitPrice !== null && raw.unitPrice !== '' ? round2(raw.unitPrice) : (raw.quantity ? round2(amt / Number(raw.quantity)) : amt),
       expenseAccount: expenseAccount || null,
       expenseAccountNumber,
       ...(lineDue ? { dueDate: lineDue } : {}),

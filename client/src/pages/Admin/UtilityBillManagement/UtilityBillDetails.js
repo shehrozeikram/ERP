@@ -551,8 +551,10 @@ const UtilityBillDetails = () => {
     const created = bill?.createdAt ? new Date(bill.createdAt) : bd;
     const rowHtml = lines.map((line, i) => {
       const amt = Number(line.amount) || 0;
-      const qty = 1;
-      const rate = amt;
+      const hasQty = line.quantity !== undefined && line.quantity !== null && line.quantity !== '';
+      const qty = hasQty ? Number(line.quantity) : 1;
+      const hasRate = line.unitPrice !== undefined && line.unitPrice !== null && line.unitPrice !== '';
+      const rate = hasRate ? Number(line.unitPrice) : (qty ? amt / qty : amt);
       return `<tr class="data-row">
         <td class="c-num">${i + 1}</td>
         <td class="c-code">${esc(getStoreLineProductCode(line))}</td>
@@ -1115,6 +1117,8 @@ const UtilityBillDetails = () => {
                 <TableBody>
                   {(bill.billLines || []).map((line, i) => {
                     const amt = Number(line.amount) || 0;
+                    const qty = line.quantity !== undefined ? Number(line.quantity) : 1;
+                    const rate = line.unitPrice !== undefined ? Number(line.unitPrice) : amt;
                     return (
                       <TableRow key={line._id || line.storeItem || i}>
                         <TableCell sx={{ textAlign: 'center' }}>{i + 1}</TableCell>
@@ -1124,8 +1128,8 @@ const UtilityBillDetails = () => {
                           <LineAttachmentsView line={line} />
                         </TableCell>
                         <TableCell sx={{ textAlign: 'center' }}>Nos</TableCell>
-                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(1)}</TableCell>
-                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(amt)}</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(qty)}</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(rate)}</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(amt)}</TableCell>
                         <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>

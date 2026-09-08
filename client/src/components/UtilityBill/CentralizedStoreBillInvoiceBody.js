@@ -143,8 +143,10 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
           <TableBody>
             {lines.map((line, i) => {
               const amt = Number(line.amount) || 0;
-              const qty = Number(line.quantity) || 1;
-              const rate = Number(line.unitPrice) || amt / qty || amt;
+              const hasQty = line.quantity !== undefined && line.quantity !== null && line.quantity !== '';
+              const qty = hasQty ? Number(line.quantity) : 1;
+              const hasRate = line.unitPrice !== undefined && line.unitPrice !== null && line.unitPrice !== '';
+              const rate = hasRate ? Number(line.unitPrice) : (qty ? amt / qty : amt);
               const lineLabel = isCoa
                 ? (line.description || line.itemName || '—')
                 : getStoreLineDescription(line);

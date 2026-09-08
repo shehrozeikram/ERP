@@ -559,7 +559,9 @@ const UtilityBillForm = () => {
       if (i !== index) return row;
       const updatedRow = { ...row, [field]: value };
       if (isCentralizedStoreBill && (field === 'quantity' || field === 'unitPrice')) {
-        updatedRow.amount = (Number(updatedRow.quantity) || 1) * (Number(updatedRow.unitPrice) || 0);
+        const qty = updatedRow.quantity === '' || updatedRow.quantity === undefined ? 0 : Number(updatedRow.quantity);
+        const price = updatedRow.unitPrice === '' || updatedRow.unitPrice === undefined ? 0 : Number(updatedRow.unitPrice);
+        updatedRow.amount = qty * price;
       }
       return updatedRow;
     }));
@@ -748,9 +750,18 @@ const UtilityBillForm = () => {
       setError('This bill is not in a state that can be sent to approval authorities again.');
       return;
     }
-    if (mode === 'submit' && (!managerApprover?._id || !hodApprover?._id)) {
-      setError('Please select Manager Approver and Head Of Department Approver before submitting.');
-      return;
+    if (mode === 'submit') {
+      if (useStoreBill) {
+        if (!managerApprover?._id && !hodApprover?._id) {
+          setError('Please select at least Manager Approver or Head Of Department Approver before submitting.');
+          return;
+        }
+      } else {
+        if (!managerApprover?._id || !hodApprover?._id) {
+          setError('Please select Manager Approver and Head Of Department Approver before submitting.');
+          return;
+        }
+      }
     }
 
     const managerApproverId = getUserId(managerApprover);
@@ -762,7 +773,7 @@ const UtilityBillForm = () => {
       return;
     }
 
-    if (mode === 'submit' && managerApproverId === hodApproverId) {
+    if (mode === 'submit' && managerApproverId && hodApproverId && managerApproverId === hodApproverId) {
       setError('Manager Approver and Head Of Department Approver must be different.');
       return;
     }
@@ -1515,12 +1526,12 @@ const UtilityBillForm = () => {
                             </TableCell>
                             {isCentralizedStoreBill && (
                               <TableCell align="right">
-                                <TextField size="small" type="number" value={line.quantity || ''} onChange={(e) => updateBillLine(idx, 'quantity', e.target.value)} sx={{ width: 80 }} />
+                                <TextField size="small" type="number" value={line.quantity !== undefined ? line.quantity : ''} onChange={(e) => updateBillLine(idx, 'quantity', e.target.value)} sx={{ width: 80 }} />
                               </TableCell>
                             )}
                             {isCentralizedStoreBill && (
                               <TableCell align="right">
-                                <TextField size="small" type="number" value={line.unitPrice || ''} onChange={(e) => updateBillLine(idx, 'unitPrice', e.target.value)} sx={{ width: 100 }} />
+                                <TextField size="small" type="number" value={line.unitPrice !== undefined ? line.unitPrice : ''} onChange={(e) => updateBillLine(idx, 'unitPrice', e.target.value)} sx={{ width: 100 }} />
                               </TableCell>
                             )}
                             <TableCell align="right">
@@ -1832,7 +1843,7 @@ const UtilityBillForm = () => {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   {isCentralizedStoreBill
-                    ? 'Choose Manager and Head Of Department approvers before submitting. All active users are listed.'
+                    ? 'Choose at least one approver (Manager or Head Of Department) before submitting. All active users are listed.'
                     : 'Choose Manager and Head Of Department approvers before submitting. You can also save as draft. Only users whose department in User Management is Administration (code ADMIN) are listed.'}
                 </Typography>
               </Grid>

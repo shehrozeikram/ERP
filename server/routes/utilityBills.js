@@ -902,8 +902,14 @@ router.post('/:id/submit', requireBillPermission('update'), async (req, res) => 
     const fromDraft = normalizeApproverIds(bill.draftApproverIds || []);
     const approverIds = uniqueApproverIds(fromBody.length ? fromBody : fromDraft);
 
-    if (approverIds.length !== 2) {
-      return res.status(400).json({ success: false, message: 'Select Manager Approver and Head Of Department Approver' });
+    if (bill.useCentralizedStore) {
+      if (approverIds.length < 1 || approverIds.length > 2) {
+        return res.status(400).json({ success: false, message: 'Select at least one approver (Manager Approver or Head Of Department)' });
+      }
+    } else {
+      if (approverIds.length !== 2) {
+        return res.status(400).json({ success: false, message: 'Select Manager Approver and Head Of Department Approver' });
+      }
     }
 
     const actorId = getActorId(req);
@@ -923,8 +929,14 @@ router.post('/:id/submit', requireBillPermission('update'), async (req, res) => 
     }
 
     const approvers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');
-    if (approvers.length !== 2) {
-      return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });
+    if (bill.useCentralizedStore) {
+      if (approvers.length < 1 || approvers.length > 2) {
+        return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });
+      }
+    } else {
+      if (approvers.length !== 2) {
+        return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });
+      }
     }
 
     const previousStatus = bill.approvalStatus;

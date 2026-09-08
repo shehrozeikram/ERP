@@ -72,6 +72,8 @@ const utilityBillSchema = new mongoose.Schema({
     location: { type: String, trim: true, default: '' },
     site: { type: String, trim: true, default: '' },
     amount: { type: Number, min: 0, default: 0 },
+    quantity: { type: Number, min: 0, default: 1 },
+    unitPrice: { type: Number, min: 0, default: 0 },
     expenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     expenseAccountNumber: { type: String, trim: true, default: '' },
     dueDate: { type: Date },
