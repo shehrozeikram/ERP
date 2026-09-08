@@ -12,6 +12,11 @@ const quotationSchema = new mongoose.Schema({
     ref: 'Indent',
     required: true
   },
+  lotNumber: {
+    type: String,
+    enum: ['A', 'B', 'C', 'D', 'E', 'F'],
+    default: 'A'
+  },
   vendor: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Supplier',

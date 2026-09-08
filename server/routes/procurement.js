@@ -496,9 +496,14 @@ const canViewQuotationsByIndentRead = (user, indent) => {
   return false;
 };
 
-const ensureComparativeApprovalObject = (indent) => {
-  if (!indent.comparativeApproval || typeof indent.comparativeApproval !== 'object') {
-    indent.comparativeApproval = {
+const ensureComparativeApprovalObject = (indent, lotNumber = 'A') => {
+  if (!Array.isArray(indent.comparativeApprovals)) {
+    indent.comparativeApprovals = [];
+  }
+  let caIndex = indent.comparativeApprovals.findIndex(a => a.lotNumber === lotNumber);
+  if (caIndex === -1) {
+    indent.comparativeApprovals.push({
+      lotNumber,
       status: 'not_configured',
       approvers: [],
       submittedBy: null,
@@ -508,15 +513,13 @@ const ensureComparativeApprovalObject = (indent) => {
       rejectedAt: null,
       rejectionObservation: '',
       rejectionObservations: []
-    };
+    });
+    caIndex = indent.comparativeApprovals.length - 1;
   }
-  if (!Array.isArray(indent.comparativeApproval.approvers)) {
-    indent.comparativeApproval.approvers = [];
-  }
-  if (!Array.isArray(indent.comparativeApproval.rejectionObservations)) {
-    indent.comparativeApproval.rejectionObservations = [];
-  }
-  return indent.comparativeApproval;
+  const ca = indent.comparativeApprovals[caIndex];
+  if (!Array.isArray(ca.approvers)) ca.approvers = [];
+  if (!Array.isArray(ca.rejectionObservations)) ca.rejectionObservations = [];
+  return ca;
 };
 
 /** Stable user id string for comparative approver steps (handles ObjectId, populated User, lean {_id}). */
@@ -1152,6 +1155,15 @@ router.post('/purchase-orders', [
   await purchaseOrder.save();
   pushPOWorkflowHistory(purchaseOrder, '—', 'Pending Approval', req.user.id, 'Created in Procurement and submitted for authority approval', 'Procurement');
   await purchaseOrder.save();
+
+  if (purchaseOrder.indent) {
+    try {
+      const Indent = require('../models/general/Indent');
+      await Indent.updateFulfillment(purchaseOrder.indent);
+    } catch (err) {
+      console.error('Error updating indent fulfillment after manual PO creation:', err);
+    }
+  }
 
   const populatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
     .populate('vendor', 'name email phone')
@@ -5748,7 +5760,7 @@ router.put('/requisitions/:id/comparative-approvers',
       return res.status(400).json({ success: false, message: 'Selected approvers must be active users.' });
     }
 
-    const ca = ensureComparativeApprovalObject(indent);
+    const ca = ensureComparativeApprovalObject(indent, req.body.lotNumber || 'A');
     const previousStatus = ca.status;
     ca.approvers = filteredIds.map((id) => ({
       approver: id,
@@ -5775,11 +5787,6 @@ router.put('/requisitions/:id/comparative-approvers',
     await indent.save();
 
     const updated = await Indent.findById(indent._id)
-      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
-      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
-      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -5806,7 +5813,7 @@ router.post('/requisitions/:id/comparative-submit',
       });
     }
 
-    const ca = ensureComparativeApprovalObject(indent);
+    const ca = ensureComparativeApprovalObject(indent, req.body.lotNumber || 'A');
     if (!Array.isArray(ca.approvers) || ca.approvers.length === 0) {
       return res.status(400).json({ success: false, message: 'Configure comparative approvers first.' });
     }
@@ -5909,11 +5916,6 @@ router.post('/requisitions/:id/comparative-submit',
     }
 
     const updated = await Indent.findById(indent._id)
-      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
-      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
-      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -5933,7 +5935,7 @@ router.post('/requisitions/:id/comparative-approve',
     if (!indent) {
       return res.status(404).json({ success: false, message: 'Requisition not found' });
     }
-    const ca = ensureComparativeApprovalObject(indent);
+    const ca = ensureComparativeApprovalObject(indent, req.body.lotNumber || 'A');
     if (ca.status !== 'submitted') {
       return res.status(400).json({ success: false, message: 'Comparative statement is not awaiting approval.' });
     }
@@ -6029,11 +6031,6 @@ router.post('/requisitions/:id/comparative-approve',
     }
 
     const updated = await Indent.findById(indent._id)
-      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
-      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
-      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -6067,7 +6064,7 @@ router.post('/requisitions/:id/comparative-reject',
       return res.status(404).json({ success: false, message: 'Requisition not found' });
     }
 
-    const ca = ensureComparativeApprovalObject(indent);
+    const ca = ensureComparativeApprovalObject(indent, req.body.lotNumber || 'A');
     if (ca.status !== 'submitted') {
       return res.status(400).json({ success: false, message: 'Comparative statement is not awaiting approval.' });
     }
@@ -6136,11 +6133,6 @@ router.post('/requisitions/:id/comparative-reject',
     });
 
     const updated = await Indent.findById(indent._id)
-      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
-      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
-      .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -6326,9 +6318,6 @@ router.delete('/requisitions/:id/comparative-statement',
     );
 
     const updatedIndent = await Indent.findById(indent._id)
-      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
-      .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-      .populate('comparativeApproval.rejectedBy', 'firstName lastName email');
 
     res.json({
       success: true,
@@ -7097,7 +7086,8 @@ router.put('/quotations/:id', [
         const existingActiveQuote = await Quotation.findOne({
           indent: indentId,
           _id: { $ne: quotation._id },
-          status: { $in: ['Finalized', 'Shortlisted'] }
+          status: { $in: ['Finalized', 'Shortlisted'] },
+          lotNumber: quotation.lotNumber || 'A'
         });
         if (existingActiveQuote) {
           return res.status(400).json({
@@ -7106,9 +7096,12 @@ router.put('/quotations/:id', [
           });
         }
 
+        const lotQuotes = await Quotation.find({ indent: indentId, lotNumber: quotation.lotNumber || 'A' }).select('_id');
+        const lotQuoteIds = lotQuotes.map(q => q._id);
+
         const existingPO = await PurchaseOrder.findOne({
           indent: indentId,
-          quotation: { $ne: quotation._id },
+          quotation: { $in: lotQuoteIds, $ne: quotation._id },
           status: { $ne: 'Cancelled' }
         });
         if (existingPO) {
@@ -7122,7 +7115,8 @@ router.put('/quotations/:id', [
         const otherShortlisted = await Quotation.findOne({
           indent: indentId,
           _id: { $ne: quotation._id },
-          status: 'Shortlisted'
+          status: 'Shortlisted',
+          lotNumber: quotation.lotNumber || 'A'
         });
         if (otherShortlisted) {
           return res.status(400).json({

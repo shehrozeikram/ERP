@@ -413,14 +413,14 @@ router.get('/dashboard',
   authMiddleware,
   asyncHandler(async (req, res) => {
     const userId = req.user.id;
-    
+
     // Get all indents for statistics
     const allIndents = await Indent.find({ isActive: true });
-    
+
     // Get user's department
     const user = await User.findById(userId).populate('department');
     const userDepartment = user?.department?._id || null;
-    
+
     // Calculate statistics
     const stats = {
       total: allIndents.length,
@@ -441,11 +441,11 @@ router.get('/dashboard',
         Urgent: allIndents.filter(i => i.priority === 'Urgent').length
       },
       totalEstimatedCost: allIndents.reduce((sum, i) => sum + (i.totalEstimatedCost || 0), 0),
-      myIndents: userDepartment ? allIndents.filter(i => 
-        i.department?.toString() === userDepartment.toString() || 
+      myIndents: userDepartment ? allIndents.filter(i =>
+        i.department?.toString() === userDepartment.toString() ||
         i.requestedBy?.toString() === userId.toString()
       ).length : allIndents.filter(i => i.requestedBy?.toString() === userId.toString()).length,
-      pendingApproval: allIndents.filter(i => 
+      pendingApproval: allIndents.filter(i =>
         i.status === 'Submitted' || i.status === 'Under Review'
       ).length
     };
@@ -649,7 +649,7 @@ router.post('/',
     } else {
       delete indentData.draftApproverIds;
     }
-    
+
     // Allow manual indentNumber if provided; otherwise auto-generate in pre-save middleware
     if (indentData.indentNumber !== undefined) {
       indentData.indentNumber = String(indentData.indentNumber || '').trim();
@@ -1284,7 +1284,7 @@ router.post('/:id/submit',
         entityType: 'Indent'
       }
     });
-    notifyApprovers([approver._id], { docType: 'Indent', docNumber: indent.indentNumber || '' }).catch(() => {});
+    notifyApprovers([approver._id], { docType: 'Indent', docNumber: indent.indentNumber || '' }).catch(() => { });
 
     res.json({
       success: true,

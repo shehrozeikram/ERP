@@ -742,14 +742,6 @@ router.get('/finance-vendors/bills/:id',
           indent = await Indent.findById(indentId)
             .populate('requestedBy', 'firstName lastName name email digitalSignature')
             .populate('department', 'name code')
-            .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
-            .populate('comparativeApproval.submittedBy', 'firstName lastName email')
-            .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
-            .populate('comparativeStatementApprovals.preparedByUser', 'firstName lastName email employeeId digitalSignature')
-            .populate('comparativeStatementApprovals.verifiedByUser', 'firstName lastName email employeeId digitalSignature')
-            .populate('comparativeStatementApprovals.authorisedRepUser', 'firstName lastName email employeeId digitalSignature')
-            .populate('comparativeStatementApprovals.financeRepUser', 'firstName lastName email employeeId digitalSignature')
-            .populate('comparativeStatementApprovals.managerProcurementUser', 'firstName lastName email employeeId digitalSignature')
             .lean();
           quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
         }

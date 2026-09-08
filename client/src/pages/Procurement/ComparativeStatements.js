@@ -80,6 +80,7 @@ const ComparativeStatements = () => {
   const authoritySearchDebounceRef = useRef(null);
 
   const [selectedQuotationIds, setSelectedQuotationIds] = useState([]);
+  const [selectedLot, setSelectedLot] = useState('A');
 
   // Load requisitions on component mount
   useEffect(() => {
@@ -213,9 +214,9 @@ const ComparativeStatements = () => {
     if (authoritySearchDebounceRef.current) clearTimeout(authoritySearchDebounceRef.current);
   }, []);
 
-  const comparativeApproval = selectedRequisition?.comparativeApproval || {};
-  const comparativeStatus = comparativeApproval?.status || 'not_configured';
-  const approvalSteps = Array.isArray(comparativeApproval?.approvers) ? comparativeApproval.approvers : [];
+  const currentApproval = selectedRequisition?.comparativeApprovals?.find(a => a.lotNumber === selectedLot) || {};
+  const comparativeStatus = currentApproval?.status || 'not_configured';
+  const approvalSteps = Array.isArray(currentApproval?.approvers) ? currentApproval.approvers : [];
   const userId = normalizeMongoId(user);
   const isPendingApprover = approvalSteps.some(
     (s) => normalizeMongoId(s?.approver) === userId && s?.status === 'pending'
@@ -259,12 +260,12 @@ const ComparativeStatements = () => {
     try {
       setSavingComparativeApprovers(true);
       setError('');
-      const res = await api.put(`/procurement/requisitions/${selectedRequisition._id}/comparative-approvers`, {
+      const res = await api.put(`/procurement/requisitions/${selectedRequisition._id}/comparative-approvers`, { lotNumber: selectedLot,
         approverIds
       });
       if (res.data?.success) {
         const updated = res.data.data;
-        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
         setSuccess('Comparative approvers configured successfully.');
       }
     } catch (err) {
@@ -290,11 +291,11 @@ const ComparativeStatements = () => {
             setSelectedRequisition(refreshed.data.data);
           } else {
             const updated = res.data.data;
-            setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+            setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
           }
         } catch {
           const updated = res.data.data;
-          setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+          setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
         }
         setSuccess('Comparative statement submitted for approvals.');
         setResolutionNote('');
@@ -311,7 +312,7 @@ const ComparativeStatements = () => {
     try {
       setApprovingComparative(true);
       setError('');
-      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-approve`);
+      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-approve`, { lotNumber: selectedLot });
       if (res.data?.success) {
         const updated = res.data.data;
         const rid = updated?._id || selectedRequisition?._id;
@@ -321,17 +322,17 @@ const ComparativeStatements = () => {
             if (refreshed.data?.success && refreshed.data.data) {
               setSelectedRequisition(refreshed.data.data);
             } else {
-              setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+              setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
             }
           } catch {
-            setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+            setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
           }
         } else {
-          setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+          setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
         }
         setSuccess(res.data.message || 'Approval recorded.');
         // Server finalizes shortlisted (or split-PO) quotations; refresh list so UI shows Finalized.
-        if (updated?.comparativeApproval?.status === 'approved' && selectedRequisition?._id) {
+        if (updated?.comparativeApprovals?.some(a => a.status === 'approved') && selectedRequisition?._id) {
           try {
             const response = await api.get(`/procurement/quotations/by-indent/${selectedRequisition._id}`);
             if (response.data.success) {
@@ -355,12 +356,12 @@ const ComparativeStatements = () => {
     try {
       setRejectingComparative(true);
       setError('');
-      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-reject`, {
+      const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-reject`, { lotNumber: selectedLot,
         observation: rejectObservation.trim()
       });
       if (res.data?.success) {
         const updated = res.data.data;
-        setSelectedRequisition((prev) => ({ ...prev, comparativeApproval: updated.comparativeApproval }));
+        setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
         setRejectDialogOpen(false);
         setRejectObservation('');
         setSuccess(res.data.message || 'Comparative statement rejected.');
@@ -459,8 +460,11 @@ const ComparativeStatements = () => {
         status: selectedStatus
       });
 
-      // Keep only one active preferred vendor marker before approval.
-      const otherQuotations = quotations.filter(q => q._id !== selectDialog.quotation._id);
+      // Keep only one active preferred vendor marker per lot before approval.
+      const otherQuotations = quotations.filter(q => 
+        q._id !== selectDialog.quotation._id &&
+        (q.lotNumber || 'A') === (selectDialog.quotation.lotNumber || 'A')
+      );
       for (const quote of otherQuotations) {
         if (quote.status === 'Shortlisted') {
           try {
@@ -615,8 +619,8 @@ const ComparativeStatements = () => {
         {/* Comparative Statement Display */}
         {selectedRequisition && (
           <>
-            <ComparativeRejectionObservationsAlert comparativeApproval={selectedRequisition?.comparativeApproval} />
-            {canSubmitComparative && selectedRequisition?.comparativeApproval?.status === 'rejected' && (
+            <ComparativeRejectionObservationsAlert comparativeApproval={currentApproval} />
+            {canSubmitComparative && currentApproval?.status === 'rejected' && (
               <TextField
                 fullWidth
                 multiline
@@ -714,9 +718,34 @@ const ComparativeStatements = () => {
               </Paper>
             )}
 
+            
+            {(() => {
+              const lots = [...new Set(quotations.map(q => q.lotNumber || 'A'))].sort();
+              return (
+                <Box sx={{ mb: 2, display: 'flex', gap: 2 }}>
+                  {lots.map(lot => (
+                    <Button 
+                      key={lot} 
+                      variant={selectedLot === lot ? 'contained' : 'outlined'}
+                      onClick={() => setSelectedLot(lot)}
+                    >
+                      Lot {lot}
+                    </Button>
+                  ))}
+                </Box>
+              );
+            })()}
+
             <ComparativeStatementView
-              requisition={selectedRequisition}
-              quotations={activeQuotations}
+              requisition={{
+                ...selectedRequisition,
+                // Filter items to only those that have a quotation in this lot
+                csItems: selectedRequisition.items.filter(item => 
+                  quotations.some(q => (q.lotNumber || 'A') === selectedLot && q.items?.some(qi => qi.description === item.itemName))
+                )
+              }}
+
+              quotations={activeQuotations.filter(q => (q.lotNumber || 'A') === selectedLot)}
               approvalAuthority={approvalAuthority}
               note={comparativeNote}
               readOnly={false}

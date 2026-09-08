@@ -87,6 +87,7 @@ const Quotations = () => {
   const [formData, setFormData] = useState({
     indent: '',
     vendor: '',
+    lotNumber: 'A',
     quotationDate: new Date().toISOString().split('T')[0],
     expiryDate: '',
     status: 'Received',
@@ -361,7 +362,17 @@ const Quotations = () => {
       }
       
       // Calculate amounts for items
-      const items = formData.items.map(item => {
+      const itemsToProcess = formData.items.filter((item) => {
+        if (formDialog.mode === 'edit') return true;
+        const otherLotQuote = quotations.find(q => 
+          String(q.indent?._id || q.indent) === String(formData.indent) &&
+          (q.lotNumber || 'A') !== (formData.lotNumber || 'A') &&
+          q.items?.some(qi => qi.description === item.description && qi.quantity > 0)
+        );
+        return !otherLotQuote;
+      });
+      
+      const items = itemsToProcess.map(item => {
         const subtotal = item.quantity * item.unitPrice;
         const discountAmount = item.discount || 0;
         const afterDiscount = subtotal - discountAmount;
@@ -870,6 +881,17 @@ const Quotations = () => {
             <TextField
               select
               fullWidth
+              label="Lot Group"
+              value={formData.lotNumber || 'A'}
+              onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })}
+            >
+              {['A', 'B', 'C', 'D', 'E', 'F'].map(lot => (
+                <MenuItem key={lot} value={lot}>Lot {lot}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              fullWidth
               label="Requisition"
               value={formData.indent}
               onChange={(e) => {
@@ -1005,7 +1027,20 @@ const Quotations = () => {
               <Button size="small" onClick={addItem}>Add Item</Button>
             </Box>
             
-            {formData.items.map((item, idx) => (
+            {formData.items
+              .map((item, originalIdx) => ({ item, originalIdx }))
+              .filter(({ item }) => {
+                if (formDialog.mode === 'edit') return true;
+                const otherLotQuote = quotations.find(q => 
+                  String(q.indent?._id || q.indent) === String(formData.indent) &&
+                  (q.lotNumber || 'A') !== (formData.lotNumber || 'A') &&
+                  q.items?.some(qi => qi.description === item.description && qi.quantity > 0)
+                );
+                return !otherLotQuote;
+              })
+              .map(({ item, originalIdx }) => {
+                const idx = originalIdx;
+                return (
               <Paper key={idx} variant="outlined" sx={{ p: 2, bgcolor: item.isFulfilled ? '#f0fff0' : 'inherit' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
                   <Chip size="small" label={`S.No. ${idx + 1}`} color="primary" variant="outlined" />
@@ -1136,7 +1171,8 @@ const Quotations = () => {
                   </Grid>
                 </Grid>
               </Paper>
-            ))}
+                );
+              })}
             
             <TextField
               fullWidth

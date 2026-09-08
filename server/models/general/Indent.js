@@ -9,7 +9,7 @@ const indentSchema = new mongoose.Schema({
     sparse: true,
     trim: true
   },
-  
+
   // Basic Information
   title: {
     type: String,
@@ -22,7 +22,7 @@ const indentSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Description cannot exceed 1000 characters']
   },
-  
+
   // Company / Legal Entity
   companyId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -42,7 +42,7 @@ const indentSchema = new mongoose.Schema({
     ref: 'User',
     required: [true, 'Requester is required']
   },
-  
+
   // Items
   items: [{
     itemName: {
@@ -97,7 +97,7 @@ const indentSchema = new mongoose.Schema({
       trim: true
     }
   }],
-  
+
   // Status
   status: {
     type: String,
@@ -185,7 +185,7 @@ const indentSchema = new mongoose.Schema({
       default: ''
     }
   },
-  
+
   // Dates
   requestedDate: {
     type: Date,
@@ -201,7 +201,7 @@ const indentSchema = new mongoose.Schema({
   fulfilledDate: {
     type: Date
   },
-  
+
   // Approval (legacy: single approver on indent.approvedBy; new: parallel chain — all must approve)
   approvalChain: [{
     approver: {
@@ -260,14 +260,14 @@ const indentSchema = new mongoose.Schema({
       default: ''
     }
   }],
-  
+
   // Financial Information
   totalEstimatedCost: {
     type: Number,
     default: 0,
     min: [0, 'Total estimated cost cannot be negative']
   },
-  
+
   // Reference and Amount Information
   referenceNo: {
     type: String,
@@ -284,14 +284,14 @@ const indentSchema = new mongoose.Schema({
     min: [0, 'Amount cannot be negative'],
     default: 0
   },
-  
+
   // Justification
   justification: {
     type: String,
     required: [true, 'Justification is required'],
     trim: true
   },
-  
+
   // Comparative Statement approval authorities (editable names/designations at bottom of comparative statement)
   comparativeStatementApprovals: {
     preparedBy: { type: String, trim: true, default: '' },
@@ -369,6 +369,19 @@ const indentSchema = new mongoose.Schema({
       resolvedAt: { type: Date, default: null }
     }]
   },
+
+  // Lot-based Comparative Statement approvals
+  comparativeApprovals: [{
+    lotNumber: { type: String, required: true },
+    status: { type: String, enum: ['draft', 'pending', 'approved', 'rejected'], default: 'draft' },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approvedAt: { type: Date },
+    rejectedAt: { type: Date },
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rejectionReason: { type: String, trim: true, default: '' },
+    note: { type: String, trim: true, default: '' }
+  }],
+
   // Per-item vendor assignments from Comparative Statement (item index -> quotation id). When set, quotations are shortlisted; create split POs from Quotations page.
   splitPOAssignments: {
     type: mongoose.Schema.Types.Mixed,
@@ -414,7 +427,7 @@ const indentSchema = new mongoose.Schema({
       }
     }
   },
-  
+
   // Additional Information
   priority: {
     type: String,
@@ -451,7 +464,7 @@ const indentSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
-  
+
   // Notes and Comments
   notes: {
     type: String,
@@ -502,7 +515,7 @@ const indentSchema = new mongoose.Schema({
       default: 'Indent'
     }
   }],
-  
+
   // Metadata
   isActive: {
     type: Boolean,
@@ -521,7 +534,7 @@ const indentSchema = new mongoose.Schema({
   timestamps: true
 });
 
-indentSchema.statics.generateERPRef = async function() {
+indentSchema.statics.generateERPRef = async function () {
   const indents = await this.find({ erpRef: { $exists: true, $ne: '' } })
     .select('erpRef')
     .lean();
@@ -542,7 +555,7 @@ indentSchema.statics.generateERPRef = async function() {
 };
 
 // Pre-save middleware to calculate total estimated cost and generate ERP Ref and Indent Number
-indentSchema.pre('save', async function(next) {
+indentSchema.pre('save', async function (next) {
   // Calculate total estimated cost
   if (this.items && this.items.length > 0) {
     this.totalEstimatedCost = this.items.reduce((total, item) => {
@@ -551,7 +564,7 @@ indentSchema.pre('save', async function(next) {
   } else {
     this.totalEstimatedCost = 0;
   }
-  
+
   // Auto-generate Indent Number if not provided and this is a new document
   if ((!this.indentNumber || this.indentNumber.trim() === '') && this.isNew) {
     try {
@@ -560,7 +573,7 @@ indentSchema.pre('save', async function(next) {
       return next(error);
     }
   }
-  
+
   // Auto-generate ERP Ref if not provided and this is a new document
   if ((!this.erpRef || this.erpRef.trim() === '') && this.isNew) {
     try {
@@ -569,7 +582,7 @@ indentSchema.pre('save', async function(next) {
       return next(error);
     }
   }
-  
+
   // Ensure indentNumber and erpRef are set (only for new documents; updates may have legacy empty values)
   if (this.isNew) {
     if (!this.indentNumber || this.indentNumber.trim() === '') {
@@ -579,12 +592,12 @@ indentSchema.pre('save', async function(next) {
       return next(new Error('ERP Ref is required'));
     }
   }
-  
+
   next();
 });
 
 // Generate indent number (last indent + 1 to ensure sequential ordering)
-indentSchema.statics.generateIndentNumber = async function() {
+indentSchema.statics.generateIndentNumber = async function () {
   const indents = await this.find({ indentNumber: { $exists: true, $ne: '' } })
     .select('indentNumber')
     .lean();
@@ -624,7 +637,7 @@ indentSchema.index({ requestedDate: -1 });
 indentSchema.index({ category: 1 });
 indentSchema.index({ priority: 1 });
 
-indentSchema.statics.updateFulfillment = async function(indentId) {
+indentSchema.statics.updateFulfillment = async function (indentId) {
   const indent = await this.findById(indentId);
   if (!indent) return null;
 
