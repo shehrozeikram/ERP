@@ -148,18 +148,36 @@ const KPISubmissionsOverview = () => {
       const projectName = group.project?.name || 'Unassigned Project';
       group.departments.forEach((dept) => {
         const deptName = dept.department?.name || 'Unassigned Department';
-        dept.employees.forEach((row) => {
-          data.push({
+        dept.employees.forEach((empRow) => {
+          const commonInfo = {
             'Project': projectName,
             'Department': deptName,
-            'Employee ID': row.employee?.employeeId || '—',
-            'Employee': employeeName(row.employee),
-            'Designation': row.employee?.designation || '—',
-            'Reporting Line': row.employee?.reportingLine || '—',
-            'Status': STATUS_META[row.status]?.label || 'Not started',
-            'Total KPI Score': row.totalKPIScore != null ? Number(row.totalKPIScore).toFixed(2) : '—',
-            'Weight %': row.totalWeight != null ? Number(row.totalWeight).toFixed(2) : '—'
-          });
+            'Employee ID': empRow.employee?.employeeId || '—',
+            'Employee': employeeName(empRow.employee),
+            'Designation': empRow.employee?.designation || '—',
+            'Reporting Line': empRow.employee?.reportingLine || '—',
+          };
+
+          if (empRow.rows && empRow.rows.length > 0) {
+            empRow.rows.forEach(kpi => {
+              data.push({
+                ...commonInfo,
+                'KPI Area': kpi.kpiArea || '—',
+                'Weightage': kpi.weight != null ? Number(kpi.weight).toFixed(2) : '—',
+                'Score': kpi.score1to5 != null ? Number(kpi.score1to5).toFixed(2) : '—',
+                'Final Weightage': kpi.finalWeightage != null ? Number(kpi.finalWeightage).toFixed(2) : '—'
+              });
+            });
+          } else {
+            // Employee has no KPI rows
+            data.push({
+              ...commonInfo,
+              'KPI Area': '—',
+              'Weightage': '—',
+              'Score': '—',
+              'Final Weightage': '—'
+            });
+          }
         });
       });
     });

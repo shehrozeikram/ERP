@@ -381,7 +381,8 @@ router.get(
         totalKPIScore: ws?.totalKPIScore ?? null,
         totalWeight: ws?.totalWeight ?? null,
         lastSavedAt: ws?.lastSavedAt || ws?.updatedAt || null,
-        status
+        status,
+        rows
       };
     });
 
