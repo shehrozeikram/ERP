@@ -6,6 +6,7 @@ const User = require('../models/User');
 const ChatConversation = require('../models/chat/ChatConversation');
 const ChatMessage = require('../models/chat/ChatMessage');
 const realtimeNotificationGateway = require('../services/realtimeNotificationGateway');
+const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
 // Simple serialize function for emitting new message
 function serializeSystemMessage(doc, viewerId) {
@@ -119,6 +120,30 @@ async function notifyChatApprovers(userIds, context = {}) {
       realtimeNotificationGateway.emitToUser(targetId, 'chat:conversation:updated', {
         conversationId: String(conv._id)
       });
+      
+      // TRIGGER PUSH NOTIFICATION FOR MOBILE APP (if offline)
+      if (!realtimeNotificationGateway.isUserOnline(targetId)) {
+        try {
+          await createAndEmitNotification({
+            recipientIds: [targetId],
+            title: 'New chat message',
+            message: `TOVUS ERP: ${snippet}`,
+            type: 'chat_message',
+            category: 'other',
+            priority: 'low',
+            actionUrl: `/chat/${conv._id}`,
+            metadata: {
+              module: 'other',
+              entityId: conv._id,
+              entityType: 'ChatConversation',
+              additionalData: { conversationId: String(conv._id) }
+            },
+            createdBy: systemUserId
+          });
+        } catch (e) {
+          console.warn('[ApprovalChat] Push notification error:', e.message || e);
+        }
+      }
       
       if (targetId !== systemUserId) {
         const serializedForSystem = serializeSystemMessage(msgDoc.toObject(), systemUserId);
