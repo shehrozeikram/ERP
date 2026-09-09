@@ -26,6 +26,8 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import DownloadIcon from '@mui/icons-material/Download';
+import * as XLSX from 'xlsx';
 import { fetchKpiSubmissions } from '../../../services/kpiWorksheetService';
 
 const MONTHS = [
@@ -140,14 +142,54 @@ const KPISubmissionsOverview = () => {
     [groups]
   );
 
+  const handleExportExcel = () => {
+    const data = [];
+    groups.forEach((group) => {
+      const projectName = group.project?.name || 'Unassigned Project';
+      group.departments.forEach((dept) => {
+        const deptName = dept.department?.name || 'Unassigned Department';
+        dept.employees.forEach((row) => {
+          data.push({
+            'Project': projectName,
+            'Department': deptName,
+            'Employee ID': row.employee?.employeeId || '—',
+            'Employee': employeeName(row.employee),
+            'Designation': row.employee?.designation || '—',
+            'Reporting Line': row.employee?.reportingLine || '—',
+            'Status': STATUS_META[row.status]?.label || 'Not started',
+            'Total KPI Score': row.totalKPIScore != null ? Number(row.totalKPIScore).toFixed(2) : '—',
+            'Weight %': row.totalWeight != null ? Number(row.totalWeight).toFixed(2) : '—'
+          });
+        });
+      });
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'KPI Submissions');
+    XLSX.writeFile(workbook, `KPI_Submissions_${year}_${month}.xlsx`);
+  };
+
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" fontWeight={600} gutterBottom>
-        KPI Submissions
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        View employees who have submitted monthly KPI sheets, grouped by project and department.
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+        <Box>
+          <Typography variant="h4" fontWeight={600} gutterBottom>
+            KPI Submissions
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            View employees who have submitted monthly KPI sheets, grouped by project and department.
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<DownloadIcon />}
+          onClick={handleExportExcel}
+          disabled={groups.length === 0}
+        >
+          Export to Excel
+        </Button>
+      </Box>
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -274,8 +316,10 @@ const KPISubmissionsOverview = () => {
                         <Table size="small">
                           <TableHead>
                             <TableRow>
-                              <TableCell>Employee</TableCell>
                               <TableCell>Employee ID</TableCell>
+                              <TableCell>Employee</TableCell>
+                              <TableCell>Designation</TableCell>
+                              <TableCell>Reporting Line</TableCell>
                               <TableCell>Status</TableCell>
                               <TableCell align="right">Total KPI score</TableCell>
                               <TableCell align="right">Weight %</TableCell>
@@ -288,8 +332,10 @@ const KPISubmissionsOverview = () => {
                               const statusMeta = STATUS_META[row.status] || STATUS_META.not_started;
                               return (
                                 <TableRow key={row.employee?._id}>
-                                  <TableCell>{employeeName(row.employee)}</TableCell>
                                   <TableCell>{row.employee?.employeeId || '—'}</TableCell>
+                                  <TableCell>{employeeName(row.employee)}</TableCell>
+                                  <TableCell>{row.employee?.designation || '—'}</TableCell>
+                                  <TableCell>{row.employee?.reportingLine || '—'}</TableCell>
                                   <TableCell>
                                     <Chip size="small" label={statusMeta.label} color={statusMeta.color} variant="outlined" />
                                   </TableCell>

@@ -338,10 +338,12 @@ router.get(
     }
 
     const employees = await Employee.find(empQuery)
-      .select('firstName lastName employeeId placementProject placementDepartment department')
+      .select('firstName lastName employeeId placementProject placementDepartment department placementDesignation reportingLine')
       .populate('placementProject', 'name code')
       .populate('placementDepartment', 'name code')
       .populate('department', 'name code')
+      .populate('placementDesignation', 'title')
+      .populate('reportingLine', 'firstName lastName')
       .sort({ firstName: 1, lastName: 1 })
       .lean();
 
@@ -361,7 +363,9 @@ router.get(
           _id: emp._id,
           firstName: emp.firstName,
           lastName: emp.lastName,
-          employeeId: emp.employeeId
+          employeeId: emp.employeeId,
+          designation: emp.placementDesignation?.title || '—',
+          reportingLine: emp.reportingLine ? `${emp.reportingLine.firstName} ${emp.reportingLine.lastName}`.trim() : '—'
         },
         project: {
           _id: project?._id || null,
