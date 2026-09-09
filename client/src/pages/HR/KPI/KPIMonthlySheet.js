@@ -27,9 +27,13 @@ import {
   Popover,
   List,
   ListItemButton,
-  ListItemText
+  ListItemText,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Stack
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Save as SaveIcon } from '@mui/icons-material';
+import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Save as SaveIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import DownloadIcon from '@mui/icons-material/Download';
 import toast from 'react-hot-toast';
 import html2canvas from 'html2canvas';
@@ -423,6 +427,35 @@ const KPIMonthlySheet = () => {
     [team]
   );
 
+  const groupedTeam = useMemo(() => {
+    const projMap = new Map();
+    (team || []).forEach((t) => {
+      const projName = t.project?.name || 'Unassigned Project';
+      const deptName = t.department?.name || 'Unassigned Department';
+
+      if (!projMap.has(projName)) {
+        projMap.set(projName, new Map());
+      }
+      const deptMap = projMap.get(projName);
+      if (!deptMap.has(deptName)) {
+        deptMap.set(deptName, []);
+      }
+      deptMap.get(deptName).push(t);
+    });
+
+    const result = [];
+    for (const [projName, deptMap] of projMap.entries()) {
+      const depts = [];
+      for (const [deptName, members] of deptMap.entries()) {
+        // Sort members by level then name
+        members.sort((a, b) => (a.level || 1) - (b.level || 1));
+        depts.push({ deptName, members });
+      }
+      result.push({ projName, depts });
+    }
+    return result;
+  }, [team]);
+
   const handleCell = (index, field, value) => {
     const next = [...rows];
     const raw = field === 'kpiArea' ? value : value === '' ? 0 : Number(value);
@@ -625,35 +658,83 @@ const KPIMonthlySheet = () => {
       {!isHrPage && team.length > 0 && (
         <Card sx={{ mb: 2 }}>
           <CardContent>
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-              My team
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-              Select a direct report to enter <strong>reporting line</strong> achieved / total assigned.
-            </Typography>
-            <List dense disablePadding>
-              {team.map((t) => (
-                <ListItemButton
-                  key={t.employee._id}
-                  selected={teamMemberId === t.employee._id}
-                  onClick={() => setTeamMemberId(t.employee._id === teamMemberId ? '' : t.employee._id)}
-                >
-                  <ListItemText
-                    primary={`${t.employee.firstName || ''} ${t.employee.lastName || ''}`.trim() || t.employee.employeeId}
-                    secondary={
-                      t.worksheet
-                        ? `Total KPI score: ${t.worksheet.totalKPIScore ?? '—'}`
-                        : 'No sheet yet — will open on first load'
-                    }
-                  />
-                </ListItemButton>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  My Reporting Line Hierarchy ({team.length} subordinate{team.length > 1 ? 's' : ''})
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Select a team member to review and enter <strong>reporting line</strong> scores.
+                </Typography>
+              </Box>
+              {teamMemberId && (
+                <Button size="small" variant="outlined" onClick={() => setTeamMemberId('')}>
+                  {isTeamReviewPage ? 'Unselect employee' : 'Back to my sheet'}
+                </Button>
+              )}
+            </Box>
+
+            <Stack spacing={1.5} sx={{ mt: 2 }}>
+              {groupedTeam.map((projGroup) => (
+                <Accordion key={projGroup.projName} defaultExpanded sx={{ border: '1px solid', borderColor: 'divider' }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography fontWeight={700} variant="subtitle2" color="primary.main">
+                      Project: {projGroup.projName}
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ pt: 0 }}>
+                    <Stack spacing={2}>
+                      {projGroup.depts.map((deptGroup) => (
+                        <Box key={deptGroup.deptName}>
+                          <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            Department: {deptGroup.deptName} ({deptGroup.members.length})
+                          </Typography>
+                          <List dense disablePadding sx={{ mt: 0.5 }}>
+                            {deptGroup.members.map((t) => {
+                              const empNameStr = `${t.employee.firstName || ''} ${t.employee.lastName || ''}`.trim() || t.employee.employeeId;
+                              const isSelected = teamMemberId === t.employee._id;
+                              const levelText = t.level === 1 ? 'Direct Report' : `Level ${t.level} (via ${t.employee.reportingLine || 'Manager'})`;
+                              const levelColor = t.level === 1 ? 'primary' : 'secondary';
+
+                              return (
+                                <ListItemButton
+                                  key={t.employee._id}
+                                  selected={isSelected}
+                                  onClick={() => setTeamMemberId(isSelected ? '' : t.employee._id)}
+                                  sx={{
+                                    ml: Math.max(0, (t.level - 1) * 2),
+                                    borderRadius: 1,
+                                    mb: 0.5,
+                                    borderLeft: isSelected ? '4px solid' : '1px solid transparent',
+                                    borderColor: 'primary.main'
+                                  }}
+                                >
+                                  <ListItemText
+                                    primary={
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <Typography variant="body2" fontWeight={600}>
+                                          {empNameStr} ({t.employee.employeeId || '—'})
+                                        </Typography>
+                                        <Chip size="small" label={levelText} color={levelColor} variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                      </Box>
+                                    }
+                                    secondary={
+                                      <Typography variant="caption" color="text.secondary">
+                                        Designation: {t.employee.designation || '—'} | {t.worksheet ? `Total KPI Score: ${t.worksheet.totalKPIScore ?? '—'}` : 'No sheet saved yet'}
+                                      </Typography>
+                                    }
+                                  />
+                                </ListItemButton>
+                              );
+                            })}
+                          </List>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </AccordionDetails>
+                </Accordion>
               ))}
-            </List>
-            {teamMemberId && (
-              <Button size="small" onClick={() => setTeamMemberId('')} sx={{ mt: 1 }}>
-                {isTeamReviewPage ? 'Unselect employee' : 'Back to my sheet'}
-              </Button>
-            )}
+            </Stack>
           </CardContent>
         </Card>
       )}

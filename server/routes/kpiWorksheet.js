@@ -54,17 +54,38 @@ function rowStillPresent(prevRow, newRows) {
   return newRows.some((r) => rowIdentityKey(r) === key);
 }
 
+async function isAncestorInReportingLine(managerEmployeeId, subjectEmployeeId) {
+  if (!managerEmployeeId || !subjectEmployeeId) return false;
+  const managerIdStr = String(managerEmployeeId);
+  let currentId = String(subjectEmployeeId);
+  const visited = new Set();
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const emp = await Employee.findById(currentId).select('reportingLine manager hod').lean();
+    if (!emp) break;
+
+    const rId = emp.reportingLine ? String(emp.reportingLine) : null;
+    const mId = emp.manager ? String(emp.manager) : null;
+    const hId = emp.hod ? String(emp.hod) : null;
+
+    if (rId === managerIdStr || mId === managerIdStr || hId === managerIdStr) {
+      return true;
+    }
+
+    currentId = rId || mId || hId;
+  }
+
+  return false;
+}
+
 async function worksheetEditFlags(req, subjectEmployeeId) {
   const me = await employeeFromUser(req.user);
   const hr = isHrAdmin(req.user?.role);
   const kpiElevated = hr || await canAccessKpiManagement(req.user, 'update');
   const subId = String(subjectEmployeeId);
-  const subject = await Employee.findById(subId).select('reportingLine manager hod').lean();
   const owner = me && String(me._id) === subId;
-  const lineId = subject?.reportingLine ? String(subject.reportingLine) : null;
-  const mgrId = subject?.manager ? String(subject.manager) : null;
-  const hodId = subject?.hod ? String(subject.hod) : null;
-  const managerOf = me && ((lineId && String(me._id) === lineId) || (mgrId && String(me._id) === mgrId) || (hodId && String(me._id) === hodId));
+  const managerOf = me ? await isAncestorInReportingLine(me._id, subId) : false;
 
   return {
     canEditStructure: owner || kpiElevated,
@@ -273,6 +294,42 @@ router.get(
   })
 );
 
+async function getSubordinateTreeByReportingLine(managerEmployeeId) {
+  const visited = new Set();
+  const results = [];
+
+  async function traverse(currentId, depth) {
+    const subs = await Employee.find({
+      $or: [{ reportingLine: currentId }, { manager: currentId }, { hod: currentId }],
+      isActive: true,
+      isDeleted: { $ne: true }
+    })
+      .select('firstName lastName employeeId placementProject placementDepartment department placementDesignation reportingLine')
+      .populate('placementProject', 'name code')
+      .populate('placementDepartment', 'name code')
+      .populate('department', 'name code')
+      .populate('placementDesignation', 'title')
+      .populate('reportingLine', 'firstName lastName employeeId')
+      .sort({ firstName: 1, lastName: 1 })
+      .lean();
+
+    for (const s of subs) {
+      const sIdStr = String(s._id);
+      if (!visited.has(sIdStr)) {
+        visited.add(sIdStr);
+        results.push({
+          employee: s,
+          level: depth
+        });
+        await traverse(s._id, depth + 1);
+      }
+    }
+  }
+
+  await traverse(managerEmployeeId, 1);
+  return results;
+}
+
 /** GET /api/kpi/worksheets/team */
 router.get(
   '/team',
@@ -280,20 +337,15 @@ router.get(
     const me = await employeeFromUser(req.user);
     if (!me) return res.json({ success: true, data: [], year: null, month: null });
 
-    const subs = await Employee.find({
-      $or: [{ reportingLine: me._id }, { manager: me._id }, { hod: me._id }],
-      isActive: true,
-      isDeleted: { $ne: true }
-    })
-      .select('firstName lastName employeeId')
-      .lean();
+    const tree = await getSubordinateTreeByReportingLine(me._id);
 
     const now = new Date();
     const year = parseInt(req.query.year, 10) || now.getFullYear();
     const month = parseInt(req.query.month, 10) || now.getMonth() + 1;
 
     const out = [];
-    for (const s of subs) {
+    for (const item of tree) {
+      const s = item.employee;
       const ws = await KPIWorksheet.findOne({ employee: s._id, year, month })
         .select('totalKPIScore totalWeight updatedAt rows')
         .lean();
@@ -302,8 +354,31 @@ router.get(
         const ma = Number(r?.managerAchieved) || 0;
         return mt > 0 || ma > 0;
       });
+
+      const project = s.placementProject || { _id: null, name: 'Unassigned project' };
+      const department = s.placementDepartment || s.department || { _id: null, name: 'Unassigned department' };
+      const reportingLineName = s.reportingLine
+        ? `${s.reportingLine.firstName || ''} ${s.reportingLine.lastName || ''}`.trim()
+        : '—';
+
       out.push({
-        employee: { _id: s._id, firstName: s.firstName, lastName: s.lastName, employeeId: s.employeeId },
+        employee: {
+          _id: s._id,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          employeeId: s.employeeId,
+          designation: s.placementDesignation?.title || '—',
+          reportingLine: reportingLineName
+        },
+        project: {
+          _id: project._id || null,
+          name: project.name || 'Unassigned project'
+        },
+        department: {
+          _id: department._id || null,
+          name: department.name || 'Unassigned department'
+        },
+        level: item.level,
         worksheet: ws ? { ...ws, managerScored } : null
       });
     }
