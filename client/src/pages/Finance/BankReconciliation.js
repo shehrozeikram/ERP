@@ -487,6 +487,7 @@ export default function BankReconciliation() {
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>VrNo</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Cheque Number</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Narration</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
@@ -501,7 +502,7 @@ export default function BankReconciliation() {
               <TableBody>
                 {(data.unpresentedTransactions || []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                    <TableCell colSpan={12} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                       No unpresented/uncleared cheques found up to {formatDate(filters.asOfDate)}.
                     </TableCell>
                   </TableRow>
@@ -515,6 +516,7 @@ export default function BankReconciliation() {
                         <TableRow key={t._id || idx} hover>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                           <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>{t.chequeNumber || t.reference || '—'}</TableCell>
                           <TableCell>{t.narration}</TableCell>
                           <TableCell>{t.reference || '—'}</TableCell>
                           <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
@@ -699,6 +701,7 @@ export default function BankReconciliation() {
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>VrNo</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Cheque Number</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Narration</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
@@ -711,6 +714,7 @@ export default function BankReconciliation() {
                 <TableRow sx={{ bgcolor: 'info.50' }}>
                   <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatDate(filters.fromDate)}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>-0</TableCell>
+                  <TableCell>—</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Opening Balance</TableCell>
                   <TableCell>—</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 800 }}>
@@ -728,6 +732,7 @@ export default function BankReconciliation() {
                   <TableRow key={t._id || idx} hover>
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{t.chequeNumber || t.reference || '—'}</TableCell>
                     <TableCell>{t.narration}</TableCell>
                     <TableCell>{t.reference || '—'}</TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
