@@ -28,6 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DownloadIcon from '@mui/icons-material/Download';
 import * as XLSX from 'xlsx';
+import KPITabNavigation from '../../../components/HR/KPITabNavigation';
 import { fetchKpiSubmissions } from '../../../services/kpiWorksheetService';
 
 const MONTHS = [
@@ -190,6 +191,7 @@ const KPISubmissionsOverview = () => {
 
   return (
     <Box sx={{ p: 3 }}>
+      <KPITabNavigation />
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
         <Box>
           <Typography variant="h4" fontWeight={600} gutterBottom>

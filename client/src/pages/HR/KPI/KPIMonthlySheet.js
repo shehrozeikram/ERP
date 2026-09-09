@@ -34,6 +34,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import toast from 'react-hot-toast';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import KPITabNavigation from '../../../components/HR/KPITabNavigation';
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../services/api';
 import {
@@ -601,6 +602,7 @@ const KPIMonthlySheet = () => {
 
   return (
     <Box sx={{ p: 3 }}>
+      {isHrPage && <KPITabNavigation />}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h4" fontWeight={600}>
           {title}
