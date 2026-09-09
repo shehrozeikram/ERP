@@ -35,6 +35,7 @@ const vendorAdvanceSchema = new mongoose.Schema({
   /** Chart-of-accounts bank or cash account credited on the vendor advance voucher */
   bankAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null },
   reference: { type: String, trim: true },
+  chequeNumber: { type: String, trim: true, index: { unique: true, sparse: true } },
   paymentDate: { type: Date, default: Date.now },
   department: {
     type: String,

@@ -142,6 +142,7 @@ const VendorAdvance = () => {
     amount: '',
     paymentMethod: 'bank_transfer',
     bankAccountId: '',
+    chequeNumber: '',
     reference: '',
     paymentDate: new Date().toISOString().split('T')[0]
   });
@@ -681,6 +682,7 @@ const VendorAdvance = () => {
         amount: categoryTotal,
         paymentMethod: form.paymentMethod,
         bankAccountId: form.bankAccountId,
+        chequeNumber: (form.chequeNumber || '').trim(),
         reference: ref,
         paymentDate: paymentDateIso,
         referenceType: selectedPo ? 'purchase_order' : 'advance',
@@ -700,6 +702,7 @@ const VendorAdvance = () => {
           amount: '',
           paymentMethod: 'bank_transfer',
           bankAccountId: '',
+          chequeNumber: '',
           reference: '',
           paymentDate: new Date().toISOString().split('T')[0]
         });
@@ -1027,13 +1030,22 @@ const VendorAdvance = () => {
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Cheque Number"
+                  value={form.chequeNumber}
+                  onChange={(e) => setForm((f) => ({ ...f, chequeNumber: e.target.value }))}
+                  placeholder="Unique Cheque / TT / Ref #"
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
                   label="Reference / narration"
                   value={form.reference}
                   onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))}
-                  placeholder="Bank ref, TT #, or leave blank to auto-generate"
+                  placeholder="Narration / notes or leave blank to auto-generate"
                 />
               </Grid>
 
@@ -1302,6 +1314,7 @@ const VendorAdvance = () => {
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell><b>Reference</b></TableCell>
+                  <TableCell><b>Cheque #</b></TableCell>
                   <TableCell><b>Vendor</b></TableCell>
                   <TableCell><b>Payment date</b></TableCell>
                   <TableCell><b>Pay from account</b></TableCell>
@@ -1334,6 +1347,7 @@ const VendorAdvance = () => {
                     }
                   >
                     <TableCell>{a.reference || a._id}</TableCell>
+                    <TableCell>{a.chequeNumber || '—'}</TableCell>
                     <TableCell>{a.vendor?.name || '—'}</TableCell>
                     <TableCell>
                       {a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : '—'}

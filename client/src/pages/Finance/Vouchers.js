@@ -664,27 +664,29 @@ const Vouchers = () => {
                 <TableCell>Date</TableCell>
                 <TableCell>Voucher No</TableCell>
                 <TableCell>Voucher Type</TableCell>
+                <TableCell>Vendor / Employee</TableCell>
+                <TableCell>Cheque Number</TableCell>
                 <TableCell>Description</TableCell>
                 <TableCell align="right">Amount</TableCell>
-                <TableCell>Reference</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell align="center">Action</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} align="center"><CircularProgress size={24} /></TableCell></TableRow>
               ) : voucherRows.length === 0 ? (
-                <TableRow><TableCell colSpan={8} align="center">No vouchers found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => {
                 return (
                   <TableRow key={row._id} hover>
                     <TableCell>{formatDate(row.date)}</TableCell>
                     <TableCell>{row.entryNumber}</TableCell>
                     <TableCell>{row.voucherType}</TableCell>
+                    <TableCell>{row.vendorOrEmployeeName || '—'}</TableCell>
+                    <TableCell>{row.reference || '—'}</TableCell>
                     <TableCell>{row.description}</TableCell>
                     <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
-                    <TableCell>{row.reference || '—'}</TableCell>
                     <TableCell>
                       {(() => {
                         const display = getVoucherStatusDisplay(row);

@@ -1296,6 +1296,7 @@ const FinanceHelper = {
     amount,
     paymentMethod,
     reference,
+    chequeNumber,
     date,
     createdBy,
     department = 'procurement',
@@ -1310,6 +1311,14 @@ const FinanceHelper = {
   }) => {
     const amount_ = Math.round((Number(amount) || 0) * 100) / 100;
     if (amount_ <= 0) throw new Error('Advance amount must be greater than zero');
+
+    const cleanChequeNo = (chequeNumber || '').trim();
+    if (cleanChequeNo) {
+      const existingCheque = await VendorAdvance.findOne({ chequeNumber: cleanChequeNo }).lean();
+      if (existingCheque) {
+        throw new Error(`Cheque number "${cleanChequeNo}" already exists on another Vendor Advance.`);
+      }
+    }
 
     const companyId = co({ companyId: optsCompanyId });
     const payingCompanyId = co({ companyId: optsPayingCompanyId }) || companyId;
@@ -1357,6 +1366,7 @@ const FinanceHelper = {
       paymentMethod: paymentMethod || 'bank_transfer',
       bankAccountId: bankAccount._id,
       reference: reference || `ADV-${Date.now()}`,
+      chequeNumber: cleanChequeNo || undefined,
       paymentDate: date || new Date(),
       createdBy,
       department,
@@ -1427,14 +1437,14 @@ const FinanceHelper = {
 
       const payingLines = [
         { account: icPayingAcc._id, description: `Intercompany Advance paid on behalf of company`, debit: amount_, department },
-        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${advance.reference})`, credit: amount_, department }
+        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${cleanChequeNo || advance.reference})`, credit: amount_, department }
       ];
 
       linePayload = [...targetLines, ...payingLines];
     } else {
       linePayload = [
         ...debitLines,
-        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${advance.reference})`, credit: amount_, department }
+        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${cleanChequeNo || advance.reference})`, credit: amount_, department }
       ];
     }
 
@@ -1442,7 +1452,7 @@ const FinanceHelper = {
       withVoucherNarration(
         withCompany({
           date: date || new Date(),
-          reference: advance.reference,
+          reference: cleanChequeNo || advance.reference,
           description: `Vendor Advance: ${vendorName || 'Vendor'}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
           department,
           module,
