@@ -154,7 +154,8 @@ const VendorAdvance = () => {
   const [bankAccounts, setBankAccounts] = useState([]);
   const advanceHistorySectionRef = useRef(null);
   const [highlightPoId, setHighlightPoId] = useState(null);
-  const { selectedCompanyId, setSelectedCompanyId } = useFinanceCompany();
+  const { selectedCompanyId, setSelectedCompanyId, companies } = useFinanceCompany();
+  const [payingCompanyId, setPayingCompanyId] = useState('');
 
   useEffect(() => {
     // Always default finance company selection to "all" when visiting Vendor Advance
@@ -342,10 +343,16 @@ const VendorAdvance = () => {
   }, [loadVendors]);
 
   useEffect(() => {
-    fetchPayFromAccounts(api, { companyId: selectedCompanyId })
-      .then(setBankAccounts)
+    const targetComp = payingCompanyId || selectedCompanyId;
+    fetchPayFromAccounts(api, { companyId: targetComp })
+      .then((accs) => {
+        setBankAccounts(accs);
+        if (form.bankAccountId && !accs.some((a) => String((a.account || a)._id) === String(form.bankAccountId))) {
+          setForm((f) => ({ ...f, bankAccountId: '' }));
+        }
+      })
       .catch(() => setBankAccounts([]));
-  }, [selectedCompanyId]);
+  }, [payingCompanyId, selectedCompanyId]);
 
   // Load COA Accounts & Projects
   useEffect(() => {
@@ -683,6 +690,7 @@ const VendorAdvance = () => {
           financeControllerUser: finAuth.financeControllerUser._id
         },
         companyId: selectedCompanyId,
+        payingCompanyId: payingCompanyId || selectedCompanyId || null,
         categoryLines: validCategoryLines
       };
       const res = await api.post('/finance/accounts-payable/advance-payment', body);
@@ -950,7 +958,25 @@ const VendorAdvance = () => {
                 </Grid>
               ) : null}
 
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Paying company</InputLabel>
+                  <Select
+                    value={payingCompanyId}
+                    label="Paying company"
+                    onChange={(e) => setPayingCompanyId(e.target.value)}
+                  >
+                    <MenuItem value=""><em>-- Target Company / Default --</em></MenuItem>
+                    {companies.map((c) => (
+                      <MenuItem key={c._id} value={c._id}>
+                        {c.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={3}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Payment method</InputLabel>
                   <Select
@@ -965,7 +991,7 @@ const VendorAdvance = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <FormControl fullWidth size="small" required disabled={bankAccounts.length === 0}>
                   <InputLabel id="vendor-advance-pay-from-label">Pay from account</InputLabel>
                   <Select

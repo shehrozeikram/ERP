@@ -26,6 +26,8 @@ import {
 } from '../../services/financeApprovalAuthorityService';
 import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+
 const formatPKR = (amount) => {
   const n = Number(amount) || 0;
   return `PKR ${n.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -49,16 +51,19 @@ export default function QuickbooksPayBillsModal({
   preselectedVendorName = '',
   preselectedBillId = null
 }) {
+  const { companies } = useFinanceCompany();
   const [vendors, setVendors] = useState([]);
   const [selectedVendorId, setSelectedVendorId] = useState(preselectedVendorId || '');
   const [selectedVendorName, setSelectedVendorName] = useState(preselectedVendorName || '');
-  
+  const [payingCompanyId, setPayingCompanyId] = useState(selectedCompanyId || '');
+
   useEffect(() => {
     if (open) {
       setSelectedVendorId(preselectedVendorId || '');
       setSelectedVendorName(preselectedVendorName || '');
+      setPayingCompanyId(selectedCompanyId || '');
     }
-  }, [open, preselectedVendorId, preselectedVendorName]);
+  }, [open, preselectedVendorId, preselectedVendorName, selectedCompanyId]);
   
   const [openBills, setOpenBills] = useState([]);
   const [loadingBills, setLoadingBills] = useState(false);
@@ -123,13 +128,21 @@ export default function QuickbooksPayBillsModal({
     });
   }, [open]);
 
-  // Load Bank Accounts for company
+  // Load Bank Accounts for the chosen Paying Company
   useEffect(() => {
-    if (!open || !selectedCompanyId) return;
-    fetchPayFromAccounts(api, { companyId: selectedCompanyId })
-      .then(setBankAccounts)
+    if (!open) return;
+    const targetComp = payingCompanyId || selectedCompanyId;
+    if (!targetComp) return;
+    fetchPayFromAccounts(api, { companyId: targetComp })
+      .then((accs) => {
+        setBankAccounts(accs);
+        // Reset bank selection if current account doesn't belong to newly fetched list
+        if (paymentForm.bankAccountId && !accs.some((a) => String((a.account || a)._id) === String(paymentForm.bankAccountId))) {
+          setPaymentForm((f) => ({ ...f, bankAccountId: '' }));
+        }
+      })
       .catch(() => setBankAccounts([]));
-  }, [open, selectedCompanyId]);
+  }, [open, payingCompanyId, selectedCompanyId]);
 
   // Load Finance Authorities
   useEffect(() => {
@@ -353,6 +366,7 @@ export default function QuickbooksPayBillsModal({
         paymentDate: paymentForm.paymentDate,
         whtRate: Number(paymentForm.whtRate) || 0,
         bankAccountId: paymentForm.bankAccountId || null,
+        payingCompanyId: payingCompanyId || selectedCompanyId || null,
         financeApprovalAuthorities,
         batchId
       });
@@ -533,7 +547,24 @@ export default function QuickbooksPayBillsModal({
               />
             </Grid>
 
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Paying Company</InputLabel>
+                <Select
+                  value={payingCompanyId || selectedCompanyId || ''}
+                  label="Paying Company"
+                  onChange={(e) => setPayingCompanyId(e.target.value)}
+                >
+                  {companies.map((c) => (
+                    <MenuItem key={c._id} value={c._id}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={3}>
               <FormControl fullWidth size="small">
                 <InputLabel>Payment Method</InputLabel>
                 <Select
@@ -549,7 +580,7 @@ export default function QuickbooksPayBillsModal({
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={3}>
               <FormControl fullWidth size="small">
                 <InputLabel>Pay-From Account</InputLabel>
                 <Select

@@ -333,9 +333,12 @@ const buildPayrollPaymentContext = async (month, year, options = {}) => {
     throw err;
   }
 
+  const payingCompanyId = options.payingCompanyId ? co({ companyId: options.payingCompanyId }) : companyId;
+  const isIntercompany = payingCompanyId && companyId && String(payingCompanyId) !== String(companyId);
+
   const AccountResolver = require('./accountResolver');
   let bankAccount = bankAccountId
-    ? await AccountResolver.mapAccountToCompany(companyId, bankAccountId)
+    ? await AccountResolver.mapAccountToCompany(payingCompanyId, bankAccountId)
     : null;
   if (bankAccountId && !bankAccount) {
     const err = new Error('Selected bank or cash account was not found for this company.');
@@ -344,7 +347,7 @@ const buildPayrollPaymentContext = async (month, year, options = {}) => {
   }
   if (!bankAccount) {
     bankAccount = await AccountResolver.resolveSystemAccount(
-      companyId,
+      payingCompanyId,
       paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
     );
   }
@@ -360,13 +363,74 @@ const buildPayrollPaymentContext = async (month, year, options = {}) => {
   const payRef = reference || `PAYROLL-${m}-${y}-${normalizedCompany.replace(/\s+/g, '-').toUpperCase()}`;
   const narrationText = String(narration || '').trim();
 
-  const journalLines = await buildDetailedPayrollPaymentLines({
+  let journalLines = await buildDetailedPayrollPaymentLines({
     companyId,
     totals: paymentBreakdown,
     bankAccount,
     periodLabel,
     companyName: normalizedCompany
   });
+
+  if (isIntercompany) {
+    const { acct } = require('./financePosting');
+    const AccountModel = mongoose.model('Account');
+    const A_target = acct(companyId);
+    const A_paying = acct(payingCompanyId);
+
+    // Find/Create target intercompany account
+    let icTargetAcc = await A_target.resolve('2301') || await AccountModel.findOne({ companyId, type: 'Liability', name: /intercompany/i });
+    if (!icTargetAcc) {
+      icTargetAcc = await AccountModel.create({
+        accountNumber: '2301',
+        name: 'Intercompany Payable / Loan Account',
+        type: 'Liability',
+        category: 'Current Liabilities',
+        detailType: 'Intercompany Payable',
+        companyId,
+        createdBy: options.createdBy
+      });
+    }
+
+    // Find/Create paying intercompany account
+    let icPayingAcc = await A_paying.resolve('1130') || await A_paying.resolve('2301') || await AccountModel.findOne({ companyId: payingCompanyId, name: /intercompany/i });
+    if (!icPayingAcc) {
+      icPayingAcc = await AccountModel.create({
+        accountNumber: '1130',
+        name: 'Intercompany Receivable / Due From Subsidiary',
+        type: 'Asset',
+        category: 'Current Asset',
+        detailType: 'Other Current Assets',
+        companyId: payingCompanyId,
+        createdBy: options.createdBy
+      });
+    }
+
+    // Adjust lines: replace Bank Credit on target company with Intercompany Payable Credit, and add Paying Bank Credit + Intercompany Receivable Debit
+    journalLines = journalLines.map((line) => {
+      if (String(line.account) === String(bankAccount._id)) {
+        return {
+          ...line,
+          account: icTargetAcc._id,
+          description: `Intercompany Settlement via paying company bank`
+        };
+      }
+      return line;
+    });
+
+    journalLines.push({
+      account: icPayingAcc._id,
+      description: `Intercompany Receivable for payroll disbursement paid on behalf of ${normalizedCompany}`,
+      debit: amount,
+      department: 'hr'
+    });
+
+    journalLines.push({
+      account: bankAccount._id,
+      description: `Bank disbursement – Payroll ${periodLabel} for ${normalizedCompany}`,
+      credit: amount,
+      department: 'hr'
+    });
+  }
 
   return {
     month: m,

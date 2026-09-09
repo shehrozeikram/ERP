@@ -27,7 +27,47 @@ const acct = (companyId) => ({
     return fallbackNum ? AccountResolver.resolveSystemAccount(companyId, fallbackNum) : null;
   }
 });
-
 const withCompany = (payload, companyId) => (companyId ? { ...payload, companyId } : payload);
 
-module.exports = { co, acct, withCompany };
+const mongoose = require('mongoose');
+
+/**
+ * Resolve or create intercompany accounts (2301 Payable / 1130 Receivable) for intercompany transactions.
+ */
+const resolveIntercompanyAccounts = async ({ targetCompanyId, payingCompanyId, createdBy }) => {
+  const Account = mongoose.model('Account');
+  const A_target = acct(targetCompanyId);
+  const A_paying = acct(payingCompanyId);
+
+  // Target Company Intercompany Payable
+  let icTargetAcc = await A_target.resolve('2301') || await Account.findOne({ companyId: targetCompanyId, type: 'Liability', name: /intercompany/i });
+  if (!icTargetAcc) {
+    icTargetAcc = await Account.create({
+      accountNumber: '2301',
+      name: 'Intercompany Payable / Loan Account',
+      type: 'Liability',
+      category: 'Current Liabilities',
+      detailType: 'Intercompany Payable',
+      companyId: targetCompanyId,
+      createdBy
+    });
+  }
+
+  // Paying Company Intercompany Receivable
+  let icPayingAcc = await A_paying.resolve('1130') || await A_paying.resolve('2301') || await Account.findOne({ companyId: payingCompanyId, name: /intercompany/i });
+  if (!icPayingAcc) {
+    icPayingAcc = await Account.create({
+      accountNumber: '1130',
+      name: 'Intercompany Receivable / Due From Subsidiary',
+      type: 'Asset',
+      category: 'Current Asset',
+      detailType: 'Other Current Assets',
+      companyId: payingCompanyId,
+      createdBy
+    });
+  }
+
+  return { icTargetAcc, icPayingAcc };
+};
+
+module.exports = { co, acct, withCompany, resolveIntercompanyAccounts };

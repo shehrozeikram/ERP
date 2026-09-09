@@ -203,6 +203,12 @@ export default function FinancePayroll() {
     return match?._id || selectedCompanyId;
   }, [companyFilter, financeCompanies, selectedCompanyId]);
 
+  const [payingCompanyId, setPayingCompanyId] = useState('');
+
+  const effectivePayingCompanyId = useMemo(() => {
+    return payingCompanyId || payFromCompanyId;
+  }, [payingCompanyId, payFromCompanyId]);
+
   useEffect(() => {
     if (!paymentDialogOpen) return;
     let cancelled = false;
@@ -226,7 +232,7 @@ export default function FinancePayroll() {
       .catch(() => {
         if (!cancelled) setFinanceAuthorityCandidates([]);
       });
-    fetchPayFromAccounts(api, { companyId: payFromCompanyId })
+    fetchPayFromAccounts(api, { companyId: effectivePayingCompanyId })
       .then((list) => {
         if (!cancelled) setBankAccounts(list);
       })
@@ -234,7 +240,7 @@ export default function FinancePayroll() {
         if (!cancelled) setBankAccounts([]);
       });
     return () => { cancelled = true; };
-  }, [paymentDialogOpen, payFromCompanyId]);
+  }, [paymentDialogOpen, effectivePayingCompanyId]);
 
   const companyPendingPayrolls = useMemo(() => {
     if (!companyFilter) return [];
@@ -322,6 +328,7 @@ export default function FinancePayroll() {
     narration: paymentData.narration,
     paymentDate: paymentData.paymentDate,
     bankAccountId: paymentData.bankAccountId || null,
+    payingCompanyId: payingCompanyId || null,
     draftId: activeDraftId || null
   });
 
@@ -1223,7 +1230,24 @@ export default function FinancePayroll() {
                 InputProps={{ readOnly: true }}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Paying Company</InputLabel>
+                <Select
+                  value={payingCompanyId}
+                  label="Paying Company"
+                  onChange={(e) => setPayingCompanyId(e.target.value)}
+                >
+                  <MenuItem value=""><em>-- Target Company ({companyFilter || 'Same'}) --</em></MenuItem>
+                  {financeCompanies.map((c) => (
+                    <MenuItem key={c._id} value={c._id}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Payment Method</InputLabel>
                 <Select
@@ -1237,7 +1261,7 @@ export default function FinancePayroll() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} sm={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Pay From Account</InputLabel>
                 <Select

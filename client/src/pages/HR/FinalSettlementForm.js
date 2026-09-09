@@ -86,7 +86,7 @@ const FinalSettlementForm = () => {
 
   const parseAmount = (value) => {
     const num = Number(value);
-    return Number.isFinite(num) ? num : 0;
+    return Number.isFinite(num) ? Math.round(num) : 0;
   };
 
   const computeSettlementTotals = (values) => {
@@ -97,6 +97,10 @@ const FinalSettlementForm = () => {
       parseAmount(e.houseRent) +
       parseAmount(e.medicalAllowance) +
       parseAmount(e.transportAllowance) +
+      parseAmount(e.foodAllowance) +
+      parseAmount(e.vehicleAllowance) +
+      parseAmount(e.fuelAllowance) +
+      parseAmount(e.specialAllowance) +
       parseAmount(e.otherAllowances) +
       parseAmount(e.overtime) +
       parseAmount(e.bonus) +
@@ -129,7 +133,7 @@ const FinalSettlementForm = () => {
       houseRent: parseAmount(e.houseRent),
       medicalAllowance: parseAmount(e.medicalAllowance),
       conveyanceAllowance: parseAmount(e.transportAllowance),
-      otherAllowances: parseAmount(e.otherAllowances) + parseAmount(e.otherEarnings),
+      otherAllowances: parseAmount(e.otherAllowances) + parseAmount(e.foodAllowance) + parseAmount(e.vehicleAllowance) + parseAmount(e.fuelAllowance) + parseAmount(e.specialAllowance) + parseAmount(e.otherEarnings),
       overtime: parseAmount(e.overtime),
       bonus: parseAmount(e.bonus),
       gratuity: parseAmount(e.gratuity),
@@ -245,6 +249,10 @@ const FinalSettlementForm = () => {
         houseRent: 0,
         medicalAllowance: 0,
         transportAllowance: 0,
+        foodAllowance: 0,
+        vehicleAllowance: 0,
+        fuelAllowance: 0,
+        specialAllowance: 0,
         otherAllowances: 0,
         leaveEncashment: 0,
         gratuity: 0,
@@ -385,26 +393,36 @@ const FinalSettlementForm = () => {
       setSelectedEmployee(processedEmployee);
       
       // Calculate salary breakdown
-      const grossSalary = employee.salary?.gross || 70000;
-      const basicSalary = employee.salary?.basic || (grossSalary * 0.6666);
-      const medicalAllowance = grossSalary * 0.10;
-      const houseRentAllowance = grossSalary * 0.2334;
-      const otherAllowances = grossSalary - basicSalary - medicalAllowance - houseRentAllowance;
+      const grossSalary = Math.round(employee.salary?.gross || 70000);
+      const basicSalary = employee.salary?.basic ? Math.round(employee.salary.basic) : Math.round(grossSalary * 0.6666);
+      // Fetch allowances from employee profile if available
+      const medicalAllowance = employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0;
+      const houseRentAllowance = employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0;
+      const foodAllowance = employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0;
+      const vehicleAllowance = employee.allowances?.vehicle?.isActive ? employee.allowances.vehicle.amount : 0;
+      const fuelAllowance = employee.allowances?.fuel?.isActive ? employee.allowances.fuel.amount : 0;
+      const specialAllowance = employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0;
+      const otherAllowances = employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0;
+      const transportAllowance = employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0;
       
       // Calculate daily rate and leave encashment
-      const dailyRate = basicSalary / 30;
-      const leaveEncashment = dailyRate * 30; // Assuming 30 days max
+      const dailyRate = Math.round(grossSalary / 30);
+      const leaveEncashment = 0; // Default to 0, user will input manually
       
       // Calculate gratuity based on years of service
       const yearsOfService = employee.dateOfJoining ? 
         Math.floor((new Date() - new Date(employee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365)) : 0;
-      const gratuity = basicSalary * Math.min(yearsOfService, 5); // Max 5 years
+      const gratuity = Math.round(basicSalary * Math.min(yearsOfService, 5)); // Max 5 years
       
       // Auto-populate earnings with calculated values
       formik.setFieldValue('earnings.basicSalary', basicSalary);
       formik.setFieldValue('earnings.houseRent', houseRentAllowance);
       formik.setFieldValue('earnings.medicalAllowance', medicalAllowance);
-      formik.setFieldValue('earnings.transportAllowance', employee.salary?.conveyance || 0);
+      formik.setFieldValue('earnings.transportAllowance', transportAllowance);
+      formik.setFieldValue('earnings.foodAllowance', foodAllowance);
+      formik.setFieldValue('earnings.vehicleAllowance', vehicleAllowance);
+      formik.setFieldValue('earnings.fuelAllowance', fuelAllowance);
+      formik.setFieldValue('earnings.specialAllowance', specialAllowance);
       formik.setFieldValue('earnings.otherAllowances', otherAllowances);
       formik.setFieldValue('earnings.leaveEncashment', leaveEncashment);
       formik.setFieldValue('earnings.gratuity', gratuity);
@@ -425,12 +443,23 @@ const FinalSettlementForm = () => {
       formik.setFieldValue('leaveBalance.other', leaveBalance.other || 0);
       
       // Calculate notice period deduction
-      const noticeDeduction = noticePeriodShortfall > 0 ? dailyRate * noticePeriodShortfall : 0;
+      const noticeDeduction = 0; // Default to 0, user will input manually
       formik.setFieldValue('deductions.noticePeriodDeduction', noticeDeduction);
       formik.setFieldValue('deductions.loanDeductions', 0); // Will be updated after loans are fetched
       formik.setFieldValue('deductions.advanceDeductions', 0);
-      formik.setFieldValue('deductions.taxDeductions', 0);
-      formik.setFieldValue('deductions.otherDeductions', 0);
+      // Fetch deductions from employee profile
+      const taxDeduction = employee.deductions?.incomeTax || employee.salary?.tax || 0;
+      let otherDeductionsTotal = 0;
+      if (employee.employeeSecurity?.isActive) otherDeductionsTotal += Number(employee.employeeSecurity.amount || 0);
+      if (employee.eobi?.isRegistered) otherDeductionsTotal += 407;
+      if (employee.deductions) {
+          if (employee.deductions.insurance) otherDeductionsTotal += employee.deductions.insurance;
+          if (employee.deductions.pension) otherDeductionsTotal += employee.deductions.pension;
+          if (employee.deductions.other) otherDeductionsTotal += employee.deductions.other;
+      }
+      
+      formik.setFieldValue('deductions.taxDeductions', taxDeduction);
+      formik.setFieldValue('deductions.otherDeductions', otherDeductionsTotal);
       
       fetchEmployeeLoans(employee._id);
       
@@ -474,7 +503,7 @@ const FinalSettlementForm = () => {
         basicSalary: settlement.basicSalary || 0,
         grossSalary: settlement.grossSalary || 0,
         netSalary: settlement.netSalary || 0,
-        dailyRate: (settlement.basicSalary || earnings.basicSalary || 0) / 30,
+        dailyRate: Math.round((settlement.grossSalary || 0) / 30),
         earnings: {
           basicSalary: earnings.basicSalary || 0,
           houseRent: earnings.houseRent || 0,
@@ -601,6 +630,43 @@ const FinalSettlementForm = () => {
 
   // Calculate notice period shortfall
   const noticePeriodShortfall = Math.max(0, formik.values.noticePeriod - formik.values.noticePeriodServed);
+
+  // Auto-prorate earnings based on notice period shortfall
+  useEffect(() => {
+    if (!selectedEmployee) return;
+
+    // Helper to prorate base amounts based on 30 days
+    const prorate = (amount) => {
+      const baseAmount = Number(amount) || 0;
+      if (baseAmount === 0) return 0;
+      if (noticePeriodShortfall >= 30) return 0;
+      const deduction = Math.round((baseAmount / 30) * noticePeriodShortfall);
+      return Math.max(0, baseAmount - deduction);
+    };
+
+    const grossSalary = Math.round(selectedEmployee.salary?.gross || 70000);
+    const basicSalary = selectedEmployee.salary?.basic ? Math.round(selectedEmployee.salary.basic) : Math.round(grossSalary * 0.6666);
+    
+    formik.setFieldValue('earnings.basicSalary', prorate(basicSalary));
+    
+    if (selectedEmployee.allowances) {
+      if (selectedEmployee.allowances.medical?.isActive) formik.setFieldValue('earnings.medicalAllowance', prorate(selectedEmployee.allowances.medical.amount));
+      if (selectedEmployee.allowances.houseRent?.isActive) formik.setFieldValue('earnings.houseRent', prorate(selectedEmployee.allowances.houseRent.amount));
+      if (selectedEmployee.allowances.conveyance?.isActive) formik.setFieldValue('earnings.transportAllowance', prorate(selectedEmployee.allowances.conveyance.amount));
+      if (selectedEmployee.allowances.food?.isActive) formik.setFieldValue('earnings.foodAllowance', prorate(selectedEmployee.allowances.food.amount));
+      if (selectedEmployee.allowances.vehicle?.isActive) formik.setFieldValue('earnings.vehicleAllowance', prorate(selectedEmployee.allowances.vehicle.amount));
+      if (selectedEmployee.allowances.fuel?.isActive) formik.setFieldValue('earnings.fuelAllowance', prorate(selectedEmployee.allowances.fuel.amount));
+      if (selectedEmployee.allowances.special?.isActive) formik.setFieldValue('earnings.specialAllowance', prorate(selectedEmployee.allowances.special.amount));
+      if (selectedEmployee.allowances.other?.isActive) formik.setFieldValue('earnings.otherAllowances', prorate(selectedEmployee.allowances.other.amount));
+    }
+    
+    // Ensure notice period deduction is 0 since we've prorated the earnings directly
+    if (formik.values.deductions.noticePeriodDeduction !== 0) {
+      formik.setFieldValue('deductions.noticePeriodDeduction', 0);
+    }
+    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noticePeriodShortfall, selectedEmployee]);
 
   const settlementTotals = computeSettlementTotals(formik.values);
 
@@ -837,7 +903,7 @@ const FinalSettlementForm = () => {
                 <Alert severity="warning">
                   Notice period shortfall: {noticePeriodShortfall} days
                   <br />
-                  Estimated deduction: {formatPKR((selectedEmployee?.salary?.basic || 50000) / 30 * noticePeriodShortfall)}
+                  Estimated deduction: {formatPKR(Math.round((selectedEmployee?.salary?.gross || 70000) / 30 * noticePeriodShortfall))}
                 </Alert>
               </Grid>
             )}
@@ -896,7 +962,7 @@ const FinalSettlementForm = () => {
                     value={formik.values.dailyRate}
                     onChange={formik.handleChange}
                     InputProps={amountInputProps}
-                    helperText="Basic salary ÷ 30 (reference)"
+                    helperText="Gross salary ÷ 30 (reference)"
                   />
                 </Grid>
 
@@ -907,65 +973,112 @@ const FinalSettlementForm = () => {
                   </Typography>
                 </Grid>
 
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    name="earnings.basicSalary"
-                    label="Basic Salary"
-                    value={formik.values.earnings.basicSalary}
-                    onChange={formik.handleChange}
-                    InputProps={amountInputProps}
-                  />
-                </Grid>
 
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    name="earnings.medicalAllowance"
-                    label="Medical Allowance"
-                    value={formik.values.earnings.medicalAllowance}
-                    onChange={formik.handleChange}
-                    InputProps={amountInputProps}
-                  />
-                </Grid>
 
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    name="earnings.houseRent"
-                    label="House Rent Allowance"
-                    value={formik.values.earnings.houseRent}
-                    onChange={formik.handleChange}
-                    InputProps={amountInputProps}
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    name="earnings.transportAllowance"
-                    label="Transport / Conveyance Allowance"
-                    value={formik.values.earnings.transportAllowance}
-                    onChange={formik.handleChange}
-                    InputProps={amountInputProps}
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    name="earnings.otherAllowances"
-                    label="Other Allowances"
-                    value={formik.values.earnings.otherAllowances}
-                    onChange={formik.handleChange}
-                    InputProps={amountInputProps}
-                  />
-                </Grid>
+                {selectedEmployee?.allowances?.medical?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.medicalAllowance"
+                      label="Medical Allowance"
+                      value={formik.values.earnings.medicalAllowance}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
+                {selectedEmployee?.allowances?.houseRent?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.houseRent"
+                      label="House Rent Allowance"
+                      value={formik.values.earnings.houseRent}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
+                {selectedEmployee?.allowances?.conveyance?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.transportAllowance"
+                      label="Transport / Conveyance Allowance"
+                      value={formik.values.earnings.transportAllowance}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
+                {selectedEmployee?.allowances?.food?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.foodAllowance"
+                      label="Food Allowance"
+                      value={formik.values.earnings.foodAllowance}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
+                {selectedEmployee?.allowances?.vehicle?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.vehicleAllowance"
+                      label="Vehicle Allowance"
+                      value={formik.values.earnings.vehicleAllowance}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
+                {selectedEmployee?.allowances?.fuel?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.fuelAllowance"
+                      label="Fuel Allowance"
+                      value={formik.values.earnings.fuelAllowance}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
+                {selectedEmployee?.allowances?.special?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.specialAllowance"
+                      label="Special Allowance"
+                      value={formik.values.earnings.specialAllowance}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
+                {selectedEmployee?.allowances?.other?.isActive && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      name="earnings.otherAllowances"
+                      label="Other Allowances"
+                      value={formik.values.earnings.otherAllowances}
+                      onChange={formik.handleChange}
+                      InputProps={amountInputProps}
+                    />
+                  </Grid>
+                )}
 
                 <Grid item xs={12} md={6}>
                   <TextField

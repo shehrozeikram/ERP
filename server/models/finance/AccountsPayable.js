@@ -189,12 +189,12 @@ const accountsPayableSchema = new mongoose.Schema({
   // Department integration
   department: {
     type: String,
-    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
+    enum: ['hr', 'admin', 'administration', 'procurement', 'sales', 'finance', 'audit', 'general'],
     default: 'procurement'
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
+    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'administration', 'audit', 'general', 'finance', 'taj_utilities'],
     default: 'general'
   },
   // Reference to source document

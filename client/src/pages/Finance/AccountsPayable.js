@@ -154,7 +154,8 @@ const matchesFuzzyToken = (token, corpus, words) => {
 };
 
 const AccountsPayable = () => {
-  const { selectedCompanyId } = useFinanceCompany();
+  const { selectedCompanyId, companies: financeCompanies } = useFinanceCompany();
+  const [payingCompanyId, setPayingCompanyId] = useState('');
   const { user: currentUser } = useAuth();
   const preparerUserId = String(currentUser?.id || currentUser?._id || '');
   const preparerDisplayName = [currentUser?.firstName, currentUser?.lastName]
@@ -596,18 +597,19 @@ const AccountsPayable = () => {
 
   // Load bank/cash accounts and expense accounts from chart of accounts
   useEffect(() => {
-    if (!selectedCompanyId) return;
-    fetchPayFromAccounts(api, { companyId: selectedCompanyId })
+    const targetComp = payingCompanyId || selectedCompanyId;
+    if (!targetComp) return;
+    fetchPayFromAccounts(api, { companyId: targetComp })
       .then(setBankAccounts)
       .catch(() => setBankAccounts([]));
 
-    api.get('/finance/accounts', { params: { companyId: selectedCompanyId, limit: 500 } })
+    api.get('/finance/accounts', { params: { companyId: targetComp, limit: 500 } })
       .then((res) => {
         const accs = res.data?.data?.accounts || res.data?.data || [];
         setExpenseAccounts(accs.filter((a) => String(a.type).toLowerCase().includes('expense')));
       })
       .catch(() => setExpenseAccounts([]));
-  }, [selectedCompanyId]);
+  }, [payingCompanyId, selectedCompanyId]);
 
   useEffect(() => {
     api.get('/procurement/vendors', { params: { limit: 1000 } })
@@ -1129,6 +1131,7 @@ const AccountsPayable = () => {
         paymentDate: paymentData.paymentDate,
         whtRate: Number(paymentData.whtRate) || 0,
         bankAccountId: paymentData.bankAccountId || null,
+        payingCompanyId: payingCompanyId || selectedCompanyId || null,
         batchId: `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         financeApprovalAuthorities
       });
@@ -3082,7 +3085,24 @@ const AccountsPayable = () => {
                   ? `WHT: PKR ${((paymentData.amount || 0) * (paymentData.whtRate / 100)).toFixed(2)} — Net to bank: PKR ${((paymentData.amount || 0) * (1 - paymentData.whtRate / 100)).toFixed(2)}`
                   : 'Leave 0 if no WHT applies'} />
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Paying Company</InputLabel>
+                <Select
+                  value={payingCompanyId}
+                  onChange={(e) => setPayingCompanyId(e.target.value)}
+                  label="Paying Company"
+                >
+                  <MenuItem value=""><em>-- Target Company / Default --</em></MenuItem>
+                  {financeCompanies.map((c) => (
+                    <MenuItem key={c._id} value={c._id}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Payment Method</InputLabel>
                 <Select value={paymentData.paymentMethod}
@@ -3095,7 +3115,7 @@ const AccountsPayable = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Pay From Account</InputLabel>
                 <Select value={paymentData.bankAccountId || ''}

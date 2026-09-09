@@ -843,7 +843,7 @@ const FinanceHelper = {
       const invoice = await AccountsReceivable.findById(invoiceId);
       if (!invoice) throw new Error('Invoice not found');
 
-      const { amount, paymentMethod, reference, date, createdBy, bankAccountId } = paymentData;
+      const { amount, paymentMethod, reference, date, createdBy, bankAccountId, payingCompanyId: optsPayingCompanyId = null } = paymentData;
 
       const balance = Math.round((invoice.totalAmount - invoice.amountPaid) * 100) / 100;
       if (amount > balance + 0.01) {
@@ -856,31 +856,54 @@ const FinanceHelper = {
       await invoice.save();
 
       const companyId = co(invoice);
-      const A = acct(companyId);
-      const arAccount = await A.resolve(FinanceHelper.ACCOUNTS.RECEIVABLE);
-      let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
+      const receivingCompanyId = co({ companyId: optsPayingCompanyId }) || companyId;
+      const isIntercompany = receivingCompanyId && companyId && String(receivingCompanyId) !== String(companyId);
+
+      const A_target = acct(companyId);
+      const A_receiving = acct(receivingCompanyId);
+
+      const arAccount = await A_target.resolve(FinanceHelper.ACCOUNTS.RECEIVABLE);
+      let bankAccount = bankAccountId ? await A_receiving.map(bankAccountId) : null;
       if (!bankAccount) {
-        bankAccount = await A.resolve(
+        bankAccount = await A_receiving.resolve(
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
 
       if (arAccount && bankAccount) {
+        const lines = [];
+
+        if (isIntercompany) {
+          const { resolveIntercompanyAccounts } = require('./financePosting');
+          const { icTargetAcc, icPayingAcc: icReceivingAcc } = await resolveIntercompanyAccounts({
+            targetCompanyId: companyId,
+            payingCompanyId: receivingCompanyId,
+            createdBy
+          });
+
+          // Clear AR on Target company & Debit Intercompany Receivable
+          lines.push({ account: icTargetAcc._id, description: `Intercompany Receipt via receiving bank account`, debit: amount, department: invoice.department });
+          lines.push({ account: arAccount._id, description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department });
+
+          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit: amount, department: invoice.department });
+          lines.push({ account: icReceivingAcc._id, description: `Intercompany Payable for receipt collected on behalf of subsidiary`, credit: amount, department: invoice.department });
+        } else {
+          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit: amount, department: invoice.department });
+          lines.push({ account: arAccount._id, description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department });
+        }
+
         await FinanceHelper.createAndPostJournalEntry(
           withVoucherNarration(withCompany({
             date:          date || new Date(),
             reference:     reference || invoice.invoiceNumber,
-            description:   `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}`,
+            description:   `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
             department:    invoice.department,
             module:        invoice.module,
             referenceId:   invoice._id,
             referenceType: 'receipt',
             journalCode:   'BANK',
             createdBy,
-            lines: [
-              { account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit:  amount, department: invoice.department },
-              { account: arAccount._id,   description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department }
-            ]
+            lines
           }, companyId), getArInvoiceNarration(invoice))
         );
       }
@@ -1058,6 +1081,7 @@ const FinanceHelper = {
         createdBy,
         whtRate = 0,
         bankAccountId,
+        payingCompanyId: optsPayingCompanyId = null,
         financeApprovalAuthorities,
         batchId
       } = paymentData;
@@ -1093,6 +1117,8 @@ const FinanceHelper = {
       }
 
       totalAmount = Math.round(totalAmount * 100) / 100;
+      const payingCompanyId = co({ companyId: optsPayingCompanyId }) || companyId;
+      const isIntercompany = payingCompanyId && companyId && String(payingCompanyId) !== String(companyId);
 
       // Check for Reference/Cheque uniqueness
       if (reference) {
@@ -1128,12 +1154,18 @@ const FinanceHelper = {
         const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
         await seedChartOfAccountsForCompany(companyId, { skipExisting: true });
       }
+      if (payingCompanyId) {
+        const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
+        await seedChartOfAccountsForCompany(payingCompanyId, { skipExisting: true });
+      }
       
-      const A = acct(companyId);
-      const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
-      let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
+      const A_target = acct(companyId);
+      const A_paying = acct(payingCompanyId);
+
+      const apAccount = await A_target.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
+      let bankAccount = bankAccountId ? await A_paying.map(bankAccountId) : null;
       if (!bankAccount) {
-        bankAccount = await A.resolve(
+        bankAccount = await A_paying.resolve(
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
@@ -1149,7 +1181,7 @@ const FinanceHelper = {
       }
 
       const lines = [];
-      // Debit AP for each bill
+      // Debit AP for each bill on target company ledger
       for (const item of billObjects) {
         lines.push({
           account: apAccount._id,
@@ -1159,21 +1191,61 @@ const FinanceHelper = {
         });
       }
 
-      // Credit Bank for the net amount
-      lines.push({
-        account: bankAccount._id,
-        description: `Bank payment – Batch Payment (pending signatures)`,
-        credit: netBankAmount,
-        department: departmentId
-      });
+      if (isIntercompany) {
+        const { resolveIntercompanyAccounts } = require('./financePosting');
+        const { icTargetAcc, icPayingAcc } = await resolveIntercompanyAccounts({
+          targetCompanyId: companyId,
+          payingCompanyId,
+          createdBy
+        });
 
-      if (whtAmount > 0) {
-        const whtAccount = await A.resolve('2004');
-        if (whtAccount) {
-          lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${vendorName}`, credit: whtAmount, department: departmentId });
-        } else {
-          // If no WHT account, fallback to hitting the bank with the full amount
-          lines[lines.length - 1].credit = totalAmount;
+        // Credit Intercompany Clearing on Target company ledger to balance the AP Debit
+        lines.push({
+          account: icTargetAcc._id,
+          description: `Intercompany Settlement via paying bank account`,
+          credit: totalAmount,
+          department: departmentId
+        });
+
+        // Credit Paying Bank Account on Paying company ledger
+        lines.push({
+          account: bankAccount._id,
+          description: `Bank payment – Batch Payment (intercompany for ${vendorName})`,
+          credit: netBankAmount,
+          department: departmentId
+        });
+
+        if (whtAmount > 0) {
+          const whtAccount = await A_paying.resolve('2004') || await A_target.resolve('2004');
+          if (whtAccount) {
+            lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${vendorName}`, credit: whtAmount, department: departmentId });
+          } else {
+            lines[lines.length - 1].credit = totalAmount;
+          }
+        }
+
+        lines.push({
+          account: icPayingAcc._id,
+          description: `Intercompany Receivable for bill payment paid on behalf of company`,
+          debit: totalAmount,
+          department: departmentId
+        });
+      } else {
+        // Standard Same-Company Payment
+        lines.push({
+          account: bankAccount._id,
+          description: `Bank payment – Batch Payment (pending signatures)`,
+          credit: netBankAmount,
+          department: departmentId
+        });
+
+        if (whtAmount > 0) {
+          const whtAccount = await A_target.resolve('2004');
+          if (whtAccount) {
+            lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${vendorName}`, credit: whtAmount, department: departmentId });
+          } else {
+            lines[lines.length - 1].credit = totalAmount;
+          }
         }
       }
 
@@ -1191,7 +1263,7 @@ const FinanceHelper = {
         journalPayload: withVoucherNarration(withCompany({
           date: date || new Date(),
           reference: reference || `BATCH-${Date.now()}`,
-          description: `Batch Payment – ${vendorName} (pending finance signatures)`,
+          description: `Batch Payment – ${vendorName}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
           department: departmentId,
           module: billObjects[0].bill.module,
           referenceType: 'payment',
@@ -1204,7 +1276,8 @@ const FinanceHelper = {
           reference: reference || `BATCH-${Date.now()}`,
           batchId: batchId || null,
           whtRate,
-          bankAccountId: bankAccount ? bankAccount._id : null
+          bankAccountId: bankAccount ? bankAccount._id : null,
+          payingCompanyId: payingCompanyId || null
         }
       });
 
@@ -1231,13 +1304,18 @@ const FinanceHelper = {
     referenceId = null,
     financeApprovalAuthorities = null,
     companyId: optsCompanyId = null,
+    payingCompanyId: optsPayingCompanyId = null,
     categoryLines = []
   }) => {
     const amount_ = Math.round((Number(amount) || 0) * 100) / 100;
     if (amount_ <= 0) throw new Error('Advance amount must be greater than zero');
 
     const companyId = co({ companyId: optsCompanyId });
-    const A = acct(companyId);
+    const payingCompanyId = co({ companyId: optsPayingCompanyId }) || companyId;
+    const isIntercompany = payingCompanyId && companyId && String(payingCompanyId) !== String(companyId);
+
+    const A_target = acct(companyId);
+    const A_paying = acct(payingCompanyId);
 
     const fa = financeApprovalAuthorities || {};
     const am = fa.accountsManagerUser || fa.accountsManager;
@@ -1245,10 +1323,9 @@ const FinanceHelper = {
     if (!am || !fc) {
       throw new Error('Sr Manager Accounts and GM Finance approvers are required for every vendor advance.');
     }
-    // Accounts Officer / AM is always the user who records the advance (not client-assigned).
     const nowPreparer = new Date();
 
-    let advAccount = await A.resolve(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    let advAccount = await A_target.resolve(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
     if (!advAccount) {
       advAccount = await Account.create({
         accountNumber: FinanceHelper.ACCOUNTS.VENDOR_ADVANCE,
@@ -1262,12 +1339,12 @@ const FinanceHelper = {
         createdBy
       });
     }
-    let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
+    let bankAccount = bankAccountId ? await A_paying.map(bankAccountId) : null;
     if (bankAccountId && !bankAccount) {
       throw new Error('Selected bank or cash account was not found. Pick a valid chart account.');
     }
     if (!bankAccount) {
-      bankAccount = await A.resolve(
+      bankAccount = await A_paying.resolve(
         (paymentMethod || 'bank_transfer') === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
       );
     }
@@ -1309,9 +1386,9 @@ const FinanceHelper = {
     let debitLines = [];
     if (validCategoryLines.length > 0) {
       for (const cl of validCategoryLines) {
-        let lineAcc = cl.account ? await A.map(cl.account) : null;
+        let lineAcc = cl.account ? await A_target.map(cl.account) : null;
         if (!lineAcc && cl.accountNumber) {
-          lineAcc = await A.resolve(cl.accountNumber);
+          lineAcc = await A_target.resolve(cl.accountNumber);
         }
         if (!lineAcc) {
           lineAcc = advAccount;
@@ -1332,17 +1409,40 @@ const FinanceHelper = {
       });
     }
 
-    const linePayload = [
-      ...debitLines,
-      { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${advance.reference})`, credit: amount_, department }
-    ];
+    let linePayload = [];
+    if (isIntercompany) {
+      const { resolveIntercompanyAccounts } = require('./financePosting');
+      const { icTargetAcc, icPayingAcc } = await resolveIntercompanyAccounts({
+        targetCompanyId: companyId,
+        payingCompanyId,
+        createdBy
+      });
+
+      // Credit Intercompany Clearing on Target company ledger
+      const targetLines = [
+        ...debitLines,
+        { account: icTargetAcc._id, description: `Intercompany Advance Settlement via paying company`, credit: amount_, department }
+      ];
+
+      const payingLines = [
+        { account: icPayingAcc._id, description: `Intercompany Advance paid on behalf of company`, debit: amount_, department },
+        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${advance.reference})`, credit: amount_, department }
+      ];
+
+      linePayload = [...targetLines, ...payingLines];
+    } else {
+      linePayload = [
+        ...debitLines,
+        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${advance.reference})`, credit: amount_, department }
+      ];
+    }
 
     const journalEntry = await FinanceHelper.createDraftJournalEntry(
       withVoucherNarration(
         withCompany({
           date: date || new Date(),
           reference: advance.reference,
-          description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
+          description: `Vendor Advance: ${vendorName || 'Vendor'}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
           department,
           module,
           referenceId: advance._id,
