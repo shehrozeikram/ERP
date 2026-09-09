@@ -7,6 +7,12 @@ const journalEntrySchema = new mongoose.Schema({
     index: true,
     default: null
   },
+  payingCompanyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    index: true,
+    default: null
+  },
   entryNumber: {
     type: String,
     unique: true,

@@ -597,7 +597,16 @@ const AccountsPayable = () => {
 
   // Load bank/cash accounts and expense accounts from chart of accounts
   useEffect(() => {
-    const targetComp = payingCompanyId || selectedCompanyId;
+    let targetComp = payingCompanyId || selectedCompanyId;
+    if (!targetComp) {
+      const payRows = selectedBill
+        ? [selectedBill]
+        : outstandingTransactions;
+      if (payRows.length > 0) {
+        targetComp = typeof payRows[0].companyId === 'object' ? payRows[0].companyId?._id : payRows[0].companyId;
+      }
+    }
+
     if (!targetComp) return;
     fetchPayFromAccounts(api, { companyId: targetComp })
       .then(setBankAccounts)
@@ -609,7 +618,7 @@ const AccountsPayable = () => {
         setExpenseAccounts(accs.filter((a) => String(a.type).toLowerCase().includes('expense')));
       })
       .catch(() => setExpenseAccounts([]));
-  }, [payingCompanyId, selectedCompanyId]);
+  }, [payingCompanyId, selectedCompanyId, selectedBill, outstandingTransactions, bills]);
 
   useEffect(() => {
     api.get('/procurement/vendors', { params: { limit: 1000 } })

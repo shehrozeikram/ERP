@@ -145,6 +145,31 @@ const companyQuery = (filters = {}, company) => {
   return { $and: [base, companyFilter] };
 };
 
+/** Apply companyId OR payingCompanyId filter (useful for Journal Entries / Vouchers) */
+const voucherCompanyQuery = (filters = {}, company) => {
+  const base = { ...filters };
+  if (!company?._id || company.isAll) return base;
+
+  const companyFilter = isHistoricalCompany(company)
+    ? {
+      $or: [
+        { companyId: company._id },
+        { companyId: null },
+        { companyId: { $exists: false } },
+        { payingCompanyId: company._id }
+      ]
+    }
+    : { 
+      $or: [
+        { companyId: company._id },
+        { payingCompanyId: company._id }
+      ]
+    };
+
+  if (Object.keys(base).length === 0) return companyFilter;
+  return { $and: [base, companyFilter] };
+};
+
 /**
  * Resolve companyId from explicit id, employee placement, procurement chain, or account — historical fallback.
  */
@@ -267,6 +292,7 @@ module.exports = {
   deriveCompanyCode,
   normalizeCompanyId,
   resolveCompanyId,
+  voucherCompanyQuery,
   resolveCompanyFromRequest,
   requireCompanyFromRequest,
   findHistoricalCompany,

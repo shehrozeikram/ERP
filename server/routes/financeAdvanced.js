@@ -35,7 +35,7 @@ const {
 } = require('../utils/financePayrollQueue');
 const PayrollPeriodPaymentHelper = require('../utils/payrollPeriodPayment');
 const PayrollBankLetterService = require('../utils/payrollBankLetterService');
-const { requireCompanyFromRequest, findHistoricalCompany, resolveCompanyForFinanceRoute, companyQuery, resolveDocumentCompanyId } = require('../utils/financeCompanyContext');
+const { requireCompanyFromRequest, findHistoricalCompany, resolveCompanyForFinanceRoute, companyQuery, voucherCompanyQuery, resolveDocumentCompanyId } = require('../utils/financeCompanyContext');
 const { financeScope, assertDocCompany, loadScopedDoc } = require('../utils/financeRouteScope');
 const { co, acct, withCompany } = require('../utils/financePosting');
 const { seedChartOfAccountsForCompany } = require('../utils/companyChartOfAccounts');
@@ -770,7 +770,7 @@ router.get('/journal-entries',
       }
     }
 
-    const filters = companyQuery(baseFilters, company);
+    const filters = voucherCompanyQuery(baseFilters, company);
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const [entries, totalCount] = await Promise.all([

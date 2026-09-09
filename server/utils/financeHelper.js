@@ -293,7 +293,7 @@ const FinanceHelper = {
         const resolvedDeptString = await FinanceHelper.resolveDepartmentStringFromId(rawDept);
 
         ledgerEntries.push({
-          companyId: entry.companyId || currentAccount.companyId || null,
+          companyId: currentAccount.companyId || entry.companyId || null,
           journalEntry: entry._id,
           account: accountRef,
           date: entry.date,
@@ -1269,7 +1269,8 @@ const FinanceHelper = {
           referenceType: 'payment',
           journalCode: 'BANK',
           voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
-          lines
+          lines,
+          payingCompanyId: payingCompanyId || null
         }, companyId), `Batch Payment for ${billObjects.length} bills`),
         paymentMeta: {
           paymentMethod,
@@ -1450,7 +1451,8 @@ const FinanceHelper = {
           journalCode: 'BANK',
           voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
           createdBy,
-          lines: linePayload
+          lines: linePayload,
+          payingCompanyId: payingCompanyId || null
         }, companyId),
         getVendorAdvanceNarration(advance) || reference
       )
