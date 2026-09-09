@@ -30,7 +30,10 @@ import {
   ListItemText
 } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Save as SaveIcon } from '@mui/icons-material';
+import DownloadIcon from '@mui/icons-material/Download';
 import toast from 'react-hot-toast';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../services/api';
 import {
@@ -564,11 +567,53 @@ const KPIMonthlySheet = () => {
       : 'My monthly KPI sheet';
   const { canEditStructure, canEditEmployeeCols } = editFlags;
 
+  const handleExportPDF = async () => {
+    if (!rows || rows.length === 0) {
+      toast.error('No KPI rows available to export.');
+      return;
+    }
+    const input = document.getElementById('kpi-sheet-pdf-content');
+    if (!input) return;
+
+    try {
+      const actionCells = input.querySelectorAll('.actions-col');
+      actionCells.forEach((cell) => {
+        cell.style.display = 'none';
+      });
+
+      const canvas = await html2canvas(input, { scale: 2, useCORS: true });
+
+      actionCells.forEach((cell) => {
+        cell.style.display = '';
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
+      pdf.save(`KPI_Sheet_${year}_${month}.pdf`);
+    } catch (err) {
+      toast.error('Failed to generate PDF');
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" fontWeight={600} gutterBottom>
-        {title}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4" fontWeight={600}>
+          {title}
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<DownloadIcon />}
+          onClick={handleExportPDF}
+          disabled={!rows || rows.length === 0}
+        >
+          Export to PDF
+        </Button>
+      </Box>
       {isTeamReviewPage && (
         <Alert severity={pendingReviews > 0 ? 'warning' : 'success'} sx={{ mb: 2 }}>
           Pending reviews this month: <strong>{pendingReviews}</strong>
@@ -704,7 +749,7 @@ const KPIMonthlySheet = () => {
           <CircularProgress />
         </Box>
       ) : (
-        <>
+        <Box id="kpi-sheet-pdf-content" sx={{ p: 1 }}>
           {empName && (
             <Alert severity="info" sx={{ mb: 2 }}>
               Employee: <strong>{empName}</strong>
@@ -740,7 +785,7 @@ const KPIMonthlySheet = () => {
                   <TableCell rowSpan={2} align="right">
                     Final weightage
                   </TableCell>
-                  <TableCell rowSpan={2} width={88} align="center">
+                  <TableCell rowSpan={2} width={88} align="center" className="actions-col">
                     Actions
                   </TableCell>
                 </TableRow>
@@ -819,7 +864,7 @@ const KPIMonthlySheet = () => {
                     </TableCell>
                     <TableCell align="right">{row.score1to5}</TableCell>
                     <TableCell align="right">{row.finalWeightage}</TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" className="actions-col">
                       <Box sx={{ display: 'inline-flex', gap: 0.25 }}>
                         <Tooltip title="Edit KPI row">
                           <span>
@@ -969,7 +1014,7 @@ const KPIMonthlySheet = () => {
               </Button>
             </DialogActions>
           </Dialog>
-        </>
+        </Box>
       )}
     </Box>
   );
