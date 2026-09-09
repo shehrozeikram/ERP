@@ -156,6 +156,7 @@ const {
   vendorAdvancesLinkedToPurchaseOrderFilter
 } = require('../utils/fullAdvancePoGate');
 const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
+const { notifyChatApprovers } = require('../utils/approvalChatNotifier');
 
 const router = express.Router();
 
@@ -2762,6 +2763,11 @@ router.post('/accounts-payable/:id/payment',
           const fa = apApp?.financeApprovalAuthorities || {};
           const authIds = [fa.accountsManagerUser, fa.financeControllerUser].filter(Boolean);
           notifyApprovers(authIds, { docType: 'Bill Payment', docNumber: updatedBill.billNumber || '' }).catch(() => {});
+          notifyChatApprovers(authIds, { 
+            docType: 'Bill Payment', 
+            docNumber: updatedBill.billNumber || '',
+            url: `/finance/accounts-payable`
+          }).catch(() => {});
         } catch (_) {}
       }
       res.json({ success: true, message, data: updatedBill });

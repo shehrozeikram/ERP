@@ -952,6 +952,15 @@ router.post('/:id/submit', requireBillPermission('update'), async (req, res) => 
     await bill.save();
     await populateUtilityBillDocument(bill);
 
+    if (bill.useCentralizedStore) {
+      const { notifyChatApprovers } = require('../utils/approvalChatNotifier');
+      notifyChatApprovers(approverIds, { 
+        docType: 'Centralized Store Bill', 
+        docNumber: bill.billId || '',
+        url: `/general/centralized-store/bills/${bill._id}`
+      }).catch(() => {});
+    }
+
     res.json({ success: true, message: 'Utility bill submitted for approval', data: bill });
   } catch (error) {
     console.error('Error submitting utility bill:', error);
