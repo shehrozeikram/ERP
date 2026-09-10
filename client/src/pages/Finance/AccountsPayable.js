@@ -1847,7 +1847,9 @@ const AccountsPayable = () => {
           </IconButton>
         </DialogTitle>
         <DialogContent dividers>
-          {selectedBill && (
+          {selectedBill && (() => {
+            const isNonPOBill = selectedBill?.referenceType === 'store' || selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities';
+            return (
             <>
               <Tabs
                 value={billViewTab}
@@ -1856,13 +1858,13 @@ const AccountsPayable = () => {
                 variant="scrollable"
                 scrollButtons="auto"
               >
-                <Tab label="Vendor Bill" />
-                <Tab label={selectedBill?.poDetail?.indent ? 'Indent' : 'Indent'} />
-                <Tab label={`Quotations (${selectedBill?.poDetail?.quotations?.length || 0})`} />
-                <Tab label="Comparative Statement" />
-                <Tab label={selectedBill?.poDetail?.po ? 'Purchase Order' : 'PO'} />
-                <Tab label={(selectedBill?.poDetail?.grns?.length || 0) > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />
-                <Tab label="Payment History" />
+                <Tab value={0} label="Vendor Bill" />
+                {!isNonPOBill && <Tab value={1} label={selectedBill?.poDetail?.indent ? 'Indent' : 'Indent'} />}
+                {!isNonPOBill && <Tab value={2} label={`Quotations (${selectedBill?.poDetail?.quotations?.length || 0})`} />}
+                {!isNonPOBill && <Tab value={3} label="Comparative Statement" />}
+                {!isNonPOBill && <Tab value={4} label={selectedBill?.poDetail?.po ? 'Purchase Order' : 'PO'} />}
+                {!isNonPOBill && <Tab value={5} label={(selectedBill?.poDetail?.grns?.length || 0) > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />}
+                <Tab value={6} label="Payment History" />
               </Tabs>
 
               {/* Tab 0: Vendor Bill & Approval Authorities */}
@@ -1908,16 +1910,11 @@ const AccountsPayable = () => {
 
                       const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
 
-                      // For Store/Procurement bills, the audit history is often on the attached PO, not the bill itself.
+                      // For Vendor Bills without POs (like Store or Utilities), all audit history is recorded directly on the Bill
                       const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
-                      const poHistory = Array.isArray(selectedBill?.poDetail?.po?.workflowHistory) ? [...selectedBill.poDetail.po.workflowHistory].reverse() : [];
                       
-                      const findAuditEntry = (condition) => {
-                        return history.find(condition) || poHistory.find(condition);
-                      };
-
-                      const preAuditEntry = findAuditEntry(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
-                      const directorEntry = findAuditEntry(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+                      const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit'));
+                      const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
 
                       const rows = [
                         {
@@ -1934,10 +1931,10 @@ const AccountsPayable = () => {
                         },
                         {
                           authority: 'Audit Director',
-                          name: userDisplayName(selectedBill?.poDetail?.po?.auditApprovedBy || directorEntry?.changedBy),
-                          signatureUser: selectedBill?.poDetail?.po?.auditApprovedBy || directorEntry?.changedBy || null,
-                          signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || selectedBill?.poDetail?.po?.auditApprovedBy?.digitalSignature || ''),
-                          dateTime: (selectedBill?.poDetail?.po?.auditApprovedAt || directorEntry?.changedAt) ? formatDateTime(selectedBill?.poDetail?.po?.auditApprovedAt || directorEntry.changedAt) : '-'
+                          name: userDisplayName(directorEntry?.changedBy),
+                          signatureUser: directorEntry?.changedBy || null,
+                          signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || ''),
+                          dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
                         },
                         {
                           authority: 'Finance Authority',
@@ -2461,7 +2458,8 @@ const AccountsPayable = () => {
                     </Box>
                   )}
             </>
-          )}
+            );
+          })()}
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between', px: 3, py: 2 }}>
           <Box>
