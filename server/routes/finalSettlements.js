@@ -270,7 +270,7 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
     };
 
     if (noticePeriodShortfall > 0 && !clientDeductions) {
-      const dailyRate = basicSalary / 30;
+      const dailyRate = grossSalary / 30;
       defaultDeductions.noticePeriodDeduction = dailyRate * noticePeriodShortfall;
     }
 

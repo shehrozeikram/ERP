@@ -142,6 +142,10 @@ class FinalSettlementService {
       formattedNetAmount: formatPKR(settlement.netSettlementAmount),
       formattedBasicSalary: formatPKR(settlement.basicSalary),
       formattedGrossSalary: formatPKR(settlement.grossSalary),
+      formattedActualSalary: formatPKR(
+        settlement.actualSalary || 
+        Math.round(((settlement.grossSalary || 0) / 30) * Math.max(0, (settlement.noticePeriod || 0) - (settlement.noticePeriodServed || 0)))
+      ),
       formattedNetSalary: formatPKR(settlement.netSalary),
       formattedTotalEarnings: formatPKR(settlement.earnings?.totalEarnings),
       formattedTotalDeductions: formatPKR(settlement.deductions?.totalDeductions),
@@ -224,6 +228,7 @@ class FinalSettlementService {
       bonus: formatPKR(earnings.bonus || 0),
       gratuity: formatPKR(earnings.gratuity || 0),
       leaveEncashment: formatPKR(earnings.leaveEncashment || 0),
+      noticePay: formatPKR(earnings.noticePay || 0),
       providentFund: formatPKR(earnings.providentFund || 0),
       eobi: formatPKR(earnings.eobi || 0),
       totalEarnings: formatPKR(earnings.totalEarnings || 0)
@@ -240,6 +245,10 @@ class FinalSettlementService {
       eobi: formatPKR(deductions.eobi || 0),
       loanDeductions: formatPKR(deductions.loanDeductions || 0),
       noticePeriodDeduction: formatPKR(deductions.noticePeriodDeduction || 0),
+      security: formatPKR(deductions.security || 0),
+      healthInsurance: formatPKR(deductions.healthInsurance || 0),
+      advanceDeductions: formatPKR(deductions.advanceDeductions || 0),
+      pension: formatPKR(deductions.pension || 0),
       otherDeductions: formatPKR(deductions.otherDeductions || 0),
       totalDeductions: formatPKR(deductions.totalDeductions || 0)
     };

@@ -358,6 +358,12 @@ const FinalSettlementDetail = () => {
                     {settlement.noticePeriodServed}/{settlement.noticePeriod} days
                   </Typography>
                 </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Actual Salary</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {finalSettlementService.formatSettlementData(settlement).formattedActualSalary}
+                  </Typography>
+                </Grid>
               </Grid>
             </CardContent>
           </Card>
@@ -458,6 +464,10 @@ const FinalSettlementDetail = () => {
                       <TableCell align="right">{formattedEarnings.leaveEncashment}</TableCell>
                     </TableRow>
                     <TableRow>
+                      <TableCell>Notice Pay</TableCell>
+                      <TableCell align="right">{formattedEarnings.noticePay}</TableCell>
+                    </TableRow>
+                    <TableRow>
                       <TableCell>Provident Fund</TableCell>
                       <TableCell align="right">{formattedEarnings.providentFund}</TableCell>
                     </TableRow>
@@ -503,6 +513,22 @@ const FinalSettlementDetail = () => {
                     <TableRow>
                       <TableCell>Notice Period Deduction</TableCell>
                       <TableCell align="right">{formattedDeductions.noticePeriodDeduction}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Employee Security</TableCell>
+                      <TableCell align="right">{formattedDeductions.security}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Health Insurance</TableCell>
+                      <TableCell align="right">{formattedDeductions.healthInsurance}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Advance Deductions</TableCell>
+                      <TableCell align="right">{formattedDeductions.advanceDeductions}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Pension</TableCell>
+                      <TableCell align="right">{formattedDeductions.pension}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Other Deductions</TableCell>

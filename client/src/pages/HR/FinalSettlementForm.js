@@ -106,6 +106,7 @@ const FinalSettlementForm = () => {
       parseAmount(e.bonus) +
       parseAmount(e.gratuity) +
       parseAmount(e.leaveEncashment) +
+      parseAmount(e.noticePay) +
       parseAmount(e.otherEarnings);
     const totalDeductions =
       parseAmount(d.noticePeriodDeduction) +
@@ -143,6 +144,7 @@ const FinalSettlementForm = () => {
       bonus: parseAmount(e.bonus),
       gratuity: parseAmount(e.gratuity),
       leaveEncashment: parseAmount(e.leaveEncashment),
+      noticePay: parseAmount(e.noticePay),
       providentFund: 0,
       eobi: 0
     };
@@ -153,7 +155,11 @@ const FinalSettlementForm = () => {
       eobi: parseAmount(d.eobi),
       loanDeductions: parseAmount(d.loanDeductions),
       noticePeriodDeduction: parseAmount(d.noticePeriodDeduction),
-      otherDeductions: parseAmount(d.otherDeductions) + parseAmount(d.advanceDeductions) + parseAmount(d.healthInsurance) + parseAmount(d.security) + parseAmount(d.pension)
+      security: parseAmount(d.security),
+      healthInsurance: parseAmount(d.healthInsurance),
+      advanceDeductions: parseAmount(d.advanceDeductions),
+      pension: parseAmount(d.pension),
+      otherDeductions: parseAmount(d.otherDeductions)
     };
 
     return {
@@ -260,6 +266,7 @@ const FinalSettlementForm = () => {
         specialAllowance: 0,
         otherAllowances: 0,
         leaveEncashment: 0,
+        noticePay: 0,
         gratuity: 0,
         bonus: 0,
         overtime: 0,
@@ -419,10 +426,10 @@ const FinalSettlementForm = () => {
       const dailyRate = Math.round(grossSalary / 30);
       const leaveEncashment = 0; // Default to 0, user will input manually
       
-      // Calculate gratuity based on years of service
+      // Calculate gratuity based on years of service (using Gross Salary)
       const yearsOfService = employee.dateOfJoining ? 
         Math.floor((new Date() - new Date(employee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365)) : 0;
-      const gratuity = Math.round(basicSalary * Math.min(yearsOfService, 5)); // Max 5 years
+      const gratuity = Math.round(grossSalary * Math.min(yearsOfService, 5)); // Max 5 years
       
       // Auto-populate earnings with calculated values
       formik.setFieldValue('earnings.basicSalary', basicSalary);
@@ -470,9 +477,15 @@ const FinalSettlementForm = () => {
       if (employee.eobi?.isRegistered) {
         formik.setFieldValue('deductions.eobi', 407);
       }
-      if (employee.employeeSecurity?.isActive) {
-        formik.setFieldValue('deductions.security', Number(employee.employeeSecurity.amount || 0));
-      }
+      const securityAmount = Number(
+        employee.employeeSecurity?.totalAccumulated || 
+        employee.employeeSecurity?.amount || 
+        employee.salary?.security || 
+        employee.deductions?.security || 
+        0
+      );
+      formik.setFieldValue('deductions.security', securityAmount);
+
       if (employee.deductions?.pension) {
         formik.setFieldValue('deductions.pension', employee.deductions.pension);
       }
@@ -530,6 +543,7 @@ const FinalSettlementForm = () => {
           transportAllowance: earnings.conveyanceAllowance || 0,
           otherAllowances: earnings.otherAllowances || 0,
           leaveEncashment: earnings.leaveEncashment || 0,
+          noticePay: earnings.noticePay || 0,
           gratuity: earnings.gratuity || 0,
           bonus: earnings.bonus || 0,
           overtime: earnings.overtime || 0,
@@ -538,14 +552,14 @@ const FinalSettlementForm = () => {
         deductions: {
           noticePeriodDeduction: deductions.noticePeriodDeduction || 0,
           loanDeductions: deductions.loanDeductions || 0,
-          advanceDeductions: 0,
+          advanceDeductions: deductions.advanceDeductions || 0,
           taxDeductions: deductions.incomeTax || 0,
           healthInsurance: deductions.healthInsurance || 0,
           providentFund: deductions.providentFund || 0,
           eobi: deductions.eobi || 0,
-          security: deductions.security || 0,
+          security: deductions.security || (deductions.otherDeductions > 0 && !deductions.security ? deductions.otherDeductions : 0),
           pension: deductions.pension || 0,
-          otherDeductions: deductions.otherDeductions || 0
+          otherDeductions: deductions.security ? (deductions.otherDeductions || 0) : 0
         },
         leaveBalance: {
           annual: leaveBalance.annual || 0,
@@ -952,7 +966,7 @@ const FinalSettlementForm = () => {
                   </Typography>
                 </Grid>
 
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={3}>
                   <TextField
                     fullWidth
                     type="number"
@@ -964,7 +978,7 @@ const FinalSettlementForm = () => {
                   />
                 </Grid>
 
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={3}>
                   <TextField
                     fullWidth
                     type="number"
@@ -977,7 +991,7 @@ const FinalSettlementForm = () => {
                   />
                 </Grid>
 
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={3}>
                   <TextField
                     fullWidth
                     type="number"
@@ -986,7 +1000,20 @@ const FinalSettlementForm = () => {
                     value={formik.values.dailyRate}
                     onChange={formik.handleChange}
                     InputProps={amountInputProps}
-                    helperText="Gross salary ÷ 30 (reference)"
+                    helperText="Gross salary ÷ 30"
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={3}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="actualSalary"
+                    label="Actual Salary"
+                    value={Math.round((formik.values.dailyRate || 0) * noticePeriodShortfall)}
+                    InputProps={amountInputProps}
+                    disabled
+                    helperText="Daily rate × notice shortfall days"
                   />
                 </Grid>
 
@@ -999,110 +1026,101 @@ const FinalSettlementForm = () => {
 
 
 
-                {selectedEmployee?.allowances?.medical?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.medicalAllowance"
-                      label="Medical Allowance"
-                      value={formik.values.earnings.medicalAllowance}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
-                {selectedEmployee?.allowances?.houseRent?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.houseRent"
-                      label="House Rent Allowance"
-                      value={formik.values.earnings.houseRent}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
-                {selectedEmployee?.allowances?.conveyance?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.transportAllowance"
-                      label="Transport / Conveyance Allowance"
-                      value={formik.values.earnings.transportAllowance}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
-                {selectedEmployee?.allowances?.food?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.foodAllowance"
-                      label="Food Allowance"
-                      value={formik.values.earnings.foodAllowance}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
-                {selectedEmployee?.allowances?.vehicle?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.vehicleAllowance"
-                      label="Vehicle Allowance"
-                      value={formik.values.earnings.vehicleAllowance}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
-                {selectedEmployee?.allowances?.fuel?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.fuelAllowance"
-                      label="Fuel Allowance"
-                      value={formik.values.earnings.fuelAllowance}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
-                {selectedEmployee?.allowances?.special?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.specialAllowance"
-                      label="Special Allowance"
-                      value={formik.values.earnings.specialAllowance}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
-                {selectedEmployee?.allowances?.other?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="earnings.otherAllowances"
-                      label="Other Allowances"
-                      value={formik.values.earnings.otherAllowances}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.medicalAllowance"
+                    label="Medical Allowance"
+                    value={formik.values.earnings.medicalAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.houseRent"
+                    label="House Rent Allowance"
+                    value={formik.values.earnings.houseRent}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.transportAllowance"
+                    label="Transport / Conveyance Allowance"
+                    value={formik.values.earnings.transportAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.foodAllowance"
+                    label="Food Allowance"
+                    value={formik.values.earnings.foodAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.vehicleAllowance"
+                    label="Vehicle Allowance"
+                    value={formik.values.earnings.vehicleAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.fuelAllowance"
+                    label="Fuel Allowance"
+                    value={formik.values.earnings.fuelAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.specialAllowance"
+                    label="Special Allowance"
+                    value={formik.values.earnings.specialAllowance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.otherAllowances"
+                    label="Other Allowances"
+                    value={formik.values.earnings.otherAllowances}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
                 <Grid item xs={12} md={6}>
                   <TextField
@@ -1113,6 +1131,19 @@ const FinalSettlementForm = () => {
                     value={formik.values.earnings.leaveEncashment}
                     onChange={formik.handleChange}
                     InputProps={amountInputProps}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.noticePay"
+                    label="Notice Pay"
+                    value={formik.values.earnings.noticePay}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                    helperText="Notice pay earning (defaults to 0)"
                   />
                 </Grid>
 
@@ -1210,103 +1241,89 @@ const FinalSettlementForm = () => {
                   />
                 </Grid>
 
-                {(selectedEmployee?.deductions?.incomeTax > 0 || selectedEmployee?.salary?.tax > 0) && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="deductions.taxDeductions"
-                      label="Tax Deductions"
-                      value={formik.values.deductions.taxDeductions}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="deductions.taxDeductions"
+                    label="Tax Deductions"
+                    value={formik.values.deductions.taxDeductions}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
-                {(selectedEmployee?.deductions?.healthInsurance > 0 || selectedEmployee?.deductions?.insurance > 0) && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="deductions.healthInsurance"
-                      label="Health Insurance"
-                      value={formik.values.deductions.healthInsurance}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="deductions.healthInsurance"
+                    label="Health Insurance"
+                    value={formik.values.deductions.healthInsurance}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
-                {selectedEmployee?.deductions?.providentFund > 0 && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="deductions.providentFund"
-                      label="Provident Fund"
-                      value={formik.values.deductions.providentFund}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="deductions.providentFund"
+                    label="Provident Fund"
+                    value={formik.values.deductions.providentFund}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
-                {selectedEmployee?.eobi?.isRegistered && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="deductions.eobi"
-                      label="EOBI"
-                      value={formik.values.deductions.eobi}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="deductions.eobi"
+                    label="EOBI"
+                    value={formik.values.deductions.eobi}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
-                {selectedEmployee?.employeeSecurity?.isActive && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="deductions.security"
-                      label="Security"
-                      value={formik.values.deductions.security}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="deductions.security"
+                    label="Employee Security"
+                    value={formik.values.deductions.security}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
-                {selectedEmployee?.deductions?.pension > 0 && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="deductions.pension"
-                      label="Pension"
-                      value={formik.values.deductions.pension}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="deductions.pension"
+                    label="Pension"
+                    value={formik.values.deductions.pension}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
-                {selectedEmployee?.deductions?.other > 0 && (
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      name="deductions.otherDeductions"
-                      label="Other Deductions"
-                      value={formik.values.deductions.otherDeductions}
-                      onChange={formik.handleChange}
-                      InputProps={amountInputProps}
-                    />
-                  </Grid>
-                )}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="deductions.otherDeductions"
+                    label="Other Deductions"
+                    value={formik.values.deductions.otherDeductions}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                  />
+                </Grid>
 
                 <Grid item xs={12}>
                   <Card variant="outlined">

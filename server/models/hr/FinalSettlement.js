@@ -77,6 +77,10 @@ const finalSettlementSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  actualSalary: {
+    type: Number,
+    default: 0
+  },
   netSalary: {
     type: Number,
     required: true
@@ -93,6 +97,7 @@ const finalSettlementSchema = new mongoose.Schema({
     bonus: { type: Number, default: 0 },
     gratuity: { type: Number, default: 0 },
     leaveEncashment: { type: Number, default: 0 },
+    noticePay: { type: Number, default: 0 },
     providentFund: { type: Number, default: 0 },
     eobi: { type: Number, default: 0 },
     totalEarnings: { type: Number, default: 0 }
@@ -105,6 +110,10 @@ const finalSettlementSchema = new mongoose.Schema({
     eobi: { type: Number, default: 0 },
     loanDeductions: { type: Number, default: 0 },
     noticePeriodDeduction: { type: Number, default: 0 },
+    security: { type: Number, default: 0 },
+    healthInsurance: { type: Number, default: 0 },
+    advanceDeductions: { type: Number, default: 0 },
+    pension: { type: Number, default: 0 },
     otherDeductions: { type: Number, default: 0 },
     totalDeductions: { type: Number, default: 0 }
   },
@@ -231,7 +240,7 @@ finalSettlementSchema.virtual('noticePeriodShortfallDays').get(function() {
 // Virtual for calculating notice period deduction amount
 finalSettlementSchema.virtual('noticePeriodDeductionAmount').get(function() {
   if (this.noticePeriodShortfallDays <= 0) return 0;
-  const dailyRate = this.basicSalary / 30; // Assuming 30 days per month
+  const dailyRate = (this.grossSalary || 0) / 30; // Based on gross salary
   return dailyRate * this.noticePeriodShortfallDays;
 });
 
@@ -249,6 +258,11 @@ finalSettlementSchema.virtual('settlementProgress').get(function() {
 
 // Pre-save middleware to calculate totals
 finalSettlementSchema.pre('save', function(next) {
+  // Compute actualSalary as daily rate * notice period shortfall days
+  const shortfallDays = Math.max(0, (this.noticePeriod || 0) - (this.noticePeriodServed || 0));
+  const dailyRate = (this.grossSalary || 0) / 30;
+  this.actualSalary = Math.round(dailyRate * shortfallDays);
+
   // Calculate total earnings
   this.earnings.totalEarnings = 
     (this.earnings.basicSalary || 0) +
@@ -260,6 +274,7 @@ finalSettlementSchema.pre('save', function(next) {
     (this.earnings.bonus || 0) +
     (this.earnings.gratuity || 0) +
     (this.earnings.leaveEncashment || 0) +
+    (this.earnings.noticePay || 0) +
     (this.earnings.providentFund || 0) +
     (this.earnings.eobi || 0);
 
@@ -270,6 +285,10 @@ finalSettlementSchema.pre('save', function(next) {
     (this.deductions.eobi || 0) +
     (this.deductions.loanDeductions || 0) +
     (this.deductions.noticePeriodDeduction || 0) +
+    (this.deductions.security || 0) +
+    (this.deductions.healthInsurance || 0) +
+    (this.deductions.advanceDeductions || 0) +
+    (this.deductions.pension || 0) +
     (this.deductions.otherDeductions || 0);
 
   // Calculate gross settlement amount
@@ -288,16 +307,16 @@ finalSettlementSchema.pre('save', function(next) {
 
 // Method to calculate leave encashment
 finalSettlementSchema.methods.calculateLeaveEncashment = function() {
-  const dailyRate = this.basicSalary / 30;
+  const dailyRate = (this.grossSalary || 0) / 30;
   const encashableLeaves = Math.min(this.leaveBalance.total, 30); // Max 30 days encashment
   return dailyRate * encashableLeaves;
 };
 
 // Method to calculate gratuity
 finalSettlementSchema.methods.calculateGratuity = function() {
-  // Standard gratuity calculation: 30 days salary for each completed year
+  // Standard gratuity calculation: 30 days gross salary for each completed year
   const yearsOfService = this.getYearsOfService();
-  const dailyRate = this.basicSalary / 30;
+  const dailyRate = (this.grossSalary || 0) / 30;
   return dailyRate * 30 * yearsOfService;
 };
 
