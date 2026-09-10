@@ -1867,7 +1867,18 @@ const AccountsPayable = () => {
 
               {/* Tab 0: Vendor Bill & Approval Authorities */}
               {billViewTab === 0 && (
-                <Box sx={{ p: 2 }}>
+                <Box 
+                  className="print-content"
+                  sx={{ 
+                    p: 2,
+                    '@media print': {
+                      p: 0,
+                      m: 0,
+                      zoom: 0.75, // Scale down to fit on one page
+                      pageBreakInside: 'avoid'
+                    }
+                  }}
+                >
                   <CentralizedStoreBillInvoiceBody 
                     bill={{
                       ...selectedBill,
