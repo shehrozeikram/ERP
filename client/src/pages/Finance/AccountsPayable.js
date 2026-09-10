@@ -1848,7 +1848,8 @@ const AccountsPayable = () => {
         </DialogTitle>
         <DialogContent dividers>
           {selectedBill && (() => {
-            const isNonPOBill = selectedBill?.referenceType === 'store' || selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities';
+            const isChartOfAccountsBill = selectedBill?.referenceType === 'manual' || selectedBill?.module === 'finance' || (!selectedBill?.referenceType && selectedBill?.lineItems?.length > 0);
+            const isNonPOBill = selectedBill?.referenceType === 'store' || selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities' || isChartOfAccountsBill;
             return (
             <>
               <Tabs
