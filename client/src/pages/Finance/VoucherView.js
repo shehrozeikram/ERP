@@ -12,8 +12,7 @@ import {
   TableHead,
   TableRow,
   Chip,
-  Alert,
-  Divider
+  Alert
 } from '@mui/material';
 import { ArrowBack as BackIcon, Print as PrintIcon, Edit as EditIcon } from '@mui/icons-material';
 import api from '../../services/api';
@@ -21,9 +20,6 @@ import { formatPKR } from '../../utils/currency';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
-import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
-import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
-import { numberToWords } from '../../utils/numberToWords';
 
 const formatDateForPrint = (date) => {
   if (!date) return '—';
@@ -391,33 +387,76 @@ const VoucherView = () => {
         </Box>
       </Box>
 
-      <Paper sx={{ p: 3, maxWidth: '1200px', mx: 'auto' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+      <Paper
+        sx={{
+          p: 3,
+          maxWidth: '1200px',
+          mx: 'auto',
+          '@media print': {
+            p: '10mm 12mm !important',
+            m: '0 !important',
+            maxWidth: '100% !important',
+            boxShadow: 'none !important',
+            border: 'none !important',
+            fontSize: '12px !important',
+            pageBreakInside: 'avoid !important',
+            breakInside: 'avoid !important',
+            '& .MuiTypography-root': {
+              fontSize: '12px !important'
+            },
+            '& .MuiTypography-h5, & .MuiTypography-h6, & .MuiTypography-subtitle1': {
+              fontSize: '14px !important',
+              fontWeight: '700 !important'
+            },
+            '& .MuiTableCell-root': {
+              padding: '5px 8px !important',
+              fontSize: '11.5px !important'
+            },
+            '& .MuiAlert-root': {
+              display: 'none !important'
+            },
+            '& .MuiChip-root': {
+              height: '22px !important',
+              fontSize: '11px !important'
+            },
+            '& img': {
+              maxHeight: '34px !important'
+            }
+          }
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
           <Box>
-            <Typography fontWeight={700}>{voucherCompanyName}</Typography>
-            <Typography fontWeight={700}>{voucherTitle}</Typography>
+            <Typography fontWeight={700} sx={{ fontSize: '17px !important' }}>{voucherCompanyName}</Typography>
+            <Typography fontWeight={700} color="primary" sx={{ fontSize: '15px !important' }}>{voucherTitle}</Typography>
           </Box>
           <Box sx={{ textAlign: 'right' }}>
-            <Typography variant="body2">{new Date(entry.date).toLocaleDateString()}</Typography>
-            <Typography variant="body2">{new Date(entry.date).toLocaleTimeString()}</Typography>
+            <Typography variant="body2">{formatDateForPrint(entry.date)}</Typography>
+            <Typography variant="body2">
+              {entry.createdAt
+                ? new Date(entry.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+                : new Date(entry.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+            </Typography>
           </Box>
         </Box>
 
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-          <Typography fontWeight={600}>{new Date(entry.date).toLocaleDateString()}</Typography>
-          <Box sx={{ minWidth: 260 }}>
-            <Typography variant="body2"><strong>Voucher Type</strong> {voucherType}</Typography>
-            <Typography variant="body2"><strong>Voucher No</strong> {entry.entryNumber}</Typography>
-            <Typography variant="body2"><strong>Month</strong> {payrollPeriodLabel}</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, p: 1, bgcolor: '#f9f9f9', borderRadius: 1, border: '1px solid #eee', '@media print': { p: '6px 10px', mb: 1 } }}>
+          <Box>
+            <Typography variant="body2"><strong>Voucher Type:</strong> {voucherType}</Typography>
+            <Typography variant="body2"><strong>Voucher No:</strong> {entry.entryNumber}</Typography>
+            <Typography variant="body2"><strong>Month:</strong> {payrollPeriodLabel}</Typography>
+          </Box>
+          <Box sx={{ textAlign: 'right' }}>
+            <Typography variant="body2"><strong>Date:</strong> {formatDateForPrint(entry.date)}</Typography>
             {entry.signedBySignatory ? (
-              <Typography variant="body2"><strong>Signed By</strong> {entry.signedBySignatory}</Typography>
+              <Typography variant="body2"><strong>Signed By:</strong> {entry.signedBySignatory}</Typography>
             ) : null}
             {isPayrollBpv && payrollEmployeeCount != null ? (
-              <Typography variant="body2"><strong>Employees</strong> {payrollEmployeeCount}</Typography>
+              <Typography variant="body2"><strong>Employees:</strong> {payrollEmployeeCount}</Typography>
             ) : null}
             {vendorAdvanceDoc ? (
-              <Typography variant="body2" sx={{ mt: 0.5 }}>
-                <strong>Pay from account</strong>{' '}
+              <Typography variant="body2">
+                <strong>Pay from account:</strong>{' '}
                 {vendorAdvanceDoc.bankAccountId?.name
                   ? `${vendorAdvanceDoc.bankAccountId.name}${
                     vendorAdvanceDoc.bankAccountId.accountNumber
@@ -430,23 +469,23 @@ const VoucherView = () => {
           </Box>
         </Box>
 
-        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5, fontSize: '13px' }}>
           {isPayrollBpv ? 'Accounting Entries' : 'Voucher Lines'}
         </Typography>
         {isPayrollBpv ? (
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5, '@media print': { display: 'none' } }}>
             Gross salary expense, EOBI employer expense, and each deduction post to their chart of accounts; bank is credited for net pay.
           </Typography>
         ) : null}
-        <Table size="small">
+        <Table size="small" sx={{ mb: 1.5 }}>
           <TableHead>
             <TableRow>
-              <TableCell>Account Title</TableCell>
-              <TableCell>Narration</TableCell>
-              <TableCell>Reference</TableCell>
-              <TableCell>Project</TableCell>
-              <TableCell align="right">Debit</TableCell>
-              <TableCell align="right">Credit</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Account Title</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Narration</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Project</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Debit</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Credit</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -460,7 +499,7 @@ const VoucherView = () => {
                     }
                     return accName;
                   })()}
-                  {line?.account?.accountNumber ? <Typography variant="caption" display="block">({line.account.accountNumber})</Typography> : null}
+                  {line?.account?.accountNumber ? <Typography variant="caption" display="block" sx={{ fontSize: '9.5px !important' }}>({line.account.accountNumber})</Typography> : null}
                 </TableCell>
                 <TableCell>{line.description || entry.description || '—'}</TableCell>
                 <TableCell>{entry.reference || '—'}</TableCell>
@@ -477,11 +516,11 @@ const VoucherView = () => {
           </TableBody>
         </Table>
 
-        <Box sx={{ mt: 4 }}>
+        <Box sx={{ mt: 1.5 }}>
           {isManualJV && entry?.status === 'draft' ? (
             <Alert 
               severity="info" 
-              sx={{ mb: 2 }}
+              sx={{ mb: 1.5 }}
               action={
                 <Button 
                   color="primary" 
@@ -507,43 +546,37 @@ const VoucherView = () => {
 
           {!isManualJV && financeAuthorityDoc ? (
             <>
-              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1, fontSize: '13px' }}>
                 Finance Document Approval Authority
               </Typography>
               {approvalMsg ? (
-                <Alert severity={approvalMsg.toLowerCase().includes('failed') ? 'error' : 'success'} sx={{ mb: 1.5 }}>
+                <Alert severity={approvalMsg.toLowerCase().includes('failed') ? 'error' : 'success'} sx={{ mb: 1, '@media print': { display: 'none' } }}>
                   {approvalMsg}
                 </Alert>
               ) : null}
               {payrollPeriodPaymentApp?.workflowStatus === 'draft' ? (
-                <Alert severity="info" sx={{ mb: 1.5 }}>
+                <Alert severity="info" sx={{ mb: 1, '@media print': { display: 'none' } }}>
                   This payroll BPV is still a <strong>draft</strong>. Submit it from Payroll — Finance when ready, or delete the draft from there.
-                  It is not yet in the GM Finance approval queue.
                 </Alert>
               ) : null}
               {pendingAuthorityVoucher ? (
-                <Alert severity="warning" sx={{ mb: 1.5 }}>
+                <Alert severity="warning" sx={{ mb: 1, '@media print': { display: 'none' } }}>
                   This voucher is <strong>draft</strong> until all finance authorities approve.
-                  {apPaymentApp
-                    ? ' The related vendor bill stays unpaid until final approval.'
-                    : payrollPeriodPaymentApp
-                      ? ' Company payroll for this BPV stays unpaid until GM Finance approves. Sr Manager Accounts is already approved on submission.'
-                      : ' General ledger and account balances update only after final approval.'}
                 </Alert>
               ) : null}
               {apPaymentApp?.bills?.length > 0 ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   Bill(s): <strong>{apPaymentApp.bills.map(b => b.billNumber || b.billId?.billNumber || '—').join(', ')}</strong>
                   {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}
                 </Typography>
               ) : apPaymentApp?.accountsPayableId ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   Bill: <strong>{apPaymentApp.billNumber || apPaymentApp.accountsPayableId?.billNumber || '—'}</strong>
                   {' · '}Settlement: {formatPKR(apPaymentApp.amount || 0)}
                 </Typography>
               ) : null}
               {payrollPeriodPaymentApp ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   Company: <strong>{payrollPeriodPaymentApp.companyName || '—'}</strong>
                   {' · '}Period: <strong>{payrollPeriodPaymentApp.periodLabel || '—'}</strong>
                   {' · '}{payrollPeriodPaymentApp.employeeCount || 0} employees
@@ -551,12 +584,12 @@ const VoucherView = () => {
                 </Typography>
               ) : null}
               {payrollPeriodPaymentApp?.rejectionObservation ? (
-                <Alert severity="error" sx={{ mb: 1.5 }}>
+                <Alert severity="error" sx={{ mb: 1, '@media print': { display: 'none' } }}>
                   Rejection observation: {payrollPeriodPaymentApp.rejectionObservation}
                 </Alert>
               ) : null}
               {myPendingAuthorityLabels.length > 0 ? (
-                <Box className="app-print-hide" sx={{ mb: 1.5 }}>
+                <Box className="app-print-hide" sx={{ mb: 1 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
                     Your pending authority:
                   </Typography>

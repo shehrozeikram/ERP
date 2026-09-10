@@ -960,6 +960,11 @@ const Vouchers = () => {
                       </Box>
                       <Box sx={{ textAlign: 'right' }}>
                         <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.5 } }}><strong>Date:</strong> {formatDateForPrint(viewDialog.voucher.date)}</Typography>
+                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.05rem', mb: 0.5 } }}>
+                          <strong>Time:</strong> {viewDialog.voucher.createdAt
+                            ? new Date(viewDialog.voucher.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+                            : new Date(viewDialog.voucher.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                        </Typography>
                         <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Status:</strong> {getVoucherStatusDisplay(viewDialog.voucher).label}</Typography>
                       </Box>
                     </Box>
