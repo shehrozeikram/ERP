@@ -81,6 +81,7 @@
     "express-async-handler": "^1.2.0",
     "express-rate-limit": "^6.10.0",
     "express-validator": "^7.0.1",
+    "firebase-admin": "^14.3.0",
     "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.2",
     "moment": "^2.29.4",

@@ -363,6 +363,67 @@ Use returned object in send message `attachments[]`.
 
 ---
 
+### 20. Register Push Notification Token
+`POST /api/chat/push-tokens`
+
+Body:
+```json
+{
+  "deviceToken": "<fcm_or_apns_token_string>",
+  "platform": "ios" // "ios" | "android" | "web"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Push token registered successfully"
+}
+```
+
+---
+
+### 21. Unregister Push Notification Token (Logout)
+`DELETE /api/chat/push-tokens`
+
+Body:
+```json
+{
+  "deviceToken": "<fcm_or_apns_token_string>"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Push token unregistered successfully"
+}
+```
+
+---
+
+### 22. Push Notification Payload Structure (FCM / APNs)
+When a new chat message is sent, the backend sends the following payload to offline/background recipients:
+
+**Notification Title:** Sender Full Name
+**Notification Body:** Message text snippet or attachment name
+
+**Data Payload (Custom Data):**
+```json
+{
+  "type": "chat_message",
+  "conversationId": "<conversationId>",
+  "messageId": "<messageId>",
+  "senderId": "<senderUserId>"
+}
+```
+
+Use `conversationId` to navigate directly to the thread screen when the push notification is tapped.
+
+---
+
 ## 2) Admin / Moderation Endpoints
 
 All below require role: `super_admin`, `admin`, or `developer`.
@@ -552,6 +613,8 @@ Core:
 - `POST /chat/groups`
 - `POST /chat/groups/:id/members`
 - `POST /chat/conversations/:id/upload`
+- `POST /chat/push-tokens`
+- `DELETE /chat/push-tokens`
 
 Admin:
 - `GET /chat/admin/conversations`
@@ -670,12 +733,17 @@ Recommended process for web + mobile parity:
 
 ### Metadata
 
-- Version: `1.0.0`
-- Last Updated: `2026-05-09`
+- Version: `1.1.0`
+- Last Updated: `2026-09-10`
 - Owner: `Backend team (Chat module)`
 
 ### Changelog
 
+- `1.1.0` (2026-09-10)
+  - Added push notification support:
+    - `POST /api/chat/push-tokens` to register FCM / APNs tokens.
+    - `DELETE /api/chat/push-tokens` to unregister token on logout.
+    - Added FCM multicast push dispatch on message creation with deep-link payload.
 - `1.0.0` (2026-05-09)
   - Initial consolidated mobile handoff for chat:
     - all user chat REST APIs

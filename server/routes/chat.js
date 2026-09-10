@@ -7,8 +7,10 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const ChatConversation = require('../models/chat/ChatConversation');
 const ChatMessage = require('../models/chat/ChatMessage');
 const User = require('../models/User');
+const UserPushToken = require('../models/chat/UserPushToken');
 const realtimeNotificationGateway = require('../services/realtimeNotificationGateway');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const { sendPushNotification } = require('../services/pushNotificationService');
 const { unfurlFromText } = require('../services/chatLinkUnfurl');
 
 const router = express.Router();
@@ -673,6 +675,20 @@ router.post(
       }
     }
 
+    // Trigger Mobile Push Notification (FCM / APNs)
+    if (others.length > 0) {
+      sendPushNotification(others, {
+        title: senderLabel,
+        body: snippet,
+        data: {
+          type: 'chat_message',
+          conversationId: String(fullConv._id),
+          messageId: String(doc._id),
+          senderId: String(req.user._id)
+        }
+      }).catch((e) => console.warn('Mobile push notification dispatch error:', e.message || e));
+    }
+
     res.status(201).json({ success: true, data: { message: serialized } });
   })
 );
@@ -978,6 +994,48 @@ router.post(
         size: req.file.size
       }
     });
+  })
+);
+
+router.post(
+  '/push-tokens',
+  asyncHandler(async (req, res) => {
+    const { deviceToken, platform } = req.body || {};
+    const token = typeof deviceToken === 'string' ? deviceToken.trim() : '';
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'deviceToken is required' });
+    }
+
+    const plat = ['ios', 'android', 'web'].includes(String(platform).toLowerCase())
+      ? String(platform).toLowerCase()
+      : 'unknown';
+
+    await UserPushToken.findOneAndUpdate(
+      { token },
+      {
+        user: req.user._id,
+        token,
+        platform: plat,
+        lastUsedAt: new Date()
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ success: true, message: 'Push token registered successfully' });
+  })
+);
+
+router.delete(
+  '/push-tokens',
+  asyncHandler(async (req, res) => {
+    const { deviceToken } = req.body || {};
+    const token = typeof deviceToken === 'string' ? deviceToken.trim() : '';
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'deviceToken is required' });
+    }
+
+    await UserPushToken.deleteOne({ token, user: req.user._id });
+    res.json({ success: true, message: 'Push token unregistered successfully' });
   })
 );
 
