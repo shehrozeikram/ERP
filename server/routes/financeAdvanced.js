@@ -1168,13 +1168,34 @@ router.post('/journal-entries',
       });
     }
 
-    const company = await requireCompanyFromRequest(req);
+    let company = null;
+    const reqCompanyRaw = req.body.companyId || req.query.companyId || req.headers['x-finance-company-id'];
+    if (reqCompanyRaw && reqCompanyRaw !== 'all') {
+      try {
+        company = await resolveCompanyId(reqCompanyRaw);
+      } catch (e) {}
+    }
+    if (!company || company.isAll) {
+      try {
+        company = await requireCompanyFromRequest(req);
+      } catch (e) {
+        company = await findHistoricalCompany();
+      }
+    }
+
     const accountIds = (req.body.lines || []).map((line) => line.account).filter(Boolean);
-    const matchedAccounts = await Account.countDocuments({
+    const accountFilter = {
       _id: { $in: accountIds },
-      companyId: company._id,
       isActive: true
-    });
+    };
+    if (company && company._id && !company.isAll) {
+      accountFilter.$or = [
+        { companyId: company._id },
+        { companyId: null },
+        { companyId: { $exists: false } }
+      ];
+    }
+    const matchedAccounts = await Account.countDocuments(accountFilter);
     if (matchedAccounts !== accountIds.length) {
       return res.status(400).json({
         success: false,
@@ -1184,9 +1205,13 @@ router.post('/journal-entries',
 
     const entryData = {
       ...req.body,
-      companyId: company._id,
+      companyId: (company && !company.isAll) ? company._id : (req.body.companyId && req.body.companyId !== 'all' ? req.body.companyId : null),
       createdBy: req.user._id
     };
+    if (!entryData.companyId) {
+      const hist = await findHistoricalCompany();
+      if (hist) entryData.companyId = hist._id;
+    }
 
     if (entryData.referenceId === '') {
       entryData.referenceId = null;
@@ -1265,18 +1290,48 @@ router.put('/journal-entries/:id',
       });
     }
 
-    const company = await requireCompanyFromRequest(req);
+    let company = null;
+    const reqCompanyRaw = req.body.companyId || req.query.companyId || req.headers['x-finance-company-id'];
+    if (reqCompanyRaw && reqCompanyRaw !== 'all') {
+      try {
+        company = await resolveCompanyId(reqCompanyRaw);
+      } catch (e) {}
+    }
+    if ((!company || company.isAll) && entry.companyId) {
+      try {
+        company = await resolveCompanyId(entry.companyId);
+      } catch (e) {}
+    }
+    if (!company || company.isAll) {
+      try {
+        company = await requireCompanyFromRequest(req);
+      } catch (e) {
+        company = await findHistoricalCompany();
+      }
+    }
+
     const accountIds = (req.body.lines || []).map((line) => line.account).filter(Boolean);
-    const matchedAccounts = await Account.countDocuments({
+    const accountFilter = {
       _id: { $in: accountIds },
-      companyId: company._id,
       isActive: true
-    });
+    };
+    if (company && company._id && !company.isAll) {
+      accountFilter.$or = [
+        { companyId: company._id },
+        { companyId: null },
+        { companyId: { $exists: false } }
+      ];
+    }
+    const matchedAccounts = await Account.countDocuments(accountFilter);
     if (matchedAccounts !== accountIds.length) {
       return res.status(400).json({
         success: false,
         message: 'All journal lines must use accounts from the selected finance company'
       });
+    }
+
+    if (company && company._id && !company.isAll) {
+      entry.companyId = company._id;
     }
 
     const wasPosted = entry.status === 'posted';
