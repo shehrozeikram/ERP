@@ -1276,4 +1276,49 @@ router.delete('/:id', permissions.checkSubRolePermission('admin', 'utility_bills
   }
 });
 
+// Temporary route to migrate attachments from UtilityBill to AccountsPayable
+router.post('/migrate-ap-attachments', async (req, res) => {
+  try {
+    const aps = await AccountsPayable.find({ referenceType: 'utility_bill' });
+    let updatedCount = 0;
+
+    for (const ap of aps) {
+      if (ap.attachments && ap.attachments.length > 0) continue; // already has attachments
+
+      const bill = await UtilityBill.findById(ap.referenceId);
+      if (!bill) continue;
+
+      const attachments = [];
+      if (bill.attachment) attachments.push(bill.attachment);
+      if (bill.billImage) attachments.push(bill.billImage);
+      (bill.billLines || []).forEach(line => {
+        if (line.attachmentUrl) attachments.push(line.attachmentUrl);
+        if (Array.isArray(line.attachmentUrls)) attachments.push(...line.attachmentUrls);
+      });
+
+      const formattedAttachments = [...new Set(attachments)].filter(Boolean).map(url => {
+        const parts = url.split('/');
+        const name = parts[parts.length - 1] || 'attachment';
+        return {
+          filename: name,
+          originalName: name,
+          path: url,
+          uploadedBy: ap.createdBy || null
+        };
+      });
+
+      if (formattedAttachments.length > 0) {
+        ap.attachments = formattedAttachments;
+        await ap.save();
+        updatedCount++;
+      }
+    }
+
+    res.json({ success: true, updatedCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

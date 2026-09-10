@@ -101,8 +101,8 @@ const FinanceHelper = {
       const cat = await InventoryCategory.findById(catId).lean();
       if (cat) {
         if (!inventoryAccountId) inventoryAccountId = cat.stockValuationAccount;
-        if (!grniAccountId)      grniAccountId      = cat.stockInputAccount;
-        if (!cogsAccountId)      cogsAccountId      = cat.stockOutputAccount;
+        if (!grniAccountId) grniAccountId = cat.stockInputAccount;
+        if (!cogsAccountId) cogsAccountId = cat.stockOutputAccount;
       }
     }
 
@@ -357,7 +357,7 @@ const FinanceHelper = {
     try {
       const Department = mongoose.model('Department');
       const inputStr = String(deptInput).trim();
-      
+
       const mapping = {
         'finance': 'Finance',
         'procurement': 'Procurement',
@@ -401,7 +401,7 @@ const FinanceHelper = {
       const dept = await Department.findById(deptId).select('name').lean();
       if (!dept) return 'general';
       const name = String(dept.name).trim().toLowerCase();
-      
+
       const mapping = {
         'finance': 'finance',
         'procurement': 'procurement',
@@ -413,7 +413,7 @@ const FinanceHelper = {
         'audit': 'audit',
         'general': 'general'
       };
-      
+
       return mapping[name] || 'general';
     } catch (e) {
       console.warn('Failed to resolve department string from ID:', e);
@@ -444,7 +444,7 @@ const FinanceHelper = {
 
       // Resolve department to ObjectId
       const resolvedDeptId = await FinanceHelper.resolveDepartment(data.department);
-      
+
       // Resolve line departments to ObjectIds
       const resolvedLines = [];
       if (Array.isArray(data.lines)) {
@@ -471,10 +471,10 @@ const FinanceHelper = {
 
       // Save triggers pre-save validation and post-save balance updates
       await journalEntry.save();
-      
+
       // Post to GL after balances have been updated
       await FinanceHelper.postToGeneralLedger(journalEntry._id);
-      
+
       return journalEntry;
     } catch (error) {
       console.error('❌ Error creating/posting Journal Entry:', error);
@@ -508,11 +508,11 @@ const FinanceHelper = {
    */
   createARFromInvoice: async (options) => {
     try {
-      const { 
-        customerName, customerEmail, customerId, 
-        invoiceNumber, invoiceDate, dueDate, 
+      const {
+        customerName, customerEmail, customerId,
+        invoiceNumber, invoiceDate, dueDate,
         amount, department, module, referenceId,
-        charges, createdBy 
+        charges, createdBy
       } = options;
       const companyId = co(options);
       const A = acct(companyId);
@@ -672,7 +672,8 @@ const FinanceHelper = {
         linkedGRNs,
         debitAccountNumber,
         multiLineExpenseJournal = false,
-        expenseJournalLines = null
+        expenseJournalLines = null,
+        attachments = []
       } = options;
       const companyId = co(options);
       const A = acct(companyId);
@@ -708,6 +709,7 @@ const FinanceHelper = {
         lineItems,
         linkedGRNs: Array.isArray(linkedGRNs) ? linkedGRNs : [],
         notes: notes || '',
+        attachments: Array.isArray(attachments) ? attachments : [],
         createdBy
       });
 
@@ -894,14 +896,14 @@ const FinanceHelper = {
 
         await FinanceHelper.createAndPostJournalEntry(
           withVoucherNarration(withCompany({
-            date:          date || new Date(),
-            reference:     reference || invoice.invoiceNumber,
-            description:   `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
-            department:    invoice.department,
-            module:        invoice.module,
-            referenceId:   invoice._id,
+            date: date || new Date(),
+            reference: reference || invoice.invoiceNumber,
+            description: `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
+            department: invoice.department,
+            module: invoice.module,
+            referenceId: invoice._id,
             referenceType: 'receipt',
-            journalCode:   'BANK',
+            journalCode: 'BANK',
             createdBy,
             lines
           }, companyId), getArInvoiceNarration(invoice))
@@ -989,7 +991,7 @@ const FinanceHelper = {
         const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
         await seedChartOfAccountsForCompany(companyId, { skipExisting: true });
       }
-      
+
       const A = acct(companyId);
       const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
       let bankAccount = bankAccountId ? await A.map(bankAccountId) : null;
@@ -998,7 +1000,7 @@ const FinanceHelper = {
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
-      
+
       if (!apAccount || !bankAccount) {
         const missing = [];
         if (!apAccount) missing.push('AP account (2001)');
@@ -1109,7 +1111,7 @@ const FinanceHelper = {
 
         totalAmount += amount_;
         billObjects.push({ bill, amount: amount_ });
-        
+
         // Grab company/department from the first bill to group them
         if (!companyId) companyId = co(bill);
         if (!departmentId) departmentId = bill.department;
@@ -1158,7 +1160,7 @@ const FinanceHelper = {
         const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
         await seedChartOfAccountsForCompany(payingCompanyId, { skipExisting: true });
       }
-      
+
       const A_target = acct(companyId);
       const A_paying = acct(payingCompanyId);
 
@@ -1169,7 +1171,7 @@ const FinanceHelper = {
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
       }
-      
+
       if (!apAccount || !bankAccount) {
         const missing = [];
         if (!apAccount) missing.push('AP account (2001)');
@@ -1817,21 +1819,21 @@ const FinanceHelper = {
 
     const lines = [];
     for (const g of lineGroups) {
-      lines.push({ account: g.cogsAccountId,       description: `COGS – ${g.itemName}`, debit:  g.cost, department: sinDoc.department || 'procurement' });
-      lines.push({ account: g.inventoryAccountId,  description: `Inventory out – ${g.itemName}`, credit: g.cost, department: sinDoc.department || 'procurement' });
+      lines.push({ account: g.cogsAccountId, description: `COGS – ${g.itemName}`, debit: g.cost, department: sinDoc.department || 'procurement' });
+      lines.push({ account: g.inventoryAccountId, description: `Inventory out – ${g.itemName}`, credit: g.cost, department: sinDoc.department || 'procurement' });
     }
 
     try {
       await FinanceHelper.createAndPostJournalEntry(
         withVoucherNarration(withCompany({
-          date:          sinDoc.issueDate || new Date(),
-          reference:     sinDoc.issueNumber || 'SIN',
-          description:   `COGS – Store Issue ${sinDoc.issueNumber || ''}`,
-          department:    sinDoc.department || 'procurement',
-          module:        'procurement',
-          referenceId:   sinDoc._id,
+          date: sinDoc.issueDate || new Date(),
+          reference: sinDoc.issueNumber || 'SIN',
+          description: `COGS – Store Issue ${sinDoc.issueNumber || ''}`,
+          department: sinDoc.department || 'procurement',
+          module: 'procurement',
+          referenceId: sinDoc._id,
           referenceType: 'expense',
-          journalCode:   'INV',
+          journalCode: 'INV',
           createdBy,
           lines
         }, cid), getSinNarration(sinDoc))
