@@ -29,7 +29,8 @@ import {
   ListItem,
   ListItemText,
   ListItemSecondaryAction,
-  CircularProgress
+  CircularProgress,
+  Checkbox
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -69,6 +70,7 @@ const JournalEntriesList = () => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [totalCount, setTotalCount] = useState(0);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   // Attachment dialog state
   const [attachDlg, setAttachDlg] = useState({ open: false, entry: null, uploading: false });
@@ -107,6 +109,25 @@ const JournalEntriesList = () => {
       setEntries(prev => prev.map(en => en._id === updated._id ? { ...en, attachments: updated.attachments } : en));
     } catch (err) {
       setAttachError(err.response?.data?.message || 'Delete failed');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to permanently delete ${selectedIds.length} entries? This action cannot be undone.`)) return;
+    
+    setLoading(true);
+    let successCount = 0;
+    try {
+      for (const id of selectedIds) {
+        await api.delete(`/finance/journal-entries/${id}`);
+        successCount++;
+      }
+      setSelectedIds([]);
+      fetchJournalEntries();
+    } catch (e) {
+      alert(`Deleted ${successCount} entries before encountering an error: ` + (e.response?.data?.message || 'Delete failed'));
+      fetchJournalEntries();
     }
   };
 
@@ -207,6 +228,16 @@ const JournalEntriesList = () => {
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
             <FinanceCompanySelector minWidth={280} showHelper={false} />
+            {selectedIds.length > 0 && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={handleBulkDelete}
+              >
+                Delete Selected ({selectedIds.length})
+              </Button>
+            )}
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -273,6 +304,20 @@ const JournalEntriesList = () => {
             <Table>
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      color="primary"
+                      indeterminate={selectedIds.length > 0 && selectedIds.length < entries.length}
+                      checked={entries.length > 0 && selectedIds.length === entries.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(entries.map(n => n._id));
+                        } else {
+                          setSelectedIds([]);
+                        }
+                      }}
+                    />
+                  </TableCell>
                   <TableCell>Date</TableCell>
                   <TableCell>Entry Number</TableCell>
                   <TableCell>Description</TableCell>
@@ -284,8 +329,23 @@ const JournalEntriesList = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {entries.map((entry) => (
-                  <TableRow key={entry._id} hover>
+                {entries.map((entry) => {
+                  const isSelected = selectedIds.includes(entry._id);
+                  return (
+                  <TableRow key={entry._id} hover selected={isSelected}>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        color="primary"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedIds(prev => [...prev, entry._id]);
+                          } else {
+                            setSelectedIds(prev => prev.filter(id => id !== entry._id));
+                          }
+                        }}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Typography variant="body2">
                         {formatDate(entry.date)}
@@ -407,10 +467,27 @@ const JournalEntriesList = () => {
                             )}
                           </IconButton>
                         </Tooltip>
+                        <Tooltip title="Delete Entry">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={async () => {
+                              if (!window.confirm(`Are you sure you want to permanently delete entry ${entry.entryNumber}? This action cannot be undone.`)) return;
+                              try {
+                                await api.delete(`/finance/journal-entries/${entry._id}`);
+                                setEntries(prev => prev.filter(e => e._id !== entry._id));
+                              } catch (e) {
+                                alert(e.response?.data?.message || 'Delete failed');
+                              }
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                     </TableCell>
                   </TableRow>
-                ))}
+                )})}
               </TableBody>
             </Table>
           </TableContainer>
