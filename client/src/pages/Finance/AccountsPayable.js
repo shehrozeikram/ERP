@@ -1896,7 +1896,7 @@ const AccountsPayable = () => {
                   />
 
                   {/* Approval Authority Table — ONLY for Centralized Store / Utility Bills */}
-                  {(selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities') && (() => {
+                  {(selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities' || selectedBill?.referenceType === 'store' || selectedBill?.module === 'procurement') && (() => {
                     const getApprovalRows = () => {
                       const formatDateTime = (date) => {
                         if (!date) return '-';
@@ -1908,9 +1908,16 @@ const AccountsPayable = () => {
 
                       const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
 
+                      // For Store/Procurement bills, the audit history is often on the attached PO, not the bill itself.
                       const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
-                      const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
-                      const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+                      const poHistory = Array.isArray(selectedBill?.poDetail?.po?.workflowHistory) ? [...selectedBill.poDetail.po.workflowHistory].reverse() : [];
+                      
+                      const findAuditEntry = (condition) => {
+                        return history.find(condition) || poHistory.find(condition);
+                      };
+
+                      const preAuditEntry = findAuditEntry(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
+                      const directorEntry = findAuditEntry(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
 
                       const rows = [
                         {
@@ -1927,10 +1934,16 @@ const AccountsPayable = () => {
                         },
                         {
                           authority: 'Audit Director',
-                          name: userDisplayName(directorEntry?.changedBy),
-                          signatureUser: directorEntry?.changedBy || null,
-                          signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : directorEntry?.changedBy?.digitalSignature || '',
-                          dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+                          name: userDisplayName(selectedBill?.poDetail?.po?.auditApprovedBy || directorEntry?.changedBy),
+                          signatureUser: selectedBill?.poDetail?.po?.auditApprovedBy || directorEntry?.changedBy || null,
+                          signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || selectedBill?.poDetail?.po?.auditApprovedBy?.digitalSignature || ''),
+                          dateTime: (selectedBill?.poDetail?.po?.auditApprovedAt || directorEntry?.changedAt) ? formatDateTime(selectedBill?.poDetail?.po?.auditApprovedAt || directorEntry.changedAt) : '-'
+                        },
+                        {
+                          authority: 'Finance Authority',
+                          name: userDisplayName(selectedBill?.approval?.approvedBy),
+                          signatureUser: selectedBill?.approval?.approvedBy || null,
+                          dateTime: selectedBill?.approval?.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
                         }
                       ];
 
