@@ -64,6 +64,26 @@ async function sendPushNotification(userIds, payload) {
         body: payload.body || ''
       },
       data: payload.data ? Object.fromEntries(Object.entries(payload.data).map(([k, v]) => [k, String(v)])) : {},
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'messages',
+          sound: 'default',
+          priority: 'high',
+          visibility: 'public'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            contentAvailable: true
+          }
+        },
+        headers: {
+          'apns-priority': '10'
+        }
+      },
       tokens: tokens
     };
 

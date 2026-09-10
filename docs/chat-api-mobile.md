@@ -405,22 +405,48 @@ Response:
 ---
 
 ### 22. Push Notification Payload Structure (FCM / APNs)
-When a new chat message is sent, the backend sends the following payload to offline/background recipients:
+When a new chat message is sent, the backend dispatches a high-priority FCM payload optimized for WhatsApp-style heads-up banner notifications when the app is in the background or device screen is locked:
 
-**Notification Title:** Sender Full Name
+**Notification Title:** Sender Full Name  
 **Notification Body:** Message text snippet or attachment name
 
-**Data Payload (Custom Data):**
+**Full FCM Payload Dispatched by Backend:**
 ```json
 {
-  "type": "chat_message",
-  "conversationId": "<conversationId>",
-  "messageId": "<messageId>",
-  "senderId": "<senderUserId>"
+  "notification": {
+    "title": "<Sender Name>",
+    "body": "<Message snippet>"
+  },
+  "data": {
+    "type": "chat_message",
+    "conversationId": "<conversationId>",
+    "messageId": "<messageId>",
+    "senderId": "<senderUserId>"
+  },
+  "android": {
+    "priority": "high",
+    "notification": {
+      "channelId": "messages",
+      "sound": "default",
+      "priority": "high",
+      "visibility": "public"
+    }
+  },
+  "apns": {
+    "payload": {
+      "aps": {
+        "sound": "default",
+        "contentAvailable": true
+      }
+    },
+    "headers": {
+      "apns-priority": "10"
+    }
+  }
 }
 ```
 
-Use `conversationId` to navigate directly to the thread screen when the push notification is tapped.
+Use `conversationId` to navigate directly to the thread screen when the push notification is tapped. Ensure the mobile app creates a notification channel with ID `messages` on Android.
 
 ---
 
