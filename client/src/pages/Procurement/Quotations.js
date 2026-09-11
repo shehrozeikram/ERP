@@ -698,6 +698,7 @@ const Quotations = () => {
                         <TableHead>
                           <TableRow>
                             <TableCell><strong>Quote #</strong></TableCell>
+                            <TableCell><strong>Lot</strong></TableCell>
                             <TableCell><strong>Vendor</strong></TableCell>
                             <TableCell><strong>Amount</strong></TableCell>
                             <TableCell><strong>Date</strong></TableCell>
@@ -706,7 +707,9 @@ const Quotations = () => {
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {group.quotations.map((quote) => {
+                          {group.quotations
+                            .sort((a, b) => (a.lotNumber || 'A').localeCompare(b.lotNumber || 'A'))
+                            .map((quote) => {
                             const isPartiallyFulfilled = group.indent?.status === 'Partially Fulfilled';
                             const otherActiveQuote = group.quotations.find(
                               (q) => q._id !== quote._id && (isPartiallyFulfilled ? q.status === 'Shortlisted' : ['Finalized', 'Shortlisted'].includes(q.status))
@@ -723,6 +726,7 @@ const Quotations = () => {
                             return (
                               <TableRow key={quote._id} hover>
                                 <TableCell>{quote.quotationNumber}</TableCell>
+                                <TableCell>{quote.lotNumber || 'A'}</TableCell>
                                 <TableCell>{quote.vendor?.name || '-'}</TableCell>
                                 <TableCell>{formatPKR(quote.totalAmount)}</TableCell>
                                 <TableCell>{formatDate(quote.quotationDate)}</TableCell>
