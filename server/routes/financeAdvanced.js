@@ -5545,6 +5545,20 @@ router.get('/reports/bank-reconciliation',
       }
     });
 
+    const getClearingSortTime = (t) => {
+      if (t.clearingDate) {
+        const cd = new Date(t.clearingDate).getTime();
+        if (!isNaN(cd)) return cd;
+      }
+      if (t.date) {
+        const d = new Date(t.date).getTime();
+        if (!isNaN(d)) return d;
+      }
+      return 0;
+    };
+
+    unpresentedTxns.sort((a, b) => getClearingSortTime(a) - getClearingSortTime(b));
+
     // Bank Statement Balance = Balance as per Bank Ledger - Unpresented/Uncleared Difference
     const bankStatementBalance = netGlBalance - unpresentedTotal;
 
@@ -5574,6 +5588,8 @@ router.get('/reports/bank-reconciliation',
       const cDate = new Date(t.clearingDate);
       return cDate >= periodStartDate && cDate <= periodEndDate;
     });
+
+    periodTransactions.sort((a, b) => getClearingSortTime(a) - getClearingSortTime(b));
 
     // Lower table total should equal Bank Statement Balance as of periodEndDate / asOfDate
     const statementTotal = bankStatementBalance;

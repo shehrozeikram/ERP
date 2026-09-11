@@ -223,6 +223,25 @@ export default function BankReconciliation() {
       };
       const res = await api.get('/finance/reports/bank-reconciliation', { params });
       const reportData = res.data?.data;
+      if (reportData) {
+        const getClearingSortTime = (t) => {
+          if (t.clearingDate) {
+            const cd = new Date(t.clearingDate).getTime();
+            if (!isNaN(cd)) return cd;
+          }
+          if (t.date) {
+            const d = new Date(t.date).getTime();
+            if (!isNaN(d)) return d;
+          }
+          return 0;
+        };
+        if (Array.isArray(reportData.unpresentedTransactions)) {
+          reportData.unpresentedTransactions.sort((a, b) => getClearingSortTime(a) - getClearingSortTime(b));
+        }
+        if (Array.isArray(reportData.periodTransactions)) {
+          reportData.periodTransactions.sort((a, b) => getClearingSortTime(a) - getClearingSortTime(b));
+        }
+      }
       setData(reportData);
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load reconciliation data');
@@ -239,7 +258,7 @@ export default function BankReconciliation() {
     if (filters.bankAccountId) {
       load();
     }
-  }, [filters.bankAccountId, filters.asOfDate, load]);
+  }, [filters.bankAccountId, filters.asOfDate, filters.fromDate, filters.toDate, load]);
 
   useFinanceCompanyReload(() => {
     loadBankAccounts();
@@ -404,6 +423,7 @@ export default function BankReconciliation() {
               value={filters.asOfDate}
               onChange={e => setFilters({ ...filters, asOfDate: e.target.value })}
               InputLabelProps={{ shrink: true }}
+              helperText="Applies to Ledger Balance & Unpresented Cheques"
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
