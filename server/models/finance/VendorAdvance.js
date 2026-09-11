@@ -39,12 +39,12 @@ const vendorAdvanceSchema = new mongoose.Schema({
   paymentDate: { type: Date, default: Date.now },
   department: {
     type: String,
-    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
+    trim: true,
     default: 'procurement'
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
+    trim: true,
     default: 'procurement'
   },
   referenceType: { type: String, default: 'advance' },

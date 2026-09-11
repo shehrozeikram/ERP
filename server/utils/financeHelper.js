@@ -414,7 +414,7 @@ const FinanceHelper = {
         'general': 'general'
       };
 
-      return mapping[name] || 'general';
+      return mapping[name] || name;
     } catch (e) {
       console.warn('Failed to resolve department string from ID:', e);
       return 'general';

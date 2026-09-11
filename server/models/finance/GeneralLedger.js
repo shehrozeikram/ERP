@@ -73,12 +73,12 @@ const generalLedgerSchema = new mongoose.Schema({
   // Department and module tracking
   department: {
     type: String,
-    enum: ['hr', 'admin', 'administration', 'procurement', 'sales', 'finance', 'audit', 'general'],
+    trim: true,
     required: [true, 'Department is required']
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'administration', 'audit', 'general', 'finance', 'taj_utilities'],
+    trim: true,
     required: [true, 'Module is required']
   },
   referenceId: {

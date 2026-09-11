@@ -11,7 +11,7 @@ const auditTrailSchema = new mongoose.Schema({
   module: {
     type: String,
     required: true,
-    enum: ['hr', 'finance', 'procurement', 'admin', 'sales', 'crm', 'audit', 'auth', 'general'],
+    trim: true,
     index: true
   },
   

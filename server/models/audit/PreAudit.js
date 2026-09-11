@@ -35,7 +35,7 @@ const preAuditSchema = new mongoose.Schema({
   sourceModule: {
     type: String,
     required: true,
-    enum: ['hr', 'finance', 'procurement', 'admin', 'sales', 'crm', 'it', 'general', 'taj_residencia'],
+    trim: true,
     index: true
   },
   

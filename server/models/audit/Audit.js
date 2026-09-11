@@ -43,7 +43,7 @@ const auditSchema = new mongoose.Schema({
   module: {
     type: String,
     required: true,
-    enum: ['hr', 'finance', 'procurement', 'admin', 'sales', 'crm', 'general'],
+    trim: true,
     index: true
   },
   

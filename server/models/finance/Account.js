@@ -88,13 +88,13 @@ const accountSchema = new mongoose.Schema({
   // Department integration
   department: {
     type: String,
-    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
+    trim: true,
     default: 'general'
   },
   // Module integration for auto-posting
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
+    trim: true,
     default: 'general'
   },
   metadata: {

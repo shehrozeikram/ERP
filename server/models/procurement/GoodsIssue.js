@@ -58,7 +58,7 @@ const goodsIssueSchema = new mongoose.Schema({
   department: {
     type: String,
     required: true,
-    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general', 'it'],
+    trim: true,
     default: 'general'
   },
   departmentName: {

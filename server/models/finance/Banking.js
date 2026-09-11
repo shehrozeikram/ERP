@@ -87,12 +87,12 @@ const bankingSchema = new mongoose.Schema({
   // Department integration
   department: {
     type: String,
-    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
+    trim: true,
     default: 'finance'
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
+    trim: true,
     default: 'general'
   },
   // Transactions
@@ -145,12 +145,12 @@ const bankingSchema = new mongoose.Schema({
     },
     department: {
       type: String,
-      enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
+      trim: true,
       default: 'general'
     },
     module: {
       type: String,
-      enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
+      trim: true,
       default: 'general'
     },
     referenceId: {
