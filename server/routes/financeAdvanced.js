@@ -5368,6 +5368,14 @@ router.get('/reports/bank-reconciliation',
       asOf.setHours(23, 59, 59, 999);
     }
 
+    let periodStartDate = fromDate ? new Date(fromDate) : new Date(new Date(asOf).getFullYear(), new Date(asOf).getMonth(), 1);
+    periodStartDate.setHours(0, 0, 0, 0);
+
+    let periodEndDate = toDate ? new Date(toDate) : new Date(asOf);
+    periodEndDate.setHours(23, 59, 59, 999);
+
+    const maxQueryDate = new Date(Math.max(asOf.getTime(), periodEndDate.getTime()));
+
     const { q, jeMatch } = await financeScope(req);
     const mongoose = require('mongoose');
 
@@ -5424,13 +5432,12 @@ router.get('/reports/bank-reconciliation',
       })
     ).sort({ accountNumber: 1 }).lean();
 
-    // 2. Fetch General Ledger & Journal Entries for selected/all Bank accounts up to asOf date
-    const glMatchAsOf = {
-      date: { $lte: asOf },
+    // 2. Fetch General Ledger & Journal Entries for selected/all Bank accounts up to maxQueryDate
+    // Apply company scope via q() so only this company's GL entries are fetched
+    const allGlEntriesUpToAsOf = await GeneralLedger.find(q({
+      date: { $lte: maxQueryDate },
       account: { $in: targetAccountIds }
-    };
-
-    const allGlEntriesUpToAsOf = await GeneralLedger.find(glMatchAsOf)
+    }))
       .populate('account', 'name accountNumber category detailType')
       .populate({
         path: 'journalEntry',
@@ -5442,8 +5449,10 @@ router.get('/reports/bank-reconciliation',
     const postedGlEntries = allGlEntriesUpToAsOf.filter((e) => e.status !== 'cancelled' && e.status !== 'reversed');
 
     // Also query Journal Entries directly with line accounts matching target bank account(s)
+    // Apply company scope via jeMatch so only this company's JEs are fetched
     const jeMatchFilter = {
-      date: { $lte: asOf },
+      ...jeMatch,
+      date: { $lte: maxQueryDate },
       status: { $in: ['posted', 'draft'] },
       'lines.account': { $in: targetAccountIds }
     };
@@ -5527,15 +5536,15 @@ router.get('/reports/bank-reconciliation',
       });
     });
 
-    // In standard accounting for bank (Asset): Debit is +, Credit is -.
-    // Positive balance = Dr (debit balance), Negative balance = Cr (credit/overdraft balance).
-    const netGlBalance = allBankTxns.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
+    // Filter transactions up to asOf date for Section 1
+    const glTxnsUpToAsOf = allBankTxns.filter((txn) => new Date(txn.date) <= asOf);
+    const netGlBalance = glTxnsUpToAsOf.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
 
     // 3. Unpresented / Uncleared Transactions up to asOf date
     const unpresentedTxns = [];
     let unpresentedTotal = 0;
 
-    allBankTxns.forEach((txn) => {
+    glTxnsUpToAsOf.forEach((txn) => {
       const clearedBeforeAsOf = txn.isCleared && txn.clearingDate && new Date(txn.clearingDate) <= asOf;
       
       if (!clearedBeforeAsOf) {
@@ -5563,26 +5572,16 @@ router.get('/reports/bank-reconciliation',
     const bankStatementBalance = netGlBalance - unpresentedTotal;
 
     // 4. Period Activity / Cleared Bank Transactions (Lower Table with Date.From & Date.To)
-    let periodStartDate = fromDate ? new Date(fromDate) : new Date(new Date(asOf).getFullYear(), new Date(asOf).getMonth(), 1);
-    periodStartDate.setHours(0, 0, 0, 0);
-
-    let periodEndDate = toDate ? new Date(toDate) : new Date(asOf);
-    periodEndDate.setHours(23, 59, 59, 999);
-
     // Cleared transactions: transactions that have cleared in the bank statement
-    // For the lower statement table, include transactions that cleared within or up to the selected period
     const clearedTxns = allBankTxns.filter((t) => t.isCleared && t.clearingDate && new Date(t.clearingDate) <= periodEndDate);
 
     // Opening Balance of cleared statement transactions before periodStartDate
     const openingClearedTxns = allBankTxns.filter((t) => {
-      if (t.isCleared && t.clearingDate) {
-        return new Date(t.clearingDate) < periodStartDate;
-      }
-      return new Date(t.date) < periodStartDate && !t.isCleared;
+      return t.isCleared && t.clearingDate && new Date(t.clearingDate) < periodStartDate;
     });
     const openingBalance = openingClearedTxns.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
 
-    // Period cleared transactions between periodStartDate and periodEndDate (by clearingDate or date)
+    // Period cleared transactions between periodStartDate and periodEndDate (by clearingDate)
     const periodTransactions = allBankTxns.filter((t) => {
       if (!t.isCleared || !t.clearingDate) return false;
       const cDate = new Date(t.clearingDate);
@@ -5591,8 +5590,8 @@ router.get('/reports/bank-reconciliation',
 
     periodTransactions.sort((a, b) => getClearingSortTime(a) - getClearingSortTime(b));
 
-    // Lower table total should equal Bank Statement Balance as of periodEndDate / asOfDate
-    const statementTotal = bankStatementBalance;
+    const periodNetChange = periodTransactions.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
+    const statementTotal = openingBalance + periodNetChange;
 
     res.json({
       success: true,
@@ -5638,46 +5637,45 @@ router.post('/reports/bank-reconciliation/reconcile',
     const clearDate = hasValidDate ? new Date(clearedAt) : new Date();
 
     if (Array.isArray(transactionIds) && transactionIds.length > 0) {
-      const bankingUpdate = {
-        'transactions.$[elem].isReconciled': isCleared,
-        'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
-        'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending')
-      };
-      if (isCleared || hasValidDate) {
-        bankingUpdate['transactions.$[elem].clearedAt'] = clearDate;
-      }
-
-      await Banking.updateMany(
-        { 'transactions._id': { $in: transactionIds } },
-        { $set: bankingUpdate },
-        { arrayFilters: [{ 'elem._id': { $in: transactionIds } }] }
-      );
-
-      const bankingDocUpdate = {
-        isReconciled: isCleared,
-        reconciledAt: isCleared ? clearDate : null,
-        reconciledBy: req.user.id,
-        clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
-      };
-      if (isCleared || hasValidDate) {
-        bankingDocUpdate.clearedAt = clearDate;
-      }
-
-      await Banking.updateMany(
-        { _id: { $in: transactionIds } },
-        { $set: bankingDocUpdate }
-      );
-
-      // Update GeneralLedger and JournalEntry documents
-      // IMPORTANT: Only update the SPECIFIC GL entries passed in transactionIds,
-      // NOT all GL entries belonging to the same JournalEntry.
-      const GeneralLedger = require('../models/finance/GeneralLedger');
-      const JournalEntry = require('../models/finance/JournalEntry');
       const validObjIds = transactionIds
         .map(id => String(id).split('-')[0])
         .filter(id => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id));
-      
+
       if (validObjIds.length > 0) {
+        const bankingUpdate = {
+          'transactions.$[elem].isReconciled': isCleared,
+          'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
+          'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending')
+        };
+        if (isCleared || hasValidDate) {
+          bankingUpdate['transactions.$[elem].clearedAt'] = clearDate;
+        }
+
+        await Banking.updateMany(
+          { 'transactions._id': { $in: validObjIds } },
+          { $set: bankingUpdate },
+          { arrayFilters: [{ 'elem._id': { $in: validObjIds } }] }
+        );
+
+        const bankingDocUpdate = {
+          isReconciled: isCleared,
+          reconciledAt: isCleared ? clearDate : null,
+          reconciledBy: req.user.id,
+          clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
+        };
+        if (isCleared || hasValidDate) {
+          bankingDocUpdate.clearedAt = clearDate;
+        }
+
+        await Banking.updateMany(
+          { _id: { $in: validObjIds } },
+          { $set: bankingDocUpdate }
+        );
+
+        // Update GeneralLedger and JournalEntry documents
+        const GeneralLedger = require('../models/finance/GeneralLedger');
+        const JournalEntry = require('../models/finance/JournalEntry');
+
         const glUpdate = {
           isReconciled: isCleared,
           reconciledAt: isCleared ? clearDate : null,
@@ -5687,19 +5685,32 @@ router.post('/reports/bank-reconciliation/reconcile',
           glUpdate.clearedAt = clearDate;
         }
 
-        // 1. Update ONLY the specific GL docs matching _id (not siblings via journalEntry)
+        // 1. Update ONLY the specific GL docs matching _id
         await GeneralLedger.updateMany(
           { _id: { $in: validObjIds } },
           { $set: glUpdate }
         );
 
-        // 2. Find parent journal entries for the updated GL rows
+        // 2. Direct update for parent JournalEntry documents matching validObjIds
+        await JournalEntry.updateMany(
+          { _id: { $in: validObjIds } },
+          {
+            $set: {
+              isReconciled: isCleared,
+              reconciledAt: isCleared ? clearDate : null,
+              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+              clearedAt: isCleared || hasValidDate ? clearDate : null
+            }
+          }
+        );
+
+        // 3. Find parent journal entries for the updated GL rows
         const targetGls = await GeneralLedger.find({
           _id: { $in: validObjIds }
         }).select('journalEntry').lean();
         const parentJeIds = Array.from(new Set(targetGls.map(g => String(g.journalEntry || '')).filter(Boolean)));
 
-        // 3. For each parent JE, check if ALL its GL entries are now cleared
+        // 4. For each parent JE, check if ALL its GL entries are now cleared
         for (const parentJeId of parentJeIds) {
           const totalGLCount = await GeneralLedger.countDocuments({ journalEntry: parentJeId });
           const clearedGLCount = await GeneralLedger.countDocuments({

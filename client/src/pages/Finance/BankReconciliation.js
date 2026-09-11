@@ -694,7 +694,15 @@ export default function BankReconciliation() {
                 type="date"
                 size="small"
                 value={filters.fromDate}
-                onChange={e => setFilters({ ...filters, fromDate: e.target.value })}
+                onChange={e => {
+                  const newFrom = e.target.value;
+                  setFilters(prev => ({
+                    ...prev,
+                    fromDate: newFrom,
+                    // Auto-push toDate forward if it's before the new fromDate
+                    toDate: prev.toDate < newFrom ? newFrom : prev.toDate
+                  }));
+                }}
                 InputLabelProps={{ shrink: true }}
                 sx={{ width: 160 }}
               />
@@ -729,8 +737,8 @@ export default function BankReconciliation() {
               <TableBody>
                 {/* Opening Balance Row */}
                 <TableRow sx={{ bgcolor: 'info.50' }}>
-                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatDate(filters.fromDate)}</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>-0</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>—</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>—</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Opening Balance</TableCell>
                   <TableCell>—</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 800 }}>
@@ -739,7 +747,7 @@ export default function BankReconciliation() {
                       {data.openingBalanceType}.
                     </Typography>
                   </TableCell>
-                  <TableCell align="center">{formatDate(filters.fromDate)}</TableCell>
+                  <TableCell align="center">—</TableCell>
                   <TableCell align="center">—</TableCell>
                 </TableRow>
 
@@ -790,10 +798,10 @@ export default function BankReconciliation() {
                   <TableCell colSpan={4} sx={{ fontWeight: 800, fontSize: '0.95rem' }}>
                     Total
                   </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 800, fontSize: '0.95rem', color: data.bankStatementBalanceType === 'Cr' ? 'error.main' : 'success.main' }}>
-                    {data.bankStatementBalance < 0 ? `-${fmt(data.bankStatementBalance)}` : fmt(data.bankStatementBalance)}{' '}
-                    <Typography component="span" fontWeight={800} color={data.bankStatementBalanceType === 'Cr' ? 'error.main' : 'success.main'}>
-                      {data.bankStatementBalanceType}.
+                  <TableCell align="right" sx={{ fontWeight: 800, fontSize: '0.95rem', color: data.statementTotalType === 'Cr' ? 'error.main' : 'success.main' }}>
+                    {data.statementTotal < 0 ? `-${fmt(data.statementTotal)}` : fmt(data.statementTotal)}{' '}
+                    <Typography component="span" fontWeight={800} color={data.statementTotalType === 'Cr' ? 'error.main' : 'success.main'}>
+                      {data.statementTotalType}.
                     </Typography>
                   </TableCell>
                   <TableCell colSpan={2} />
