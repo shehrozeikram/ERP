@@ -503,22 +503,30 @@ const ComparativeStatements = () => {
     }
   };
 
-  const handleDeleteComparativeStatement = async () => {
+  const handleDeleteComparativeStatement = async (targetLot = null) => {
     if (!selectedRequisition?._id) return;
-    const confirmed = window.confirm(
-      'Are you sure you want to DELETE the PO & Comparative Statement for this requisition?\n\n' +
-      '• All linked Purchase Orders (and downstream docs/entries) will be DELETED.\n' +
-      '• Requisition fulfillment and status will be reset back to "Approved".\n' +
-      '• All comparative approvers & approvals will be reset.\n' +
-      '• All related quotations will be KEPT and reset back to "Received" status.\n\n' +
-      'This action is exclusively for developers / super admin.'
-    );
+    const isLotDelete = typeof targetLot === 'string';
+    const message = isLotDelete
+      ? `Are you sure you want to DELETE the PO & Comparative Statement for Lot ${targetLot}?\n\n` +
+        `• All linked Purchase Orders (and downstream docs/entries) for Lot ${targetLot} will be DELETED.\n` +
+        `• Requisition fulfillment will be re-calculated.\n` +
+        `• Quotations for Lot ${targetLot} will be KEPT and reset back to "Received" status.\n\n` +
+        'This action is exclusively for developers / super admin.'
+      : 'Are you sure you want to DELETE the PO & Comparative Statement for this requisition?\n\n' +
+        '• All linked Purchase Orders (and downstream docs/entries) will be DELETED.\n' +
+        '• Requisition fulfillment and status will be reset back to "Approved".\n' +
+        '• All comparative approvers & approvals will be reset.\n' +
+        '• All related quotations will be KEPT and reset back to "Received" status.\n\n' +
+        'This action is exclusively for developers / super admin.';
+        
+    const confirmed = window.confirm(message);
     if (!confirmed) return;
 
     try {
       setDeletingComparative(true);
       setError('');
-      const res = await api.delete(`/procurement/requisitions/${selectedRequisition._id}/comparative-statement`);
+      const url = `/procurement/requisitions/${selectedRequisition._id}/comparative-statement${isLotDelete ? `?lot=${encodeURIComponent(targetLot)}` : ''}`;
+      const res = await api.delete(url);
       setSuccess(res.data?.message || 'PO and Comparative statement deleted. Quotations preserved.');
 
       // Reload quotations
@@ -552,7 +560,7 @@ const ComparativeStatements = () => {
                 variant="outlined"
                 color="error"
                 startIcon={deletingComparative ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
-                onClick={handleDeleteComparativeStatement}
+                onClick={() => handleDeleteComparativeStatement(null)}
                 disabled={deletingComparative}
                 sx={{ textTransform: 'none', fontWeight: 600 }}
               >
@@ -722,16 +730,32 @@ const ComparativeStatements = () => {
             {(() => {
               const lots = [...new Set(quotations.map(q => q.lotNumber || 'A'))].sort();
               return (
-                <Box sx={{ mb: 2, display: 'flex', gap: 2 }}>
-                  {lots.map(lot => (
-                    <Button 
-                      key={lot} 
-                      variant={selectedLot === lot ? 'contained' : 'outlined'}
-                      onClick={() => setSelectedLot(lot)}
+                <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box sx={{ display: 'flex', gap: 2 }}>
+                    {lots.map(lot => (
+                      <Button 
+                        key={lot} 
+                        variant={selectedLot === lot ? 'contained' : 'outlined'}
+                        onClick={() => setSelectedLot(lot)}
+                      >
+                        Lot {lot}
+                      </Button>
+                    ))}
+                  </Box>
+                  
+                  {(user?.role === 'developer' || user?.role === 'super_admin') && selectedRequisition && (
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      startIcon={deletingComparative ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
+                      onClick={() => handleDeleteComparativeStatement(selectedLot)}
+                      disabled={deletingComparative}
+                      sx={{ textTransform: 'none', fontWeight: 600 }}
                     >
-                      Lot {lot}
+                      {deletingComparative ? 'Deleting…' : `Delete Lot ${selectedLot} (Developer)`}
                     </Button>
-                  ))}
+                  )}
                 </Box>
               );
             })()}

@@ -6155,6 +6155,8 @@ router.delete('/requisitions/:id/comparative-statement',
       });
     }
 
+    const targetLot = req.query.lot;
+
     const indent = await Indent.findById(req.params.id);
     if (!indent) {
       return res.status(404).json({ success: false, message: 'Requisition not found' });
@@ -6174,17 +6176,38 @@ router.delete('/requisitions/:id/comparative-statement',
     const Notification = mongoose.models.Notification || require('../models/hr/Notification');
     const BOQItem = mongoose.models.BOQItem || require('../models/projectManagement/BOQItem');
     const ProjectExpense = mongoose.models.ProjectExpense || require('../models/projectManagement/ProjectExpense');
+    const GoodsIssue = mongoose.models.GoodsIssue || require('../models/inventory/GoodsIssue');
 
-    // 1. Find all POs linked to this indent
-    const pos = await PurchaseOrder.find({ indent: indentId }).select('_id orderNumber poNumber').lean();
+    // 1. Identify Quotations to target
+    let quotationQuery = { indent: indentId };
+    if (targetLot) {
+      if (targetLot === 'A') {
+        quotationQuery = { indent: indentId, $or: [{ lotNumber: 'A' }, { lotNumber: null }, { lotNumber: { $exists: false } }] };
+      } else {
+        quotationQuery = { indent: indentId, lotNumber: targetLot };
+      }
+    }
+    const targetQuotations = await Quotation.find(quotationQuery).select('_id').lean();
+    const targetQuotationIds = targetQuotations.map(q => q._id);
+
+    // 2. Find all POs linked to this indent (and target quotations if lot is provided)
+    let poQuery = { indent: indentId };
+    if (targetLot && targetQuotationIds.length > 0) {
+      poQuery.quotation = { $in: targetQuotationIds };
+    } else if (targetLot && targetQuotationIds.length === 0) {
+      // No quotations found for this lot, so no POs to delete.
+      poQuery._id = null; // force empty
+    }
+
+    const pos = await PurchaseOrder.find(poQuery).select('_id orderNumber poNumber').lean();
     const poIds = pos.map(p => p._id);
     const poNumbers = pos.map(p => p.orderNumber || p.poNumber).filter(Boolean);
 
-    // 2. Find GRNs for these POs to delete LandedCostVouchers
+    // 3. Find GRNs for these POs to delete LandedCostVouchers
     const grns = poIds.length ? await GoodsReceive.find({ purchaseOrder: { $in: poIds } }).select('_id').lean() : [];
     const grnIds = grns.map(g => g._id);
 
-    // 3. Find Accounts Payable records for these POs
+    // 4. Find Accounts Payable records for these POs
     const aps = poIds.length ? await AccountsPayable.find({
       $or: [
         { 'poDetails.poId': { $in: poIds } },
@@ -6194,12 +6217,12 @@ router.delete('/requisitions/:id/comparative-statement',
     const apIds = aps.map(a => a._id);
     const apVoucherIds = aps.map(a => a.voucherEntryId).filter(Boolean);
 
-    // 4. Delete LandedCostVouchers
+    // 5. Delete LandedCostVouchers
     if (grnIds.length > 0) {
       await LandedCostVoucher.deleteMany({ goodsReceive: { $in: grnIds } });
     }
 
-    // 5. Delete downstream PO documents
+    // 6. Delete downstream PO documents
     if (poIds.length > 0) {
       await InwardGatePass.deleteMany({ purchaseOrder: { $in: poIds } });
       await GoodsReceive.deleteMany({ purchaseOrder: { $in: poIds } });
@@ -6214,17 +6237,17 @@ router.delete('/requisitions/:id/comparative-statement',
       );
     }
 
-    // 6. Delete Goods Issues referencing these POs
+    // 7. Delete Goods Issues referencing these POs
     if (poIds.length > 0) {
       await GoodsIssue.deleteMany({ referencePurchaseOrder: { $in: poIds } });
     }
 
-    // 7. Delete AP Payment Applications for these AP bills
+    // 8. Delete AP Payment Applications for these AP bills
     if (apIds.length > 0) {
       await ApPaymentApplication.deleteMany({ billId: { $in: apIds } });
     }
 
-    // 8. Delete Accounts Payable bills for these POs
+    // 9. Delete Accounts Payable bills for these POs
     if (apIds.length > 0 || poIds.length > 0) {
       await AccountsPayable.deleteMany({
         $or: [
@@ -6234,7 +6257,7 @@ router.delete('/requisitions/:id/comparative-statement',
       });
     }
 
-    // 9. Delete Journal Entries / Vouchers related to these POs
+    // 10. Delete Journal Entries / Vouchers related to these POs
     const voucherRefs = [...poNumbers].filter(Boolean);
     if (apVoucherIds.length > 0 || poIds.length > 0 || voucherRefs.length > 0) {
       await JournalEntry.deleteMany({
@@ -6246,12 +6269,12 @@ router.delete('/requisitions/:id/comparative-statement',
       });
     }
 
-    // 10. Delete Purchase Orders
+    // 11. Delete Purchase Orders
     if (poIds.length > 0) {
-      await PurchaseOrder.deleteMany({ indent: indentId });
+      await PurchaseOrder.deleteMany({ _id: { $in: poIds } });
     }
 
-    // 11. Delete Notifications related to these POs
+    // 12. Delete Notifications related to these POs
     if (poIds.length > 0) {
       await Notification.deleteMany({
         $or: [
@@ -6261,67 +6284,74 @@ router.delete('/requisitions/:id/comparative-statement',
       });
     }
 
-    // 12. Reset comparative approval object on Indent
-    indent.comparativeApproval = {
-      status: 'not_configured',
-      approvers: [],
-      submittedBy: null,
-      submittedAt: null,
-      rejectedBy: null,
-      rejectedAt: null,
-      rejectionObservation: '',
-      rejectionObservations: []
-    };
+    if (!targetLot) {
+      // 13. Reset comparative approval object on Indent
+      indent.comparativeApproval = {
+        status: 'not_configured',
+        approvers: [],
+        submittedBy: null,
+        submittedAt: null,
+        rejectedBy: null,
+        rejectedAt: null,
+        rejectionObservation: '',
+        rejectionObservations: []
+      };
 
-    // 13. Reset comparative statement authority approvals if present
-    indent.comparativeStatementApprovals = {
-      preparedByUser: null,
-      procurementManagerUser: null,
-      auditOfficerUser: null,
-      financeDirectorUser: null,
-      cooUser: null,
-      ceoUser: null
-    };
+      // 14. Reset comparative statement authority approvals if present
+      indent.comparativeStatementApprovals = {
+        preparedByUser: null,
+        procurementManagerUser: null,
+        auditOfficerUser: null,
+        financeDirectorUser: null,
+        cooUser: null,
+        ceoUser: null
+      };
 
-    // 14. Reset split PO assignments
-    indent.splitPOAssignments = {};
+      // 15. Reset split PO assignments
+      indent.splitPOAssignments = {};
 
-    // 15. Reset orderedQuantity on items and status back to Approved
-    if (Array.isArray(indent.items)) {
-      indent.items.forEach(item => {
-        item.orderedQuantity = 0;
-      });
+      if (Array.isArray(indent.items)) {
+        indent.items.forEach(item => {
+          item.orderedQuantity = 0;
+        });
+      }
+      indent.status = 'Approved';
+      indent.fulfilledDate = null;
     }
-    indent.status = 'Approved';
-    indent.fulfilledDate = null;
+
     indent.updatedBy = req.user.id;
 
     pushIndentWorkflowHistory(indent, {
-      fromStatus: 'Comparative Statement / PO Active',
-      toStatus: 'Comparative Statement & PO Deleted / Reset',
+      fromStatus: indent.status,
+      toStatus: targetLot ? indent.status : 'Comparative Statement & PO Deleted / Reset',
       changedBy: req.user.id,
-      comments: 'Comparative statement and linked PO(s) were deleted/reset by developer. All related quotations kept and reset to Received.',
+      comments: targetLot ? `Comparative statement and linked PO(s) for Lot ${targetLot} were deleted/reset by developer.` : 'Comparative statement and linked PO(s) were deleted/reset by developer. All related quotations kept and reset to Received.',
       module: 'Procurement'
     });
 
     await indent.save();
 
-    // 16. Reset all related quotations to status 'Received' (Quotations are kept intact!)
-    await Quotation.updateMany(
-      { indent: indent._id },
-      {
-        $set: {
-          status: 'Received',
-          updatedBy: req.user.id
+    // Recompute ordered quantities and fulfillment status dynamically
+    await Indent.updateFulfillment(indent._id);
+
+    // 16. Reset all related quotations to status 'Received'
+    if (targetQuotationIds.length > 0) {
+      await Quotation.updateMany(
+        { _id: { $in: targetQuotationIds } },
+        {
+          $set: {
+            status: 'Received',
+            updatedBy: req.user.id
+          }
         }
-      }
-    );
+      );
+    }
 
     const updatedIndent = await Indent.findById(indent._id)
 
     res.json({
       success: true,
-      message: 'PO(s) and Comparative Statement deleted/reset successfully. Quotations have been preserved and reset to Received.',
+      message: targetLot ? `Lot ${targetLot} PO(s) and Comparative Statement reset successfully.` : 'PO(s) and Comparative Statement deleted/reset successfully. Quotations have been preserved and reset to Received.',
       data: updatedIndent
     });
   })
