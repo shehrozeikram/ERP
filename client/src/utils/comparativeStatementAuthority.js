@@ -38,6 +38,15 @@ export function comparativeAuthoritySelectionLocked(requisition) {
   const ca = requisition.comparativeApproval || {};
   if (Array.isArray(ca.approvers) && ca.approvers.length > 0) return true;
   if (['draft', 'submitted', 'approved', 'rejected'].includes(ca.status || '')) return true;
+
+  const lotCas = requisition.comparativeApprovals;
+  if (Array.isArray(lotCas)) {
+    for (const lca of lotCas) {
+      if (Array.isArray(lca.approvers) && lca.approvers.length > 0) return true;
+      if (['draft', 'submitted', 'approved', 'rejected'].includes(lca.status || '')) return true;
+    }
+  }
+
   return false;
 }
 

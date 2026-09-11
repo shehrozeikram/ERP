@@ -270,6 +270,7 @@ const ComparativeStatements = () => {
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to configure comparative approvers');
+      throw err;
     } finally {
       setSavingComparativeApprovers(false);
     }

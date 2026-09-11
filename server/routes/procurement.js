@@ -6317,6 +6317,24 @@ router.delete('/requisitions/:id/comparative-statement',
       }
       indent.status = 'Approved';
       indent.fulfilledDate = null;
+    } else {
+      if (Array.isArray(indent.comparativeApprovals)) {
+        indent.comparativeApprovals = indent.comparativeApprovals.filter(ca => ca.lotNumber !== targetLot);
+      }
+      if (indent.splitPOAssignments) {
+        let hasChanges = false;
+        const newAssignments = { ...indent.splitPOAssignments };
+        for (const [key, val] of Object.entries(newAssignments)) {
+          if (targetQuotationIds.some(id => id.toString() === val.toString())) {
+            delete newAssignments[key];
+            hasChanges = true;
+          }
+        }
+        if (hasChanges) {
+          indent.splitPOAssignments = newAssignments;
+          indent.markModified('splitPOAssignments');
+        }
+      }
     }
 
     indent.updatedBy = req.user.id;

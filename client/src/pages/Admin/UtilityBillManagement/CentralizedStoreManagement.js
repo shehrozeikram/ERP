@@ -98,6 +98,7 @@ const CentralizedStoreManagement = () => {
   const [success, setSuccess] = useState('');
   const [catDialog, setCatDialog] = useState({ open: false, editing: null, name: '', description: '' });
   const [itemForm, setItemForm] = useState(emptyItemForm);
+  const [addItemDialogOpen, setAddItemDialogOpen] = useState(false);
   const [editDialog, setEditDialog] = useState(emptyEditDialog);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [departments, setDepartments] = useState([]);
@@ -268,17 +269,17 @@ const CentralizedStoreManagement = () => {
   const buildItemBody = (form) => {
     const usesMeter = categoryUsesMeter(categoryNameById.get(String(form.category)));
     return {
-    category: form.category,
-    name: form.name,
-    utilityType: form.utilityType,
-    meterNumber: usesMeter ? form.meterNumber : '',
-    location: form.location,
-    site: form.site,
-    department: form.department,
-    expenseAccount: form.expenseAccount,
-    defaultAmount: Number(form.defaultAmount) || 0,
-    description: form.description
-  };
+      category: form.category,
+      name: form.name,
+      utilityType: form.utilityType,
+      meterNumber: usesMeter ? form.meterNumber : '',
+      location: form.location,
+      site: form.site,
+      department: form.department,
+      expenseAccount: form.expenseAccount,
+      defaultAmount: Number(form.defaultAmount) || 0,
+      description: form.description
+    };
   };
 
   const saveNewItem = async () => {
@@ -300,6 +301,7 @@ const CentralizedStoreManagement = () => {
       await centralizedStoreService.createItem(buildItemBody(itemForm));
       setSuccess('Item added to the list');
       resetItemForm(true);
+      setAddItemDialogOpen(false);
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save item');
@@ -442,124 +444,124 @@ const CentralizedStoreManagement = () => {
     const fieldCol = showCode ? 6 : showMeterField ? 4 : 6;
 
     return (
-    <Grid container spacing={2}>
-      <Grid item xs={12} md={6}>
-        <FormControl fullWidth required>
-          <InputLabel>Category</InputLabel>
-          <Select
-            value={form.category}
-            label="Category"
-            onChange={(e) => {
-              if (isEdit) {
-                handleEditCategoryChange(e.target.value, setForm);
-              } else {
-                handleCategoryChange(e.target.value);
-              }
-            }}
-          >
-            {categories.map((c) => (
-              <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Grid>
-      <Grid item xs={12} md={6}>
-        <TextField
-          label="Item name"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          required
-          fullWidth
-          placeholder="e.g. Meter 1, Main building"
-        />
-      </Grid>
-      {showCode && (
+      <Grid container spacing={2}>
         <Grid item xs={12} md={6}>
-          <TextField label="Item code" value={code} fullWidth disabled />
+          <FormControl fullWidth required>
+            <InputLabel>Category</InputLabel>
+            <Select
+              value={form.category}
+              label="Category"
+              onChange={(e) => {
+                if (isEdit) {
+                  handleEditCategoryChange(e.target.value, setForm);
+                } else {
+                  handleCategoryChange(e.target.value);
+                }
+              }}
+            >
+              {categories.map((c) => (
+                <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Grid>
-      )}
-      <Grid item xs={12} md={fieldCol}>
-        <FormControl fullWidth>
-          <InputLabel>Utility type</InputLabel>
-          <Select
-            value={form.utilityType}
-            label="Utility type"
-            onChange={(e) => setForm({ ...form, utilityType: e.target.value })}
-          >
-            {UTILITY_TYPES.map((t) => (
-              <MenuItem key={t} value={t}>{t}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Grid>
-      {showMeterField && (
-        <Grid item xs={12} md={fieldCol}>
+        <Grid item xs={12} md={6}>
           <TextField
-            label="Meter no."
-            value={form.meterNumber}
-            onChange={(e) => setForm({ ...form, meterNumber: e.target.value })}
+            label="Item name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            required
             fullWidth
-            placeholder="e.g. 1, 2, 3"
+            placeholder="e.g. Meter 1, Main building"
           />
         </Grid>
-      )}
-      <Grid item xs={12} md={fieldCol}>
-        <TextField
-          label="Default amount"
-          type="number"
-          value={form.defaultAmount}
-          onChange={(e) => setForm({ ...form, defaultAmount: e.target.value })}
-          fullWidth
-          inputProps={{ min: 0, step: 0.01 }}
-        />
+        {showCode && (
+          <Grid item xs={12} md={6}>
+            <TextField label="Item code" value={code} fullWidth disabled />
+          </Grid>
+        )}
+        <Grid item xs={12} md={fieldCol}>
+          <FormControl fullWidth>
+            <InputLabel>Utility type</InputLabel>
+            <Select
+              value={form.utilityType}
+              label="Utility type"
+              onChange={(e) => setForm({ ...form, utilityType: e.target.value })}
+            >
+              {UTILITY_TYPES.map((t) => (
+                <MenuItem key={t} value={t}>{t}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        {showMeterField && (
+          <Grid item xs={12} md={fieldCol}>
+            <TextField
+              label="Meter no."
+              value={form.meterNumber}
+              onChange={(e) => setForm({ ...form, meterNumber: e.target.value })}
+              fullWidth
+              placeholder="e.g. 1, 2, 3"
+            />
+          </Grid>
+        )}
+        <Grid item xs={12} md={fieldCol}>
+          <TextField
+            label="Default amount"
+            type="number"
+            value={form.defaultAmount}
+            onChange={(e) => setForm({ ...form, defaultAmount: e.target.value })}
+            fullWidth
+            inputProps={{ min: 0, step: 0.01 }}
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <TextField
+            label="Location"
+            value={form.location}
+            onChange={(e) => setForm({ ...form, location: e.target.value })}
+            fullWidth
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          {renderAccountField(form, setForm, isEdit)}
+        </Grid>
+        <Grid item xs={12} md={4}>
+          {renderDepartmentField(form, setForm)}
+        </Grid>
+        <Grid item xs={12}>
+          <FormControl fullWidth required>
+            <InputLabel>Chart of accounts (expense)</InputLabel>
+            <Select
+              value={form.expenseAccount}
+              label="Chart of accounts (expense)"
+              onChange={(e) => setForm({ ...form, expenseAccount: e.target.value })}
+            >
+              {expenseAccounts.map((a) => (
+                <MenuItem key={a._id} value={a._id}>{accountLabel(a)}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12}>
+          <TextField
+            label="Notes"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            fullWidth
+            multiline
+            rows={2}
+          />
+        </Grid>
       </Grid>
-      <Grid item xs={12} md={4}>
-        <TextField
-          label="Location"
-          value={form.location}
-          onChange={(e) => setForm({ ...form, location: e.target.value })}
-          fullWidth
-        />
-      </Grid>
-      <Grid item xs={12} md={4}>
-        {renderAccountField(form, setForm, isEdit)}
-      </Grid>
-      <Grid item xs={12} md={4}>
-        {renderDepartmentField(form, setForm)}
-      </Grid>
-      <Grid item xs={12}>
-        <FormControl fullWidth required>
-          <InputLabel>Chart of accounts (expense)</InputLabel>
-          <Select
-            value={form.expenseAccount}
-            label="Chart of accounts (expense)"
-            onChange={(e) => setForm({ ...form, expenseAccount: e.target.value })}
-          >
-            {expenseAccounts.map((a) => (
-              <MenuItem key={a._id} value={a._id}>{accountLabel(a)}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Grid>
-      <Grid item xs={12}>
-        <TextField
-          label="Notes"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          fullWidth
-          multiline
-          rows={2}
-        />
-      </Grid>
-    </Grid>
     );
   };
 
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-        <Button 
-          startIcon={<ArrowBackIcon />} 
+        <Button
+          startIcon={<ArrowBackIcon />}
           onClick={() => {
             if (window.location.pathname.startsWith('/general')) {
               navigate('/general/centralized-store/bills');
@@ -626,7 +628,7 @@ const CentralizedStoreManagement = () => {
         </Stack>
       )}
 
-      {!categories.length && !loading ? (
+      {!categories.length && !loading && (
         <Card sx={{ mb: 3 }}>
           <CardContent>
             <Typography color="text.secondary">
@@ -634,45 +636,53 @@ const CentralizedStoreManagement = () => {
             </Typography>
           </CardContent>
         </Card>
-      ) : (
-        <Card sx={{ mb: 3, borderColor: alpha(theme.palette.primary.main, 0.3), borderWidth: 1, borderStyle: 'solid' }}>
-          <CardContent>
-            <Typography variant="h6" fontWeight={700} gutterBottom>
-              Add item
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Item code (CSI-######) is assigned automatically when you save.
-            </Typography>
-            {renderItemFields(itemForm, setItemForm)}
-            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2 }}>
-              <Button onClick={() => resetItemForm(false)} disabled={saving}>
-                Clear
-              </Button>
-              <Button variant="contained" onClick={saveNewItem} disabled={saving || !categories.length}>
-                {saving ? 'Saving…' : 'Save to list'}
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
       )}
+
+      <Dialog open={addItemDialogOpen} onClose={() => setAddItemDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Add item</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Item code (CSI-######) is assigned automatically when you save.
+          </Typography>
+          {renderItemFields(itemForm, setItemForm)}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { resetItemForm(false); setAddItemDialogOpen(false); }} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={saveNewItem} disabled={saving || !categories.length}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} mb={1.5}>
         <Typography variant="h6" fontWeight={700}>
           Items list ({filteredItems.length})
         </Typography>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Filter by category</InputLabel>
-          <Select
-            value={categoryFilter}
-            label="Filter by category"
-            onChange={(e) => setCategoryFilter(e.target.value)}
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Button
+            startIcon={<AddIcon />}
+            variant="contained"
+            onClick={() => setAddItemDialogOpen(true)}
+            disabled={!categories.length}
           >
-            <MenuItem value="all">All categories</MenuItem>
-            {categories.map((c) => (
-              <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+            Add item
+          </Button>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Filter by category</InputLabel>
+            <Select
+              value={categoryFilter}
+              label="Filter by category"
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <MenuItem value="all">All categories</MenuItem>
+              {categories.map((c) => (
+                <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
       </Stack>
 
       <TableContainer component={Paper} variant="outlined">
