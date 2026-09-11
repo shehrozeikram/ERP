@@ -58,22 +58,21 @@ async function sendPushNotification(userIds, payload) {
       return;
     }
 
+    const finalData = {
+      ...(payload.data || {}),
+      title: payload.title,
+      body: payload.body,
+    };
+
     const message = {
-      data: payload.data ? Object.fromEntries(Object.entries(payload.data).map(([k, v]) => [k, String(v)])) : {},
+      data: Object.fromEntries(Object.entries(finalData).filter(([_, v]) => v != null).map(([k, v]) => [k, String(v)])),
       android: {
-        priority: 'high',
-        notification: {
-          channelId: 'messages',
-          sound: 'default',
-          priority: 'high',
-          visibility: 'public'
-        }
+        priority: 'high'
       },
       apns: {
         payload: {
           aps: {
-            sound: 'default',
-            contentAvailable: true
+            'content-available': 1
           }
         },
         headers: {
