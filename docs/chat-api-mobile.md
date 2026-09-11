@@ -413,10 +413,6 @@ When a new chat message is sent, the backend dispatches a high-priority FCM payl
 **Full FCM Payload Dispatched by Backend:**
 ```json
 {
-  "notification": {
-    "title": "<Sender Name>",
-    "body": "<Message snippet>"
-  },
   "data": {
     "type": "chat_message",
     "conversationId": "<conversationId>",
