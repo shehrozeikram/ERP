@@ -23,18 +23,17 @@ const hasOtherAuthorityUser = (indent) =>
 const comparativeAuthorityUserLockActive = (indent) => {
   const pb = preparedByUserId(indent);
   if (!pb) return false;
-  const ca = indent?.comparativeApproval;
-  if (hasOtherAuthorityUser(indent)) return true;
-  if (!ca) return false;
-  if (Array.isArray(ca.approvers) && ca.approvers.length > 0) return true;
-  if (['draft', 'submitted', 'approved', 'rejected'].includes(ca.status || '')) return true;
-
   const lotCas = indent?.comparativeApprovals;
-  if (Array.isArray(lotCas)) {
+  if (Array.isArray(lotCas) && lotCas.length > 0) {
     for (const lca of lotCas) {
       if (Array.isArray(lca.approvers) && lca.approvers.length > 0) return true;
       if (['draft', 'submitted', 'approved', 'rejected'].includes(lca.status || '')) return true;
     }
+  } else {
+    const ca = indent?.comparativeApproval;
+    if (!ca) return false;
+    if (Array.isArray(ca.approvers) && ca.approvers.length > 0) return true;
+    if (['draft', 'submitted', 'approved', 'rejected'].includes(ca.status || '')) return true;
   }
 
   return false;

@@ -373,12 +373,45 @@ const indentSchema = new mongoose.Schema({
   // Lot-based Comparative Statement approvals
   comparativeApprovals: [{
     lotNumber: { type: String, required: true },
-    status: { type: String, enum: ['draft', 'pending', 'approved', 'rejected'], default: 'draft' },
+    status: { type: String, enum: ['not_configured', 'draft', 'submitted', 'pending', 'approved', 'rejected'], default: 'not_configured' },
+    approvers: [{
+      approver: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+      },
+      status: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending'
+      },
+      actedAt: {
+        type: Date,
+        default: null
+      },
+      comment: {
+        type: String,
+        trim: true,
+        default: ''
+      }
+    }],
+    submittedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    submittedAt: { type: Date, default: null },
+    lastResubmittedAt: { type: Date, default: null },
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     approvedAt: { type: Date },
     rejectedAt: { type: Date },
     rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     rejectionReason: { type: String, trim: true, default: '' },
+    rejectionObservation: { type: String, trim: true, default: '' },
+    rejectionObservations: [{
+      observation: { type: String, trim: true, default: '' },
+      rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      rejectedAt: { type: Date, default: null },
+      resolutionNote: { type: String, trim: true, default: '' },
+      resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      resolvedAt: { type: Date, default: null }
+    }],
     note: { type: String, trim: true, default: '' }
   }],
 

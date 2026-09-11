@@ -519,6 +519,7 @@ const ensureComparativeApprovalObject = (indent, lotNumber = 'A') => {
   const ca = indent.comparativeApprovals[caIndex];
   if (!Array.isArray(ca.approvers)) ca.approvers = [];
   if (!Array.isArray(ca.rejectionObservations)) ca.rejectionObservations = [];
+  indent.comparativeApproval = ca;
   return ca;
 };
 
@@ -5774,6 +5775,9 @@ router.put('/requisitions/:id/comparative-approvers',
     ca.rejectedBy = null;
     ca.rejectedAt = null;
     ca.rejectionObservation = '';
+    indent.comparativeApproval = ca;
+    indent.markModified('comparativeApprovals');
+    indent.markModified('comparativeApproval');
     indent.updatedBy = req.user.id;
 
     pushIndentWorkflowHistory(indent, {
@@ -5787,6 +5791,10 @@ router.put('/requisitions/:id/comparative-approvers',
     await indent.save();
 
     const updated = await Indent.findById(indent._id)
+      .populate('comparativeStatementApprovals.preparedByUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeStatementApprovals.managerProcurementUser', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApprovals.approvers.approver', 'firstName lastName email employeeId digitalSignature');
 
     res.json({
       success: true,
@@ -6320,6 +6328,18 @@ router.delete('/requisitions/:id/comparative-statement',
     } else {
       if (Array.isArray(indent.comparativeApprovals)) {
         indent.comparativeApprovals = indent.comparativeApprovals.filter(ca => ca.lotNumber !== targetLot);
+        if (indent.comparativeApprovals.length === 0) {
+          indent.comparativeApproval = {
+            status: 'not_configured',
+            approvers: [],
+            submittedBy: null,
+            submittedAt: null,
+            rejectedBy: null,
+            rejectedAt: null,
+            rejectionObservation: '',
+            rejectionObservations: []
+          };
+        }
       }
       if (indent.splitPOAssignments) {
         let hasChanges = false;

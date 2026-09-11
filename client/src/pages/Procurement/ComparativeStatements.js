@@ -265,7 +265,11 @@ const ComparativeStatements = () => {
       });
       if (res.data?.success) {
         const updated = res.data.data;
-        setSelectedRequisition((prev) => ({ ...prev, comparativeApprovals: updated.comparativeApprovals }));
+        setSelectedRequisition((prev) => ({
+          ...prev,
+          comparativeApproval: updated.comparativeApproval,
+          comparativeApprovals: updated.comparativeApprovals
+        }));
         setSuccess('Comparative approvers configured successfully.');
       }
     } catch (err) {
@@ -762,6 +766,7 @@ const ComparativeStatements = () => {
             })()}
 
             <ComparativeStatementView
+              selectedLot={selectedLot}
               requisition={{
                 ...selectedRequisition,
                 // Filter items to only those that have a quotation in this lot

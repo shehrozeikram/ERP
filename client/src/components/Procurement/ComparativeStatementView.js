@@ -82,7 +82,8 @@ const ComparativeStatementView = ({
   onRejectComparative,
   canApproveComparative = false,
   approvingComparative = false,
-  canEditApprovalAuthorities = true
+  canEditApprovalAuthorities = true,
+  selectedLot = 'A'
 }) => {
   const pickText = (...values) => {
     for (const value of values) {
@@ -95,7 +96,10 @@ const ComparativeStatementView = ({
   const selectedRequisition = requisition;
   const comparativeNote = note;
   const keys = ['preparedBy', 'managerProcurement'];
-  const comparativeApproval = selectedRequisition?.comparativeApproval;
+  const lotComparativeApproval = Array.isArray(selectedRequisition?.comparativeApprovals)
+    ? selectedRequisition.comparativeApprovals.find((a) => a.lotNumber === selectedLot)
+    : null;
+  const comparativeApproval = lotComparativeApproval || selectedRequisition?.comparativeApproval;
   const comparativeSteps = Array.isArray(comparativeApproval?.approvers) ? comparativeApproval.approvers : [];
   const comparativeAuthorityUserMap = (() => {
     const csa = selectedRequisition?.comparativeStatementApprovals || {};

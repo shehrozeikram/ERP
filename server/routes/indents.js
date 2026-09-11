@@ -559,6 +559,11 @@ router.get('/:id',
       .populate('comparativeApproval.rejectedBy', 'firstName lastName email')
       .populate('comparativeApproval.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
       .populate('comparativeApproval.rejectionObservations.resolvedBy', 'firstName lastName email employeeId')
+      .populate('comparativeApprovals.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApprovals.submittedBy', 'firstName lastName email')
+      .populate('comparativeApprovals.rejectedBy', 'firstName lastName email')
+      .populate('comparativeApprovals.rejectionObservations.rejectedBy', 'firstName lastName email employeeId')
+      .populate('comparativeApprovals.rejectionObservations.resolvedBy', 'firstName lastName email employeeId')
       .populate('rejectionHistory.rejectedBy', 'firstName lastName email')
       .populate('workflowHistory.changedBy', 'firstName lastName email');
 

@@ -34,17 +34,17 @@ export function comparativeAuthoritySelectionLocked(requisition) {
   const prep = requisition.comparativeStatementApprovals?.preparedByUser;
   const preparedById = prep?._id ? String(prep._id) : prep ? String(prep) : '';
   if (!preparedById) return false;
-  if (hasOtherAuthorityUser(requisition)) return true;
-  const ca = requisition.comparativeApproval || {};
-  if (Array.isArray(ca.approvers) && ca.approvers.length > 0) return true;
-  if (['draft', 'submitted', 'approved', 'rejected'].includes(ca.status || '')) return true;
 
   const lotCas = requisition.comparativeApprovals;
-  if (Array.isArray(lotCas)) {
+  if (Array.isArray(lotCas) && lotCas.length > 0) {
     for (const lca of lotCas) {
       if (Array.isArray(lca.approvers) && lca.approvers.length > 0) return true;
       if (['draft', 'submitted', 'approved', 'rejected'].includes(lca.status || '')) return true;
     }
+  } else {
+    const ca = requisition.comparativeApproval || {};
+    if (Array.isArray(ca.approvers) && ca.approvers.length > 0) return true;
+    if (['draft', 'submitted', 'approved', 'rejected'].includes(ca.status || '')) return true;
   }
 
   return false;
