@@ -103,7 +103,7 @@ function getVoucherStatusDisplay(row) {
 
   if (journalStatus === 'reversed') return { label: 'Reversed', color: 'default' };
   if (journalStatus === 'cancelled') return { label: 'Cancelled', color: 'default' };
-  if (cleared) return { label: 'Cleared', color: 'success' };
+  // if (cleared) return { label: 'Cleared', color: 'success' };
   if (signed) return { label: 'Signed', color: 'info' };
   if (journalStatus === 'posted') return { label: 'Posted', color: 'success' };
   if (journalStatus === 'draft') return { label: 'Draft', color: 'warning' };
