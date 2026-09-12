@@ -1711,7 +1711,6 @@ const AccountsPayable = () => {
                                 </IconButton>
                               </span>
                             </Tooltip>
-                            <Tooltip title="Print / Download Bill"><IconButton size="small" onClick={() => navigate(`/finance/bill-print/${bill._id}`)}><PrintIcon fontSize="small" /></IconButton></Tooltip>
                             <Tooltip title={bill.amountPaid > 0 ? 'Cannot delete bill with recorded payments' : 'Delete Bill'}>
                               <span>
                                 <IconButton
@@ -1841,10 +1840,25 @@ const AccountsPayable = () => {
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          Bill Details: {selectedBill?.billNumber}
-          <IconButton onClick={() => setViewDialogOpen(false)}>
-            <CloseIcon />
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="h6" component="div">Bill Details: {selectedBill?.billNumber}</Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {selectedBill && (
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                startIcon={<PrintIcon />}
+                onClick={() => navigate(`/finance/bill-print/${selectedBill._id}`)}
+              >
+                Print
+              </Button>
+            )}
+            <IconButton onClick={() => setViewDialogOpen(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </DialogTitle>
         <DialogContent dividers>
           {selectedBill && (() => {
@@ -1898,8 +1912,8 @@ const AccountsPayable = () => {
                     showChargesSummary={true}
                   />
 
-                  {/* Approval Authority Table — ONLY for Centralized Store / Utility Bills */}
-                  {(selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities' || selectedBill?.referenceType === 'store' || selectedBill?.module === 'procurement') && (() => {
+                  {/* Approval Authority Table — Rendered for All Vendor Bills */}
+                  {(() => {
                     const getApprovalRows = () => {
                       const formatDateTime = (date) => {
                         if (!date) return '-';
@@ -1911,7 +1925,17 @@ const AccountsPayable = () => {
 
                       const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
 
-                      // For Vendor Bills without POs (like Store or Utilities), all audit history is recorded directly on the Bill
+                      if (Array.isArray(selectedBill?.financeApprovalAuthorities) && selectedBill.financeApprovalAuthorities.length > 0) {
+                        return selectedBill.financeApprovalAuthorities.map((auth) => ({
+                          authority: auth.levelName || auth.levelKey || 'Approval Authority',
+                          name: auth.assignedUser ? userDisplayName(auth.assignedUser) : (auth.userName || '-'),
+                          status: auth.status || 'Pending',
+                          signatureUser: auth.assignedUser || null,
+                          signaturePath: auth.digitalSignature || auth.assignedUser?.digitalSignature || '',
+                          dateTime: auth.actedAt ? formatDateTime(auth.actedAt) : '-'
+                        }));
+                      }
+
                       const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
                       
                       const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit'));
@@ -2463,7 +2487,7 @@ const AccountsPayable = () => {
           })()}
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between', px: 3, py: 2 }}>
-          <Box>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {selectedBill?.workflowHistory && selectedBill.workflowHistory.length > 0 && (
               <Button
                 variant="outlined"
@@ -2471,6 +2495,16 @@ const AccountsPayable = () => {
                 onClick={() => setWorkflowHistoryDialog({ open: true, document: selectedBill })}
               >
                 See Workflow History
+              </Button>
+            )}
+            {selectedBill && (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<PrintIcon />}
+                onClick={() => navigate(`/finance/bill-print/${selectedBill._id}`)}
+              >
+                Print / Download Bill
               </Button>
             )}
           </Box>

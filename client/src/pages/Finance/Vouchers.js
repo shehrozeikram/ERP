@@ -1016,7 +1016,29 @@ const Vouchers = () => {
                               ) : null}
                             </TableCell>
                             <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{line.description || viewDialog.voucher.description || '—'}</TableCell>
-                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{viewDialog.voucher.reference || '—'}</TableCell>
+                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>
+                              {(() => {
+                                const acc = line?.account || {};
+                                const category = (acc.category || line?.category || '').toLowerCase();
+                                const detailType = (acc.detailType || line?.detailType || '').toLowerCase();
+                                const accountCode = (acc.accountCode || line?.accountCode || '').toUpperCase();
+                                const name = (acc.name || line?.accountTitle || line?.name || '').toLowerCase();
+
+                                const isBankOrCashLine = line?.isBank || line?.isBankLine ||
+                                  category.includes('bank') || category.includes('cash') ||
+                                  detailType.includes('bank') || detailType.includes('cash') ||
+                                  accountCode.includes('BANK') || accountCode.includes('CASH') ||
+                                  name.includes('bank') || name.includes('hbl') || name.includes('meezan') || name.includes('mcb') || name.includes('ubl') || name.includes('faysal') || name.includes('bop') || name.includes('allied') || name.includes('cash') || name.includes('c/a') || name.includes('a/c');
+
+                                if (line?.reference || line?.chequeNumber) {
+                                  return line.reference || line.chequeNumber;
+                                }
+                                if (isBankOrCashLine) {
+                                  return viewDialog.voucher.chequeNumber || viewDialog.voucher.reference || '—';
+                                }
+                                return '—';
+                              })()}
+                            </TableCell>
                             <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.debit ? formatPKR(line.debit) : '0'}</TableCell>
                             <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.credit ? formatPKR(line.credit) : '0'}</TableCell>
                           </TableRow>

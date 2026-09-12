@@ -120,9 +120,14 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               border: '1px solid',
               borderColor: 'grey.400',
               fontSize: 12,
-              py: 1,
-              px: 0.75,
-              verticalAlign: 'top'
+              py: 0.75,
+              px: 0.5,
+              verticalAlign: 'top',
+              '@media print': {
+                py: 0.4,
+                px: 0.4,
+                fontSize: '10px'
+              }
             }
           }}
         >
@@ -130,14 +135,14 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
             <TableRow>
               <TableCell sx={{ width: '4%' }}>S. No</TableCell>
               <TableCell sx={{ width: isCoa ? '18%' : '11%' }}>{isCoa ? 'Category' : 'Product Code'}</TableCell>
-              <TableCell sx={{ width: isCoa ? '25%' : '22%' }}>Description</TableCell>
-              <TableCell sx={{ width: '14%', minWidth: 120 }}>Attachments</TableCell>
+              <TableCell sx={{ width: isCoa ? '32%' : '27%' }}>Description</TableCell>
+              <TableCell sx={{ width: '12%', '@media print': { display: 'none' } }}>Attachments</TableCell>
               <TableCell sx={{ width: '7%' }}>Units</TableCell>
-              <TableCell sx={{ width: '9%', textAlign: 'right' }}>Quantity</TableCell>
-              <TableCell sx={{ width: '10%', textAlign: 'right' }}>Rate</TableCell>
-              <TableCell sx={{ width: '12%', textAlign: 'right' }}>Value Excluding Sales Tax</TableCell>
-              <TableCell sx={{ width: '7%', textAlign: 'center' }}>Discount</TableCell>
-              <TableCell sx={{ width: '12%', textAlign: 'right' }}>Net Amount</TableCell>
+              <TableCell sx={{ width: '8%', textAlign: 'right' }}>Quantity</TableCell>
+              <TableCell sx={{ width: '9%', textAlign: 'right' }}>Rate</TableCell>
+              <TableCell sx={{ width: '11%', textAlign: 'right' }}>Value Excl. Tax</TableCell>
+              <TableCell sx={{ width: '6%', textAlign: 'center' }}>Disc</TableCell>
+              <TableCell sx={{ width: '11%', textAlign: 'right' }}>Net Amount</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -158,7 +163,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                     {categoryOrCode}
                   </TableCell>
                   <TableCell sx={{ lineHeight: 1.35 }}>{lineLabel}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ '@media print': { display: 'none' } }}>
                     <LineAttachmentsView line={line} previewTitle={lineLabel} />
                   </TableCell>
                   <TableCell sx={{ textAlign: 'center' }}>{line.unit || (isCoa ? '—' : 'Nos')}</TableCell>
@@ -188,7 +193,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                 }
               }}
             >
-              <TableCell colSpan={7} align="right" sx={{ borderRight: '1px solid', borderColor: 'grey.400' }}>
+              <TableCell colSpan={6} align="right" sx={{ borderRight: '1px solid', borderColor: 'grey.400', '@media print': { display: 'table-cell' } }}>
                 Sub Total
               </TableCell>
               <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -204,8 +209,8 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
       </TableContainer>
 
       {showChargesSummary && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-          <Stack spacing={0.35} sx={{ width: 280, fontSize: 12 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1.5 }}>
+          <Stack spacing={0.25} sx={{ width: 240, fontSize: 12 }}>
             {CHARGE_LABELS.map((label) => (
               <Box
                 key={label}
@@ -214,13 +219,14 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                   justifyContent: 'space-between',
                   borderBottom: '1px solid',
                   borderColor: 'grey.300',
-                  py: 0.35
+                  py: 0.25,
+                  '@media print': { display: 'none' }
                 }}
               >
-                <Typography component="span" sx={{ fontSize: 12 }}>
+                <Typography component="span" sx={{ fontSize: 11 }}>
                   {label}
                 </Typography>
-                <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>
                   {formatDecimalPk(0)}
                 </Typography>
               </Box>
@@ -229,17 +235,17 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               sx={{
                 display: 'flex',
                 justifyContent: 'space-between',
-                pt: 1,
-                mt: 0.5,
+                pt: 0.5,
+                mt: 0.25,
                 fontWeight: 800,
                 fontSize: 13,
                 borderBottom: '3px double',
                 borderColor: 'grey.900',
-                pb: 0.5
+                pb: 0.25
               }}
             >
-              <Typography component="span">Net Total</Typography>
-              <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              <Typography component="span" sx={{ fontWeight: 800 }}>Net Total</Typography>
+              <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>
                 {formatDecimalPk(totalVal)}
               </Typography>
             </Box>
