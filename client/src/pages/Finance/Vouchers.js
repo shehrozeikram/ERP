@@ -1024,6 +1024,13 @@ const Vouchers = () => {
                                 const accountCode = (acc.accountCode || line?.accountCode || '').toUpperCase();
                                 const name = (acc.name || line?.accountTitle || line?.name || '').toLowerCase();
 
+                                const isTaxOrWhtLine = accountCode.includes('WHT') || accountCode.includes('TAX') ||
+                                  name.includes('wht') || name.includes('withholding') || name.includes('tax payable') || name.includes('income tax');
+
+                                if (isTaxOrWhtLine) {
+                                  return '—';
+                                }
+
                                 const isBankOrCashLine = line?.isBank || line?.isBankLine ||
                                   category.includes('bank') || category.includes('cash') ||
                                   detailType.includes('bank') || detailType.includes('cash') ||
