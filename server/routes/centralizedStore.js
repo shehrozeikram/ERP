@@ -56,20 +56,31 @@ router.get(
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
       await ensureStoreItemsHaveCodes(300);
       const categories = await UtilityStoreCategory.find({ isActive: true })
+        .populate('parentCategory', 'name')
+        .populate('chartOfAccount', 'name accountNumber')
         .sort({ sortOrder: 1, name: 1 })
         .lean();
       const items = await populateItem(
         UtilityStoreItem.find({ isActive: true }).sort({ sortOrder: 1, name: 1 })
       ).lean();
 
-      const expenseAccounts = await Account.find({
+      const rawExpenseAccounts = await Account.find({
         isActive: true,
         type: 'Expense'
       })
         .select('accountNumber name category')
         .sort({ accountNumber: 1 })
-        .limit(500)
         .lean();
+
+      // Deduplicate by accountNumber to prevent showing duplicate COAs from multiple companies
+      const seenAccounts = new Set();
+      const expenseAccounts = [];
+      for (const acc of rawExpenseAccounts) {
+        if (!seenAccounts.has(acc.accountNumber)) {
+          seenAccounts.add(acc.accountNumber);
+          expenseAccounts.push(acc);
+        }
+      }
 
       const departments = await loadDepartments();
 
@@ -99,6 +110,8 @@ router.get(
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
       await ensureStoreItemsHaveCodes(300);
       const categories = await UtilityStoreCategory.find()
+        .populate('parentCategory', 'name')
+        .populate('chartOfAccount', 'name accountNumber')
         .sort({ sortOrder: 1, name: 1 })
         .lean();
       const items = await populateItem(UtilityStoreItem.find().sort({ sortOrder: 1, name: 1 }));
@@ -169,17 +182,25 @@ router.post(
   permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'),
   async (req, res) => {
     try {
-      const { name, description, sortOrder } = req.body;
+      const { name, description, sortOrder, parentCategory, chartOfAccount } = req.body;
       if (!name?.trim()) {
         return res.status(400).json({ success: false, message: 'Category name is required' });
       }
-      const cat = await UtilityStoreCategory.create({
+      if (!parentCategory && !chartOfAccount) {
+        return res.status(400).json({ success: false, message: 'Chart of Account is required for top-level categories' });
+      }
+      let cat = await UtilityStoreCategory.create({
         name: name.trim(),
         description: description || '',
         sortOrder: Number(sortOrder) || 0,
+        parentCategory: parentCategory || null,
+        chartOfAccount: chartOfAccount || null,
         createdBy: getActorId(req),
         updatedBy: getActorId(req)
       });
+      cat = await UtilityStoreCategory.findById(cat._id)
+        .populate('parentCategory', 'name')
+        .populate('chartOfAccount', 'name accountNumber');
       res.status(201).json({ success: true, data: cat });
     } catch (error) {
       if (error.code === 11000) {
@@ -195,14 +216,24 @@ router.put(
   authorize('super_admin', 'admin', 'finance_manager', 'hr_manager'),
   async (req, res) => {
     try {
-      const cat = await UtilityStoreCategory.findById(req.params.id);
+      let cat = await UtilityStoreCategory.findById(req.params.id);
       if (!cat) return res.status(404).json({ success: false, message: 'Category not found' });
       if (req.body.name) cat.name = String(req.body.name).trim();
       if (req.body.description !== undefined) cat.description = req.body.description;
       if (req.body.sortOrder !== undefined) cat.sortOrder = Number(req.body.sortOrder) || 0;
       if (req.body.isActive !== undefined) cat.isActive = Boolean(req.body.isActive);
+      if (req.body.parentCategory !== undefined) cat.parentCategory = req.body.parentCategory || null;
+      if (req.body.chartOfAccount !== undefined) cat.chartOfAccount = req.body.chartOfAccount || null;
+      
+      if (!cat.parentCategory && !cat.chartOfAccount) {
+        return res.status(400).json({ success: false, message: 'Chart of Account is required for top-level categories' });
+      }
+
       cat.updatedBy = getActorId(req);
       await cat.save();
+      cat = await UtilityStoreCategory.findById(cat._id)
+        .populate('parentCategory', 'name')
+        .populate('chartOfAccount', 'name accountNumber');
       res.json({ success: true, data: cat });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
@@ -242,11 +273,19 @@ router.post(
       }
       let expenseAccountId = expenseAccount;
       if (!expenseAccountId) {
-        const def = await ensureDefaultExpenseAccount();
-        if (!def) {
-          return res.status(400).json({ success: false, message: 'Expense account 6200 not found in Chart of Accounts' });
+        // Fallback to Category/Subcategory COA first
+        const catObj = await UtilityStoreCategory.findById(category).populate('parentCategory');
+        if (catObj && catObj.chartOfAccount) {
+          expenseAccountId = catObj.chartOfAccount;
+        } else if (catObj && catObj.parentCategory && catObj.parentCategory.chartOfAccount) {
+          expenseAccountId = catObj.parentCategory.chartOfAccount;
+        } else {
+          const def = await ensureDefaultExpenseAccount();
+          if (!def) {
+            return res.status(400).json({ success: false, message: 'Expense account 6200 not found in Chart of Accounts' });
+          }
+          expenseAccountId = def._id;
         }
-        expenseAccountId = def._id;
       }
       const item = await UtilityStoreItem.create({
         category,
@@ -290,6 +329,9 @@ router.put(
         if (req.body[f] !== undefined) item[f] = req.body[f];
       });
       if (req.body.name) item.name = String(req.body.name).trim();
+      if (req.body.expenseAccount === null || req.body.expenseAccount === '') {
+        item.expenseAccount = null; // Let it fall back dynamically or just be empty
+      }
       item.updatedBy = getActorId(req);
       await item.save();
       const populated = await populateItem(UtilityStoreItem.findById(item._id));

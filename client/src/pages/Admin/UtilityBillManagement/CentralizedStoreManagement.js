@@ -20,6 +20,11 @@ import {
   Select,
   Stack,
   Table,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Collapse,
   TableBody,
   TableCell,
   TableContainer,
@@ -35,7 +40,11 @@ import {
   ArrowBack as ArrowBackIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  AccountTree as AccountTreeIcon,
+  Folder as FolderIcon,
+  ExpandMore as ExpandMoreIcon,
+  ChevronRight as ChevronRightIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import centralizedStoreService from '../../../services/centralizedStoreService';
@@ -96,9 +105,11 @@ const CentralizedStoreManagement = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [catDialog, setCatDialog] = useState({ open: false, editing: null, name: '', description: '' });
+  const [catDialog, setCatDialog] = useState({ open: false, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '' });
   const [itemForm, setItemForm] = useState(emptyItemForm);
   const [addItemDialogOpen, setAddItemDialogOpen] = useState(false);
+  const [treeDialogOpen, setTreeDialogOpen] = useState(false);
+  const [expandedNodes, setExpandedNodes] = useState({});
   const [editDialog, setEditDialog] = useState(emptyEditDialog);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [departments, setDepartments] = useState([]);
@@ -145,11 +156,7 @@ const CentralizedStoreManagement = () => {
     [expenseAccounts]
   );
 
-  useEffect(() => {
-    if (defaultExpenseAccountId && !itemForm.expenseAccount) {
-      setItemForm((prev) => ({ ...prev, expenseAccount: defaultExpenseAccountId }));
-    }
-  }, [defaultExpenseAccountId, itemForm.expenseAccount]);
+
 
   const categoryNameById = useMemo(() => {
     const map = new Map();
@@ -216,14 +223,18 @@ const CentralizedStoreManagement = () => {
   };
 
   const saveCategory = async () => {
+    if (!catDialog.parentCategory && !catDialog.chartOfAccount) {
+      setError('Chart of Account is required for top-level categories');
+      return;
+    }
     try {
-      const body = { name: catDialog.name, description: catDialog.description };
+      const body = { name: catDialog.name, description: catDialog.description, parentCategory: catDialog.parentCategory, chartOfAccount: catDialog.chartOfAccount };
       if (catDialog.editing) {
         await centralizedStoreService.updateCategory(catDialog.editing, body);
       } else {
         await centralizedStoreService.createCategory(body);
       }
-      setCatDialog({ open: false, editing: null, name: '', description: '' });
+      setCatDialog({ open: false, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '' });
       setSuccess('Category saved');
       load();
     } catch (err) {
@@ -260,7 +271,7 @@ const CentralizedStoreManagement = () => {
       location: 'Main Office',
       site: '',
       department: '',
-      expenseAccount: defaultExpenseAccountId,
+      expenseAccount: '',
       defaultAmount: 0,
       description: ''
     });
@@ -289,10 +300,6 @@ const CentralizedStoreManagement = () => {
     }
     if (!itemForm.name?.trim()) {
       setError('Item name is required');
-      return;
-    }
-    if (!itemForm.expenseAccount) {
-      setError('Please select an expense account');
       return;
     }
     try {
@@ -459,9 +466,15 @@ const CentralizedStoreManagement = () => {
                 }
               }}
             >
-              {categories.map((c) => (
-                <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
-              ))}
+              {categories.map((c) => {
+                const isSub = Boolean(c.parentCategory);
+                const parentName = isSub ? (c.parentCategory?.name || '') : '';
+                return (
+                  <MenuItem key={c._id} value={c._id}>
+                    {isSub ? `${parentName} > ${c.name}` : c.name}
+                  </MenuItem>
+                );
+              })}
             </Select>
           </FormControl>
         </Grid>
@@ -530,20 +543,6 @@ const CentralizedStoreManagement = () => {
           {renderDepartmentField(form, setForm)}
         </Grid>
         <Grid item xs={12}>
-          <FormControl fullWidth required>
-            <InputLabel>Chart of accounts (expense)</InputLabel>
-            <Select
-              value={form.expenseAccount}
-              label="Chart of accounts (expense)"
-              onChange={(e) => setForm({ ...form, expenseAccount: e.target.value })}
-            >
-              {expenseAccounts.map((a) => (
-                <MenuItem key={a._id} value={a._id}>{accountLabel(a)}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12}>
           <TextField
             label="Notes"
             value={form.description}
@@ -600,13 +599,23 @@ const CentralizedStoreManagement = () => {
         <Typography variant="subtitle1" fontWeight={600}>
           Categories ({categories.length})
         </Typography>
-        <Button
-          startIcon={<AddIcon />}
-          variant="outlined"
-          onClick={() => setCatDialog({ open: true, editing: null, name: '', description: '' })}
-        >
-          Add category
-        </Button>
+        <Stack direction="row" gap={1}>
+          <Button
+            startIcon={<AccountTreeIcon />}
+            variant="outlined"
+            color="secondary"
+            onClick={() => setTreeDialogOpen(true)}
+          >
+            View Hierarchy
+          </Button>
+          <Button
+            startIcon={<AddIcon />}
+            variant="outlined"
+            onClick={() => setCatDialog({ open: true, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '' })}
+          >
+            Add category
+          </Button>
+        </Stack>
       </Stack>
 
       {categories.length > 0 && (
@@ -614,7 +623,7 @@ const CentralizedStoreManagement = () => {
           {categories.map((category) => (
             <Chip
               key={category._id}
-              label={category.name}
+              label={category.parentCategory ? `${category.parentCategory.name} > ${category.name}` : category.name}
               onClick={() => handleCategoryChange(category._id)}
               onDelete={async () => {
                 if (!window.confirm(`Delete category "${category.name}" and all its items?`)) return;
@@ -678,7 +687,9 @@ const CentralizedStoreManagement = () => {
             >
               <MenuItem value="all">All categories</MenuItem>
               {categories.map((c) => (
-                <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
+                <MenuItem key={c._id} value={c._id}>
+                  {c.parentCategory ? `${c.parentCategory.name} > ${c.name}` : c.name}
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -794,6 +805,32 @@ const CentralizedStoreManagement = () => {
               multiline
               rows={2}
             />
+            <FormControl fullWidth>
+              <InputLabel>Parent Category (Optional)</InputLabel>
+              <Select
+                value={catDialog.parentCategory || ''}
+                label="Parent Category (Optional)"
+                onChange={(e) => setCatDialog({ ...catDialog, parentCategory: e.target.value })}
+              >
+                <MenuItem value=""><em>None (Top Level)</em></MenuItem>
+                {categories.filter(c => !c.parentCategory && c._id !== catDialog.editing).map((c) => (
+                  <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth required={!catDialog.parentCategory}>
+              <InputLabel>Chart of Account {!catDialog.parentCategory ? '' : '(Optional)'}</InputLabel>
+              <Select
+                value={catDialog.chartOfAccount || ''}
+                label={`Chart of Account ${!catDialog.parentCategory ? '' : '(Optional)'}`}
+                onChange={(e) => setCatDialog({ ...catDialog, chartOfAccount: e.target.value })}
+              >
+                <MenuItem value=""><em>{catDialog.parentCategory ? 'Inherit' : 'Select an account'}</em></MenuItem>
+                {expenseAccounts.map((a) => (
+                  <MenuItem key={a._id} value={a._id}>{accountLabel(a)}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -838,9 +875,65 @@ const CentralizedStoreManagement = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSiteDialog({ open: false, name: '' })}>Cancel</Button>
-          <Button variant="contained" onClick={saveNewSiteOption}>
-            Add account
-          </Button>
+          <Button onClick={saveNewSiteOption} variant="contained" disabled={saving}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Category Tree Dialog */}
+      <Dialog open={treeDialogOpen} onClose={() => setTreeDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Category Hierarchy</DialogTitle>
+        <DialogContent dividers>
+          <List>
+            {categories.filter(c => !c.parentCategory).map(parent => {
+              const children = categories.filter(c => c.parentCategory?._id === parent._id);
+              const isExpanded = expandedNodes[parent._id];
+              return (
+                <React.Fragment key={parent._id}>
+                  <ListItem 
+                    button 
+                    onClick={() => setExpandedNodes(prev => ({ ...prev, [parent._id]: !isExpanded }))}
+                  >
+                    <ListItemIcon>
+                      <FolderIcon color="primary" />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary={parent.name} 
+                      secondary={parent.chartOfAccount ? `COA: ${parent.chartOfAccount.accountNumber}` : 'No COA'} 
+                    />
+                    {children.length > 0 ? (isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />) : null}
+                  </ListItem>
+                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                    <List component="div" disablePadding>
+                      {children.map(child => (
+                        <ListItem key={child._id} sx={{ pl: 4 }}>
+                          <ListItemIcon>
+                            <FolderIcon color="action" fontSize="small" />
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary={child.name} 
+                            secondary={child.chartOfAccount ? `COA: ${child.chartOfAccount.accountNumber}` : 'Inherited COA'} 
+                          />
+                        </ListItem>
+                      ))}
+                      {children.length === 0 && (
+                        <ListItem sx={{ pl: 4 }}>
+                          <ListItemText secondary="No subcategories" />
+                        </ListItem>
+                      )}
+                    </List>
+                  </Collapse>
+                </React.Fragment>
+              );
+            })}
+            {categories.filter(c => !c.parentCategory).length === 0 && (
+              <Typography variant="body2" color="textSecondary" align="center" sx={{ py: 3 }}>
+                No categories found.
+              </Typography>
+            )}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTreeDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

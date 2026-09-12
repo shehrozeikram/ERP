@@ -97,12 +97,6 @@ function calculateMonthlyTax(monthlySalary) {
     annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
   }
   
-  // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-  if (annualTaxableIncome > 10000000) {
-    const surcharge = annualTax * 0.09;
-    annualTax += surcharge;
-  }
-  
   // Convert to monthly tax
   const monthlyTax = annualTax / 12;
   
@@ -368,10 +362,6 @@ function calculateMonthlyTaxFYAware(monthlySalary, hireDate, payrollMonth, payro
     annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
   } else {
     annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
-  }
-
-  if (annualTaxableIncome > 10000000) {
-    annualTax += annualTax * 0.09;
   }
 
   // Monthly tax = annual tax ÷ 12 (always divide by 12 — it's a monthly deduction)

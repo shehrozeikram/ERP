@@ -12,6 +12,16 @@ const utilityStoreCategorySchema = new mongoose.Schema({
     maxlength: 120,
     unique: true
   },
+  parentCategory: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'UtilityStoreCategory',
+    default: null
+  },
+  chartOfAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    default: null
+  },
   description: {
     type: String,
     trim: true,

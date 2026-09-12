@@ -696,12 +696,6 @@ payrollSchema.pre('save', function(next) {
       annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
     }
     
-    // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-    if (annualTaxableIncome > 10000000) {
-      const surcharge = annualTax * 0.09;
-      annualTax += surcharge;
-    }
-    
     // 4. Convert to monthly tax (don't add medical allowance back)
     const monthlyTax = Math.round(annualTax / 12);
     this.incomeTax = monthlyTax;
@@ -813,12 +807,6 @@ payrollSchema.methods.calculateTax = function() {
     annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
   } else {
     annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
-  }
-  
-  // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-  if (annualTaxableIncome > 10000000) {
-    const surcharge = annualTax * 0.09;
-    annualTax += surcharge;
   }
   
   // 4. Convert to monthly tax (don't add medical allowance back)

@@ -60,8 +60,7 @@ const utilityStoreItemSchema = new mongoose.Schema({
   /** Chart of accounts — expense debited when this item is billed */
   expenseAccount: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Account',
-    required: true
+    ref: 'Account'
   },
   defaultAmount: {
     type: Number,
