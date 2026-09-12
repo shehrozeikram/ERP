@@ -288,7 +288,7 @@ const AccountsPayable = () => {
 
   const navigate = useNavigate();
   const theme = useTheme();
-  
+
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -1695,7 +1695,7 @@ const AccountsPayable = () => {
                             <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon fontSize="small" /></IconButton></Tooltip>
                             {bill.status === 'paid' || outstanding <= 0 ? (
                               <Tooltip title="Fully Paid">
-                                <Chip label="PAID" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem' }} />
+                                <Chip label="VOUCHER CREATED" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem' }} />
                               </Tooltip>
                             ) : (
                               <Tooltip title="Make Payment">
@@ -1833,8 +1833,8 @@ const AccountsPayable = () => {
       </Card>
 
       {/* Bill Details Dialog */}
-      <Dialog 
-        open={viewDialogOpen} 
+      <Dialog
+        open={viewDialogOpen}
         onClose={() => setViewDialogOpen(false)}
         maxWidth={selectedBill?.referenceType === 'purchase_order' ? 'lg' : 'md'}
         fullWidth
@@ -1865,38 +1865,38 @@ const AccountsPayable = () => {
             const isChartOfAccountsBill = selectedBill?.referenceType === 'manual' || selectedBill?.module === 'finance' || (!selectedBill?.referenceType && selectedBill?.lineItems?.length > 0);
             const isNonPOBill = selectedBill?.referenceType === 'store' || selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities' || isChartOfAccountsBill;
             return (
-            <>
-              <Tabs
-                value={billViewTab}
-                onChange={(_, v) => setBillViewTab(v)}
-                sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', mb: 2 }}
-                variant="scrollable"
-                scrollButtons="auto"
-              >
-                <Tab value={0} label="Vendor Bill" />
-                {!isNonPOBill && <Tab value={1} label={selectedBill?.poDetail?.indent ? 'Indent' : 'Indent'} />}
-                {!isNonPOBill && <Tab value={2} label={`Quotations (${selectedBill?.poDetail?.quotations?.length || 0})`} />}
-                {!isNonPOBill && <Tab value={3} label="Comparative Statement" />}
-                {!isNonPOBill && <Tab value={4} label={selectedBill?.poDetail?.po ? 'Purchase Order' : 'PO'} />}
-                {!isNonPOBill && <Tab value={5} label={(selectedBill?.poDetail?.grns?.length || 0) > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />}
-                <Tab value={6} label="Payment History" />
-              </Tabs>
+              <>
+                <Tabs
+                  value={billViewTab}
+                  onChange={(_, v) => setBillViewTab(v)}
+                  sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', mb: 2 }}
+                  variant="scrollable"
+                  scrollButtons="auto"
+                >
+                  <Tab value={0} label="Vendor Bill" />
+                  {!isNonPOBill && <Tab value={1} label={selectedBill?.poDetail?.indent ? 'Indent' : 'Indent'} />}
+                  {!isNonPOBill && <Tab value={2} label={`Quotations (${selectedBill?.poDetail?.quotations?.length || 0})`} />}
+                  {!isNonPOBill && <Tab value={3} label="Comparative Statement" />}
+                  {!isNonPOBill && <Tab value={4} label={selectedBill?.poDetail?.po ? 'Purchase Order' : 'PO'} />}
+                  {!isNonPOBill && <Tab value={5} label={(selectedBill?.poDetail?.grns?.length || 0) > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />}
+                  <Tab value={6} label="Payment History" />
+                </Tabs>
 
-              {/* Tab 0: Vendor Bill & Approval Authorities */}
-              {billViewTab === 0 && (
-                <Box sx={{ p: 2 }}>
-                  <CentralizedStoreBillInvoiceBody 
-                    bill={{
-                      ...selectedBill,
-                      billId: selectedBill.billNumber,
-                      billDate: selectedBill.billDate,
-                      createdAt: selectedBill.createdAt || selectedBill.billDate,
-                      provider: selectedBill.vendorName || selectedBill.vendor?.name,
-                      location: getBillCompany(selectedBill) !== '—' ? `${getBillCompany(selectedBill)}${getBillProject(selectedBill) !== '—' ? ` — ${getBillProject(selectedBill)}` : ''}` : (selectedBill.vendor?.address?.city || selectedBill.department || 'N/A'),
-                      notes: selectedBill.notes || selectedBill.internalNotes || getBillNarrationDisplay(selectedBill),
-                      forWhat: selectedBill.forWhat || getBillNarrationDisplay(selectedBill),
-                      billLines: (selectedBill.lineItems && selectedBill.lineItems.length > 0)
-                        ? selectedBill.lineItems.map((line, idx) => ({
+                {/* Tab 0: Vendor Bill & Approval Authorities */}
+                {billViewTab === 0 && (
+                  <Box sx={{ p: 2 }}>
+                    <CentralizedStoreBillInvoiceBody
+                      bill={{
+                        ...selectedBill,
+                        billId: selectedBill.billNumber,
+                        billDate: selectedBill.billDate,
+                        createdAt: selectedBill.createdAt || selectedBill.billDate,
+                        provider: selectedBill.vendorName || selectedBill.vendor?.name,
+                        location: getBillCompany(selectedBill) !== '—' ? `${getBillCompany(selectedBill)}${getBillProject(selectedBill) !== '—' ? ` — ${getBillProject(selectedBill)}` : ''}` : (selectedBill.vendor?.address?.city || selectedBill.department || 'N/A'),
+                        notes: selectedBill.notes || selectedBill.internalNotes || getBillNarrationDisplay(selectedBill),
+                        forWhat: selectedBill.forWhat || getBillNarrationDisplay(selectedBill),
+                        billLines: (selectedBill.lineItems && selectedBill.lineItems.length > 0)
+                          ? selectedBill.lineItems.map((line, idx) => ({
                             ...line,
                             category: line.category || line.accountName || line.account?.name || (line.accountNumber ? `Account ${line.accountNumber}` : '—'),
                             accountName: line.accountName || line.account?.name || '',
@@ -1907,133 +1907,133 @@ const AccountsPayable = () => {
                             amount: line.amount || (line.quantity * line.unitPrice),
                             attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
                           }))
-                        : (selectedBill.billLines || [])
-                    }}
-                    showChargesSummary={true}
-                  />
+                          : (selectedBill.billLines || [])
+                      }}
+                      showChargesSummary={true}
+                    />
 
-                  {/* Approval Authority Table — Rendered for All Vendor Bills */}
-                  {(() => {
-                    const getApprovalRows = () => {
-                      const formatDateTime = (date) => {
-                        if (!date) return '-';
-                        return new Date(date).toLocaleString('en-PK', {
-                          day: '2-digit', month: 'short', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit'
-                        });
-                      };
+                    {/* Approval Authority Table — Rendered for All Vendor Bills */}
+                    {(() => {
+                      const getApprovalRows = () => {
+                        const formatDateTime = (date) => {
+                          if (!date) return '-';
+                          return new Date(date).toLocaleString('en-PK', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          });
+                        };
 
-                      const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
+                        const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
 
-                      if (Array.isArray(selectedBill?.financeApprovalAuthorities) && selectedBill.financeApprovalAuthorities.length > 0) {
-                        return selectedBill.financeApprovalAuthorities.map((auth) => ({
-                          authority: auth.levelName || auth.levelKey || 'Approval Authority',
-                          name: auth.assignedUser ? userDisplayName(auth.assignedUser) : (auth.userName || '-'),
-                          status: auth.status || 'Pending',
-                          signatureUser: auth.assignedUser || null,
-                          signaturePath: auth.digitalSignature || auth.assignedUser?.digitalSignature || '',
-                          dateTime: auth.actedAt ? formatDateTime(auth.actedAt) : '-'
-                        }));
-                      }
-
-                      const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
-                      
-                      const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit'));
-                      const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
-
-                      const rows = [
-                        {
-                          authority: 'Sig of Requester',
-                          name: userDisplayName(selectedBill?.createdBy),
-                          signatureUser: selectedBill?.createdBy,
-                          dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
-                        },
-                        {
-                          authority: 'Pre-Audit Authority',
-                          name: userDisplayName(preAuditEntry?.changedBy),
-                          signatureUser: preAuditEntry?.changedBy || null,
-                          dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
-                        },
-                        {
-                          authority: 'Audit Director',
-                          name: userDisplayName(directorEntry?.changedBy),
-                          signatureUser: directorEntry?.changedBy || null,
-                          signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || ''),
-                          dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
-                        },
-                        {
-                          authority: 'Finance Authority',
-                          name: userDisplayName(selectedBill?.approval?.approvedBy),
-                          signatureUser: selectedBill?.approval?.approvedBy || null,
-                          dateTime: selectedBill?.approval?.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
+                        if (Array.isArray(selectedBill?.financeApprovalAuthorities) && selectedBill.financeApprovalAuthorities.length > 0) {
+                          return selectedBill.financeApprovalAuthorities.map((auth) => ({
+                            authority: auth.levelName || auth.levelKey || 'Approval Authority',
+                            name: auth.assignedUser ? userDisplayName(auth.assignedUser) : (auth.userName || '-'),
+                            status: auth.status || 'Pending',
+                            signatureUser: auth.assignedUser || null,
+                            signaturePath: auth.digitalSignature || auth.assignedUser?.digitalSignature || '',
+                            dateTime: auth.actedAt ? formatDateTime(auth.actedAt) : '-'
+                          }));
                         }
-                      ];
 
-                      return rows;
-                    };
-                    const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
-                    return (
-                      <Table
-                        size="small"
-                        sx={{
-                          mt: 4,
-                          mb: 2,
-                          border: '1px solid',
-                          borderColor: 'grey.300',
-                          '& th': {
-                            bgcolor: 'grey.100',
-                            fontWeight: 800,
-                            fontSize: 14,
-                            borderBottom: '1px solid',
-                            borderColor: 'grey.300'
+                        const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
+
+                        const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit'));
+                        const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+
+                        const rows = [
+                          {
+                            authority: 'Sig of Requester',
+                            name: userDisplayName(selectedBill?.createdBy),
+                            signatureUser: selectedBill?.createdBy,
+                            dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
                           },
-                          '& td': {
-                            fontSize: 14,
-                            borderBottom: '1px solid',
-                            borderColor: 'grey.200',
-                            py: 1.4
+                          {
+                            authority: 'Pre-Audit Authority',
+                            name: userDisplayName(preAuditEntry?.changedBy),
+                            signatureUser: preAuditEntry?.changedBy || null,
+                            dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
                           },
-                          '& tr:last-child td': {
-                            borderBottom: 0
+                          {
+                            authority: 'Audit Director',
+                            name: userDisplayName(directorEntry?.changedBy),
+                            signatureUser: directorEntry?.changedBy || null,
+                            signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || ''),
+                            dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+                          },
+                          {
+                            authority: 'Finance Authority',
+                            name: userDisplayName(selectedBill?.approval?.approvedBy),
+                            signatureUser: selectedBill?.approval?.approvedBy || null,
+                            dateTime: selectedBill?.approval?.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
                           }
-                        }}
-                      >
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Authority</TableCell>
-                            <TableCell>Name</TableCell>
-                            <TableCell>Digital Signature</TableCell>
-                            <TableCell>Date &amp; Time</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {getApprovalRows().map((row) => (
-                            <TableRow key={row.authority}>
-                              <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
-                              <TableCell>{row.name || '-'}</TableCell>
-                              <TableCell>
-                                {getSignatureSource(row) ? (
-                                  <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
-                                ) : (
-                                  '-'
-                                )}
-                              </TableCell>
-                              <TableCell>{row.dateTime || '-'}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    );
-                  })()}
-                </Box>
-              )}
+                        ];
 
-              {/* Tab 1: Indent */}
-              {billViewTab === 1 && (
-                <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
-                  {!selectedBill?.poDetail?.indent ? (
-                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Indent linked to this Vendor Bill.</Typography>
-                  ) : (
+                        return rows;
+                      };
+                      const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
+                      return (
+                        <Table
+                          size="small"
+                          sx={{
+                            mt: 4,
+                            mb: 2,
+                            border: '1px solid',
+                            borderColor: 'grey.300',
+                            '& th': {
+                              bgcolor: 'grey.100',
+                              fontWeight: 800,
+                              fontSize: 14,
+                              borderBottom: '1px solid',
+                              borderColor: 'grey.300'
+                            },
+                            '& td': {
+                              fontSize: 14,
+                              borderBottom: '1px solid',
+                              borderColor: 'grey.200',
+                              py: 1.4
+                            },
+                            '& tr:last-child td': {
+                              borderBottom: 0
+                            }
+                          }}
+                        >
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Authority</TableCell>
+                              <TableCell>Name</TableCell>
+                              <TableCell>Digital Signature</TableCell>
+                              <TableCell>Date &amp; Time</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {getApprovalRows().map((row) => (
+                              <TableRow key={row.authority}>
+                                <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                                <TableCell>{row.name || '-'}</TableCell>
+                                <TableCell>
+                                  {getSignatureSource(row) ? (
+                                    <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                                  ) : (
+                                    '-'
+                                  )}
+                                </TableCell>
+                                <TableCell>{row.dateTime || '-'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      );
+                    })()}
+                  </Box>
+                )}
+
+                {/* Tab 1: Indent */}
+                {billViewTab === 1 && (
+                  <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                    {!selectedBill?.poDetail?.indent ? (
+                      <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Indent linked to this Vendor Bill.</Typography>
+                    ) : (
                       <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none' }}>
                         <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
                           Purchase Request Form
@@ -2146,56 +2146,56 @@ const AccountsPayable = () => {
                           </TableContainer>
                         </Box>
                       </Paper>
-                  )}
-                </Box>
-              )}
+                    )}
+                  </Box>
+                )}
 
-              {/* Tab 2: Quotations */}
-              {billViewTab === 2 && (
-                <Box sx={{ p: 2, maxHeight: 400, overflow: 'auto' }}>
-                  {(!selectedBill?.poDetail?.quotations || selectedBill.poDetail.quotations.length === 0) ? (
-                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Quotations found.</Typography>
-                  ) : (
-                    <Stack spacing={4}>
-                      {selectedBill.poDetail.quotations.map((q) => (
-                        <QuotationDetailView
-                          key={q._id}
-                          quotation={{ ...q, indent: selectedBill.poDetail.indent || q.indent }}
-                          formatNumber={(n) => formatPKR(n)}
-                          formatDateForPrint={(d) => formatDate(d)}
-                        />
-                      ))}
-                    </Stack>
-                  )}
-                </Box>
-              )}
+                {/* Tab 2: Quotations */}
+                {billViewTab === 2 && (
+                  <Box sx={{ p: 2, maxHeight: 400, overflow: 'auto' }}>
+                    {(!selectedBill?.poDetail?.quotations || selectedBill.poDetail.quotations.length === 0) ? (
+                      <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Quotations found.</Typography>
+                    ) : (
+                      <Stack spacing={4}>
+                        {selectedBill.poDetail.quotations.map((q) => (
+                          <QuotationDetailView
+                            key={q._id}
+                            quotation={{ ...q, indent: selectedBill.poDetail.indent || q.indent }}
+                            formatNumber={(n) => formatPKR(n)}
+                            formatDateForPrint={(d) => formatDate(d)}
+                          />
+                        ))}
+                      </Stack>
+                    )}
+                  </Box>
+                )}
 
-              {/* Tab 3: Comparative Statement */}
-              {billViewTab === 3 && (
-                <Box sx={{ p: 2, overflowX: 'auto' }}>
-                  {!selectedBill?.poDetail?.indent ? (
-                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Comparative Statement available.</Typography>
-                  ) : (
-                    <ComparativeStatementView
-                      requisition={selectedBill.poDetail.indent}
-                      quotations={selectedBill.poDetail.quotations || []}
-                      approvalAuthority={selectedBill.poDetail.indent?.comparativeStatementApprovals || {}}
-                      note={selectedBill.poDetail.indent?.notes ?? ''}
-                      readOnly
-                      formatNumber={(n) => formatPKR(n)}
-                      loadingQuotations={false}
-                      showPrintButton={false}
-                    />
-                  )}
-                </Box>
-              )}
+                {/* Tab 3: Comparative Statement */}
+                {billViewTab === 3 && (
+                  <Box sx={{ p: 2, overflowX: 'auto' }}>
+                    {!selectedBill?.poDetail?.indent ? (
+                      <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Comparative Statement available.</Typography>
+                    ) : (
+                      <ComparativeStatementView
+                        requisition={selectedBill.poDetail.indent}
+                        quotations={selectedBill.poDetail.quotations || []}
+                        approvalAuthority={selectedBill.poDetail.indent?.comparativeStatementApprovals || {}}
+                        note={selectedBill.poDetail.indent?.notes ?? ''}
+                        readOnly
+                        formatNumber={(n) => formatPKR(n)}
+                        loadingQuotations={false}
+                        showPrintButton={false}
+                      />
+                    )}
+                  </Box>
+                )}
 
-              {/* Tab 4: Purchase Order */}
-              {billViewTab === 4 && (
-                <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
-                  {!selectedBill?.poDetail?.po ? (
-                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Purchase Order linked to this Vendor Bill.</Typography>
-                  ) : (
+                {/* Tab 4: Purchase Order */}
+                {billViewTab === 4 && (
+                  <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                    {!selectedBill?.poDetail?.po ? (
+                      <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Purchase Order linked to this Vendor Bill.</Typography>
+                    ) : (
                       <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', fontFamily: 'Arial, sans-serif' }}>
                         <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 3 }}>Purchase Order</Typography>
                         <Box sx={{ mb: 2.5 }}>
@@ -2314,175 +2314,175 @@ const AccountsPayable = () => {
                           </TableContainer>
                         </Box>
                       </Paper>
-                  )}
-                </Box>
-              )}
-                  {/* Tab 5: GRNs */}
-                  {billViewTab === 5 && (
-                    <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
-                      {(!selectedBill?.poDetail?.grns || selectedBill.poDetail.grns.length === 0) ? (
-                        <Typography color="textSecondary" sx={{ py: 4, textAlign: 'center' }}>No GRN(s) attached to this Purchase Order.</Typography>
-                      ) : (
-                        selectedBill.poDetail.grns.map((grn) => (
-                          <Paper key={grn._id} sx={{ p: 4, mb: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
-                            <Typography variant="overline" color="textSecondary" sx={{ display: 'block', mb: 1 }}>Attached GRN (copy)</Typography>
-                            <Grid container sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', pb: 2 }} alignItems="center">
-                              <Grid item xs={4}><Typography variant="h6" fontWeight="bold">Taj Residencia</Typography><Typography variant="body2" color="textSecondary">Head Office</Typography></Grid>
-                              <Grid item xs={4} sx={{ textAlign: 'center' }}><Typography variant="h5" fontWeight="bold">Goods Received Note</Typography></Grid>
-                              <Grid item xs={4} />
+                    )}
+                  </Box>
+                )}
+                {/* Tab 5: GRNs */}
+                {billViewTab === 5 && (
+                  <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                    {(!selectedBill?.poDetail?.grns || selectedBill.poDetail.grns.length === 0) ? (
+                      <Typography color="textSecondary" sx={{ py: 4, textAlign: 'center' }}>No GRN(s) attached to this Purchase Order.</Typography>
+                    ) : (
+                      selectedBill.poDetail.grns.map((grn) => (
+                        <Paper key={grn._id} sx={{ p: 4, mb: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="overline" color="textSecondary" sx={{ display: 'block', mb: 1 }}>Attached GRN (copy)</Typography>
+                          <Grid container sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', pb: 2 }} alignItems="center">
+                            <Grid item xs={4}><Typography variant="h6" fontWeight="bold">Taj Residencia</Typography><Typography variant="body2" color="textSecondary">Head Office</Typography></Grid>
+                            <Grid item xs={4} sx={{ textAlign: 'center' }}><Typography variant="h5" fontWeight="bold">Goods Received Note</Typography></Grid>
+                            <Grid item xs={4} />
+                          </Grid>
+                          <Grid container spacing={3} sx={{ mb: 2 }}>
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="caption" color="textSecondary">No.</Typography>
+                              <Typography variant="body1" fontWeight="bold">{grn.receiveNumber || grn._id}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Supplier</Typography>
+                              <Typography variant="body2">{[grn.supplier?.supplierId, grn.supplierName || grn.supplier?.name].filter(Boolean).join(' ') || '—'}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Address</Typography>
+                              <Typography variant="body2">{grn.supplierAddress || grn.supplier?.address || '—'}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Narration</Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{grn.narration || '—'}</Typography>
                             </Grid>
-                            <Grid container spacing={3} sx={{ mb: 2 }}>
-                              <Grid item xs={12} md={6}>
-                                <Typography variant="caption" color="textSecondary">No.</Typography>
-                                <Typography variant="body1" fontWeight="bold">{grn.receiveNumber || grn._id}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Supplier</Typography>
-                                <Typography variant="body2">{[grn.supplier?.supplierId, grn.supplierName || grn.supplier?.name].filter(Boolean).join(' ') || '—'}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Address</Typography>
-                                <Typography variant="body2">{grn.supplierAddress || grn.supplier?.address || '—'}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Narration</Typography>
-                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{grn.narration || '—'}</Typography>
-                              </Grid>
-                              <Grid item xs={12} md={6}>
-                                <Typography variant="caption" color="textSecondary">Date</Typography>
-                                <Typography variant="body2">{formatGRNDate(grn.receiveDate)}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Currency</Typography>
-                                <Typography variant="body2">{grn.currency || 'Rupees'}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.R No.</Typography>
-                                <Typography variant="body2">{grn.prNumber || '—'}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.O No.</Typography>
-                                <Typography variant="body2">{grn.poNumber || selectedBill.poDetail.po?.orderNumber || '—'}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Store</Typography>
-                                <Typography variant="body2">{grn.store || '—'}</Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Gate Pass No.</Typography>
-                                <Typography variant="body2">{grn.gatePassNo || '—'}</Typography>
-                              </Grid>
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="caption" color="textSecondary">Date</Typography>
+                              <Typography variant="body2">{formatGRNDate(grn.receiveDate)}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Currency</Typography>
+                              <Typography variant="body2">{grn.currency || 'Rupees'}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.R No.</Typography>
+                              <Typography variant="body2">{grn.prNumber || '—'}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.O No.</Typography>
+                              <Typography variant="body2">{grn.poNumber || selectedBill.poDetail.po?.orderNumber || '—'}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Store</Typography>
+                              <Typography variant="body2">{grn.store || '—'}</Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Gate Pass No.</Typography>
+                              <Typography variant="body2">{grn.gatePassNo || '—'}</Typography>
                             </Grid>
-                            <TableContainer sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                              <Table size="small">
-                                <TableHead>
-                                  <TableRow sx={{ bgcolor: 'grey.100' }}>
-                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S. No</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Product Code</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Quantity</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Rate</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Value Excl. ST</TableCell>
+                          </Grid>
+                          <TableContainer sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S. No</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Product Code</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Quantity</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Rate</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Value Excl. ST</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(grn.items || []).map((item, idx) => (
+                                  <TableRow key={idx}>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{idx + 1}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemCode || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.quantity)}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.unitPrice)}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.valueExcludingSalesTax ?? (item.quantity * item.unitPrice))}</TableCell>
                                   </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {(grn.items || []).map((item, idx) => (
-                                    <TableRow key={idx}>
-                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{idx + 1}</TableCell>
-                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemCode || '—'}</TableCell>
-                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
-                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
-                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.quantity)}</TableCell>
-                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.unitPrice)}</TableCell>
-                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.valueExcludingSalesTax ?? (item.quantity * item.unitPrice))}</TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </TableContainer>
-                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                              <Grid container spacing={1} sx={{ maxWidth: 320 }}>
-                                <Grid item xs={6}><Typography variant="body2">Discount</Typography></Grid>
-                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.discount)}</Typography></Grid>
-                                <Grid item xs={6}><Typography variant="body2">Other Charges</Typography></Grid>
-                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.otherCharges)}</Typography></Grid>
-                                <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Net Amount</Typography></Grid>
-                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.netAmount)}</Typography></Grid>
-                                <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Total</Typography></Grid>
-                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.total ?? grn.netAmount)}</Typography></Grid>
-                              </Grid>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                            <Grid container spacing={1} sx={{ maxWidth: 320 }}>
+                              <Grid item xs={6}><Typography variant="body2">Discount</Typography></Grid>
+                              <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.discount)}</Typography></Grid>
+                              <Grid item xs={6}><Typography variant="body2">Other Charges</Typography></Grid>
+                              <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.otherCharges)}</Typography></Grid>
+                              <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Net Amount</Typography></Grid>
+                              <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.netAmount)}</Typography></Grid>
+                              <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Total</Typography></Grid>
+                              <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.total ?? grn.netAmount)}</Typography></Grid>
+                            </Grid>
+                          </Box>
+                          <Divider sx={{ my: 2 }} />
+                          <Typography variant="caption" color="textSecondary">Observation</Typography>
+                          <Typography variant="body2" sx={{ minHeight: 24 }}>{grn.observation || ' '}</Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', mt: 3 }}>
+                            <Box>
+                              <Typography variant="caption" color="textSecondary">Prepared By</Typography>
+                              <Typography variant="body2" fontWeight="medium">{grn.preparedByName || (grn.receivedBy?.firstName && grn.receivedBy?.lastName ? `${grn.receivedBy.firstName} ${grn.receivedBy.lastName}` : '—')}</Typography>
                             </Box>
-                            <Divider sx={{ my: 2 }} />
-                            <Typography variant="caption" color="textSecondary">Observation</Typography>
-                            <Typography variant="body2" sx={{ minHeight: 24 }}>{grn.observation || ' '}</Typography>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', mt: 3 }}>
-                              <Box>
-                                <Typography variant="caption" color="textSecondary">Prepared By</Typography>
-                                <Typography variant="body2" fontWeight="medium">{grn.preparedByName || (grn.receivedBy?.firstName && grn.receivedBy?.lastName ? `${grn.receivedBy.firstName} ${grn.receivedBy.lastName}` : '—')}</Typography>
-                              </Box>
-                              <Box sx={{ width: 120, height: 40, border: '1px dashed', borderColor: 'divider' }} />
-                            </Box>
-                          </Paper>
-                        ))
-                      )}
-                    </Box>
-                  )}
+                            <Box sx={{ width: 120, height: 40, border: '1px dashed', borderColor: 'divider' }} />
+                          </Box>
+                        </Paper>
+                      ))
+                    )}
+                  </Box>
+                )}
 
-                  {/* Tab 6: Payment History */}
-                  {billViewTab === 6 && (
-                    <Box sx={{ p: 2 }}>
-                      <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <HistoryIcon /> Payment History
-                      </Typography>
-                      <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
-                        <Grid container spacing={1}>
-                          <Grid item xs={6} md={3}>
-                            <Typography variant="caption" color="text.secondary">Bill Total</Typography>
-                            <Typography fontWeight={700}>{formatPKR(selectedBill?.totalAmount || 0)}</Typography>
-                          </Grid>
-                          <Grid item xs={6} md={3}>
-                            <Typography variant="caption" color="text.secondary">Advance Applied</Typography>
-                            <Typography fontWeight={700} color="info.main">{formatPKR(selectedBill?.advanceApplied || 0)}</Typography>
-                          </Grid>
-                          <Grid item xs={6} md={3}>
-                            <Typography variant="caption" color="text.secondary">Cash/Bank Paid</Typography>
-                        <Typography fontWeight={700} color="success.main">{formatPKR(getCashPaidAmount(selectedBill))}</Typography>
-                          </Grid>
-                          <Grid item xs={6} md={3}>
-                            <Typography variant="caption" color="text.secondary">Outstanding</Typography>
-                            <Typography fontWeight={800} color="error.main">{formatPKR(getOutstanding(selectedBill))}</Typography>
-                          </Grid>
+                {/* Tab 6: Payment History */}
+                {billViewTab === 6 && (
+                  <Box sx={{ p: 2 }}>
+                    <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <HistoryIcon /> Payment History
+                    </Typography>
+                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
+                      <Grid container spacing={1}>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary">Bill Total</Typography>
+                          <Typography fontWeight={700}>{formatPKR(selectedBill?.totalAmount || 0)}</Typography>
                         </Grid>
-                      </Paper>
-                      {selectedBill.payments && selectedBill.payments.length > 0 ? (
-                        <TableContainer>
-                          <Table size="small">
-                            <TableHead>
-                              <TableRow sx={{ bgcolor: 'grey.100' }}>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Method</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Reference</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Amount</TableCell>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary">Advance Applied</Typography>
+                          <Typography fontWeight={700} color="info.main">{formatPKR(selectedBill?.advanceApplied || 0)}</Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary">Cash/Bank Paid</Typography>
+                          <Typography fontWeight={700} color="success.main">{formatPKR(getCashPaidAmount(selectedBill))}</Typography>
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <Typography variant="caption" color="text.secondary">Outstanding</Typography>
+                          <Typography fontWeight={800} color="error.main">{formatPKR(getOutstanding(selectedBill))}</Typography>
+                        </Grid>
+                      </Grid>
+                    </Paper>
+                    {selectedBill.payments && selectedBill.payments.length > 0 ? (
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'grey.100' }}>
+                              <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold' }}>Method</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold' }}>Reference</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold' }} align="right">Amount</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {selectedBill.payments.map((payment, index) => (
+                              <TableRow key={index}>
+                                <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                                <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
+                                <TableCell>{payment.reference || '—'}</TableCell>
+                                <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
                               </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {selectedBill.payments.map((payment, index) => (
-                                <TableRow key={index}>
-                                  <TableCell>{formatDate(payment.paymentDate)}</TableCell>
-                                  <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
-                                  <TableCell>{payment.reference || '—'}</TableCell>
-                                  <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
-                                </TableRow>
-                              ))}
-                              {(selectedBill?.advanceApplied || 0) > 0 && (
-                                <TableRow sx={{ bgcolor: 'info.50' }}>
-                                  <TableCell>{formatDate(selectedBill?.updatedAt || selectedBill?.billDate)}</TableCell>
-                                  <TableCell>advance adjustment</TableCell>
-                                  <TableCell>Auto-applied to bill</TableCell>
-                                  <TableCell align="right">{formatPKR(selectedBill.advanceApplied)}</TableCell>
-                                </TableRow>
-                              )}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      ) : (
-                        <>
-                          <Typography variant="body2" color="textSecondary">No cash/bank payments recorded yet</Typography>
-                          {(selectedBill?.advanceApplied || 0) > 0 && (
-                            <Typography variant="body2" sx={{ mt: 1 }} color="info.main">
-                              Advance adjustment applied: {formatPKR(selectedBill.advanceApplied)}
-                            </Typography>
-                          )}
-                        </>
-                      )}
-                    </Box>
-                  )}
-            </>
+                            ))}
+                            {(selectedBill?.advanceApplied || 0) > 0 && (
+                              <TableRow sx={{ bgcolor: 'info.50' }}>
+                                <TableCell>{formatDate(selectedBill?.updatedAt || selectedBill?.billDate)}</TableCell>
+                                <TableCell>advance adjustment</TableCell>
+                                <TableCell>Auto-applied to bill</TableCell>
+                                <TableCell align="right">{formatPKR(selectedBill.advanceApplied)}</TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    ) : (
+                      <>
+                        <Typography variant="body2" color="textSecondary">No cash/bank payments recorded yet</Typography>
+                        {(selectedBill?.advanceApplied || 0) > 0 && (
+                          <Typography variant="body2" sx={{ mt: 1 }} color="info.main">
+                            Advance adjustment applied: {formatPKR(selectedBill.advanceApplied)}
+                          </Typography>
+                        )}
+                      </>
+                    )}
+                  </Box>
+                )}
+              </>
             );
           })()}
         </DialogContent>
@@ -2548,8 +2548,8 @@ const AccountsPayable = () => {
       </Dialog>
 
       {/* Record Payment Dialog */}
-      <Dialog 
-        open={paymentDialogOpen} 
+      <Dialog
+        open={paymentDialogOpen}
         onClose={() => setPaymentDialogOpen(false)}
         maxWidth="md"
         fullWidth
@@ -3094,10 +3094,10 @@ const AccountsPayable = () => {
                     </Box>
                     {employeeAdvanceApplyTotals.totalCaUsage > 0 &&
                       employeeAdvanceApplyTotals.remainingToAllocate !== 0 && (
-                      <Alert severity="warning" sx={{ mt: 1 }}>
-                        Total from cash approvals must equal total applied to bills (like Taj Pay Invoices from Deposit).
-                      </Alert>
-                    )}
+                        <Alert severity="warning" sx={{ mt: 1 }}>
+                          Total from cash approvals must equal total applied to bills (like Taj Pay Invoices from Deposit).
+                        </Alert>
+                      )}
                     <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1.5 }}>
                       <Button
                         size="small"
@@ -3226,8 +3226,8 @@ const AccountsPayable = () => {
       </Dialog>
 
       {/* Edit Bill Dialog */}
-      <Dialog 
-        open={editDialogOpen} 
+      <Dialog
+        open={editDialogOpen}
         onClose={() => setEditDialogOpen(false)}
         maxWidth={selectedBill?.referenceType === 'purchase_order' ? 'lg' : 'md'}
         fullWidth
@@ -3294,9 +3294,9 @@ const AccountsPayable = () => {
               {(editData.lineItems || []).map((line, idx) => (
                 <TableRow key={idx}>
                   <TableCell>
-                    <TextField 
-                      fullWidth size="small" 
-                      value={line.description || ''} 
+                    <TextField
+                      fullWidth size="small"
+                      value={line.description || ''}
                       onChange={e => {
                         const newLines = [...editData.lineItems];
                         newLines[idx].description = e.target.value;
@@ -3326,9 +3326,9 @@ const AccountsPayable = () => {
                     </FormControl>
                   </TableCell>
                   <TableCell>
-                    <TextField 
+                    <TextField
                       fullWidth size="small" type="number"
-                      value={line.quantity || 0} 
+                      value={line.quantity || 0}
                       onChange={e => {
                         const newLines = [...editData.lineItems];
                         newLines[idx].quantity = parseFloat(e.target.value) || 0;
@@ -3338,9 +3338,9 @@ const AccountsPayable = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <TextField 
+                    <TextField
                       fullWidth size="small" type="number"
-                      value={line.unitPrice || 0} 
+                      value={line.unitPrice || 0}
                       onChange={e => {
                         const newLines = [...editData.lineItems];
                         newLines[idx].unitPrice = parseFloat(e.target.value) || 0;
@@ -3382,7 +3382,7 @@ const AccountsPayable = () => {
           {selectedBill && (
             <Box sx={{ opacity: 0.9 }}>
               <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>Document Preview</Typography>
-              <CentralizedStoreBillInvoiceBody 
+              <CentralizedStoreBillInvoiceBody
                 bill={{
                   ...selectedBill,
                   billId: editData.billNumber || selectedBill.billNumber,
@@ -3503,9 +3503,9 @@ const AccountsPayable = () => {
                           <TableCell>{row.name}</TableCell>
                           <TableCell>
                             {getSignatureSource(row) ? (
-                              <DigitalSignatureImage 
-                                signatureUrl={getSignatureSource(row)} 
-                                userName={row.name} 
+                              <DigitalSignatureImage
+                                signatureUrl={getSignatureSource(row)}
+                                userName={row.name}
                               />
                             ) : (
                               <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
@@ -3525,9 +3525,9 @@ const AccountsPayable = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            color="primary" 
+          <Button
+            variant="contained"
+            color="primary"
             onClick={handleUpdateBill}
           >
             Update Bill
