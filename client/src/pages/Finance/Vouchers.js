@@ -665,6 +665,7 @@ const Vouchers = () => {
                 <TableCell>Voucher No</TableCell>
                 <TableCell>Voucher Type</TableCell>
                 <TableCell>Vendor / Employee</TableCell>
+                <TableCell>Department</TableCell>
                 <TableCell>Cheque Number</TableCell>
                 <TableCell>Description</TableCell>
                 <TableCell align="right">Amount</TableCell>
@@ -684,6 +685,7 @@ const Vouchers = () => {
                     <TableCell>{row.entryNumber}</TableCell>
                     <TableCell>{row.voucherType}</TableCell>
                     <TableCell>{row.vendorOrEmployeeName || '—'}</TableCell>
+                    <TableCell>{row.department?.name || (typeof row.department === 'string' ? row.department : '—')}</TableCell>
                     <TableCell>{row.reference || '—'}</TableCell>
                     <TableCell>{row.description}</TableCell>
                     <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>

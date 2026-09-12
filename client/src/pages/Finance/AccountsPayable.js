@@ -446,6 +446,17 @@ const AccountsPayable = () => {
     return '—';
   };
 
+  const getBillDepartment = (bill) => {
+    if (bill.department && typeof bill.department === 'string' && bill.department.trim()) return bill.department;
+    if (bill.department?.name && typeof bill.department.name === 'string') return bill.department.name;
+    if (bill.departmentName && typeof bill.departmentName === 'string') return bill.departmentName;
+    if (bill.lineItems && Array.isArray(bill.lineItems)) {
+      const lineWithDept = bill.lineItems.find((l) => l.department && typeof l.department === 'string' && l.department.trim());
+      if (lineWithDept) return lineWithDept.department;
+    }
+    return '—';
+  };
+
   const getBillProject = (bill) => {
     if (bill.project && typeof bill.project === 'string' && bill.project.trim()) return bill.project;
     if (bill.lineItems && Array.isArray(bill.lineItems)) {
@@ -1626,6 +1637,7 @@ const AccountsPayable = () => {
                   <TableCell>Bill Type</TableCell>
                   <TableCell>Vendor</TableCell>
                   <TableCell>Company</TableCell>
+                  <TableCell>Department</TableCell>
                   <TableCell>Project</TableCell>
                   <TableCell sx={{ minWidth: 180, maxWidth: 280 }}>Narration / Description</TableCell>
                   <TableCell>Date</TableCell>
@@ -1670,6 +1682,7 @@ const AccountsPayable = () => {
                           </Box>
                         </TableCell>
                         <TableCell><Typography variant="body2" fontWeight={600}>{getBillCompany(bill)}</Typography></TableCell>
+                        <TableCell><Typography variant="body2">{getBillDepartment(bill)}</Typography></TableCell>
                         <TableCell><Typography variant="body2">{getBillProject(bill)}</Typography></TableCell>
                         <NarrationTableCell text={getBillNarrationDisplay(bill)} />
                         <TableCell><Typography variant="body2">{formatDate(bill.billDate)}</Typography></TableCell>
