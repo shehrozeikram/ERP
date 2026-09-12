@@ -58,6 +58,10 @@ export default function BankReconciliation() {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [rowClearDates, setRowClearDates] = useState({});
   const [clearingLoading, setClearingLoading] = useState({});
+  const [unpresentedPage, setUnpresentedPage] = useState(0);
+  const [unpresentedRowsPerPage, setUnpresentedRowsPerPage] = useState(25);
+  const [periodPage, setPeriodPage] = useState(0);
+  const [periodRowsPerPage, setPeriodRowsPerPage] = useState(25);
   
   const [filters, setFilters] = useState({
     asOfDate: new Date().toISOString().split('T')[0],
@@ -75,6 +79,7 @@ export default function BankReconciliation() {
 
   const [attachDlg, setAttachDlg] = useState({ open: false, txn: null, uploading: false });
   const [attachError, setAttachError] = useState('');
+  const [importDlg, setImportDlg] = useState({ open: false, uploading: false, file: null });
 
   const openAttachDlg = (txn) => {
     setAttachError('');
@@ -243,6 +248,8 @@ export default function BankReconciliation() {
         }
       }
       setData(reportData);
+      setUnpresentedPage(0);
+      setPeriodPage(0);
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load reconciliation data');
     } finally {
@@ -371,6 +378,37 @@ export default function BankReconciliation() {
     }
   };
 
+  const handleImport = async () => {
+    if (!importDlg.file) {
+      setError('Please select an Excel file first.');
+      return;
+    }
+    const companyId = selectedCompanyId;
+    if (!companyId) {
+      setError('Please select a company first.');
+      return;
+    }
+    
+    setImportDlg(prev => ({ ...prev, uploading: true }));
+    const formData = new FormData();
+    formData.append('file', importDlg.file);
+    formData.append('companyId', companyId);
+    
+    try {
+      const res = await api.post('/finance/journals/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setSuccess(res.data.message || 'Import successful');
+      setImportDlg({ open: false, uploading: false, file: null });
+      if (filters.bankAccountId) {
+        load();
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to import data');
+      setImportDlg(prev => ({ ...prev, uploading: false }));
+    }
+  };
+
   const selectedAccount = bankAccounts.find(a => a._id === filters.bankAccountId);
 
   return (
@@ -385,7 +423,15 @@ export default function BankReconciliation() {
             Reconcile general ledger bank records against bank statements and unpresented cheques
           </Typography>
         </Box>
-        <FinanceCompanySelector size="small" />
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Button 
+            variant="outlined" 
+            onClick={() => setImportDlg({ open: true, uploading: false, file: null })}
+          >
+            Import Data
+          </Button>
+          <FinanceCompanySelector size="small" />
+        </Stack>
       </Stack>
 
       {error   && <Alert severity="error"   onClose={() => setError('')}   sx={{ mb: 2 }}>{error}</Alert>}
@@ -527,7 +573,9 @@ export default function BankReconciliation() {
                   </TableRow>
                 ) : (
                   <>
-                    {(data.unpresentedTransactions || []).map((t, idx) => {
+                    {(data.unpresentedTransactions || [])
+                      .slice(unpresentedPage * unpresentedRowsPerPage, unpresentedPage * unpresentedRowsPerPage + unpresentedRowsPerPage)
+                      .map((t, idx) => {
                       const hasAttachment = (t.attachments || []).length > 0;
                       const isSigned = t.signedDocumentStatus === 'signed';
                       const defaultClearDate = rowClearDates[t._id] ?? (t.clearingDate ? clearedAtToYmd(t.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
@@ -669,6 +717,18 @@ export default function BankReconciliation() {
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePagination
+            component="div"
+            count={(data.unpresentedTransactions || []).length}
+            page={unpresentedPage}
+            onPageChange={(e, newPage) => setUnpresentedPage(newPage)}
+            rowsPerPage={unpresentedRowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setUnpresentedRowsPerPage(parseInt(e.target.value, 10));
+              setUnpresentedPage(0);
+            }}
+            rowsPerPageOptions={[25, 50, 100, 250]}
+          />
         </Box>
       )}
 
@@ -752,7 +812,9 @@ export default function BankReconciliation() {
                 </TableRow>
 
                 {/* Period Transactions */}
-                {(data.periodTransactions || []).map((t, idx) => (
+                {(data.periodTransactions || [])
+                  .slice(periodPage * periodRowsPerPage, periodPage * periodRowsPerPage + periodRowsPerPage)
+                  .map((t, idx) => (
                   <TableRow key={t._id || idx} hover>
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
@@ -809,6 +871,18 @@ export default function BankReconciliation() {
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePagination
+            component="div"
+            count={(data.periodTransactions || []).length}
+            page={periodPage}
+            onPageChange={(e, newPage) => setPeriodPage(newPage)}
+            rowsPerPage={periodRowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setPeriodRowsPerPage(parseInt(e.target.value, 10));
+              setPeriodPage(0);
+            }}
+            rowsPerPageOptions={[25, 50, 100, 250]}
+          />
         </Box>
       )}
 
@@ -928,6 +1002,40 @@ export default function BankReconciliation() {
             <input type="file" hidden onChange={handleFileUpload} accept=".pdf,.png,.jpg,.jpeg" />
           </Button>
           <Button variant="contained" onClick={closeAttachDlg}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Import Dialog */}
+      <Dialog open={importDlg.open} onClose={() => !importDlg.uploading && setImportDlg({ ...importDlg, open: false })} maxWidth="sm" fullWidth>
+        <DialogTitle>Import Data</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Upload an Excel file with historical journal entries for this company. The file must contain the following columns: <b>Date, Voucher No, Account Code, Account Title, Description, Debit, Credit</b>.
+          </Typography>
+          <Button
+            variant="outlined"
+            component="label"
+            fullWidth
+            sx={{ py: 3, borderStyle: 'dashed' }}
+          >
+            {importDlg.file ? importDlg.file.name : 'Select Excel File (.xlsx)'}
+            <input 
+              type="file" 
+              hidden 
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  setImportDlg(prev => ({ ...prev, file: e.target.files[0] }));
+                }
+              }} 
+              accept=".xlsx,.xls" 
+            />
+          </Button>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportDlg({ ...importDlg, open: false })} disabled={importDlg.uploading}>Cancel</Button>
+          <Button variant="contained" onClick={handleImport} disabled={!importDlg.file || importDlg.uploading}>
+            {importDlg.uploading ? <CircularProgress size={24} /> : 'Upload & Import'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
