@@ -146,9 +146,27 @@ router.post('/import',
 
     // Fetch system journals
     let bankJournal = await FinanceJournal.findOne({ code: 'BANK' });
+    if (!bankJournal) {
+      bankJournal = await FinanceJournal.create({
+        code: 'BANK',
+        name: 'Bank Journal',
+        type: 'bank',
+        description: 'Bank payments and receipts',
+        isSystem: true,
+        createdBy: req.user._id
+      });
+    }
+
     let genlJournal = await FinanceJournal.findOne({ code: 'GENL' });
-    if (!bankJournal || !genlJournal) {
-      return res.status(400).json({ success: false, message: 'System journals (BANK, GENL) missing. Please seed them first.' });
+    if (!genlJournal) {
+      genlJournal = await FinanceJournal.create({
+        code: 'GENL',
+        name: 'General Journal',
+        type: 'general',
+        description: 'Manual adjustments and corrections',
+        isSystem: true,
+        createdBy: req.user._id
+      });
     }
 
     // Determine default department
