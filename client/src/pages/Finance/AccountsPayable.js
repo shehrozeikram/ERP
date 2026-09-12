@@ -437,12 +437,15 @@ const AccountsPayable = () => {
   };
 
   const getBillCompany = (bill) => {
+    if (bill.companyId && typeof bill.companyId === 'object' && bill.companyId.name) return bill.companyId.name;
+    if (bill.customCompany && typeof bill.customCompany === 'string' && bill.customCompany.trim()) return bill.customCompany;
+    if (bill.companyName && typeof bill.companyName === 'string') return bill.companyName;
+    if (bill.company?.name && typeof bill.company.name === 'string') return bill.company.name;
     if (bill.company && typeof bill.company === 'string' && bill.company.trim()) return bill.company;
     if (bill.lineItems && Array.isArray(bill.lineItems)) {
       const lineWithComp = bill.lineItems.find((l) => l.company && typeof l.company === 'string' && l.company.trim());
       if (lineWithComp) return lineWithComp.company;
     }
-    if (bill.companyId && typeof bill.companyId === 'object' && bill.companyId.name) return bill.companyId.name;
     return '—';
   };
 
@@ -1853,8 +1856,11 @@ const AccountsPayable = () => {
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" component="div">Bill Details: {selectedBill?.billNumber}</Typography>
+            <Typography variant="body2" color="textSecondary" sx={{ fontWeight: 'bold' }}>
+              Company: {selectedBill ? getBillCompany(selectedBill) : '—'}
+            </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {selectedBill && (

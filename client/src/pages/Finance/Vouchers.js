@@ -664,6 +664,7 @@ const Vouchers = () => {
                 <TableCell>Date</TableCell>
                 <TableCell>Voucher No</TableCell>
                 <TableCell>Voucher Type</TableCell>
+                <TableCell>Company</TableCell>
                 <TableCell>Vendor / Employee</TableCell>
                 <TableCell>Department</TableCell>
                 <TableCell>Cheque Number</TableCell>
@@ -675,15 +676,16 @@ const Vouchers = () => {
             </TableHead>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={9} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={11} align="center"><CircularProgress size={24} /></TableCell></TableRow>
               ) : voucherRows.length === 0 ? (
-                <TableRow><TableCell colSpan={9} align="center">No vouchers found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={11} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => {
                 return (
                   <TableRow key={row._id} hover>
                     <TableCell>{formatDate(row.date)}</TableCell>
                     <TableCell>{row.entryNumber}</TableCell>
                     <TableCell>{row.voucherType}</TableCell>
+                    <TableCell>{row.companyId?.name || row.customCompany || '—'}</TableCell>
                     <TableCell>{row.vendorOrEmployeeName || '—'}</TableCell>
                     <TableCell>{row.department?.name || (typeof row.department === 'string' ? row.department : '—')}</TableCell>
                     <TableCell>{row.reference || '—'}</TableCell>
@@ -952,7 +954,7 @@ const Vouchers = () => {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, '@media print': { mb: 2 } }}>
                       <Box>
                         <Typography fontWeight={700} sx={{ fontSize: '1.4rem', '@media print': { fontSize: '1.65rem', lineHeight: 1.2 } }}>
-                          {viewDialog.voucher?.companyId?.name || 'Sardar Group of Companies'}
+                          {viewDialog.voucher?.companyId?.name || viewDialog.voucher?.customCompany || 'Sardar Group of Companies'}
                         </Typography>
                         <Typography fontWeight={700} color="primary" sx={{ fontSize: '1.2rem', textTransform: 'uppercase', '@media print': { fontSize: '1.45rem', mt: 0.5, letterSpacing: 0.5 } }}>
                           {viewDialog.voucher?.voucherSeries
