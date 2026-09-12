@@ -1082,7 +1082,10 @@ const Vouchers = () => {
                               const slots = [
                                 { key: 'accountsOfficerUser', label: 'Accounts Officer / AM' },
                                 { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
-                                { key: 'financeControllerUser', label: 'GM Finance' }
+                                { key: 'financeControllerUser', label: 'GM Finance' },
+                                { key: 'avpUser', label: 'AVP', hardcodedName: 'Fahad Farid' },
+                                { key: 'ceoUser', label: 'CEO', hardcodedName: 'Sardar Umer Tanveer' },
+                                { key: 'presidentUser', label: 'President', hardcodedName: 'Sardar Tanveer Ilyas' }
                               ];
 
                               return slots.map((slot) => {
@@ -1091,9 +1094,11 @@ const Vouchers = () => {
                                 const approver = approval?.approver || assigned || null;
                                 const decision = approval ? String(approval.decision || 'approved').toLowerCase() : 'pending';
                                 const approvedAt = approval?.approvedAt || null;
-                                const approverName = approver
-                                  ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
-                                  : '—';
+                                const approverName = slot.hardcodedName
+                                  ? slot.hardcodedName
+                                  : approver
+                                    ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
+                                    : '—';
 
                                 return (
                                   <TableRow key={slot.key}>

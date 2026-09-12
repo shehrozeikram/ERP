@@ -1183,7 +1183,8 @@ router.post('/journal-entries',
       }
     }
 
-    const accountIds = (req.body.lines || []).map((line) => line.account).filter(Boolean);
+    const accountIdsRaw = (req.body.lines || []).map((line) => line.account).filter(Boolean);
+    const accountIds = [...new Set(accountIdsRaw)];
     const accountFilter = {
       _id: { $in: accountIds },
       isActive: true
@@ -1310,7 +1311,8 @@ router.put('/journal-entries/:id',
       }
     }
 
-    const accountIds = (req.body.lines || []).map((line) => line.account).filter(Boolean);
+    const accountIdsRaw = (req.body.lines || []).map((line) => line.account).filter(Boolean);
+    const accountIds = [...new Set(accountIdsRaw)];
     const accountFilter = {
       _id: { $in: accountIds },
       isActive: true
