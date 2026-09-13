@@ -74,11 +74,11 @@ const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMon
   const salaryMedicalExempt = Math.round(mainSalary * 0.1);
   const mainTaxableIncome = mainSalary - salaryMedicalExempt;
   const mainTax = calculateMonthlyTax(mainTaxableIncome);
-  
+
   // Arrears tax (taxed separately)
   const arrearsTaxableIncome = arrears;
   const arrearsTax = calculateMonthlyTax(arrearsTaxableIncome);
-  
+
   const totalTax = mainTax + arrearsTax;
   const totalIncome = mainSalary + arrears;
 
@@ -156,11 +156,11 @@ const calculatePayrollTaxWithSettings = ({
   // Step 3: Base taxable = taxable(salary) + taxable allowances
   const mainTaxableIncome = taxableGross + allowanceTaxable;
   const mainTax = calculateMonthlyTax(mainTaxableIncome);
-  
+
   // Step 4: Arrears tax
   const arrearsTaxableIncome = arrearsAmt;
   const arrearsTax = calculateMonthlyTax(arrearsTaxableIncome);
-  
+
   const totalTax = mainTax + arrearsTax;
   const mainSalary = gross + totalAllowances;
   const totalIncome = mainSalary + arrearsAmt;

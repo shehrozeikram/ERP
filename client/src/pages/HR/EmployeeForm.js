@@ -4152,13 +4152,12 @@ const EmployeeForm = () => {
                   name="eobi.amount"
                   label="EOBI Amount"
                   type="number"
-                  value={formik.values.eobi?.amount || 407}
+                  value={formik.values.eobi?.amount || ''}
                   onChange={formik.handleChange}
                   InputProps={{
-                    readOnly: true,
                     startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                   }}
-                  helperText="Fixed amount: Rs 407 (1% of minimum wage)"
+                  helperText="Default is Rs 407 (1% of minimum wage)"
                 />
               </Grid>
             )}

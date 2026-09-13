@@ -613,8 +613,11 @@ const PayrollForm = () => {
       formik.setFieldValue('allowances.other.amount', employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
       
       // Set EOBI if employee has it active
-      // EOBI is set to 407 PKR for all employees (Pakistan EOBI fixed amount)
-      formik.setFieldValue('deductions.eobi', 407);
+      if (employee.eobi?.isActive) {
+        formik.setFieldValue('deductions.eobi', employee.eobi?.amount || 407);
+      } else {
+        formik.setFieldValue('deductions.eobi', 0);
+      }
       
       // Set Provident Fund if employee has it active (8.34% of basic salary)
       if (employee.providentFund?.isActive) {
@@ -1462,13 +1465,12 @@ const PayrollForm = () => {
                         type="number"
                         name="deductions.eobi"
                         label="EOBI"
-                        value={407}
+                        value={formik.values.deductions.eobi}
                         onChange={formik.handleChange}
                         InputProps={{
-                          readOnly: true,
                           startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                         }}
-                        helperText="Pakistan EOBI (Fixed: Rs 407 for All Employees)"
+                        helperText="Pakistan EOBI"
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -1862,7 +1864,7 @@ const PayrollForm = () => {
                             <strong>Health Insurance:</strong> {formatPKR(formik.values.deductions.insurance || 0)}
                           </Typography>
                           <Typography variant="body2" sx={{ mb: 1 }}>
-                            <strong>EOBI:</strong> {formatPKR(formik.values.deductions.eobi || 407)}
+                            <strong>EOBI:</strong> {formatPKR(formik.values.deductions.eobi || 0)}
                           </Typography>
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Loan Deduction:</strong> {formatPKR(formik.values.deductions.loan || 0)}
@@ -1967,7 +1969,7 @@ const PayrollForm = () => {
                             💰 Net Salary (Without PF & EOBI)
                           </Typography>
                           <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
-                            {formatPKR((totals.totalEarnings || totals.grossPay) - (totals.totalDeductions - (formik.values.deductions.eobi || 407)))}
+                            {formatPKR((totals.totalEarnings || totals.grossPay) - (totals.totalDeductions - (formik.values.deductions.eobi || 0)))}
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.8 }}>
                             Excluding PF & EOBI Deductions

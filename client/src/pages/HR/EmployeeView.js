@@ -1286,7 +1286,7 @@ const EmployeeView = () => {
               )}
               {employee.eobi?.isActive && (
                 <Typography variant="body2" color="error" sx={{ mt: 1 }}>
-                  EOBI Deduction: {formatPKR(employee.eobi?.amount || 407)}
+                  EOBI Deduction: {formatPKR(employee.eobi?.amount || 0)}
                 </Typography>
               )}
               {employee.providentFund?.isActive && (

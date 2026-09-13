@@ -474,8 +474,8 @@ const FinalSettlementForm = () => {
       if (employee.deductions?.providentFund) {
         formik.setFieldValue('deductions.providentFund', employee.deductions.providentFund);
       }
-      if (employee.eobi?.isRegistered) {
-        formik.setFieldValue('deductions.eobi', 407);
+      if (employee.eobi?.isRegistered || employee.eobi?.isActive) {
+        formik.setFieldValue('deductions.eobi', employee.eobi?.amount || 407);
       }
       const securityAmount = Number(
         employee.employeeSecurity?.totalAccumulated || 

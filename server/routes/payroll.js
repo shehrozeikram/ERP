@@ -2657,7 +2657,7 @@ router.put('/:id', [
   console.log(`   Total Earnings: Rs. ${payroll.totalEarnings?.toLocaleString() || 0}`);
   console.log(`   Total Deductions Breakdown:`);
   console.log(`     Income Tax: Rs. ${(payroll.incomeTax || 0).toLocaleString()}`);
-  console.log(`     EOBI: Rs. ${(payroll.eobi || 407).toLocaleString()}`);
+  console.log(`     EOBI: Rs. ${(payroll.eobi || 0).toLocaleString()}`);
   console.log(`     Health Insurance: Rs. ${(payroll.healthInsurance || 0).toLocaleString()}`);
   console.log(`     Loan Deductions: Rs. ${(payroll.loanDeductions || 0).toLocaleString()}`);
   console.log(`     Attendance Deduction: Rs. ${(payroll.attendanceDeduction || 0).toLocaleString()}`);
