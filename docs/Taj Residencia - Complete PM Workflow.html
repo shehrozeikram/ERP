@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taj Residencia – Complete Project Management Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0f172a;
+    --navy-light: #1e293b;
+    --navy-mid: #334155;
+    --steel: #475569;
+    --slate: #64748b;
+    --muted: #94a3b8;
+    --light: #cbd5e1;
+    --lighter: #e2e8f0;
+    --surface: #f1f5f9;
+    --white: #ffffff;
+    
+    --royal: #3b82f6;
+    --royal-dark: #2563eb;
+    --royal-glow: rgba(59, 130, 246, 0.15);
+    
+    --emerald: #10b981;
+    --emerald-dark: #059669;
+    --emerald-glow: rgba(16, 185, 129, 0.15);
+    
+    --amber: #f59e0b;
+    --amber-dark: #d97706;
+    --amber-glow: rgba(245, 158, 11, 0.12);
+    
+    --rose: #f43f5e;
+    --rose-dark: #e11d48;
+    --rose-glow: rgba(244, 63, 94, 0.12);
+    
+    --violet: #8b5cf6;
+    --violet-dark: #7c3aed;
+    --violet-glow: rgba(139, 92, 246, 0.12);
+    
+    --cyan: #06b6d4;
+    --cyan-glow: rgba(6, 182, 212, 0.12);
+    
+    --teal: #14b8a6;
+    --orange: #f97316;
+    --pink: #ec4899;
+    --indigo: #6366f1;
+    
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 12px 40px rgba(0,0,0,0.12);
+    --shadow-xl: 0 24px 60px rgba(0,0,0,0.16);
+    --shadow-glow: 0 0 30px rgba(59, 130, 246, 0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--navy);
+    color: var(--light);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── HEADER ───────────────────────────────────────────── */
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(20px) saturate(1.4);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 16px 32px;
+  }
+  .header-inner {
+    max-width: 1600px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .header-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, var(--royal), var(--violet));
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: white;
+  }
+  .header-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--white);
+  }
+  .header-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  /* ─── MAIN CONTAINER ───────────────────────────────────── */
+  .main {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 32px;
+  }
+
+  /* ─── HERO SECTION ─────────────────────────────────────── */
+  .hero {
+    text-align: center;
+    padding: 48px 24px 32px;
+  }
+  .hero h1 {
+    font-size: 42px;
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    background: linear-gradient(135deg, #fff 0%, var(--royal) 50%, var(--violet) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 12px;
+  }
+  .hero p {
+    font-size: 16px;
+    color: var(--muted);
+    max-width: 700px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ─── LEGEND BAR ───────────────────────────────────────── */
+  .legend-bar {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding: 16px 0 24px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+  }
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+  }
+
+  /* ─── WBS HIERARCHY SECTION ────────────────────────────── */
+  .wbs-section {
+    margin-bottom: 40px;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .section-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    font-weight: 800;
+    font-size: 16px;
+    color: white;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--white);
+    letter-spacing: -0.5px;
+  }
+  .section-desc {
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: auto;
+    text-align: right;
+    max-width: 400px;
+  }
+
+  /* ─── WBS TREE ─────────────────────────────────────────── */
+  .wbs-tree {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    position: relative;
+  }
+  .wbs-root {
+    background: linear-gradient(135deg, var(--royal), var(--violet));
+    color: white;
+    font-weight: 800;
+    font-size: 18px;
+    padding: 16px 40px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-glow);
+    position: relative;
+    letter-spacing: -0.3px;
+  }
+  .wbs-connector-v {
+    width: 2px;
+    height: 32px;
+    background: linear-gradient(to bottom, var(--royal), var(--slate));
+  }
+
+  /* Zone Level */
+  .wbs-zones {
+    display: flex;
+    gap: 40px;
+    position: relative;
+    padding-top: 0;
+  }
+  .wbs-zones::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(16.667% - 0px);
+    right: calc(16.667% - 0px);
+    height: 2px;
+    background: linear-gradient(90deg, var(--emerald), var(--amber), var(--rose));
+  }
+  .wbs-zone-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    flex: 1;
+    min-width: 280px;
+  }
+  .wbs-zone-connector {
+    width: 2px;
+    height: 20px;
+    background: var(--slate);
+  }
+  .zone-card {
+    width: 100%;
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .zone-header {
+    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 14px;
+    text-align: center;
+    letter-spacing: 0.5px;
+    color: white;
+  }
+  .zone-body {
+    padding: 12px;
+    background: var(--navy-light);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+  .zone-blocks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .block-tag {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .zone-erp-note {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-sm);
+    font-size: 10px;
+    color: var(--slate);
+    border-left: 3px solid;
+  }
+
+  /* ─── FLOW SECTION ─────────────────────────────────────── */
+  .flow-phases {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .phase-card {
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(255,255,255,0.06);
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+    background: var(--navy-light);
+  }
+  .phase-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .phase-header {
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .phase-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .phase-info {
+    flex: 1;
+  }
+  .phase-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--white);
+  }
+  .phase-subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .phase-toggle {
+    font-size: 16px;
+    color: var(--slate);
+    transition: transform 0.3s;
+  }
+  .phase-card.open .phase-toggle {
+    transform: rotate(180deg);
+  }
+
+  .phase-body {
+    display: none;
+    padding: 0 24px 24px;
+  }
+  .phase-card.open .phase-body {
+    display: block;
+  }
+
+  /* Steps inside phase */
+  .step-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .step-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    position: relative;
+  }
+  .step-connector::before {
+    content: '';
+    width: 2px;
+    height: 100%;
+    position: absolute;
+    left: 50%;
+    top: 0;
+  }
+  .step-connector .arrow {
+    font-size: 14px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .step-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .step-card:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.12);
+  }
+  .step-num {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 13px;
+    color: white;
+  }
+  .step-content {
+    min-width: 0;
+  }
+  .step-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 2px;
+  }
+  .step-desc {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .step-meta {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .step-owner {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+    display: inline-block;
+    margin-bottom: 3px;
+    white-space: nowrap;
+  }
+  .step-erp {
+    display: block;
+    font-size: 9px;
+    color: var(--slate);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  /* Decision diamonds */
+  .decision-card {
+    background: rgba(244, 63, 94, 0.06);
+    border: 1px solid rgba(244, 63, 94, 0.2);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    text-align: center;
+    position: relative;
+  }
+  .decision-card::before {
+    content: '◆';
+    font-size: 10px;
+    color: var(--rose);
+    margin-right: 6px;
+  }
+  .decision-text {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--rose);
+    display: inline;
+  }
+  .decision-branches {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    justify-content: center;
+  }
+  .branch {
+    font-size: 10px;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+  .branch-yes {
+    background: var(--emerald-glow);
+    color: var(--emerald);
+    border: 1px solid rgba(16,185,129,0.3);
+  }
+  .branch-no {
+    background: var(--rose-glow);
+    color: var(--rose);
+    border: 1px solid rgba(244,63,94,0.3);
+  }
+
+  /* ─── STAKEHOLDER MAP ──────────────────────────────────── */
+  .stakeholder-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .stakeholder-card {
+    background: var(--navy-light);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: var(--radius);
+    padding: 16px;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .stakeholder-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+  }
+  .stakeholder-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    margin-bottom: 10px;
+  }
+  .stakeholder-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 4px;
+  }
+  .stakeholder-dept {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .stakeholder-resp {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .stakeholder-docs {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .doc-chip {
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--light);
+  }
+
+  /* ─── ERP MAPPING TABLE ────────────────────────────────── */
+  .erp-table-wrap {
+    overflow-x: auto;
+    border-radius: var(--radius);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .erp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .erp-table thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-size: 10px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    white-space: nowrap;
+  }
+  .erp-table tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    vertical-align: top;
+  }
+  .erp-table tbody tr:hover {
+    background: rgba(255,255,255,0.02);
+  }
+  .erp-model {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--cyan);
+    background: rgba(6, 182, 212, 0.08);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .erp-status-exists {
+    color: var(--emerald);
+    font-weight: 600;
+  }
+  .erp-status-partial {
+    color: var(--amber);
+    font-weight: 600;
+  }
+  .erp-status-missing {
+    color: var(--rose);
+    font-weight: 600;
+  }
+
+  /* ─── DOCUMENT FLOW SECTION ────────────────────────────── */
+  .doc-flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  .doc-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .doc-column-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: center;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 4px;
+  }
+  .doc-item {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--navy-light);
+    border: 1px solid rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    transition: transform 0.15s;
+  }
+  .doc-item:hover {
+    transform: translateX(3px);
+  }
+  .doc-code {
+    font-family: 'SF Mono', monospace;
+    font-weight: 700;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .doc-name {
+    font-weight: 600;
+    color: var(--white);
+  }
+  .doc-desc-small {
+    font-size: 10px;
+    color: var(--slate);
+    margin-top: 1px;
+  }
+  .doc-arrow-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding-top: 40px;
+  }
+  .doc-arrow-col .big-arrow {
+    font-size: 32px;
+    color: var(--royal);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .doc-arrow-col .label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--royal);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    padding: 8px 0;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.15); }
+  }
+
+  /* ─── FOOTER ───────────────────────────────────────────── */
+  .footer {
+    text-align: center;
+    padding: 40px 24px;
+    margin-top: 40px;
+    border-top: 1px solid rgba(255,255,255,0.04);
+    font-size: 11px;
+    color: var(--steel);
+  }
+
+  /* ─── RESPONSIVE ───────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .main { padding: 16px; }
+    .hero h1 { font-size: 28px; }
+    .wbs-zones { flex-direction: column; gap: 16px; }
+    .wbs-zones::before { display: none; }
+    .doc-flow { grid-template-columns: 1fr; }
+    .doc-arrow-col { flex-direction: row; writing-mode: horizontal-tb; padding: 0; }
+    .doc-arrow-col .label { writing-mode: horizontal-tb; transform: none; }
+  }
+
+  /* ─── PHASE CONNECTOR ──────────────────────────────────── */
+  .phase-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    position: relative;
+  }
+  .phase-connector::before {
+    content: '';
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(to bottom, var(--navy-mid), var(--slate));
+    position: absolute;
+  }
+  .phase-connector .pc-arrow {
+    background: var(--navy);
+    padding: 0 6px;
+    position: relative;
+    z-index: 1;
+    font-size: 16px;
+    color: var(--slate);
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-inner">
+    <div class="header-badge">
+      <span>📊</span>
+      <span>SGC ERP</span>
+    </div>
+    <div class="header-title">Taj Residencia – Complete Project Management Workflow</div>
+    <div class="header-sub">MRM Costing Framework × ERP Integration</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- HERO -->
+  <div class="hero">
+    <h1>Project Management Module</h1>
+    <p>End-to-end construction workflow from project creation to financial reporting — mapping the MRM costing manager's framework into your ERP system</p>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend-bar">
+    <div class="legend-item"><div class="legend-dot" style="background: var(--royal)"></div> Planning & Setup</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--emerald)"></div> Execution & Procurement</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--amber)"></div> Certification & Billing</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--rose)"></div> Finance & Payments</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--violet)"></div> Reporting & Control</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--steel); border: 1px dashed var(--muted)"></div> Decision Gate</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 1 — WBS HIERARCHY (from MRM spreadsheet)          -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="wbs-section" style="margin-top: 24px;">
+    <div class="section-header">
+      <div class="section-number" style="background: linear-gradient(135deg, var(--royal), var(--indigo))">1</div>
+      <div>
+        <div class="section-title">Project Hierarchy (WBS)</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">MRM's Zone → Block → Work Category → Sub-Work structure mapped to ERP</div>
+      </div>
+      <div class="section-desc">ConstructionProject model with parentProject hierarchy + isMasterProject flag</div>
+    </div>
+
+    <div class="wbs-tree">
+      <div class="wbs-root">🏗️ TAJ RESIDENCIA (Master Project)</div>
+      <div class="wbs-connector-v"></div>
+      
+      <div class="wbs-zones">
+        <!-- INFRA -->
+        <div class="wbs-zone-col">
+          <div class="wbs-zone-connector"></div>
+          <div class="zone-card">
+            <div class="zone-header" style="background: linear-gradient(135deg, var(--emerald-dark), var(--teal));">
+              🏗 INFRA DEVELOPMENT
+            </div>
+            <div class="zone-body">
+              <div class="zone-blocks">
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Gardenia</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Iris</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Rose</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Geranium</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Cosmos</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Zinnia</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Blue Bell</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Lotus (Exec)</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Cosmos-II</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Daffodils</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Lotus</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Lavender</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Tulip</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Lily</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Jasmine</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Sun Flower</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Marigold</span>
+                <span class="block-tag" style="background: var(--emerald-glow); color: var(--emerald)">Daisy</span>
+              </div>
+              <div class="zone-erp-note" style="border-color: var(--emerald)">
+                <strong>ERP:</strong> Each block = Sub-Project (<code>parentProject</code> → Infra Master) with <code>projectType: "Infrastructure"</code>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- COMMERCIAL -->
+        <div class="wbs-zone-col">
+          <div class="wbs-zone-connector"></div>
+          <div class="zone-card">
+            <div class="zone-header" style="background: linear-gradient(135deg, var(--amber-dark), var(--orange));">
+              🏢 COMMERCIAL
+            </div>
+            <div class="zone-body">
+              <div class="zone-blocks">
+                <span class="block-tag" style="background: var(--amber-glow); color: var(--amber)">Boulevard Tower</span>
+                <span class="block-tag" style="background: var(--amber-glow); color: var(--amber)">Commercial Hub</span>
+              </div>
+              <div class="zone-erp-note" style="border-color: var(--amber)">
+                <strong>ERP:</strong> Each = Sub-Project with <code>projectType: "Commercial Building"</code>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VILLAS -->
+        <div class="wbs-zone-col">
+          <div class="wbs-zone-connector"></div>
+          <div class="zone-card">
+            <div class="zone-header" style="background: linear-gradient(135deg, var(--rose-dark), var(--pink));">
+              🏠 VILLAS
+            </div>
+            <div class="zone-body">
+              <div class="zone-blocks">
+                <span class="block-tag" style="background: var(--rose-glow); color: var(--rose)">4 Marla</span>
+                <span class="block-tag" style="background: var(--rose-glow); color: var(--rose)">5 Marla</span>
+                <span class="block-tag" style="background: var(--rose-glow); color: var(--rose)">7 Marla</span>
+                <span class="block-tag" style="background: var(--rose-glow); color: var(--rose)">10 Marla</span>
+                <span class="block-tag" style="background: var(--rose-glow); color: var(--rose)">1 Kanal</span>
+              </div>
+              <div class="zone-erp-note" style="border-color: var(--rose)">
+                <strong>ERP:</strong> Each = Sub-Project with <code>projectType: "Villa"</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Work Categories -->
+    <div style="margin-top: 24px; padding: 16px; background: var(--navy-light); border-radius: var(--radius); border: 1px solid rgba(255,255,255,0.06);">
+      <div style="font-size: 13px; font-weight: 700; color: var(--white); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+        <span style="background: var(--royal-glow); padding: 4px 8px; border-radius: 6px; font-size: 10px; color: var(--royal); font-weight: 800;">LEVEL 3 + 4</span>
+        Work Categories → Sub-Works (BOQ Phases in ERP)
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;">
+        <div style="padding: 10px; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.15); border-radius: var(--radius-sm);">
+          <div style="font-weight: 700; font-size: 12px; color: var(--emerald); margin-bottom: 4px;">🧱 Civil Works</div>
+          <div style="font-size: 10px; color: var(--muted); line-height: 1.6;">Earthwork • Foundation • RCC/Concrete • Brickwork • Plastering • Flooring • Roof/Slab • Doors/Windows • Painting</div>
+        </div>
+        <div style="padding: 10px; background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15); border-radius: var(--radius-sm);">
+          <div style="font-weight: 700; font-size: 12px; color: var(--royal); margin-bottom: 4px;">💧 Water Supply</div>
+          <div style="font-size: 10px; color: var(--muted); line-height: 1.6;">Pipelines (GI/UPVC) • Storage Tanks • Pumping Stations • Valve Chambers • Domestic Fittings</div>
+        </div>
+        <div style="padding: 10px; background: rgba(139,92,246,0.06); border: 1px solid rgba(139,92,246,0.15); border-radius: var(--radius-sm);">
+          <div style="font-weight: 700; font-size: 12px; color: var(--violet); margin-bottom: 4px;">🚰 Sewerage</div>
+          <div style="font-size: 10px; color: var(--muted); line-height: 1.6;">Drain Lines • Manholes • STP • Silt Traps • Outfall Lines</div>
+        </div>
+        <div style="padding: 10px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15); border-radius: var(--radius-sm);">
+          <div style="font-weight: 700; font-size: 12px; color: var(--amber); margin-bottom: 4px;">⚡ Electrification</div>
+          <div style="font-size: 10px; color: var(--muted); line-height: 1.6;">HT/LT Lines • Transformers • Street Lights • Internal Wiring • DG Sets • CCTV</div>
+        </div>
+        <div style="padding: 10px; background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.15); border-radius: var(--radius-sm);">
+          <div style="font-weight: 700; font-size: 12px; color: var(--cyan); margin-bottom: 4px;">🛣️ Roads</div>
+          <div style="font-size: 10px; color: var(--muted); line-height: 1.6;">Sub-Base • Base Course • Asphalt • Concrete Roads • Kerb Stones • Markings • Safety</div>
+        </div>
+        <div style="padding: 10px; background: rgba(236,72,153,0.06); border: 1px solid rgba(236,72,153,0.15); border-radius: var(--radius-sm);">
+          <div style="font-weight: 700; font-size: 12px; color: var(--pink); margin-bottom: 4px;">🌿 Horticulture</div>
+          <div style="font-size: 10px; color: var(--muted); line-height: 1.6;">Plantation • Turf/Grass • Irrigation (Drip/Sprinkler) • Parks & Playgrounds • Landscape</div>
+        </div>
+      </div>
+      <div style="margin-top: 10px; font-size: 10px; color: var(--slate); padding: 6px 10px; background: rgba(255,255,255,0.02); border-radius: var(--radius-sm); font-style: italic;">
+        <strong>ERP Mapping:</strong> Work categories = BOQ <code>phase</code> field. Sub-works = BOQ <code>category</code> field. Items = <code>BOQItem</code> documents under each <code>ProjectBOQ</code> header.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 2 — FULL PROCESS FLOW                             -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div style="margin-top: 20px;">
+    <div class="section-header">
+      <div class="section-number" style="background: linear-gradient(135deg, var(--emerald), var(--teal))">2</div>
+      <div>
+        <div class="section-title">End-to-End Process Flow</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">17 steps across 5 phases — click each phase to expand</div>
+      </div>
+    </div>
+
+    <div class="flow-phases">
+
+      <!-- ══ PHASE A: PROJECT SETUP ══ -->
+      <div class="phase-card open" data-phase="a">
+        <div class="phase-header" onclick="togglePhase(this)">
+          <div class="phase-icon" style="background: var(--royal-glow); color: var(--royal)">📋</div>
+          <div class="phase-info">
+            <div class="phase-name">Phase A — Project Setup & Planning</div>
+            <div class="phase-subtitle">Create master project, zones, sub-projects, define WBS, prepare BOQ, get budget approved</div>
+          </div>
+          <div class="phase-toggle">▼</div>
+        </div>
+        <div class="phase-body">
+          <div class="step-flow">
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--royal)">01</div>
+              <div class="step-content">
+                <div class="step-title">Create Master Project</div>
+                <div class="step-desc">Create "Taj Residencia" as a master project (<code>isMasterProject: true</code>). This is the top-level container — all 3 zones roll up into this.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--royal-glow); color: var(--royal)">Director / PM</span>
+                <span class="step-erp">ConstructionProject.create()</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--royal)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--royal)">02</div>
+              <div class="step-content">
+                <div class="step-title">Create Zone Sub-Projects (Infra / Commercial / Villas)</div>
+                <div class="step-desc">Create 3 zone-level sub-projects with <code>parentProject</code> pointing to master. Set <code>projectType</code> = Infrastructure, Commercial Building, Villa. Each zone is also <code>isMasterProject: true</code> so blocks roll up into them.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--royal-glow); color: var(--royal)">Project Manager</span>
+                <span class="step-erp">ConstructionProject.create()</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--royal)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--royal)">03</div>
+              <div class="step-content">
+                <div class="step-title">Create Block Sub-Projects (Gardenia, Iris, Boulevard Tower...)</div>
+                <div class="step-desc">Each block from MRM's spreadsheet becomes a sub-project under its zone. These are the leaf-level projects where actual work happens. <code>parentProject</code> → zone project. <code>isMasterProject: false</code>.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--royal-glow); color: var(--royal)">Project Manager</span>
+                <span class="step-erp">ConstructionProject.create()</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--royal)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--royal)">04</div>
+              <div class="step-content">
+                <div class="step-title">Define Phases & Tasks (WBS)</div>
+                <div class="step-desc">For each block project, create the task hierarchy: <strong>Phase</strong> (level 0: Civil Works, Water Supply, etc.) → <strong>Tasks</strong> (level 1: Foundation, Earthwork, etc.) → <strong>Sub-Tasks</strong> (level 2: specific activities). This is MRM's Activity Level 3 + 4.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--royal-glow); color: var(--royal)">Costing Manager (MRM)</span>
+                <span class="step-erp">ProjectTask.create()</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--royal)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--royal)">05</div>
+              <div class="step-content">
+                <div class="step-title">Prepare BOQ (Bill of Quantities)</div>
+                <div class="step-desc">Create BOQ documents (<code>ProjectBOQ</code> headers) per work category. Add line items (<code>BOQItem</code>) with quantities, unit prices, phases, categories. Items are grouped by phase (Civil, Water, etc.) and categorised by sub-work. This is MRM's core "INPUT INTERFACE — BOQ".</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--violet-glow); color: var(--violet)">Costing Manager (MRM)</span>
+                <span class="step-erp">ProjectBOQ + BOQItem.create()</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--royal)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--royal)">06</div>
+              <div class="step-content">
+                <div class="step-title">Set Budget Categories & Milestones</div>
+                <div class="step-desc">Define budget breakdown (Civil Works, Electrical, Plumbing, etc.) and billing milestones with trigger percentages. Budget = sum of BOQ. Milestones tie to billing events.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--royal-glow); color: var(--royal)">Costing Manager</span>
+                <span class="step-erp">project.budgetCategories[]<br/>project.milestones[]</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--royal)">▼</span></div>
+
+            <div class="decision-card">
+              <span class="decision-text">Budget Approval Gate</span>
+              <div class="decision-branches">
+                <span class="branch branch-yes">✓ PM + Director Approve → Proceed</span>
+                <span class="branch branch-no">✗ Rejected → Revise BOQ</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--emerald)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--royal)">07</div>
+              <div class="step-content">
+                <div class="step-title">Budget Approved & Baseline Set</div>
+                <div class="step-desc">Budget status moves from Draft → Submitted → Approved. <code>totalApprovedBudget</code> is locked. All future actuals are compared against this baseline for variance analysis.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--emerald-glow); color: var(--emerald)">Director</span>
+                <span class="step-erp">PUT /budget-status { action: 'approve' }</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-connector"><span class="pc-arrow">▼</span></div>
+
+      <!-- ══ PHASE B: CONTRACTING & PROCUREMENT ══ -->
+      <div class="phase-card" data-phase="b">
+        <div class="phase-header" onclick="togglePhase(this)">
+          <div class="phase-icon" style="background: var(--emerald-glow); color: var(--emerald)">🤝</div>
+          <div class="phase-info">
+            <div class="phase-name">Phase B — Contracting & Procurement</div>
+            <div class="phase-subtitle">Assign contractors, issue work orders, allocate BOQ, procure materials</div>
+          </div>
+          <div class="phase-toggle">▼</div>
+        </div>
+        <div class="phase-body">
+          <div class="step-flow">
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--emerald)">08</div>
+              <div class="step-content">
+                <div class="step-title">Contractor Selection & Work Order</div>
+                <div class="step-desc">Select contractors/sub-contractors from the Supplier module. Assign to BOQ items via <code>contractor</code> field. Define contractor unit prices separately from estimated prices. Work order = contract scope + rates.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--emerald-glow); color: var(--emerald)">PM + Costing Mgr</span>
+                <span class="step-erp">BOQItem.contractor<br/>batch-assign-contractor</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--emerald)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--emerald)">09</div>
+              <div class="step-content">
+                <div class="step-title">BOQ Allocation to Sub-Projects</div>
+                <div class="step-desc">Master BOQ items are allocated to block-level sub-projects with specific quantities. Tracks <code>allocatedQuantity</code> vs <code>remainingQuantity</code>. Prevents over-allocation beyond estimated quantity.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--emerald-glow); color: var(--emerald)">Costing Manager (MRM)</span>
+                <span class="step-erp">POST /boq/allocate</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--emerald)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--emerald)">10</div>
+              <div class="step-content">
+                <div class="step-title">Material Requisition (MR)</div>
+                <div class="step-desc">Site engineer raises MR for materials needed. This is MRM's "Material Requisition" input. Linked to specific BOQ items so material cost is tracked against budget.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--cyan-glow); color: var(--cyan)">Site Engineer</span>
+                <span class="step-erp">Indents / MR module</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--emerald)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--emerald)">11</div>
+              <div class="step-content">
+                <div class="step-title">Purchase Order (PO) → GRN → Material Issue</div>
+                <div class="step-desc">MR triggers PO creation from BOQ items. Vendor delivers → GRN recorded in Store. Materials issued to site. BOQ tracks <code>orderedQuantity</code> and <code>receivedQuantity</code>. Updates <code>totalCommitted</code> on project.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--emerald-glow); color: var(--emerald)">Procurement + Store</span>
+                <span class="step-erp">POST /boq/create-po<br/>PurchaseOrder model</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-connector"><span class="pc-arrow">▼</span></div>
+
+      <!-- ══ PHASE C: EXECUTION & MONITORING ══ -->
+      <div class="phase-card" data-phase="c">
+        <div class="phase-header" onclick="togglePhase(this)">
+          <div class="phase-icon" style="background: rgba(6,182,212,0.15); color: var(--cyan)">⚒️</div>
+          <div class="phase-info">
+            <div class="phase-name">Phase C — Site Execution & Daily Monitoring</div>
+            <div class="phase-subtitle">Track daily progress, record expenses, update task completion, site photos</div>
+          </div>
+          <div class="phase-toggle">▼</div>
+        </div>
+        <div class="phase-body">
+          <div class="step-flow">
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--cyan)">12</div>
+              <div class="step-content">
+                <div class="step-title">Daily Progress Report (DPR)</div>
+                <div class="step-desc">Site engineer submits DPR with: weather, workforce count (civil, electrical, plumbing, supervisors), work done per task, materials used, issues/risks, and up to 20 site photos. MRM's DPR concept mapped directly.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--cyan-glow); color: var(--cyan)">Site Engineer</span>
+                <span class="step-erp">DailyProgressReport.create()<br/>POST /dpr (multipart)</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--cyan)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--cyan)">13</div>
+              <div class="step-content">
+                <div class="step-title">Task Progress & Physical Verification</div>
+                <div class="step-desc">Update <code>progressPercent</code> per task. Tasks support physical verification (<code>isPhysicallyVerified</code>, <code>verificationPhotoUrl</code>). Progress auto-rolls up: Task % → Project % → Zone % → Master %.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--cyan-glow); color: var(--cyan)">Site Eng + QA/QC</span>
+                <span class="step-erp">PUT /tasks/:taskId<br/>syncProjectProgress()</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--cyan)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--cyan)">14</div>
+              <div class="step-content">
+                <div class="step-title">Record Expenses</div>
+                <div class="step-desc">Track all project expenses by category (Civil, Electrical, Plumbing, Labor, Materials, etc.). Payment status tracking: Pending → Approved → Paid. Auto-updates <code>totalActualSpent</code> on project.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--cyan-glow); color: var(--cyan)">PM / Finance</span>
+                <span class="step-erp">ProjectExpense.create()<br/>syncProjectActuals()</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--cyan)">▼</span></div>
+
+            <div class="decision-card">
+              <span class="decision-text">Quality Inspection Gate (QA/QC)</span>
+              <div class="decision-branches">
+                <span class="branch branch-yes">✓ Certified → Proceed to Billing</span>
+                <span class="branch branch-no">✗ Failed → Rework Required</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-connector"><span class="pc-arrow">▼</span></div>
+
+      <!-- ══ PHASE D: BILLING & INVOICING ══ -->
+      <div class="phase-card" data-phase="d">
+        <div class="phase-header" onclick="togglePhase(this)">
+          <div class="phase-icon" style="background: var(--amber-glow); color: var(--amber)">🧾</div>
+          <div class="phase-info">
+            <div class="phase-name">Phase D — Contractor Billing & IPC</div>
+            <div class="phase-subtitle">RA Bill → IPC generation → Cheque request → Payment (MRM's core output)</div>
+          </div>
+          <div class="phase-toggle">▼</div>
+        </div>
+        <div class="phase-body">
+          <div class="step-flow">
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--amber)">15</div>
+              <div class="step-content">
+                <div class="step-title">Contractor Running Bill (RA Bill) → IPC Generation</div>
+                <div class="step-desc">Contractor submits running bill. Costing Manager creates <strong>Subcontractor IPC</strong> invoice selecting BOQ items with <code>currentQuantity</code> executed. System auto-calculates: previous qty + current qty = cumulative. Validates cumulative ≤ BOQ estimated quantity (no over-billing). Deductions: Retention % + Advance Recovery + WHT % = <code>netPayableAmount</code>.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--amber-glow); color: var(--amber)">Costing Manager (MRM)</span>
+                <span class="step-erp">ProjectInvoice.create()<br/>type: 'Subcontractor_IPC'</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--amber)">▼</span></div>
+
+            <div class="decision-card">
+              <span class="decision-text">IPC Approval Gate (PM + Director)</span>
+              <div class="decision-branches">
+                <span class="branch branch-yes">✓ Approved → Finance processes payment</span>
+                <span class="branch branch-no">✗ Rejected → Revise bill</span>
+              </div>
+            </div>
+
+            <div class="step-connector"><span class="arrow" style="color: var(--rose)">▼</span></div>
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--rose)">16</div>
+              <div class="step-content">
+                <div class="step-title">Cheque Request & Payment</div>
+                <div class="step-desc">MRM's "Cheque Request" input. Finance generates payment against approved IPC. Payment tracked via <code>paidAmount</code>, <code>paidDate</code>, <code>paymentMethod</code>, <code>paymentReference</code>. Invoice status: Draft → Submitted → Approved → Paid. Updates contractor ledger and <code>totalActualSpent</code>.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--rose-glow); color: var(--rose)">Finance + Director</span>
+                <span class="step-erp">PUT /invoices/:id<br/>{ status: 'Paid' }</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-connector"><span class="pc-arrow">▼</span></div>
+
+      <!-- ══ PHASE E: REPORTING ══ -->
+      <div class="phase-card" data-phase="e">
+        <div class="phase-header" onclick="togglePhase(this)">
+          <div class="phase-icon" style="background: var(--violet-glow); color: var(--violet)">📊</div>
+          <div class="phase-info">
+            <div class="phase-name">Phase E — Reporting, Control & Abstract of Cost</div>
+            <div class="phase-subtitle">MRM's output reports: Abstract of Cost, variance analysis, dashboard, executive rollup</div>
+          </div>
+          <div class="phase-toggle">▼</div>
+        </div>
+        <div class="phase-body">
+          <div class="step-flow">
+
+            <div class="step-card">
+              <div class="step-num" style="background: var(--violet)">17</div>
+              <div class="step-content">
+                <div class="step-title">Abstract of Cost & Real-Time Reports</div>
+                <div class="step-desc">All data feeds into automated reports. The system already computes: <code>totalEstimatedCost</code> vs <code>totalActualSpent</code> (variance), <code>totalCommitted</code> (PO amounts), <code>totalInvoiced</code> (IPCs), <code>overallProgress</code> (%), and per-BOQ-item <code>costVariance</code> and <code>quantityVariance</code>. The <strong>Executive Rollup</strong> API aggregates everything from block → zone → master level.</div>
+              </div>
+              <div class="step-meta">
+                <span class="step-owner" style="background: var(--violet-glow); color: var(--violet)">Costing Manager (MRM)</span>
+                <span class="step-erp">GET /projects/:id/rollup<br/>GET /projects/statistics</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Reports grid -->
+          <div style="margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+            <div style="padding: 10px; background: rgba(139,92,246,0.06); border: 1px solid rgba(139,92,246,0.15); border-radius: var(--radius-sm);">
+              <div style="font-weight: 700; font-size: 11px; color: var(--violet);">📄 Abstract of Cost</div>
+              <div style="font-size: 10px; color: var(--muted);">Budget vs Actual by block/work — <span class="erp-status-exists">✓ EXISTS</span></div>
+            </div>
+            <div style="padding: 10px; background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15); border-radius: var(--radius-sm);">
+              <div style="font-weight: 700; font-size: 11px; color: var(--royal);">📄 IPC Summary</div>
+              <div style="font-size: 10px; color: var(--muted);">Contractor payment certificates — <span class="erp-status-exists">✓ EXISTS</span></div>
+            </div>
+            <div style="padding: 10px; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.15); border-radius: var(--radius-sm);">
+              <div style="font-weight: 700; font-size: 11px; color: var(--emerald);">📄 BOQ Variance</div>
+              <div style="font-size: 10px; color: var(--muted);">Over/under budget per item — <span class="erp-status-exists">✓ EXISTS</span></div>
+            </div>
+            <div style="padding: 10px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15); border-radius: var(--radius-sm);">
+              <div style="font-weight: 700; font-size: 11px; color: var(--amber);">📄 Progress Report</div>
+              <div style="font-size: 10px; color: var(--muted);">% completion rollup per level — <span class="erp-status-exists">✓ EXISTS</span></div>
+            </div>
+            <div style="padding: 10px; background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.15); border-radius: var(--radius-sm);">
+              <div style="font-weight: 700; font-size: 11px; color: var(--cyan);">📄 Executive Rollup</div>
+              <div style="font-size: 10px; color: var(--muted);">Master-level KPI dashboard — <span class="erp-status-exists">✓ EXISTS</span></div>
+            </div>
+            <div style="padding: 10px; background: rgba(244,63,94,0.06); border: 1px solid rgba(244,63,94,0.15); border-radius: var(--radius-sm);">
+              <div style="font-weight: 700; font-size: 11px; color: var(--rose);">📄 Expense Breakdown</div>
+              <div style="font-size: 10px; color: var(--muted);">Category-wise spending — <span class="erp-status-exists">✓ EXISTS</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /flow-phases -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 3 — DOCUMENT FLOW                                 -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div style="margin-top: 48px;">
+    <div class="section-header">
+      <div class="section-number" style="background: linear-gradient(135deg, var(--amber), var(--orange))">3</div>
+      <div>
+        <div class="section-title">Document Flow (MRM's Input → Output Mapping)</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">How MRM's input documents flow through the ERP and produce the output reports</div>
+      </div>
+    </div>
+
+    <div class="doc-flow">
+      <!-- INPUTS -->
+      <div class="doc-column">
+        <div class="doc-column-title" style="background: var(--royal-glow); color: var(--royal);">📥 INPUT DOCUMENTS</div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--royal-glow); color: var(--royal);">BOQ</span><div><div class="doc-name">Bill of Quantities</div><div class="doc-desc-small">Baseline cost plan per block</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--emerald-glow); color: var(--emerald);">WO</span><div><div class="doc-name">Work Order</div><div class="doc-desc-small">Contractor contract + rates</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--cyan-glow); color: var(--cyan);">MR</span><div><div class="doc-name">Material Requisition</div><div class="doc-desc-small">Site request for materials</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--violet-glow); color: var(--violet);">PO</span><div><div class="doc-name">Purchase Order</div><div class="doc-desc-small">Procurement order from BOQ</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--amber-glow); color: var(--amber);">GRN</span><div><div class="doc-name">Goods Received Note</div><div class="doc-desc-small">Delivery confirmation</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--rose-glow); color: var(--rose);">RA</span><div><div class="doc-name">Running Bill (RA Bill)</div><div class="doc-desc-small">Contractor's periodic claim</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: rgba(20,184,166,0.12); color: var(--teal);">QC</span><div><div class="doc-name">QA/QC Certificate</div><div class="doc-desc-small">Quality sign-off</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--amber-glow); color: var(--amber);">CR</span><div><div class="doc-name">Cheque Request</div><div class="doc-desc-small">Payment trigger document</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: rgba(236,72,153,0.12); color: var(--pink);">DPR</span><div><div class="doc-name">Daily Progress Report</div><div class="doc-desc-small">Site engineer's daily log</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--violet-glow); color: var(--violet);">VO</span><div><div class="doc-name">Variation Order</div><div class="doc-desc-small">Scope change amendment</div></div></div>
+      </div>
+
+      <!-- ARROW -->
+      <div class="doc-arrow-col">
+        <div class="big-arrow">➤</div>
+        <div class="label">ERP PROCESSING</div>
+        <div class="big-arrow">➤</div>
+      </div>
+
+      <!-- OUTPUTS -->
+      <div class="doc-column">
+        <div class="doc-column-title" style="background: var(--emerald-glow); color: var(--emerald);">📤 OUTPUT REPORTS</div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--emerald-glow); color: var(--emerald);">AOC</span><div><div class="doc-name">Abstract of Cost</div><div class="doc-desc-small">Budget vs actual summary</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--royal-glow); color: var(--royal);">IPC</span><div><div class="doc-name">Interim Payment Certificate</div><div class="doc-desc-small">Certified contractor payment</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--amber-glow); color: var(--amber);">VAR</span><div><div class="doc-name">BOQ Variance Report</div><div class="doc-desc-small">Cost + quantity variance</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--cyan-glow); color: var(--cyan);">PRG</span><div><div class="doc-name">Work Progress Report</div><div class="doc-desc-small">% completion per block/zone</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--violet-glow); color: var(--violet);">CTC</span><div><div class="doc-name">Cost-to-Complete</div><div class="doc-desc-small">Remaining cost forecast</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--rose-glow); color: var(--rose);">CLR</span><div><div class="doc-name">Contractor Ledger</div><div class="doc-desc-small">Running account per contractor</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: rgba(236,72,153,0.12); color: var(--pink);">BUR</span><div><div class="doc-name">Budget Utilisation Report</div><div class="doc-desc-small">Zone-wise budget burn</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--amber-glow); color: var(--amber);">EXP</span><div><div class="doc-name">Expense Summary</div><div class="doc-desc-small">Category-wise spending</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: var(--royal-glow); color: var(--royal);">KPI</span><div><div class="doc-name">Executive Dashboard</div><div class="doc-desc-small">High-level KPIs for management</div></div></div>
+        <div class="doc-item"><span class="doc-code" style="background: rgba(20,184,166,0.12); color: var(--teal);">RLU</span><div><div class="doc-name">Executive Rollup</div><div class="doc-desc-small">Block → Zone → Master rollup</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 4 — STAKEHOLDERS                                  -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div style="margin-top: 48px;">
+    <div class="section-header">
+      <div class="section-number" style="background: linear-gradient(135deg, var(--rose), var(--pink))">4</div>
+      <div>
+        <div class="section-title">Stakeholders & Responsibilities</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Who does what at each step</div>
+      </div>
+    </div>
+
+    <div class="stakeholder-grid">
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: var(--royal-glow); color: var(--royal);">👷</div>
+        <div class="stakeholder-name">Site Engineer</div>
+        <div class="stakeholder-dept" style="color: var(--royal);">Project / Site</div>
+        <div class="stakeholder-resp">Records daily progress (DPR), raises Material Requisitions, logs workforce, reports issues, uploads site photos</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">DPR</span><span class="doc-chip">MR</span><span class="doc-chip">Task Updates</span>
+        </div>
+      </div>
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: var(--violet-glow); color: var(--violet);">💰</div>
+        <div class="stakeholder-name">Costing Manager (MRM)</div>
+        <div class="stakeholder-dept" style="color: var(--violet);">Project Management</div>
+        <div class="stakeholder-resp">Prepares BOQ, manages cost analysis, generates IPC, produces Abstract of Cost, variance analysis, allocates BOQ to sub-projects</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">BOQ</span><span class="doc-chip">IPC</span><span class="doc-chip">AOC</span><span class="doc-chip">Allocation</span>
+        </div>
+      </div>
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: var(--emerald-glow); color: var(--emerald);">📋</div>
+        <div class="stakeholder-name">Project Manager</div>
+        <div class="stakeholder-dept" style="color: var(--emerald);">Project Management</div>
+        <div class="stakeholder-resp">Creates projects, authorizes work orders, approves IPCs, monitors budget utilisation, reviews progress</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">WO</span><span class="doc-chip">IPC Approval</span><span class="doc-chip">Budget</span>
+        </div>
+      </div>
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: var(--cyan-glow); color: var(--cyan);">🔍</div>
+        <div class="stakeholder-name">QA/QC Engineer</div>
+        <div class="stakeholder-dept" style="color: var(--cyan);">Quality</div>
+        <div class="stakeholder-resp">Inspects & certifies work quality, physical verification of tasks, blocks IPC if quality fails</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">QC Cert</span><span class="doc-chip">Verification</span>
+        </div>
+      </div>
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: var(--amber-glow); color: var(--amber);">🏗</div>
+        <div class="stakeholder-name">Contractor</div>
+        <div class="stakeholder-dept" style="color: var(--amber);">External</div>
+        <div class="stakeholder-resp">Executes site work, submits Running Bills (RA Bills), receives IPC payments</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">RA Bill</span><span class="doc-chip">Invoice</span>
+        </div>
+      </div>
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: var(--rose-glow); color: var(--rose);">🏦</div>
+        <div class="stakeholder-name">Finance / Accounts</div>
+        <div class="stakeholder-dept" style="color: var(--rose);">Finance</div>
+        <div class="stakeholder-resp">Processes Cheque Requests, posts journal entries, makes contractor payments, tracks cash flow</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">CR</span><span class="doc-chip">Payment</span><span class="doc-chip">JV</span>
+        </div>
+      </div>
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: rgba(236,72,153,0.12); color: var(--pink);">📦</div>
+        <div class="stakeholder-name">Procurement + Store</div>
+        <div class="stakeholder-dept" style="color: var(--pink);">Procurement / Logistics</div>
+        <div class="stakeholder-resp">Processes MRs, issues POs, receives goods (GRN), manages inventory, issues materials to site</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">PO</span><span class="doc-chip">GRN</span><span class="doc-chip">Issue</span>
+        </div>
+      </div>
+      <div class="stakeholder-card">
+        <div class="stakeholder-avatar" style="background: rgba(99,102,241,0.12); color: var(--indigo);">👔</div>
+        <div class="stakeholder-name">Director / Management</div>
+        <div class="stakeholder-dept" style="color: var(--indigo);">Executive</div>
+        <div class="stakeholder-resp">Final approvals on budgets, high-value payments, strategic decisions, views Executive Rollup dashboard</div>
+        <div class="stakeholder-docs">
+          <span class="doc-chip">Budget Approval</span><span class="doc-chip">KPI</span><span class="doc-chip">Rollup</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 5 — ERP MODEL MAPPING                             -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div style="margin-top: 48px;">
+    <div class="section-header">
+      <div class="section-number" style="background: linear-gradient(135deg, var(--cyan), var(--teal))">5</div>
+      <div>
+        <div class="section-title">ERP Data Model Mapping</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">How MRM's concepts map to your existing MongoDB models</div>
+      </div>
+    </div>
+
+    <div class="erp-table-wrap">
+      <table class="erp-table">
+        <thead>
+          <tr>
+            <th>MRM Concept</th>
+            <th>ERP Model</th>
+            <th>Key Fields</th>
+            <th>Status</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Master Project (Taj Residencia)</td>
+            <td><span class="erp-model">ConstructionProject</span></td>
+            <td style="color: var(--muted);">isMasterProject, parentProject</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">3-level nesting: Master → Zone → Block</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Zone (Infra / Commercial / Villas)</td>
+            <td><span class="erp-model">ConstructionProject</span></td>
+            <td style="color: var(--muted);">projectType, parentProject → Master</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Zone = master sub-project, blocks roll up</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Block (Gardenia, Iris...)</td>
+            <td><span class="erp-model">ConstructionProject</span></td>
+            <td style="color: var(--muted);">parentProject → Zone, isMasterProject: false</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Leaf-level project where work happens</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Work Categories (Civil, Water...)</td>
+            <td><span class="erp-model">ProjectTask</span> (level 0)</td>
+            <td style="color: var(--muted);">level: 0, title: "Civil Works"</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Also used as BOQItem.phase</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Sub-Works (Foundation, Earthwork...)</td>
+            <td><span class="erp-model">ProjectTask</span> (level 1-2)</td>
+            <td style="color: var(--muted);">parentTask, level: 1|2</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Also = BOQItem.category</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">BOQ (Bill of Quantities)</td>
+            <td><span class="erp-model">ProjectBOQ</span> + <span class="erp-model">BOQItem</span></td>
+            <td style="color: var(--muted);">estimatedQty, unitPrice, phase, category</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Supports allocation, discounts, contractor rates</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">DPR (Daily Progress Report)</td>
+            <td><span class="erp-model">DailyProgressReport</span></td>
+            <td style="color: var(--muted);">workDone, materialsUsed, photos, workforce</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Supports 20 photo uploads</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">IPC (Interim Payment Certificate)</td>
+            <td><span class="erp-model">ProjectInvoice</span></td>
+            <td style="color: var(--muted);">type: Subcontractor_IPC, retention, WHT</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Auto-tracks cumulative billing with over-billing protection</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Cheque Request</td>
+            <td><span class="erp-model">ProjectInvoice</span> (status flow)</td>
+            <td style="color: var(--muted);">paidAmount, paidDate, paymentRef</td>
+            <td><span class="erp-status-partial">◐ Partial</span></td>
+            <td style="color: var(--muted);">Payment fields exist, dedicated CR module can be added</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Purchase Order</td>
+            <td><span class="erp-model">PurchaseOrder</span></td>
+            <td style="color: var(--muted);">vendor, items, totalAmount</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Created directly from BOQ items</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Material Requisition</td>
+            <td><span class="erp-model">Indent</span> (Stores module)</td>
+            <td style="color: var(--muted);">items, status, approvals</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Via existing Stores/Indents module</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Abstract of Cost</td>
+            <td><span class="erp-model">ConstructionProject</span></td>
+            <td style="color: var(--muted);">totalEstimated vs totalActualSpent</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">Auto-computed + Executive Rollup API</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Budget Categories</td>
+            <td><span class="erp-model">ConstructionProject</span></td>
+            <td style="color: var(--muted);">budgetCategories[].estimatedAmount / approved</td>
+            <td><span class="erp-status-exists">✓ Built</span></td>
+            <td style="color: var(--muted);">12 categories: Civil, Electrical, Plumbing...</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Contractor Ledger</td>
+            <td>–</td>
+            <td style="color: var(--muted);">–</td>
+            <td><span class="erp-status-missing">✗ Missing</span></td>
+            <td style="color: var(--muted);">Can be derived from ProjectInvoice grouped by contractor</td>
+          </tr>
+          <tr>
+            <td style="color: var(--white); font-weight: 600;">Cash Flow Forecast</td>
+            <td>–</td>
+            <td style="color: var(--muted);">–</td>
+            <td><span class="erp-status-missing">✗ Missing</span></td>
+            <td style="color: var(--muted);">Needs time-series projection from milestone dates</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div style="margin-bottom: 8px; font-size: 13px; font-weight: 700; color: var(--muted);">SGC ERP — Taj Residencia Project Management Module</div>
+    <div>MRM Costing Framework × ERP Integration Workflow &nbsp;|&nbsp; Generated September 2026</div>
+  </div>
+
+</div>
+
+<script>
+  function togglePhase(header) {
+    const card = header.closest('.phase-card');
+    card.classList.toggle('open');
+  }
+  // Open first phase by default — already set via class
+</script>
+
+</body>
+</html>
