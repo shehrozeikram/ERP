@@ -7,7 +7,7 @@ const GeneralLedger = require('../models/finance/GeneralLedger');
 async function run() {
   try {
     let uri = process.env.MONGODB_URI_LOCAL || process.env.MONGODB_URI;
-    if (uri && uri.includes('127.0.0.1') && uri.endsWith('sgc_erp')) {
+    if (process.env.NODE_ENV !== 'production' && uri && uri.includes('127.0.0.1') && uri.endsWith('sgc_erp')) {
       uri = uri.replace('sgc_erp', 'sgc_erp_local');
     }
     await mongoose.connect(uri);

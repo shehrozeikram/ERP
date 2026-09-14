@@ -10,8 +10,8 @@ async function run() {
   try {
     // Determine URI (use local development DB as requested)
     let uri = process.env.MONGODB_URI_LOCAL || process.env.MONGODB_URI;
-    // Force to sgc_erp_local if it's pointing to sgc_erp by mistake
-    if (uri && uri.includes('127.0.0.1') && uri.endsWith('sgc_erp')) {
+    // Force to sgc_erp_local if we are NOT in production
+    if (process.env.NODE_ENV !== 'production' && uri && uri.includes('127.0.0.1') && uri.endsWith('sgc_erp')) {
       uri = uri.replace('sgc_erp', 'sgc_erp_local');
     }
     console.log(`Connecting to database: ${uri.split('@').pop()}`); // hide password if any
