@@ -5467,6 +5467,15 @@ router.get('/reports/bank-reconciliation',
       .sort({ date: 1, entryNumber: 1 })
       .lean();
 
+    const cleanReference = (ref, vrNo) => {
+      let r = String(ref || '').trim();
+      if (!r || r === '—') return '—';
+      const u = r.toUpperCase();
+      if (u === 'EXCEL IMPORT' || u === String(vrNo || '').toUpperCase()) return '—';
+      if (/^(CV|BPV|BRV|CPV|CRV|PV|JV)-/i.test(r)) return '—';
+      return r;
+    };
+
     // Map all unique transactions (prioritize GL, fallback to JE lines)
     const seenJeIds = new Set();
     const allBankTxns = [];
@@ -5478,14 +5487,16 @@ router.get('/reports/bank-reconciliation',
       const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
       const isCleared = Boolean(gle.clearanceStatus === 'cleared' || je.clearanceStatus === 'cleared' || gle.isReconciled || je.isReconciled);
       const clearDate = gle.clearedAt || je.clearedAt || gle.reconciledAt || je.reconciledAt || null;
+      
+      const vrNo = gle.entryNumber || je.entryNumber || '—';
 
       allBankTxns.push({
         _id: gle._id,
         journalEntryId: je._id || null,
         date: gle.date,
-        vrNo: gle.entryNumber || je.entryNumber || '—',
+        vrNo: vrNo,
         narration: gle.description || je.description || gle.account?.name || 'Bank Transaction',
-        reference: gle.reference || je.reference || '—',
+        reference: cleanReference(gle.reference || je.reference, vrNo),
         debit: Number(gle.debit) || 0,
         credit: Number(gle.credit) || 0,
         amount: amt,
@@ -5515,14 +5526,16 @@ router.get('/reports/bank-reconciliation',
           const amt = isCredit ? Number(line.credit) : Number(line.debit);
           const isCleared = Boolean(je.clearanceStatus === 'cleared' || je.isReconciled);
           const clearDate = je.clearedAt || je.reconciledAt || null;
+          
+          const vrNo = je.entryNumber || je.reference || '—';
 
           allBankTxns.push({
             _id: `${je._id}-${accId}`,
             journalEntryId: je._id,
             date: je.date,
-            vrNo: je.entryNumber || je.reference || '—',
+            vrNo: vrNo,
             narration: line.description || je.description || line.account?.name || 'Bank Transaction',
-            reference: je.reference || je.entryNumber || '—',
+            reference: cleanReference(je.reference || je.entryNumber, vrNo),
             debit: Number(line.debit) || 0,
             credit: Number(line.credit) || 0,
             amount: amt,
