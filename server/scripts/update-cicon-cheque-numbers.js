@@ -1,7 +1,14 @@
 const mongoose = require('mongoose');
 const xlsx = require('xlsx');
+const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const dotenv = require('dotenv');
+
+if (fs.existsSync(path.join(__dirname, '../.env.production'))) {
+  dotenv.config({ path: path.join(__dirname, '../.env.production') });
+} else {
+  dotenv.config({ path: path.join(__dirname, '../.env') });
+}
 
 const JournalEntry = require('../models/finance/JournalEntry');
 const GeneralLedger = require('../models/finance/GeneralLedger');
