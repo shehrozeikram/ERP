@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
-require('dotenv').config();
+const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
+if (fs.existsSync(path.join(__dirname, '../.env.production'))) {
+  dotenv.config({ path: path.join(__dirname, '../.env.production') });
+} else {
+  dotenv.config({ path: path.join(__dirname, '../.env') });
+}
 
 const JournalEntry = require('../models/finance/JournalEntry');
 const GeneralLedger = require('../models/finance/GeneralLedger');
