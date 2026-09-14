@@ -35,7 +35,8 @@ import {
   Stack,
   Divider,
   Pagination,
-  Switch
+  Switch,
+  Autocomplete
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -1198,30 +1199,24 @@ const ChartOfAccounts = () => {
             {newAccountForm.isSubaccount && (
               <Grid container spacing={2}>
                 <Grid item xs={12}>
-                  <FormControl fullWidth size="medium" sx={{ maxWidth: 520 }}>
-                    <InputLabel>Parent account</InputLabel>
-                    <Select
-                      value={newAccountForm.parentAccount}
-                      label="Parent account"
-                      onChange={(e) => setNewAccountForm(f => ({ ...f, parentAccount: e.target.value }))}
-                      sx={{ borderRadius: 1.5 }}
-                    >
-                      <MenuItem value="">
-                        <em>{parentAccountsLoading ? 'Loading parent accounts...' : 'Select...'}</em>
-                      </MenuItem>
-                      {parentAccountOptions.map((a) => (
-                        <MenuItem key={a._id} value={a._id}>
-                          {a.accountNumber} — {a.name}
-                          {a.type ? ` (${a.type})` : ''}
-                        </MenuItem>
-                      ))}
-                      {!parentAccountsLoading && parentAccountOptions.length === 0 && (
-                        <MenuItem value="" disabled>
-                          No parent accounts found
-                        </MenuItem>
-                      )}
-                    </Select>
-                  </FormControl>
+                  <Autocomplete
+                    options={parentAccountOptions}
+                    getOptionLabel={(option) => `${option.accountNumber || ''} — ${option.name || ''}${option.type ? ` (${option.type})` : ''}`}
+                    value={parentAccountOptions.find(a => a._id === newAccountForm.parentAccount) || null}
+                    onChange={(event, newValue) => {
+                      setNewAccountForm(f => ({ ...f, parentAccount: newValue ? newValue._id : '' }));
+                    }}
+                    loading={parentAccountsLoading}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Parent account"
+                        size="medium"
+                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 }, maxWidth: 520 }}
+                      />
+                    )}
+                    noOptionsText={parentAccountsLoading ? 'Loading parent accounts...' : 'No parent accounts found'}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
@@ -1514,25 +1509,22 @@ const ChartOfAccounts = () => {
                 />
                 {editAccountForm.isSubaccount && (
                   <Box sx={{ mt: 2, pl: 4 }}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Parent account</InputLabel>
-                      <Select
-                        value={editAccountForm.parentAccount}
-                        label="Parent account"
-                        onChange={(e) => setEditAccountForm((f) => ({ ...f, parentAccount: e.target.value }))}
-                        disabled={parentAccountsLoading}
-                      >
-                        <MenuItem value="">Select parent</MenuItem>
-                        {parentAccountOptions
-                          .filter((p) => String(p._id || p.id) !== String(editAccountForm.id))
-                          .map((a) => (
-                            <MenuItem key={a._id || a.id} value={a._id || a.id}>
-                              {a.accountNumber ? `${a.accountNumber} — ` : ''}
-                              {a.name}
-                            </MenuItem>
-                          ))}
-                      </Select>
-                    </FormControl>
+                    <Autocomplete
+                      options={parentAccountOptions.filter((p) => String(p._id || p.id) !== String(editAccountForm.id))}
+                      getOptionLabel={(option) => `${option.accountNumber ? `${option.accountNumber} — ` : ''}${option.name}`}
+                      value={parentAccountOptions.find(a => (a._id || a.id) === editAccountForm.parentAccount) || null}
+                      onChange={(event, newValue) => {
+                        setEditAccountForm((f) => ({ ...f, parentAccount: newValue ? (newValue._id || newValue.id) : '' }));
+                      }}
+                      disabled={parentAccountsLoading}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Parent account"
+                          size="small"
+                        />
+                      )}
+                    />
                   </Box>
                 )}
               </Box>

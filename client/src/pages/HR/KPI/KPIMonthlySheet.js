@@ -186,7 +186,7 @@ function KpiAreaField({ value, onChange, disabled, label }) {
   const showChip = text.trim().length > 0;
 
   return (
-    <Box sx={{ minWidth: 200, maxWidth: 320 }}>
+    <Box sx={{ minWidth: 300, maxWidth: 500 }}>
       <TextField
         fullWidth
         multiline
@@ -882,14 +882,14 @@ const KPIMonthlySheet = () => {
               <TableBody>
                 {rows.map((row, index) => (
                   <TableRow key={row._id || index}>
-                    <TableCell sx={{ minWidth: 220, verticalAlign: 'top' }}>
+                    <TableCell sx={{ minWidth: 320, verticalAlign: 'top' }}>
                       <KpiAreaField
                         value={row.kpiArea}
                         onChange={(v) => handleCell(index, 'kpiArea', v)}
                         disabled={!canEditStructure}
                       />
                     </TableCell>
-                    <TableCell align="right" sx={{ maxWidth: 88 }}>
+                    <TableCell align="right" sx={{ minWidth: 120 }}>
                       <TextField
                         type="number"
                         size="small"
@@ -899,7 +899,7 @@ const KPIMonthlySheet = () => {
                         disabled={!canEditStructure}
                       />
                     </TableCell>
-                    <TableCell align="right" sx={{ maxWidth: 88 }}>
+                    <TableCell align="right" sx={{ minWidth: 120 }}>
                       <TextField
                         type="number"
                         size="small"
@@ -909,7 +909,7 @@ const KPIMonthlySheet = () => {
                         disabled={!canEditEmployeeCols}
                       />
                     </TableCell>
-                    <TableCell align="right" sx={{ maxWidth: 88 }}>
+                    <TableCell align="right" sx={{ minWidth: 120 }}>
                       <TextField
                         type="number"
                         size="small"
@@ -919,7 +919,7 @@ const KPIMonthlySheet = () => {
                         disabled={!canEditEmployeeCols}
                       />
                     </TableCell>
-                    <TableCell align="right" sx={{ maxWidth: 88 }}>
+                    <TableCell align="right" sx={{ minWidth: 120 }}>
                       <TextField
                         type="number"
                         size="small"
@@ -929,7 +929,7 @@ const KPIMonthlySheet = () => {
                         disabled={!canEditReportingLineFields}
                       />
                     </TableCell>
-                    <TableCell align="right" sx={{ maxWidth: 88 }}>
+                    <TableCell align="right" sx={{ minWidth: 120 }}>
                       <TextField
                         type="number"
                         size="small"
