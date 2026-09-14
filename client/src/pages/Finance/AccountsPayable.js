@@ -1944,10 +1944,7 @@ const AccountsPayable = () => {
 
                         const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
 
-                        const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory].reverse() : [];
-
-                        const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit'));
-                        const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+                        const history = Array.isArray(selectedBill?.workflowHistory) ? [...selectedBill.workflowHistory] : [];
 
                         const rows = [
                           {
@@ -1955,21 +1952,38 @@ const AccountsPayable = () => {
                             name: userDisplayName(selectedBill?.createdBy),
                             signatureUser: selectedBill?.createdBy,
                             dateTime: selectedBill?.createdAt ? formatDateTime(selectedBill.createdAt) : '-'
-                          },
-                          {
-                            authority: 'Pre-Audit Authority',
-                            name: userDisplayName(preAuditEntry?.changedBy),
-                            signatureUser: preAuditEntry?.changedBy || null,
-                            dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
-                          },
-                          {
-                            authority: 'Audit Director',
-                            name: userDisplayName(directorEntry?.changedBy),
-                            signatureUser: directorEntry?.changedBy || null,
-                            signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || ''),
-                            dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
                           }
                         ];
+
+                        history.forEach(entry => {
+                          let title = entry.toStatus || 'Approver';
+                          if (title === 'Forwarded to Audit Director' || title === 'initial audit approval' || title === 'Initial Pre-Audit Approved' || title?.includes('Pre-Audit')) {
+                            title = 'Pre-Audit Authority';
+                          } else if (title === 'approved' || title === 'Approved' || title?.includes('Audit Director')) {
+                            title = 'Audit Director';
+                          } else if (title === 'Pending Department Approval' || title === 'Department Approved' || title?.includes('Department')) {
+                            title = 'Head Of Department Approver';
+                          } else if (title === 'Pending Audit') {
+                            // The action that sets it to 'Pending Audit' is usually the requester submitting it.
+                            // We can skip this as 'Sig of Requester' is already added.
+                            return;
+                          }
+
+                          // Avoid adding duplicates if the same authority performs back-to-back actions (optional, but keeps it clean)
+                          if (rows.length > 0 && rows[rows.length - 1].authority === title && rows[rows.length - 1].name === userDisplayName(entry.changedBy)) {
+                            // Update the date to the latest action
+                            rows[rows.length - 1].dateTime = entry.changedAt ? formatDateTime(entry.changedAt) : rows[rows.length - 1].dateTime;
+                            return;
+                          }
+
+                          rows.push({
+                            authority: title,
+                            name: userDisplayName(entry.changedBy),
+                            signatureUser: entry.changedBy || null,
+                            signaturePath: entry.stampUsed && entry.stampImage ? entry.stampImage : (entry.changedBy?.digitalSignature || ''),
+                            dateTime: entry.changedAt ? formatDateTime(entry.changedAt) : '-'
+                          });
+                        });
 
                         if (Array.isArray(selectedBill?.financeApprovalAuthorities) && selectedBill.financeApprovalAuthorities.length > 0) {
                           const financeRows = selectedBill.financeApprovalAuthorities.map((auth) => ({
@@ -1980,15 +1994,15 @@ const AccountsPayable = () => {
                             signaturePath: auth.digitalSignature || auth.assignedUser?.digitalSignature || '',
                             dateTime: auth.actedAt ? formatDateTime(auth.actedAt) : '-'
                           }));
-                          return [...rows, ...financeRows];
+                          rows.push(...financeRows);
+                        } else {
+                          rows.push({
+                            authority: 'Finance Authority',
+                            name: userDisplayName(selectedBill?.approval?.approvedBy),
+                            signatureUser: selectedBill?.approval?.approvedBy || null,
+                            dateTime: selectedBill?.approval?.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
+                          });
                         }
-
-                        rows.push({
-                          authority: 'Finance Authority',
-                          name: userDisplayName(selectedBill?.approval?.approvedBy),
-                          signatureUser: selectedBill?.approval?.approvedBy || null,
-                          dateTime: selectedBill?.approval?.approvedDate ? formatDateTime(selectedBill.approval.approvedDate) : '-'
-                        });
 
                         return rows;
                       };
