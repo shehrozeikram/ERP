@@ -4585,11 +4585,15 @@ router.get('/vendors',
     const trimmed = search != null ? String(search).trim() : '';
     if (trimmed) {
       const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const wordStartRegex = `(^|\\\\W)${escaped}`;
       supplierQuery.$or = [
-        { name: { $regex: escaped, $options: 'i' } },
+        { name: { $regex: wordStartRegex, $options: 'i' } },
         { supplierId: { $regex: escaped, $options: 'i' } },
         { email: { $regex: escaped, $options: 'i' } },
-        { contactPerson: { $regex: escaped, $options: 'i' } }
+        { contactPerson: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } },
+        { vendorCategory: { $regex: escaped, $options: 'i' } },
+        { ntnCnic: { $regex: escaped, $options: 'i' } }
       ];
     }
 

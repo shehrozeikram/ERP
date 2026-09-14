@@ -16,10 +16,17 @@ router.get('/', async (req, res) => {
     const filter = {};
     if (status) filter.status = status;
     if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Match from the start of any word (allows autocomplete partial typing like 'Spec' for 'Special')
+      const wordStartRegex = `(^|\\\\W)${escaped}`;
       filter.$or = [
-        { supplierId: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } },
-        { contactPerson: { $regex: search, $options: 'i' } }
+        { supplierId: { $regex: escaped, $options: 'i' } },
+        { name: { $regex: wordStartRegex, $options: 'i' } },
+        { contactPerson: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { vendorCategory: { $regex: escaped, $options: 'i' } },
+        { ntnCnic: { $regex: escaped, $options: 'i' } }
       ];
     }
 

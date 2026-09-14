@@ -3053,10 +3053,11 @@ router.get('/vendors',
 
     const trimmedSearch = search != null ? String(search).trim() : '';
     if (trimmedSearch) {
-      // Literal substring match across entire collection (pagination applies after filter)
+      // Literal match for all fields, match from the start of any word for name
       const escaped = trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const wordStartRegex = `(^|\\\\W)${escaped}`;
       query.$or = [
-        { name: { $regex: escaped, $options: 'i' } },
+        { name: { $regex: wordStartRegex, $options: 'i' } },
         { email: { $regex: escaped, $options: 'i' } },
         { phone: { $regex: escaped, $options: 'i' } },
         { contactPerson: { $regex: escaped, $options: 'i' } },

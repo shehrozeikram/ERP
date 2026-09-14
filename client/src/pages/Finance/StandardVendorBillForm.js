@@ -34,7 +34,8 @@ import {
   Tooltip,
   Divider,
   ToggleButton,
-  ToggleButtonGroup
+  ToggleButtonGroup,
+  createFilterOptions
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -55,6 +56,10 @@ import toast from 'react-hot-toast';
 import { formatPKR } from '../../utils/currency';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+
+const vendorFilterOptions = createFilterOptions({
+  stringify: (option) => `${option.name} ${option.phone || ''} ${option.email || ''} ${option.ntnCnic || ''} ${option.supplierId || ''}`.trim(),
+});
 
 const DEFAULT_TERMS = [
   { value: 'due_on_receipt', label: 'Due on receipt', days: 0 },
@@ -582,11 +587,23 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
               <Stack spacing={2}>
                 <Autocomplete
                   options={vendors}
+                  filterOptions={vendorFilterOptions}
                   getOptionLabel={(o) => o?.name || ''}
                   value={selectedVendor}
                   onChange={handleVendorChange}
                   loading={loadingMaster}
                   isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
+                  renderOption={(props, option) => {
+                    const extra = [option.phone, option.ntnCnic, option.email].filter(Boolean).join(' • ');
+                    return (
+                      <li {...props} key={option._id}>
+                        <Box>
+                          <Typography variant="body1">{option.name}</Typography>
+                          {extra && <Typography variant="caption" color="text.secondary">{extra}</Typography>}
+                        </Box>
+                      </li>
+                    );
+                  }}
                   sx={{ flexGrow: 1 }}
                   PaperComponent={({ children }) => (
                     <Paper>

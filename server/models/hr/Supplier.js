@@ -35,7 +35,7 @@ const supplierSchema = new mongoose.Schema({
   },
   paymentTerms: {
     type: String,
-    enum: ['Cash', 'Credit 7 days', 'Credit 15 days', 'Credit 30 days'],
+    enum: ['Cash', 'Credit 7 days', 'Credit 15 days', 'Credit 30 days', 'net_15', 'net_30', 'net_45', 'net_60', 'due_on_receipt'],
     default: 'Cash'
   },
   status: {
