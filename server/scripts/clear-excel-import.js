@@ -2,7 +2,9 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
-if (fs.existsSync(path.join(__dirname, '../.env.production'))) {
+if (fs.existsSync(path.join(__dirname, '../../.env'))) {
+  dotenv.config({ path: path.join(__dirname, '../../.env') }); // Production root .env
+} else if (fs.existsSync(path.join(__dirname, '../.env.production'))) {
   dotenv.config({ path: path.join(__dirname, '../.env.production') });
 } else {
   dotenv.config({ path: path.join(__dirname, '../.env') });
