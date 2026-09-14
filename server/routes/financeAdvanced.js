@@ -2814,6 +2814,17 @@ router.get('/accounts-payable/:id',
       }
     }
 
+    // Fetch source UtilityBill for Centralized Store bills (approval chain lives there)
+    let sourceUtilityBill = null;
+    if (bill.referenceType === 'utility_bill' && bill.referenceId) {
+      sourceUtilityBill = await UtilityBill.findById(bill.referenceId)
+        .populate('createdBy', 'firstName lastName name email digitalSignature')
+        .populate('approvedBy', 'firstName lastName name email digitalSignature')
+        .populate('approvalChain.approver', 'firstName lastName name email digitalSignature')
+        .populate('workflowHistory.changedBy', 'firstName lastName name email employeeId digitalSignature approvalStamp')
+        .lean();
+    }
+
     res.json({
       success: true,
       data: {
@@ -2821,7 +2832,8 @@ router.get('/accounts-payable/:id',
         vendorName: bill.vendor?.name || 'Unknown Vendor',
         vendorEmail: bill.vendor?.email || '',
         poDetail,
-        cashApproval
+        cashApproval,
+        sourceUtilityBill
       }
     });
   })

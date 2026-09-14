@@ -88,54 +88,111 @@ export default function BillPrint() {
       });
     };
 
-    const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
+    const userDisplayName = (u) => {
+      if (!u) return '-';
+      if (typeof u === 'string') return u;
+      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.name || u.email;
+      return name || '-';
+    };
 
-    if (Array.isArray(bill?.financeApprovalAuthorities) && bill.financeApprovalAuthorities.length > 0) {
-      return bill.financeApprovalAuthorities.map((auth) => ({
-        authority: auth.levelName || auth.levelKey || 'Approval Authority',
-        name: auth.assignedUser ? userDisplayName(auth.assignedUser) : (auth.userName || '-'),
-        status: auth.status || 'Pending',
-        signatureUser: auth.assignedUser || null,
-        signaturePath: auth.digitalSignature || auth.assignedUser?.digitalSignature || '',
-        dateTime: auth.actedAt ? formatDateTime(auth.actedAt) : '-'
-      }));
+    const rows = [];
+    const isCentralizedStore = bill?.referenceType === 'utility_bill' || bill?.module === 'taj_utilities';
+    const srcBill = bill?.sourceUtilityBill;
+
+    // 1. Sig of Requester
+    const requester = (isCentralizedStore && srcBill?.createdBy) ? srcBill.createdBy : bill?.createdBy;
+    const requesterDate = (isCentralizedStore && srcBill?.createdAt) ? srcBill.createdAt : bill?.createdAt;
+    rows.push({
+      authority: 'Sig of Requester',
+      name: userDisplayName(requester),
+      status: 'Approved',
+      signatureUser: requester || null,
+      signaturePath: requester?.digitalSignature || '',
+      dateTime: requesterDate ? formatDateTime(requesterDate) : '-'
+    });
+
+    // 2. Manager / HOD Approver (from source utility bill)
+    if (isCentralizedStore && srcBill) {
+      const approvalChain = Array.isArray(srcBill.approvalChain) ? srcBill.approvalChain : [];
+      approvalChain.forEach((step) => {
+        if (step.status === 'approved' && step.approver) {
+          rows.push({
+            authority: 'Manager / HOD Approver',
+            name: userDisplayName(step.approver),
+            status: 'Approved',
+            signatureUser: step.approver || null,
+            signaturePath: step.approver?.digitalSignature || '',
+            dateTime: step.actedAt ? formatDateTime(step.actedAt) : '-'
+          });
+        }
+      });
+      if (!rows.some(r => r.authority === 'Manager / HOD Approver') && srcBill.approvedBy) {
+        rows.push({
+          authority: 'Manager / HOD Approver',
+          name: userDisplayName(srcBill.approvedBy),
+          status: 'Approved',
+          signatureUser: srcBill.approvedBy || null,
+          signaturePath: srcBill.approvedBy?.digitalSignature || '',
+          dateTime: srcBill.approvedAt ? formatDateTime(srcBill.approvedAt) : '-'
+        });
+      }
     }
 
-    const history = Array.isArray(bill?.workflowHistory) ? [...bill.workflowHistory].reverse() : [];
-    const preAuditEntry = history.find((e) => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit'));
-    const directorEntry = history.find((e) => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+    // 3. Pre-Audit & 4. Audit Director
+    const auditHistory = (isCentralizedStore && srcBill && Array.isArray(srcBill.workflowHistory) && srcBill.workflowHistory.length > 0)
+      ? [...srcBill.workflowHistory]
+      : (Array.isArray(bill?.workflowHistory) ? [...bill.workflowHistory] : []);
 
-    return [
-      {
-        authority: 'Sig of Requester',
-        name: userDisplayName(bill?.createdBy),
-        status: 'Approved',
-        signatureUser: bill?.createdBy,
-        dateTime: bill?.createdAt ? formatDateTime(bill.createdAt) : '-'
-      },
-      {
-        authority: 'Pre-Audit Authority',
-        name: userDisplayName(preAuditEntry?.changedBy),
-        status: preAuditEntry ? 'Approved' : 'Pending',
-        signatureUser: preAuditEntry?.changedBy || null,
-        dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
-      },
-      {
-        authority: 'Audit Director',
-        name: userDisplayName(directorEntry?.changedBy),
-        status: directorEntry ? 'Approved' : 'Pending',
-        signatureUser: directorEntry?.changedBy || null,
-        signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || ''),
-        dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
-      },
-      {
+    const preAuditEntry = [...auditHistory].reverse().find((e) =>
+      e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' ||
+      e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit') || e.toStatus === 'Send to Audit'
+    );
+    const directorEntry = [...auditHistory].reverse().find((e) =>
+      e.toStatus === 'approved' || e.toStatus === 'Approved' ||
+      e.toStatus?.includes('Audit Director') || e.toStatus?.startsWith('Approved (from')
+    );
+
+    rows.push({
+      authority: 'Pre-Audit Authority',
+      name: userDisplayName(preAuditEntry?.changedBy),
+      status: preAuditEntry ? 'Approved' : 'Pending',
+      signatureUser: preAuditEntry?.changedBy || null,
+      signaturePath: preAuditEntry?.stampUsed && preAuditEntry?.stampImage ? preAuditEntry.stampImage : (preAuditEntry?.changedBy?.digitalSignature || ''),
+      dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
+    });
+
+    rows.push({
+      authority: 'Audit Director',
+      name: userDisplayName(directorEntry?.changedBy),
+      status: directorEntry ? 'Approved' : 'Pending',
+      signatureUser: directorEntry?.changedBy || null,
+      signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || ''),
+      dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+    });
+
+    // 5. Finance
+    if (Array.isArray(bill?.financeApprovalAuthorities) && bill.financeApprovalAuthorities.length > 0) {
+      bill.financeApprovalAuthorities.forEach((auth) => {
+        rows.push({
+          authority: auth.levelName || auth.levelKey || 'Finance Authority',
+          name: auth.assignedUser ? userDisplayName(auth.assignedUser) : (auth.userName || '-'),
+          status: auth.status || 'Pending',
+          signatureUser: auth.assignedUser || null,
+          signaturePath: auth.digitalSignature || auth.assignedUser?.digitalSignature || '',
+          dateTime: auth.actedAt ? formatDateTime(auth.actedAt) : '-'
+        });
+      });
+    } else {
+      rows.push({
         authority: 'Finance Authority',
         name: userDisplayName(bill?.approval?.approvedBy),
         status: bill?.approval?.approvedBy ? 'Approved' : (bill?.status === 'paid' ? 'Approved' : 'Pending'),
         signatureUser: bill?.approval?.approvedBy || null,
         dateTime: bill?.approval?.approvedDate ? formatDateTime(bill.approval.approvedDate) : '-'
-      }
-    ];
+      });
+    }
+
+    return rows;
   };
 
   const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
