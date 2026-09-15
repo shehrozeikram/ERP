@@ -50,7 +50,8 @@ import {
   Clear as ClearIcon,
   Download as DownloadIcon,
   CompareArrows as CompareArrowsIcon,
-  LocalGasStation as FuelIcon
+  LocalGasStation as FuelIcon,
+  PictureAsPdf as PictureAsPdfIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -584,6 +585,94 @@ const Payroll = () => {
       } else {
         setError(exportError.response?.data?.message || 'Failed to export payroll for this month.');
       }
+    } finally {
+      setExportLoadingKey(null);
+    }
+  };
+
+  const exportMonthPayrollPdf = async (month, year, periodLabel) => {
+    const key = `pdf-${month}-${year}`;
+    const monthNum = Number(month);
+    const yearNum = Number(year);
+    if (!monthNum || monthNum < 1 || monthNum > 12 || !yearNum) {
+      setError('Select a valid month and year to export.');
+      return;
+    }
+
+    try {
+      setExportLoadingKey(key);
+      setError(null);
+
+      const response = await api.get('/hr/reports/payroll/monthly', {
+        params: {
+          month: monthNum,
+          year: yearNum,
+          ...(monthlyFilters.department ? { department: monthlyFilters.department } : {}),
+          ...(monthlyFilters.project ? { project: monthlyFilters.project } : {}),
+          format: 'json'
+        },
+        timeout: 120000
+      });
+
+      const reportData = response.data?.data || response.data;
+      if (!reportData || !reportData.data || !reportData.data.length) {
+        setError('No payroll data to export for this period.');
+        return;
+      }
+
+      const jsPDF = (await import('jspdf')).default;
+      const autoTable = (await import('jspdf-autotable')).default;
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      
+      // Header bar
+      doc.setFillColor(25, 118, 210);
+      doc.rect(0, 0, 420, 22, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SGC International', 14, 10);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Monthly Payroll - ${periodLabel}`, 14, 17);
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Generated: ${new Date().toLocaleDateString('en-PK')}`, 14, 33);
+      doc.setDrawColor(200, 200, 200);
+      doc.line(14, 36, 406, 36);
+
+      const headers = [
+        'Sr No', 'ID', 'Name', 'CNIC', 'Bank', 'Account No', 'Project', 'Company', 'Department', 'Designation',
+        'Gross Salary', 'Total Earn', 'Total Ded', 'Net Payable'
+      ];
+
+      const rows = reportData.data.map((r, i) => [
+        i + 1,
+        r.employeeId || 'N/A',
+        r.employeeName || 'N/A',
+        r.idCard || 'N/A',
+        r.bankName || 'N/A',
+        r.accountNumber || 'N/A',
+        r.project || 'N/A',
+        r.company || 'N/A',
+        r.department || 'N/A',
+        r.designation || 'N/A',
+        Math.round(r.grossSalary || 0).toLocaleString('en-PK'),
+        Math.round(r.totalEarnings || 0).toLocaleString('en-PK'),
+        Math.round(r.deductions || 0).toLocaleString('en-PK'),
+        Math.round(r.netPay || r.netPayable || 0).toLocaleString('en-PK')
+      ]);
+
+      autoTable(doc, {
+        startY: 42,
+        head: [headers],
+        body: rows,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [245, 245, 245], textColor: [60, 60, 60], fontStyle: 'bold' }
+      });
+
+      doc.save(`monthly-payroll-${periodLabel}.pdf`);
+    } catch (exportError) {
+      console.error('Error exporting month payroll to PDF:', exportError);
+      setError(exportError.response?.data?.message || 'Failed to export payroll PDF for this month.');
     } finally {
       setExportLoadingKey(null);
     }
@@ -1212,121 +1301,6 @@ Do you want to:
     }
   };
 
-
-
-  // Unused function - handleMonthlyTaxUpdate
-  // const handleMonthlyTaxUpdate = async () => {
-  //   try {
-  //     setMonthlyTaxUpdateLoading(true);
-  //     setError(null);
-  //     
-  //     const confirmMessage = 'This will update taxes for all payrolls in the current month using the latest FBR 2026-2027 tax slabs. This action cannot be undone. Continue?';
-  //     if (!window.confirm(confirmMessage)) {
-  //       return;
-  //     }
-  //     
-  //     // Get current month and year
-  //     const now = new Date();
-  //     const currentMonth = now.getMonth() + 1;
-  //     const currentYear = now.getFullYear();
-  //     
-  //     console.log(`🔄 Updating monthly taxes for ${currentMonth}/${currentYear}...`);
-  //     
-  //     // Call the monthly tax update API
-  //     const response = await api.post('/payroll/current-month-tax-update');
-  //     
-  //     if (response.data.success) {
-  //       const result = response.data.data;
-  //       
-  //       console.log('✅ Monthly tax update completed:', result);
-  //       
-  //       // Show success message
-  //       alert(`Successfully updated taxes for ${result.totalCount} payrolls!\n\nUpdated: ${result.updatedCount}\nAlready Updated: ${result.totalCount - result.updatedCount}\nFailed: ${result.errorCount}`);
-  //       
-  //       // Refresh data
-  //       await fetchPayrolls();
-  //       await fetchStats();
-  //       
-  //       setError(null);
-  //     } else {
-  //       setError('Failed to update monthly taxes');
-  //     }
-  //     
-  //   } catch (error) {
-  //     console.error('Error updating monthly taxes:', error);
-  //     setError(`Failed to update monthly taxes: ${error.message}`);
-  //   } finally {
-  //     setMonthlyTaxUpdateLoading(false);
-  //   }
-  // };
-
-  // Unused function - handleRecalculateExistingPayrolls
-  // const handleRecalculateExistingPayrolls = async () => {
-  //   try {
-  //     setLoading(true);
-  //     setError(null);
-  //     
-  //     // Get all existing payrolls
-  //     const payrollsToRecalculate = payrolls.filter(p => p.status !== 'Deleted');
-  //     
-  //     if (payrollsToRecalculate.length === 0) {
-  //       setError('No payrolls found to recalculate.');
-  //       return;
-  //     }
-  //     
-  //     const confirmMessage = `This will recalculate ${payrollsToRecalculate.length} existing payroll(s) to exclude Provident Fund from total deductions and net salary. This action cannot be undone. Continue?`;
-  //     if (!window.confirm(confirmMessage)) {
-  //       return;
-  //     }
-  //     
-  //     let updatedCount = 0;
-  //     let errorCount = 0;
-  //     
-  //     for (const payroll of payrollsToRecalculate) {
-  //       try {
-  //         // Recalculate total deductions excluding Provident Fund
-  //         const recalculatedTotalDeductions = (payroll.incomeTax || 0) + 
-  //                                           (payroll.healthInsurance || 0) + 
-  //                                           (payroll.vehicleLoanDeduction || 0) +
-  //                                           (payroll.companyLoanDeduction || 0) +
-  //                                           (payroll.eobi || 370) + 
-  //                                           (payroll.otherDeductions || 0);
-  //         
-  //         // Recalculate net salary
-  //         const recalculatedNetSalary = (payroll.grossSalary || 0) - recalculatedTotalDeductions;
-  //         
-  //         // Update payroll with recalculated values
-  //         await api.put(`/payroll/${payroll._id}`, {
-  //           totalDeductions: recalculatedTotalDeductions,
-  //           netSalary: recalculatedNetSalary
-  //         });
-  //         
-  //         updatedCount++;
-  //       } catch (error) {
-  //         console.error(`Error updating payroll ${payroll._id}:`, error);
-  //         errorCount++;
-  //       }
-  //     }
-  //     
-  //     // Refresh data
-  //     fetchPayrolls();
-  //     fetchStats();
-  //     
-  //     setError(null);
-  //     
-  //     // Show success message
-  //     if (errorCount === 0) {
-  //       alert(`Successfully recalculated ${updatedCount} payroll(s)! Provident Fund is now excluded from total deductions and net salary.`);
-  //     } else {
-  //       alert(`Recalculated ${updatedCount} payroll(s) with ${errorCount} errors. Please check the console for details.`);
-  //     }
-  //   } catch (error) {
-  //     console.error('Error recalculating payrolls:', error);
-  //     setError(`Failed to recalculate payrolls: ${error.message}`);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
 
   if ((loading && payrolls.length === 0) || dataLoading.employees || dataLoading.departments || dataLoading.positions) {
     return (
@@ -2139,6 +2113,25 @@ Do you want to:
                     }}
                   >
                     Export month (CSV)
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    size="small"
+                    startIcon={
+                      exportLoadingKey === `pdf-${exportMonth}-${exportYear}` ? (
+                        <CircularProgress size={16} color="inherit" />
+                      ) : (
+                        <PictureAsPdfIcon />
+                      )
+                    }
+                    disabled={!!exportLoadingKey}
+                    onClick={() => {
+                      const label = months.find((m) => String(parseInt(m.value, 10)) === String(exportMonth))?.label;
+                      exportMonthPayrollPdf(exportMonth, exportYear, `${label || exportMonth}-${exportYear}`);
+                    }}
+                  >
+                    Export month (PDF)
                   </Button>
                   <Button
                     variant="outlined"

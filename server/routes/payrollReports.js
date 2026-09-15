@@ -13,8 +13,6 @@ const mongoose = require('mongoose');
 
 const router = express.Router();
 
-console.log('🔧 PayrollReports routes loaded successfully');
-
 // Months array for display
 const months = [
   { value: 1, label: 'January' },
@@ -164,6 +162,14 @@ router.get('/monthly',
           }
         },
         {
+          $lookup: {
+            from: 'placementcompanies',
+            localField: 'employeeData.placementCompany',
+            foreignField: '_id',
+            as: 'companyData'
+          }
+        },
+        {
           $unwind: {
             path: '$departmentData',
             preserveNullAndEmptyArrays: true
@@ -200,11 +206,18 @@ router.get('/monthly',
           }
         },
         {
+          $unwind: {
+            path: '$companyData',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
           $addFields: {
             'employeeIdNumeric': {
               $toInt: { $ifNull: ['$employeeData.employeeId', '0'] }
             },
             'project': '$projectData.name',
+            'company': '$companyData.name',
             'section': '$sectionData.name',
             'designation': '$designationData.title',
             'location': '$locationData.name'
@@ -262,12 +275,15 @@ router.get('/monthly',
             'designationData.title': 1,
             'locationData.name': 1,
             'projectData.name': 1,
+            'companyData.name': 1,
             // Calculated fields
             project: 1,
+            company: 1,
             section: 1,
             designation: 1,
             location: 1,
-            employeeIdNumeric: 1
+            employeeIdNumeric: 1,
+            arrears: 1
           }
         }
       ]);
@@ -305,6 +321,7 @@ router.get('/monthly',
         accountNumber: employee.employeeData?.accountNumber || 'N/A',
         hireDate: employee.employeeData?.hireDate || null,
         project: employee.project || 'N/A',
+        company: employee.company || 'N/A',
         department: employee.departmentData?.name || 'N/A',
         section: employee.section || 'N/A',
         designation: employee.designation || 'N/A',
@@ -699,6 +716,7 @@ function convertToCSV(reportData) {
     'Account No',
     'DOJ',
     'Project',
+    'Company',
     'Department',
     'Section',
     'Designation',
@@ -710,6 +728,7 @@ function convertToCSV(reportData) {
     'Probation Period',
     'Date of Appointment',
     'Confirmation Date',
+    'Arrears',
     'Gross Salary',
     'Basic Salary',
     'House Rent',
@@ -744,12 +763,13 @@ function convertToCSV(reportData) {
       row.employeeId || 'N/A', // ID
       row.employeeName || 'N/A', // Name
       row.guardianName || 'N/A', // Guardian Name
-      row.idCard || 'N/A', // CNIC
+      row.idCard ? `'${row.idCard}` : 'N/A', // CNIC
       row.bankName || 'N/A', // Bank
       row.branchCode || 'N/A', // Branch Code
-      row.accountNumber || 'N/A', // Account No
+      row.accountNumber ? `'${row.accountNumber}` : 'N/A', // Account No
       row.hireDate ? new Date(row.hireDate).toLocaleDateString('en-GB') : 'N/A', // DOJ - DD/MM/YYYY format
       row.project || 'N/A', // Project
+      row.company || 'N/A', // Company
       row.department || 'N/A', // Department
       row.section || 'N/A', // Section
       row.designation || 'N/A', // Designation
@@ -761,26 +781,27 @@ function convertToCSV(reportData) {
       row.probationPeriod ? `${row.probationPeriod} months` : 'N/A', // Probation Period
       row.appointmentDate ? new Date(row.appointmentDate).toLocaleDateString('en-GB') : 'N/A', // Date of Appointment
       row.confirmationDate ? new Date(row.confirmationDate).toLocaleDateString('en-GB') : 'N/A', // Confirmation Date
-      row.grossSalary || 0, // Gross Salary (from actual payroll)
-      row.basicSalary || 0, // Basic Salary
-      row.houseRent || 0, // House Rent
-      row.medical || 0, // Medical
-      row.conveyanceAllowance || 0, // Conveyance Allowance
-      row.houseAllowance || 0, // House Allowance
-      row.foodAllowance || 0, // Food Allowance
-      row.vehicleAllowance || 0, // Vehicle Allowance
-      row.fuelAllowance || 0, // Fuel Allowance
-      row.medicalAllowance || 0, // Medical Allowance
-      row.totalEarnings || 0, // Total Earnings (from actual payroll)
-      row.deductions || 0, // Total Deductions (from actual payroll)
-      row.tax || 0, // Income Tax (from actual payroll)
-      row.eobi || 0, // EOBI Ded (from actual payroll)
-      row.healthInsurance || 0, // Health Insurance (from actual payroll)
-      row.vehicleLoanDeduction || 0, // Vehicle Loan Deduction (from actual payroll)
-      row.companyLoanDeduction || 0, // Company Loan Deduction (from actual payroll)
-      row.attendanceDeduction || 0, // Attendance Deduction (from actual payroll)
-      row.otherDeductions || 0, // Other Deductions (from actual payroll)
-      row.netPay || 0 // Net Payable (from actual payroll)
+      Math.round(row.arrears || 0), // Arrears
+      Math.round(row.grossSalary || 0), // Gross Salary (from actual payroll)
+      Math.round(row.basicSalary || 0), // Basic Salary
+      Math.round(row.houseRent || 0), // House Rent
+      Math.round(row.medical || 0), // Medical
+      Math.round(row.conveyanceAllowance || 0), // Conveyance Allowance
+      Math.round(row.houseAllowance || 0), // House Allowance
+      Math.round(row.foodAllowance || 0), // Food Allowance
+      Math.round(row.vehicleAllowance || 0), // Vehicle Allowance
+      Math.round(row.fuelAllowance || 0), // Fuel Allowance
+      Math.round(row.medicalAllowance || 0), // Medical Allowance
+      Math.round(row.totalEarnings || 0), // Total Earnings (from actual payroll)
+      Math.round(row.deductions || 0), // Total Deductions (from actual payroll)
+      Math.round(row.tax || 0), // Income Tax (from actual payroll)
+      Math.round(row.eobi || 0), // EOBI Ded (from actual payroll)
+      Math.round(row.healthInsurance || 0), // Health Insurance (from actual payroll)
+      Math.round(row.vehicleLoanDeduction || 0), // Vehicle Loan Deduction (from actual payroll)
+      Math.round(row.companyLoanDeduction || 0), // Company Loan Deduction (from actual payroll)
+      Math.round(row.attendanceDeduction || 0), // Attendance Deduction (from actual payroll)
+      Math.round(row.otherDeductions || 0), // Other Deductions (from actual payroll)
+      Math.round(row.netPay || 0) // Net Payable (from actual payroll)
     ];
 
     // Escape commas and quotes in CSV
