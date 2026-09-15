@@ -30,7 +30,9 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   CircularProgress,
-  Checkbox
+  Checkbox,
+  TextField,
+  InputAdornment
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -48,7 +50,8 @@ import {
   Delete as DeleteIcon,
   GetApp as DownloadIcon,
   InsertDriveFile as FileIcon,
-  CheckCircle as PostIcon
+  CheckCircle as PostIcon,
+  Search as SearchIcon
 } from '@mui/icons-material';
 import TablePagination from '@mui/material/TablePagination';
 import { useNavigate } from 'react-router-dom';
@@ -71,6 +74,7 @@ const JournalEntriesList = () => {
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [totalCount, setTotalCount] = useState(0);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Attachment dialog state
   const [attachDlg, setAttachDlg] = useState({ open: false, entry: null, uploading: false });
@@ -137,7 +141,7 @@ const JournalEntriesList = () => {
 
   useEffect(() => {
     fetchJournalEntries();
-  }, [selectedCompanyId, page, rowsPerPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedCompanyId, page, rowsPerPage, searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchJournalEntries = async () => {
     try {
@@ -147,6 +151,9 @@ const JournalEntriesList = () => {
       params.append('page', String(page + 1));
       if (selectedCompanyId) {
         params.append('companyId', selectedCompanyId);
+      }
+      if (searchQuery) {
+        params.append('search', searchQuery);
       }
       const response = await api.get(`/finance/journal-entries?${params}`);
       if (response.data.success) {
@@ -227,6 +234,20 @@ const JournalEntriesList = () => {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <TextField
+              size="small"
+              placeholder="Search entries..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ minWidth: 250 }}
+            />
             <FinanceCompanySelector minWidth={280} showHelper={false} />
             {selectedIds.length > 0 && (
               <Button
