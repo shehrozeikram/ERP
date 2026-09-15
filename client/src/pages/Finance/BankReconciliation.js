@@ -217,6 +217,7 @@ export default function BankReconciliation() {
 
   const load = useCallback(async () => {
     if (!filters.bankAccountId) return;
+    setData(null); // Clear old data to force loading spinner
     setLoading(true);
     setError('');
     try {
@@ -224,7 +225,8 @@ export default function BankReconciliation() {
         accountId: filters.bankAccountId,
         asOfDate: filters.asOfDate,
         fromDate: filters.fromDate,
-        toDate: filters.toDate
+        toDate: filters.toDate,
+        _t: new Date().getTime() // Cache buster
       };
       const res = await api.get('/finance/reports/bank-reconciliation', { params });
       const reportData = res.data?.data;
