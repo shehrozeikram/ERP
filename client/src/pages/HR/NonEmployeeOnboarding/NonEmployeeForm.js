@@ -66,7 +66,7 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
   React.useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await api.get('/auth/users', { params: { limit: 1000, active: true } });
+        const res = await api.get('/auth/users', { params: { limit: 1000, active: true, dropdown: true } });
         const fetchedUsers = res.data.data?.users || (Array.isArray(res.data.data) ? res.data.data : []);
         setUsers(fetchedUsers);
 

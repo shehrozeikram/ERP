@@ -904,7 +904,12 @@ router.post('/users', [
 // @access  Private (Admin)
 router.get('/users', 
   authMiddleware,
-  permissions.checkSubRolePermission('admin', 'user_management', 'read'),
+  (req, res, next) => {
+    if (req.query.dropdown === 'true') {
+      return next();
+    }
+    return permissions.checkSubRolePermission('admin', 'user_management', 'read')(req, res, next);
+  },
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
