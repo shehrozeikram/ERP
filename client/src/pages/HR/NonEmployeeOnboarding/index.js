@@ -205,6 +205,11 @@ const NonEmployeeOnboarding = () => {
               const isPendingAVP = record.workflowStatus === 'Pending AVP' && (userId === record.assignedAvp?._id || userId === record.assignedAvp);
               const isPendingAuthority = isPendingHOD || isPendingAVP;
               const currentPendingType = isPendingHOD ? 'HOD' : 'AVP';
+              
+              const isDeveloper = user?.email === 'developer@tovus.net';
+              const isInitiatorEditable = ['Pending HOD HR', 'Draft', 'Returned'].includes(record.workflowStatus) && (userId === record.initiator?._id || userId === record.initiator);
+              const canEdit = isDeveloper || isInitiatorEditable;
+              const canDelete = isInitiatorEditable; // Maintain existing delete logic
 
               return (
                 <TableRow key={record._id}>
@@ -262,41 +267,31 @@ const NonEmployeeOnboarding = () => {
                         </Button>
                       </>
                     )}
-                    {(() => {
-                      const isDeveloper = user?.email === 'developer@tovus.net';
-                      const isInitiatorEditable = ['Pending HOD HR', 'Draft', 'Returned'].includes(record.workflowStatus) && (userId === record.initiator?._id || userId === record.initiator);
-                      const canEdit = isDeveloper || isInitiatorEditable;
-                      const canDelete = isInitiatorEditable; // Maintain existing delete logic
-                      
-                      if (canEdit || canDelete) {
-                        return (
-                          <React.Fragment key="actions">
-                            {canEdit && (
-                              <IconButton 
-                                color="primary" 
-                                size="small" 
-                                onClick={() => {
-                                  setEditData(record);
-                                  setOpenForm(true);
-                                }}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            )}
-                            {canDelete && (
-                              <IconButton 
-                                color="error" 
-                                size="small" 
-                                onClick={() => setDeleteDialog({ open: true, record })}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            )}
-                          </React.Fragment>
-                        );
-                      }
-                      return null;
-                    })()}
+                    {(canEdit || canDelete) && (
+                      <React.Fragment>
+                        {canEdit && (
+                          <IconButton 
+                            color="primary" 
+                            size="small" 
+                            onClick={() => {
+                              setEditData(record);
+                              setOpenForm(true);
+                            }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                        {canDelete && (
+                          <IconButton 
+                            color="error" 
+                            size="small" 
+                            onClick={() => setDeleteDialog({ open: true, record })}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </React.Fragment>
+                    )}
                   </Box>
                 </TableCell>
               </TableRow>
