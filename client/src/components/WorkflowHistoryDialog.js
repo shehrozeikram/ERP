@@ -103,8 +103,59 @@ const holdSeverityStyles = {
 };
 
 const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'document' }) => {
-  // Use fullWorkflowHistory when present (e.g. PO with related indent: indent flow then PO flow); otherwise workflowHistory
-  const rawHistory = document?.fullWorkflowHistory ?? document?.workflowHistory ?? [];
+  let rawHistory = document?.fullWorkflowHistory ?? document?.workflowHistory ?? [];
+  
+  if (documentType === 'onboarding' && rawHistory.length === 0) {
+    if (document?.initiatedAt) {
+      rawHistory.push({
+        module: 'HR',
+        fromStatus: 'Draft',
+        toStatus: 'Pending HOD HR',
+        changedAt: document.initiatedAt,
+        changedBy: document.initiator || null,
+        comments: 'Record initiated'
+      });
+    }
+    if (document?.hodApprovedAt || (document?.workflowStatus === 'Forwarded to CEO' && document?.updatedAt)) {
+      rawHistory.push({
+        module: 'HR',
+        fromStatus: 'Pending HOD HR',
+        toStatus: document?.hodComments?.includes('reject') ? 'Returned' : 'Forwarded to CEO',
+        changedAt: document.hodApprovedAt || document.updatedAt,
+        changedBy: document.hodApprovedBy || document.assignedHod || null,
+        comments: document.hodComments || (document.hodSignature ? `Signed by: ${document.hodSignature}` : 'HOD Review completed')
+      });
+    }
+    if (document?.ceoApprovedAt) {
+      rawHistory.push({
+        module: 'CEO Secretariat',
+        fromStatus: 'Forwarded to CEO',
+        toStatus: 'Approved by CEO',
+        changedAt: document.ceoApprovedAt,
+        changedBy: document.ceoApprovedBy || null,
+        comments: document.ceoComments || (document.ceoSignature ? `Signed by: ${document.ceoSignature}` : 'CEO Approval completed')
+      });
+    } else if (document?.workflowStatus === 'Rejected by CEO') {
+      rawHistory.push({
+        module: 'CEO Secretariat',
+        fromStatus: 'Forwarded to CEO',
+        toStatus: 'Rejected by CEO',
+        changedAt: document.updatedAt,
+        changedBy: null,
+        comments: document.rejectionComments || 'Rejected by CEO'
+      });
+    } else if (document?.workflowStatus === 'Returned' && document?.returnComments) {
+      rawHistory.push({
+        module: 'CEO Secretariat',
+        fromStatus: 'Forwarded to CEO',
+        toStatus: 'Returned',
+        changedAt: document.updatedAt,
+        changedBy: null,
+        comments: document.returnComments || 'Returned by CEO'
+      });
+    }
+  }
+
   // Sort by changedAt so full flow is in chronological order (backend may not always send sorted)
   const workflowHistory = [...rawHistory].sort((a, b) => new Date(a.changedAt || 0) - new Date(b.changedAt || 0));
   const referenceNumber =
@@ -114,10 +165,12 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
     document?.documentNumber ||
     document?.orderNumber ||
     document?.indentNumber ||
+    document?.recordNumber ||
     'N/A';
   const title = documentType === 'settlement' ? 'Payment Settlement' : 
                documentType === 'preAudit' ? 'Pre Audit Document' : 
                documentType === 'indent' ? 'Indent' :
+               documentType === 'onboarding' ? 'Onboarding Record' :
                document?.billNumber ? 'Vendor Bill' :
                 document?.orderNumber ? 'Purchase Order' : 'Document';
   const currentStatus = String(

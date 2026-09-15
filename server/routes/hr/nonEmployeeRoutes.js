@@ -1,0 +1,52 @@
+const express = require('express');
+const router = express.Router();
+const nonEmployeeController = require('../../controllers/hr/nonEmployeeController');
+const { authMiddleware, authorize } = require('../../middleware/auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../../uploads/non-employee-attachments');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'attachment-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Ensure user is authenticated
+router.use(authMiddleware);
+
+// Routes
+router.route('/')
+  .post(upload.array('attachments', 5), nonEmployeeController.createRecord)
+  .get(nonEmployeeController.getRecords);
+
+// CEO Dashboard specific routes
+router.get('/ceo-dashboard', nonEmployeeController.getForCEO);
+router.put('/:id/approve-ceo', nonEmployeeController.approveByCEO);
+router.put('/:id/reject-ceo', nonEmployeeController.rejectByCEO);
+router.put('/:id/return-ceo', nonEmployeeController.returnByCEO);
+
+// HOD Approval
+router.put('/:id/approve-hod', nonEmployeeController.approveByHOD);
+router.put('/:id/reject-hod', nonEmployeeController.rejectByHOD);
+
+// AVP Approval
+router.put('/:id/approve-avp', nonEmployeeController.approveByAVP);
+router.put('/:id/reject-avp', nonEmployeeController.rejectByAVP);
+
+router.route('/:id')
+  .get(nonEmployeeController.getRecordById)
+  .put(upload.array('attachments', 5), nonEmployeeController.updateRecord)
+  .delete(nonEmployeeController.deleteRecord);
+
+module.exports = router;

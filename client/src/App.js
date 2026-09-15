@@ -18,6 +18,7 @@ import Login from './pages/Auth/Login';
 import Dashboard from './pages/Dashboard/Dashboard';
 import HRDashboard from './pages/HR/HRDashboard';
 import EmployeeList from './pages/HR/EmployeeList';
+import NonEmployeeOnboarding from './pages/HR/NonEmployeeOnboarding';
 import EmployeeForm from './pages/HR/EmployeeForm';
 import EmployeeView from './pages/HR/EmployeeView';
 import HRReports from './pages/HR/Reports/HRReports';
@@ -580,6 +581,10 @@ function App() {
             <Route 
               path="/hr/employees" 
               element={<ProtectedRoute><EmployeeList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/non-employee-onboarding" 
+              element={<ProtectedRoute><NonEmployeeOnboarding /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/employees/add" 

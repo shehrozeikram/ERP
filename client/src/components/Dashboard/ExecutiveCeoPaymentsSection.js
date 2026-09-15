@@ -58,6 +58,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import paymentSettlementService from '../../services/paymentSettlementService';
 import api from '../../services/api';
+import nonEmployeeService from '../../services/nonEmployeeService';
 import { formatPKR } from '../../utils/currency';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
@@ -90,7 +91,8 @@ const ExecutiveCeoPaymentsSection = () => {
     poQuotations: [],
     poGrns: [],
     poLinkedDocs: [],
-    poAuditTab: 0
+    poAuditTab: 0,
+    isOnboarding: false
   });
 
   const [imageViewer, setImageViewer] = useState({
@@ -124,10 +126,11 @@ const ExecutiveCeoPaymentsSection = () => {
   const fetchCeoPayments = useCallback(async () => {
     try {
       setLoading(true);
-      const [settlementsRes, poRes, caRes] = await Promise.all([
+      const [settlementsRes, poRes, caRes, onboardingRes] = await Promise.all([
         paymentSettlementService.getPaymentSettlements({ page: 1, limit: 100 }),
         api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } })),
-        api.get('/cash-approvals/ceo-secretariat').catch(() => ({ data: { data: [] } }))
+        api.get('/cash-approvals/ceo-secretariat').catch(() => ({ data: { data: [] } })),
+        nonEmployeeService.getForCEO().catch(() => ({ data: { data: [] } }))
       ]);
 
       // 1. Payment Settlements
@@ -181,7 +184,22 @@ const ExecutiveCeoPaymentsSection = () => {
           department: ca.originatingModule === 'general' ? 'General' : 'Procurement'
         }));
 
-      const combined = [...forwardedPOs, ...forwardedCAs, ...forwardedSettlements];
+      // 4. Non-Employee Onboardings
+      const rawOnboardings = onboardingRes.data?.data || [];
+      const forwardedOnboardings = rawOnboardings.map((ne) => ({
+        ...ne,
+        isOnboarding: true,
+        itemType: 'Onboarding',
+        typeLabel: 'Onboarding',
+        displayRef: ne.recordNumber || ne._id,
+        displayDate: ne.initiatedAt || ne.createdAt,
+        displayAmount: ne.expectedWages || 0,
+        displayVendor: `${ne.firstName} ${ne.lastName || ''}`,
+        displayNotes: `Role: ${ne.role}, CNIC: ${ne.cnic}`,
+        department: 'HR'
+      }));
+
+      const combined = [...forwardedPOs, ...forwardedCAs, ...forwardedSettlements, ...forwardedOnboardings];
       combined.sort((a, b) => new Date(b.displayDate || 0) - new Date(a.displayDate || 0));
 
       setPayments(combined);
@@ -200,6 +218,7 @@ const ExecutiveCeoPaymentsSection = () => {
   const poItems = payments.filter((p) => p.isPurchaseOrder);
   const caItems = payments.filter((p) => p.isCashApproval);
   const settlementItems = payments.filter((p) => p.isPaymentSettlement);
+  const onboardingItems = payments.filter((p) => p.isOnboarding);
 
   const totalAmount = payments.reduce((sum, p) => sum + (Number(p.displayAmount) || 0), 0);
   const poAmount = poItems.reduce((sum, p) => sum + (Number(p.displayAmount) || 0), 0);
@@ -211,6 +230,7 @@ const ExecutiveCeoPaymentsSection = () => {
     if (filterTab === 1 && !p.isPurchaseOrder) return false;
     if (filterTab === 2 && !p.isCashApproval) return false;
     if (filterTab === 3 && !p.isPaymentSettlement) return false;
+    if (filterTab === 4 && !p.isOnboarding) return false;
     return true;
   });
 
@@ -396,11 +416,20 @@ const ExecutiveCeoPaymentsSection = () => {
         pushDocs(d?.attachments, 'General Attachment');
         pushDocs(d?.purchaseReceipts, 'Purchase Receipt');
         pushDocs(d?.receiptAttachments, 'Settlement Receipt');
-        setViewDialog({ open: true, settlement: d, isPurchaseOrder: false, isCashApproval: true, quotations, caLinkedDocs: linkedDocuments, poAuditTab: 0 });
+        setViewDialog({ open: true, settlement: d, isPurchaseOrder: false, isCashApproval: true, isOnboarding: false, quotations, caLinkedDocs: linkedDocuments, poAuditTab: 0 });
       } catch (e) {
         console.error('Error fetching cash approval details:', e);
-        setViewDialog({ open: true, settlement, isPurchaseOrder: false, isCashApproval: true, quotations: [], caLinkedDocs: [], poAuditTab: 0 });
+        setViewDialog({ open: true, settlement, isPurchaseOrder: false, isCashApproval: true, isOnboarding: false, quotations: [], caLinkedDocs: [], poAuditTab: 0 });
       }
+    } else if (settlement.isOnboarding) {
+      setViewDialog({ 
+        open: true, 
+        settlement, 
+        isPurchaseOrder: false, 
+        isCashApproval: false, 
+        isOnboarding: true,
+        poAuditTab: 0 
+      });
     } else {
       try {
         const response = await paymentSettlementService.getPaymentSettlement(settlement._id);
@@ -915,12 +944,13 @@ const ExecutiveCeoPaymentsSection = () => {
     if (!item) return;
 
     const isCA = item.isCashApproval;
+    const isOnboarding = item.isOnboarding;
     const effectiveSig =
       approvalSignature.trim() ||
       user?.digitalSignature ||
       (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || 'CEO');
 
-    if (!isCA && !effectiveSig) {
+    if (!isCA && !isOnboarding && !effectiveSig) {
       toast.error('Please provide digital signature');
       return;
     }
@@ -940,6 +970,12 @@ const ExecutiveCeoPaymentsSection = () => {
           digitalSignature: effectiveSig
         });
         toast.success(`Cash approval ${item.displayRef} approved by CEO and sent to Finance!`);
+      } else if (item.isOnboarding) {
+        await nonEmployeeService.approveByCEO(item._id, {
+          comments: approvalComments,
+          signature: effectiveSig
+        });
+        toast.success(`Onboarding ${item.displayRef} approved by CEO!`);
       } else {
         await paymentSettlementService.approvePayment(item._id, {
           approvalComments: approvalComments || 'Approved by CEO',
@@ -958,11 +994,12 @@ const ExecutiveCeoPaymentsSection = () => {
 
   // Submit Rejection
   const handleRejectSubmit = async () => {
-    if (!rejectionAgree || !rejectionComments.trim() || !rejectionSignature.trim()) {
+    const item = rejectDialog.settlement;
+    const isOnboarding = item?.isOnboarding;
+    if (!rejectionAgree || !rejectionComments.trim() || (!isOnboarding && !rejectionSignature.trim())) {
       toast.error('Please provide comments, digital signature, and confirmation');
       return;
     }
-    const item = rejectDialog.settlement;
     if (!item) return;
 
     setActionLoading(true);
@@ -978,6 +1015,12 @@ const ExecutiveCeoPaymentsSection = () => {
         await api.put(`/cash-approvals/${item._id}/ceo-reject`, {
           comments: rejectionComments,
           digitalSignature: rejectionSignature,
+          observations: validObs
+        });
+      } else if (item.isOnboarding) {
+        await nonEmployeeService.rejectByCEO(item._id, {
+          comments: rejectionComments,
+          signature: rejectionSignature,
           observations: validObs
         });
       } else {
@@ -1019,6 +1062,12 @@ const ExecutiveCeoPaymentsSection = () => {
         await api.put(`/cash-approvals/${item._id}/ceo-return`, {
           comments: returnComments,
           digitalSignature: returnSignature,
+          observations: validObs
+        });
+      } else if (item.isOnboarding) {
+        await nonEmployeeService.returnByCEO(item._id, {
+          comments: returnComments,
+          signature: returnSignature,
           observations: validObs
         });
       } else {
@@ -1389,6 +1438,7 @@ const ExecutiveCeoPaymentsSection = () => {
             <Tab label={`Purchase Orders (${poItems.length})`} />
             <Tab label={`Cash Approvals (${caItems.length})`} />
             <Tab label={`Settlements (${settlementItems.length})`} />
+            <Tab label={`Onboardings (${onboardingItems.length})`} />
           </Tabs>
         </Box>
 
@@ -1987,6 +2037,141 @@ const ExecutiveCeoPaymentsSection = () => {
                   quotations={viewDialog.quotations || []}
                   linkedDocs={viewDialog.caLinkedDocs || []}
                 />
+              ) : viewDialog.isOnboarding ? (
+                <Box sx={{ mb: 2 }}>
+                  <Paper 
+                    elevation={0} 
+                    sx={{ 
+                      p: { xs: 3, md: 4 }, 
+                      borderRadius: 3, 
+                      background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
+                      border: '1px solid',
+                      borderColor: 'divider'
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4, borderBottom: '1px solid', borderColor: 'divider', pb: 3, flexWrap: 'wrap', gap: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar 
+                          sx={{ 
+                            width: 64, 
+                            height: 64, 
+                            bgcolor: alpha(theme.palette.primary.main, 0.1),
+                            color: theme.palette.primary.main,
+                            fontSize: '1.75rem',
+                            fontWeight: 700
+                          }}
+                        >
+                          {viewDialog.settlement.firstName ? viewDialog.settlement.firstName[0].toUpperCase() : 'N'}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="h5" sx={{ fontWeight: 800, color: 'text.primary', mb: 0.5 }}>
+                            {`${viewDialog.settlement.firstName || ''} ${viewDialog.settlement.lastName || ''}`.trim() || 'N/A'}
+                          </Typography>
+                          <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            {viewDialog.settlement.role || 'N/A'}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+                        <Chip 
+                          label={`Ref: ${viewDialog.settlement.recordNumber || 'N/A'}`} 
+                          size="small" 
+                          sx={{ mb: 1, fontWeight: 600, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}
+                        />
+                        <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 500 }}>
+                          Initiated: {formatDateForDocument(viewDialog.settlement.initiatedAt || viewDialog.settlement.createdAt)}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    <Grid container spacing={4}>
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', height: '100%' }}>
+                          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
+                            Candidate Details
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>CNIC Number</Typography>
+                              <Typography variant="body1" sx={{ fontWeight: 600 }}>{viewDialog.settlement.cnic || 'N/A'}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Duration</Typography>
+                              <Typography variant="body1" sx={{ fontWeight: 600 }}>{viewDialog.settlement.duration || 'N/A'}</Typography>
+                            </Box>
+                          </Box>
+                        </Box>
+                      </Grid>
+
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.04), border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.2), height: '100%' }}>
+                          <Typography variant="overline" color="success.dark" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
+                            Financial Details
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                            <Box>
+                              <Typography variant="caption" color="success.main" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>Expected Wages</Typography>
+                              <Typography variant="h5" sx={{ fontWeight: 800, color: 'success.dark' }}>{formatPKR(viewDialog.settlement.expectedWages || 0)}</Typography>
+                            </Box>
+                          </Box>
+                        </Box>
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <Box sx={{ p: 3, borderRadius: 2, bgcolor: alpha(theme.palette.info.main, 0.04), border: '1px dashed', borderColor: alpha(theme.palette.info.main, 0.3) }}>
+                          <Typography variant="overline" color="info.dark" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1 }}>
+                            Justification / Remarks
+                          </Typography>
+                          <Typography variant="body1" sx={{ color: 'text.primary', lineHeight: 1.7 }}>
+                            {viewDialog.settlement.justification || 'No justification provided.'}
+                          </Typography>
+                        </Box>
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
+                            Approval Signatures
+                          </Typography>
+                          <Grid container spacing={3}>
+                            <Grid item xs={12} sm={6}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>HOD HR Approval</Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {viewDialog.settlement.hodApprovedBy ? `${viewDialog.settlement.hodApprovedBy.firstName || ''} ${viewDialog.settlement.hodApprovedBy.lastName || ''}`.trim() || viewDialog.settlement.hodApprovedBy.email || 'Approved' : 'Pending'}
+                              </Typography>
+                              {viewDialog.settlement.hodApprovedAt && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {formatDateTime(viewDialog.settlement.hodApprovedAt)}
+                                </Typography>
+                              )}
+                              {viewDialog.settlement.hodSignature && (
+                                <Box sx={{ mt: 1 }}>
+                                  <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.settlement.hodSignature }} alt="HOD Signature" />
+                                </Box>
+                              )}
+                            </Grid>
+                            <Grid item xs={12} sm={6}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>AVP Approval</Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {viewDialog.settlement.avpApprovedBy ? `${viewDialog.settlement.avpApprovedBy.firstName || ''} ${viewDialog.settlement.avpApprovedBy.lastName || ''}`.trim() || viewDialog.settlement.avpApprovedBy.email || 'Approved' : 'Pending'}
+                              </Typography>
+                              {viewDialog.settlement.avpApprovedAt && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {formatDateTime(viewDialog.settlement.avpApprovedAt)}
+                                </Typography>
+                              )}
+                              {viewDialog.settlement.avpSignature && (
+                                <Box sx={{ mt: 1 }}>
+                                  <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.settlement.avpSignature }} alt="AVP Signature" />
+                                </Box>
+                              )}
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Box>
               ) : (
                 <>
                   {/* Payment Settlement View */}
@@ -2433,7 +2618,7 @@ const ExecutiveCeoPaymentsSection = () => {
             <strong>{approveDialog.settlement?.displayVendor}</strong>.
           </Typography>
 
-          {!approveDialog.settlement?.isCashApproval && (
+          {!approveDialog.settlement?.isCashApproval && !approveDialog.settlement?.isOnboarding && (
             <TextField
               fullWidth
               label="Digital Signature (Required)"
@@ -2476,7 +2661,7 @@ const ExecutiveCeoPaymentsSection = () => {
             disabled={
               actionLoading ||
               !approvalAgree ||
-              (!approveDialog.settlement?.isCashApproval && !approvalSignature.trim())
+              (!approveDialog.settlement?.isCashApproval && !approveDialog.settlement?.isOnboarding && !approvalSignature.trim())
             }
             startIcon={<CheckCircleIcon />}
           >
@@ -2511,14 +2696,16 @@ const ExecutiveCeoPaymentsSection = () => {
             sx={{ mb: 2 }}
           />
 
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={rejectionSignature}
-            onChange={(e) => setRejectionSignature(e.target.value)}
-            required
-            sx={{ mb: 2 }}
-          />
+          {!rejectDialog.settlement?.isOnboarding && (
+            <TextField
+              fullWidth
+              label="Digital Signature"
+              value={rejectionSignature}
+              onChange={(e) => setRejectionSignature(e.target.value)}
+              required
+              sx={{ mb: 2 }}
+            />
+          )}
 
           <FormControlLabel
             control={
@@ -2538,7 +2725,7 @@ const ExecutiveCeoPaymentsSection = () => {
             onClick={handleRejectSubmit}
             variant="contained"
             color="error"
-            disabled={actionLoading || !rejectionAgree || !rejectionComments.trim() || !rejectionSignature.trim()}
+            disabled={actionLoading || !rejectionAgree || !rejectionComments.trim() || (!rejectDialog.settlement?.isOnboarding && !rejectionSignature.trim())}
             startIcon={<CancelIcon />}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Reject Payment'}
@@ -2679,6 +2866,8 @@ const ExecutiveCeoPaymentsSection = () => {
               ? 'purchaseOrder'
               : workflowHistoryDialog.settlement?.isCashApproval || workflowHistoryDialog.settlement?.caNumber
               ? 'cashApproval'
+              : workflowHistoryDialog.settlement?.isOnboarding || workflowHistoryDialog.settlement?.cnic
+              ? 'onboarding'
               : 'settlement'
           }
         />

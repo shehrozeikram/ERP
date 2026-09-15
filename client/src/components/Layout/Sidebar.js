@@ -187,6 +187,7 @@ const Sidebar = () => {
       '/hr/kpi/review': 'kpi_management',
       '/hr/kpi/submissions': 'kpi_management',
       '/hr/kpi/reports': 'kpi_management',
+      '/hr/non-employee-onboarding': 'non_employee_onboarding',
       '/hr/reports': 'reports',
       
       // General Module - Documents Tracking

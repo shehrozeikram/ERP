@@ -247,6 +247,7 @@ export const SUBMODULES = {
     'fbr_tax_management',
     'evaluation_appraisal',
     'kpi_management',
+    'non_employee_onboarding',
     'reports'
   ],
   [MODULE_KEYS.FINANCE]: [
@@ -593,6 +594,7 @@ export const MODULES = {
           { name: 'KPI Reports', path: '/hr/kpi/reports' }
         ]
       },
+      { name: 'Non-Employee Onboarding', path: '/hr/non-employee-onboarding' },
       { name: 'Reports', path: '/hr/reports' }
     ]
   },

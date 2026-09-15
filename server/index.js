@@ -77,6 +77,7 @@ const trainingProgramRoutes = require('./routes/trainingPrograms');
 const zktecoRoutes = require('./routes/zkteco');
 const hiringRoutes = require('./routes/hiring');
 const employeeOnboardingRoutes = require('./routes/employeeOnboarding');
+const nonEmployeeRoutes = require('./routes/hr/nonEmployeeRoutes');
 const zkbioTimeRoutes = require('./routes/zkbioTimeRoutes');
 const { router: imageProxyRoutes, setZKBioTimeWebSocketProxy } = require('./routes/imageProxy');
 const vehicleRoutes = require('./routes/vehicles');
@@ -578,6 +579,7 @@ app.get('/api/hr/image/:filename(*)', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hr', authMiddleware, activityLogger, hrRoutes);
+app.use('/api/hr/non-employees', authMiddleware, activityLogger, nonEmployeeRoutes);
 app.use('/api/payroll', authMiddleware, activityLogger, payrollRoutes);
 app.use('/api/hr/salary-advances', authMiddleware, activityLogger, salaryAdvancesRoutes);
 app.use('/api/hr/payroll-taxes', authMiddleware, activityLogger, payrollTaxSettingsRoutes);
