@@ -5408,21 +5408,7 @@ router.get('/reports/bank-reconciliation',
     if (accountId) {
       selectedAccountObj = await Account.findById(accountId).lean();
       if (selectedAccountObj) {
-        // Find all sub-accounts / children under this account recursively
-        const allCompanyAccounts = await Account.find({
-          ...(selectedAccountObj.companyId ? { companyId: selectedAccountObj.companyId } : {})
-        }).lean();
-
-        const findChildren = (parentId) => {
-          let ids = [parentId];
-          const directKids = allCompanyAccounts.filter((a) => String(a.parentAccount || '') === String(parentId));
-          directKids.forEach((child) => {
-            ids = ids.concat(findChildren(child._id));
-          });
-          return ids;
-        };
-
-        targetAccountIds = findChildren(selectedAccountObj._id);
+        targetAccountIds = [selectedAccountObj._id];
       } else {
         targetAccountIds = [new mongoose.Types.ObjectId(accountId)];
       }
