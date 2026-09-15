@@ -381,19 +381,19 @@ router.get('/accounts/detail-types',
 // @desc    Get all accounts with filtering and pagination
 // @access  Private (Finance and Admin)
 // procurement_manager: read-only list for inventory item GL linking (same CoA as finance; no write access on other routes)
-router.get('/accounts', 
-  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'), 
+router.get('/accounts',
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const { 
-      page = 1, 
-      limit = 20, 
-      type, 
+    const {
+      page = 1,
+      limit = 20,
+      type,
       category,
       department,
       module,
       search,
-      allCompanies 
+      allCompanies
     } = req.query;
 
     const baseQuery = { isActive: true };
@@ -475,8 +475,8 @@ router.get('/accounts',
 // @route   GET /api/finance/accounts/hierarchy
 // @desc    Get accounts in hierarchical structure
 // @access  Private (Finance and Admin)
-router.get('/accounts/hierarchy', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/accounts/hierarchy',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const company = await requireCompanyFromRequest(req);
 
@@ -510,8 +510,8 @@ router.get('/accounts/hierarchy',
 // @route   GET /api/finance/accounts/trial-balance
 // @desc    Get trial balance
 // @access  Private (Finance and Admin)
-router.get('/accounts/trial-balance', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/accounts/trial-balance',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const company = await requireCompanyFromRequest(req);
 
@@ -776,13 +776,13 @@ router.delete('/accounts/:id',
 // @route   GET /api/finance/journal-entries
 // @desc    Get all journal entries with filtering
 // @access  Private (Finance and Admin)
-router.get('/journal-entries', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/journal-entries',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       department,
       module,
       status,
@@ -843,7 +843,7 @@ router.get('/journal-entries',
 
     const filters = voucherCompanyQuery(baseFilters, company);
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const [entries, totalCount] = await Promise.all([
       JournalEntry.find(filters)
         .populate('companyId', 'name companyCode')
@@ -984,7 +984,7 @@ router.delete('/journal-entries/:id',
         if (bill) {
           const amountToRemove = apPaymentApp.amount;
           const refToMatch = apPaymentApp.paymentMeta?.reference;
-          
+
           if (Array.isArray(bill.payments)) {
             const paymentIndex = bill.payments.findIndex(
               (p) => p.reference === refToMatch && p.amount === amountToRemove
@@ -993,10 +993,10 @@ router.delete('/journal-entries/:id',
               bill.payments.splice(paymentIndex, 1);
             }
           }
-          
+
           bill.amountPaid = Math.round((Number(bill.amountPaid || 0) - amountToRemove) * 100) / 100;
           if (bill.amountPaid < 0) bill.amountPaid = 0;
-          
+
           const FinanceHelper = require('../utils/financeHelper');
           FinanceHelper._updateDocumentStatus(bill);
           await bill.save();
@@ -1173,7 +1173,7 @@ router.post('/journal-entries',
     if (reqCompanyRaw && reqCompanyRaw !== 'all') {
       try {
         company = await resolveCompanyId(reqCompanyRaw);
-      } catch (e) {}
+      } catch (e) { }
     }
     if (!company || company.isAll) {
       try {
@@ -1296,12 +1296,12 @@ router.put('/journal-entries/:id',
     if (reqCompanyRaw && reqCompanyRaw !== 'all') {
       try {
         company = await resolveCompanyId(reqCompanyRaw);
-      } catch (e) {}
+      } catch (e) { }
     }
     if ((!company || company.isAll) && entry.companyId) {
       try {
         company = await resolveCompanyId(entry.companyId);
-      } catch (e) {}
+      } catch (e) { }
     }
     if (!company || company.isAll) {
       try {
@@ -1559,19 +1559,19 @@ router.put('/journal-entries/:id/finance-reject',
 // @route   GET /api/finance/general-ledger
 // @desc    Get general ledger entries
 // @access  Private (Finance and Admin)
-router.get('/general-ledger', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/general-ledger',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       accountId,
       department,
       module,
       startDate,
       endDate,
-      search 
+      search
     } = req.query;
 
     const filters = { status: 'posted' };
@@ -1612,7 +1612,7 @@ router.get('/general-ledger',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const [entries, totalCount] = await Promise.all([
       GeneralLedger.find(filters)
         .populate('account', 'accountNumber name type')
@@ -1647,8 +1647,8 @@ router.get('/general-ledger',
 // @route   GET /api/finance/general-ledger/account/:id
 // @desc    Get ledger for specific account
 // @access  Private (Finance and Admin)
-router.get('/general-ledger/account/:id', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/general-ledger/account/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
     // Match trial-balance-v2: full local calendar day for from/to (date-only query strings).
@@ -1681,17 +1681,17 @@ router.get('/general-ledger/account/:id',
 // @route   GET /api/finance/accounts-receivable
 // @desc    Get all accounts receivable
 // @access  Private (Finance and Admin)
-router.get('/accounts-receivable', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/accounts-receivable',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       status,
       customerId,
       startDate,
       endDate,
-      search 
+      search
     } = req.query;
 
     const company = await resolveCompanyForFinanceRoute(req);
@@ -1721,7 +1721,7 @@ router.get('/accounts-receivable',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const [invoices, totalCount] = await Promise.all([
       AccountsReceivable.find(filters)
         .sort({ invoiceDate: -1 })
@@ -1752,8 +1752,8 @@ router.get('/accounts-receivable',
 // @route   GET /api/finance/accounts-receivable/aging
 // @desc    Get accounts receivable aging report
 // @access  Private (Finance and Admin)
-router.get('/accounts-receivable/aging', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/accounts-receivable/aging',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { q } = await financeScope(req);
     const agingReport = await AccountsReceivable.getAgingReport(q({}));
@@ -1890,12 +1890,12 @@ router.post('/accounts-receivable/:id/payment',
 
     try {
       const updatedInvoice = await FinanceHelper.recordARPayment(req.params.id, {
-        amount:        req.body.amount,
+        amount: req.body.amount,
         paymentMethod: req.body.paymentMethod,
-        reference:     req.body.reference,
-        date:          req.body.paymentDate,
+        reference: req.body.reference,
+        date: req.body.paymentDate,
         bankAccountId: req.body.bankAccountId || null,
-        createdBy:     req.user._id
+        createdBy: req.user._id
       });
 
       res.json({ success: true, message: 'Payment recorded successfully', data: updatedInvoice });
@@ -1957,7 +1957,7 @@ router.put('/accounts-payable/:id',
           let lineAcc = li.account ? await A.map(li.account) : null;
           if (!lineAcc && li.expenseAccount) lineAcc = await A.map(li.expenseAccount);
           if (!lineAcc) lineAcc = await A.resolve(FinanceHelper.ACCOUNTS.UTILITIES || '6200');
-          
+
           newLines.push({
             account: lineAcc._id,
             description: (li.description || `Expense — ${bill.billNumber}`).slice(0, 200),
@@ -2175,14 +2175,14 @@ router.get('/accounts-payable/vendor-advances',
 
       const allocations = Array.isArray(a.allocations)
         ? a.allocations
-            .filter((al) => al && (al.billNumber || al.billId))
-            .map((al) => ({
-              billId: al.billId || null,
-              billNumber: al.billNumber || '',
-              amount: Math.round((Number(al.amount) || 0) * 100) / 100,
-              appliedAt: al.appliedAt || null
-            }))
-            .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
+          .filter((al) => al && (al.billNumber || al.billId))
+          .map((al) => ({
+            billId: al.billId || null,
+            billNumber: al.billNumber || '',
+            amount: Math.round((Number(al.amount) || 0) * 100) / 100,
+            appliedAt: al.appliedAt || null
+          }))
+          .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
         : [];
 
       const je = a.journalEntryId ? jeSignedById[String(a.journalEntryId)] : null;
@@ -2894,16 +2894,16 @@ router.post('/accounts-payable/:id/payment',
       }
 
       const updatedBill = await FinanceHelper.recordAPPayment(req.params.id, {
-        amount:        req.body.amount,
+        amount: req.body.amount,
         paymentMethod: req.body.paymentMethod,
-        reference:     req.body.reference,
-        date:          req.body.paymentDate,
-        whtRate:       Number(req.body.whtRate)  || 0,
-        bankAccountId: req.body.bankAccountId    || null,
-        allocations:   req.body.allocations      || [],
-        createdBy:     req.user._id,
+        reference: req.body.reference,
+        date: req.body.paymentDate,
+        whtRate: Number(req.body.whtRate) || 0,
+        bankAccountId: req.body.bankAccountId || null,
+        allocations: req.body.allocations || [],
+        createdBy: req.user._id,
         financeApprovalAuthorities: req.body.financeApprovalAuthorities,
-        batchId:       req.body.batchId
+        batchId: req.body.batchId
       });
 
       const pending = updatedBill?._pendingSettlement;
@@ -2916,13 +2916,13 @@ router.post('/accounts-payable/:id/payment',
           const apApp = await ApPaymentApplication.findById(pending.applicationId).select('financeApprovalAuthorities').lean();
           const fa = apApp?.financeApprovalAuthorities || {};
           const authIds = [fa.accountsManagerUser, fa.financeControllerUser].filter(Boolean);
-          notifyApprovers(authIds, { docType: 'Bill Payment', docNumber: updatedBill.billNumber || '' }).catch(() => {});
-          notifyChatApprovers(authIds, { 
-            docType: 'Bill Payment', 
+          notifyApprovers(authIds, { docType: 'Bill Payment', docNumber: updatedBill.billNumber || '' }).catch(() => { });
+          notifyChatApprovers(authIds, {
+            docType: 'Bill Payment',
             docNumber: updatedBill.billNumber || '',
             url: `/finance/accounts-payable`
-          }).catch(() => {});
-        } catch (_) {}
+          }).catch(() => { });
+        } catch (_) { }
       }
       res.json({ success: true, message, data: updatedBill });
     } catch (error) {
@@ -2972,9 +2972,9 @@ router.post('/accounts-payable/advance-payment',
     const financeApprovalAuthorities =
       rawFa && typeof rawFa === 'object'
         ? {
-            accountsManagerUser: rawFa.accountsManagerUser || rawFa.accountsManager,
-            financeControllerUser: rawFa.financeControllerUser || rawFa.financeController
-          }
+          accountsManagerUser: rawFa.accountsManagerUser || rawFa.accountsManager,
+          financeControllerUser: rawFa.financeControllerUser || rawFa.financeController
+        }
         : null;
     const amId = financeApprovalAuthorities?.accountsManagerUser;
     const fcId = financeApprovalAuthorities?.financeControllerUser;
@@ -3077,19 +3077,19 @@ router.post('/accounts-payable/:id/apply-advance',
 // @route   GET /api/finance/accounts-payable
 // @desc    Get all accounts payable
 // @access  Private (Finance and Admin)
-router.get('/accounts-payable', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/accounts-payable',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       status,
       vendorId,
       vendor,
       employeeId,
       startDate,
       endDate,
-      search 
+      search
     } = req.query;
 
     const company = await resolveCompanyForFinanceRoute(req);
@@ -3218,7 +3218,7 @@ router.get('/accounts-payable',
     const filters = companyQuery(baseFilters, company);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const [bills, totalCount] = await Promise.all([
       AccountsPayable.find(filters)
         .populate('payeeEmployee', 'firstName lastName employeeId')
@@ -3232,7 +3232,7 @@ router.get('/accounts-payable',
     // Calculate summary using aggregation pipeline for better performance
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const summaryResult = await AccountsPayable.aggregate([
       { $match: filters },
       {
@@ -3478,16 +3478,16 @@ router.delete('/accounts-payable/:id',
 // @route   GET /api/finance/banking/accounts
 // @desc    Get all bank accounts
 // @access  Private (Finance and Admin)
-router.get('/banking/accounts', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/banking/accounts',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       accountType,
       department,
       isActive,
-      search 
+      search
     } = req.query;
 
     const { q } = await financeScope(req);
@@ -3505,7 +3505,7 @@ router.get('/banking/accounts',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const [accounts, totalCount] = await Promise.all([
       Banking.find(filters)
         .sort({ accountName: 1 })
@@ -3536,16 +3536,16 @@ router.get('/banking/accounts',
 // @route   GET /api/finance/banking
 // @desc    Get all bank accounts (alias for /banking/accounts)
 // @access  Private (Finance and Admin)
-router.get('/banking', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/banking',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       accountType,
       department,
       isActive,
-      search 
+      search
     } = req.query;
 
     const { q } = await financeScope(req);
@@ -3563,7 +3563,7 @@ router.get('/banking',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const [accounts, totalCount] = await Promise.all([
       Banking.find(filters)
         .sort({ accountName: 1 })
@@ -3597,12 +3597,12 @@ router.get('/banking',
 // @route   GET /api/finance/banking/transactions
 // @desc    Get reconciled / cleared banking transactions with complete accounting breakdown
 // @access  Private (Finance and Admin)
-router.get('/banking/transactions', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/banking/transactions',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { 
-      page = 1, 
-      limit = 50, 
+    const {
+      page = 1,
+      limit = 50,
       accountId,
       bankAccount,
       startDate,
@@ -3866,7 +3866,7 @@ router.get('/banking/transactions',
     let filtered = transactions;
     if (search && search.trim()) {
       const s = search.trim().toLowerCase();
-      filtered = filtered.filter(t => 
+      filtered = filtered.filter(t =>
         (t.vNo && t.vNo.toLowerCase().includes(s)) ||
         (t.narration && t.narration.toLowerCase().includes(s)) ||
         (t.instNo && t.instNo.toLowerCase().includes(s)) ||
@@ -3921,13 +3921,13 @@ router.get('/banking/transactions',
 router.put('/banking/transactions/:id/custom-meta',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { 
-      journalEntryId, 
-      customPaymentType, 
-      customMainAccountHead, 
-      customSubAccountHead, 
-      customCompany, 
-      customProject 
+    const {
+      journalEntryId,
+      customPaymentType,
+      customMainAccountHead,
+      customSubAccountHead,
+      customCompany,
+      customProject
     } = req.body || {};
 
     const targetJeId = journalEntryId || req.params.id;
@@ -3962,8 +3962,8 @@ router.put('/banking/transactions/:id/custom-meta',
 // @route   GET /api/finance/banking/summary
 // @desc    Get banking summary
 // @access  Private (Finance and Admin)
-router.get('/banking/summary', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/banking/summary',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { q } = await financeScope(req);
     const summary = await Banking.getAccountSummary(q({}));
@@ -4020,19 +4020,19 @@ router.post('/banking',
 // @route   GET /api/finance/reports
 // @desc    Get financial reports (unified endpoint)
 // @access  Private (Finance and Admin)
-router.get('/reports', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/reports',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { reportType = 'overview', startDate, endDate, department } = req.query;
-    
+
     try {
       let reportData = {};
-      
+
       if (reportType === 'overview') {
         // Calculate date range
         const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
         const end = endDate ? new Date(endDate) : new Date();
-        
+
         // Get all accounts
         const [revenueAccounts, expenseAccounts, cashAccounts] = await Promise.all([
           Account.find({ type: 'Revenue', isActive: true }),
@@ -4047,7 +4047,7 @@ router.get('/reports',
             date: { $gte: startDate, $lte: endDate },
             status: 'posted'
           });
-          
+
           let balance = 0;
           ledgerEntries.forEach(entry => {
             balance += entry.debit - entry.credit;
@@ -4058,11 +4058,11 @@ router.get('/reports',
         // Calculate revenue
         let totalRevenue = 0;
         const departmentBreakdown = {};
-        
+
         for (const account of revenueAccounts) {
           const balance = await calculatePeriodBalance(account._id, start, end);
           totalRevenue += Math.abs(balance);
-          
+
           const dept = account.department || 'general';
           if (!departmentBreakdown[dept]) {
             departmentBreakdown[dept] = { revenue: 0, expenses: 0, netProfit: 0 };
@@ -4075,7 +4075,7 @@ router.get('/reports',
         for (const account of expenseAccounts) {
           const balance = await calculatePeriodBalance(account._id, start, end);
           totalExpenses += Math.abs(balance);
-          
+
           const dept = account.department || 'general';
           if (!departmentBreakdown[dept]) {
             departmentBreakdown[dept] = { revenue: 0, expenses: 0, netProfit: 0 };
@@ -4085,7 +4085,7 @@ router.get('/reports',
 
         // Calculate department net profit
         Object.keys(departmentBreakdown).forEach(dept => {
-          departmentBreakdown[dept].netProfit = 
+          departmentBreakdown[dept].netProfit =
             departmentBreakdown[dept].revenue - departmentBreakdown[dept].expenses;
         });
 
@@ -4102,18 +4102,18 @@ router.get('/reports',
           cashBalance,
           departmentBreakdown
         };
-      } 
+      }
       else if (reportType === 'profit-loss') {
         const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
         const end = endDate ? new Date(endDate) : new Date();
-        
+
         const [revenueAccounts, expenseAccounts] = await Promise.all([
           Account.find({ type: 'Revenue', isActive: true }),
           Account.find({ type: 'Expense', isActive: true })
         ]);
 
         const profitLossData = [];
-        
+
         // Add revenue items
         for (const account of revenueAccounts) {
           const ledgerEntries = await GeneralLedger.find({
@@ -4121,12 +4121,12 @@ router.get('/reports',
             date: { $gte: start, $lte: end },
             status: 'posted'
           });
-          
+
           let amount = 0;
           ledgerEntries.forEach(entry => {
             amount += entry.credit - entry.debit;
           });
-          
+
           if (amount !== 0) {
             profitLossData.push({
               name: account.name,
@@ -4137,7 +4137,7 @@ router.get('/reports',
             });
           }
         }
-        
+
         // Add expense items
         for (const account of expenseAccounts) {
           const ledgerEntries = await GeneralLedger.find({
@@ -4145,12 +4145,12 @@ router.get('/reports',
             date: { $gte: start, $lte: end },
             status: 'posted'
           });
-          
+
           let amount = 0;
           ledgerEntries.forEach(entry => {
             amount += entry.debit - entry.credit;
           });
-          
+
           if (amount !== 0) {
             profitLossData.push({
               name: account.name,
@@ -4161,12 +4161,12 @@ router.get('/reports',
             });
           }
         }
-        
+
         reportData = { profitLossData };
       }
       else if (reportType === 'balance-sheet') {
         const asOf = endDate ? new Date(endDate) : new Date();
-        
+
         const [assets, liabilities] = await Promise.all([
           Account.find({ type: 'Asset', isActive: true }),
           Account.find({ type: 'Liability', isActive: true })
@@ -4174,7 +4174,7 @@ router.get('/reports',
 
         const assetData = [];
         const liabilityData = [];
-        
+
         for (const account of assets) {
           if (account.balance !== 0) {
             assetData.push({
@@ -4183,7 +4183,7 @@ router.get('/reports',
             });
           }
         }
-        
+
         for (const account of liabilities) {
           if (account.balance !== 0) {
             liabilityData.push({
@@ -4192,7 +4192,7 @@ router.get('/reports',
             });
           }
         }
-        
+
         reportData = {
           balanceSheetData: {
             assets: assetData,
@@ -4200,7 +4200,7 @@ router.get('/reports',
           }
         };
       }
-      
+
       res.json({
         success: true,
         data: reportData
@@ -4219,8 +4219,8 @@ router.get('/reports',
 // @route   GET /api/finance/reports/trial-balance
 // @desc    Get trial balance report
 // @access  Private (Finance and Admin)
-router.get('/reports/trial-balance', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+router.get('/reports/trial-balance',
+  authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { asOfDate } = req.query;
     const trialBalance = await JournalEntry.getTrialBalance(asOfDate ? new Date(asOfDate) : new Date());
@@ -4436,7 +4436,7 @@ router.get('/reports/trial-balance-v2',
       })
       .sort((a, b) => String(a.accountNumber || '').localeCompare(String(b.accountNumber || '')));
 
-    const totalDebits  = round2(rows.reduce((s, r) => s + r.totalDebit, 0));
+    const totalDebits = round2(rows.reduce((s, r) => s + r.totalDebit, 0));
     const totalCredits = round2(rows.reduce((s, r) => s + r.totalCredit, 0));
 
     res.json({
@@ -5272,8 +5272,8 @@ router.get('/reports/vendor-statement/:supplierId',
       .populate('createdBy', 'name')
       .sort({ createdAt: 1 });
 
-    const totalBilled  = bills.reduce((s, b) => s + (b.amount || 0), 0);
-    const totalPaid    = bills.reduce((s, b) => s + (b.paidAmount || 0), 0);
+    const totalBilled = bills.reduce((s, b) => s + (b.amount || 0), 0);
+    const totalPaid = bills.reduce((s, b) => s + (b.paidAmount || 0), 0);
     const totalBalance = bills.reduce((s, b) => s + (b.balance || 0), 0);
 
     res.json({
@@ -5282,8 +5282,8 @@ router.get('/reports/vendor-statement/:supplierId',
         supplier: bills[0]?.supplier || { _id: supplierId },
         bills,
         summary: {
-          totalBilled:  Math.round(totalBilled * 100) / 100,
-          totalPaid:    Math.round(totalPaid * 100) / 100,
+          totalBilled: Math.round(totalBilled * 100) / 100,
+          totalPaid: Math.round(totalPaid * 100) / 100,
           totalBalance: Math.round(totalBalance * 100) / 100
         }
       }
@@ -5299,14 +5299,16 @@ router.get('/reports/vendor-statement',
     const { q } = await financeScope(req);
     const summary = await AccountsPayable.aggregate([
       { $match: q({ supplier: { $exists: true, $ne: null } }) },
-      { $group: {
-        _id: '$supplier',
-        supplierName: { $first: '$supplierName' },
-        totalBilled:  { $sum: '$amount' },
-        totalPaid:    { $sum: '$paidAmount' },
-        totalBalance: { $sum: '$balance' },
-        lastActivity: { $max: '$createdAt' }
-      }},
+      {
+        $group: {
+          _id: '$supplier',
+          supplierName: { $first: '$supplierName' },
+          totalBilled: { $sum: '$amount' },
+          totalPaid: { $sum: '$paidAmount' },
+          totalBalance: { $sum: '$balance' },
+          lastActivity: { $max: '$createdAt' }
+        }
+      },
       { $sort: { supplierName: 1 } }
     ]);
     res.json({ success: true, data: summary });
@@ -5322,14 +5324,16 @@ router.get('/reports/customer-statement',
     const { q } = await financeScope(req);
     const summary = await AccountsReceivable.aggregate([
       { $match: q({}) },
-      { $group: {
-        _id:           '$customer.name',
-        customerEmail: { $first: '$customer.email' },
-        totalInvoiced: { $sum: '$totalAmount' },
-        totalReceived: { $sum: '$paidAmount' },
-        totalBalance:  { $sum: { $subtract: ['$totalAmount', '$paidAmount'] } },
-        lastActivity:  { $max: '$createdAt' }
-      }},
+      {
+        $group: {
+          _id: '$customer.name',
+          customerEmail: { $first: '$customer.email' },
+          totalInvoiced: { $sum: '$totalAmount' },
+          totalReceived: { $sum: '$paidAmount' },
+          totalBalance: { $sum: { $subtract: ['$totalAmount', '$paidAmount'] } },
+          lastActivity: { $max: '$createdAt' }
+        }
+      },
       { $match: { _id: { $ne: null } } },
       { $sort: { _id: 1 } }
     ]);
@@ -5349,14 +5353,14 @@ router.get('/reports/customer-statement/:customerName',
     if (fromDate || toDate) {
       matchFilter.createdAt = {};
       if (fromDate) matchFilter.createdAt.$gte = new Date(fromDate);
-      if (toDate)   matchFilter.createdAt.$lte = new Date(toDate);
+      if (toDate) matchFilter.createdAt.$lte = new Date(toDate);
     }
 
     const invoices = await AccountsReceivable.find(matchFilter).sort({ createdAt: 1 });
 
     const totalInvoiced = invoices.reduce((s, i) => s + (i.totalAmount || i.amount || 0), 0);
     const totalReceived = invoices.reduce((s, i) => s + (i.paidAmount || 0), 0);
-    const totalBalance  = invoices.reduce((s, i) => s + ((i.totalAmount || i.amount || 0) - (i.paidAmount || 0)), 0);
+    const totalBalance = invoices.reduce((s, i) => s + ((i.totalAmount || i.amount || 0) - (i.paidAmount || 0)), 0);
 
     res.json({
       success: true,
@@ -5366,7 +5370,7 @@ router.get('/reports/customer-statement/:customerName',
         summary: {
           totalInvoiced: Math.round(totalInvoiced * 100) / 100,
           totalReceived: Math.round(totalReceived * 100) / 100,
-          totalBalance:  Math.round(totalBalance * 100) / 100
+          totalBalance: Math.round(totalBalance * 100) / 100
         }
       }
     });
@@ -5499,7 +5503,7 @@ router.get('/reports/bank-reconciliation',
       const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
       const isCleared = Boolean(gle.clearanceStatus === 'cleared' || je.clearanceStatus === 'cleared' || gle.isReconciled || je.isReconciled);
       const clearDate = gle.clearedAt || je.clearedAt || gle.reconciledAt || je.reconciledAt || null;
-      
+
       const vrNo = gle.entryNumber || je.entryNumber || '—';
 
       allBankTxns.push({
@@ -5538,7 +5542,7 @@ router.get('/reports/bank-reconciliation',
           const amt = isCredit ? Number(line.credit) : Number(line.debit);
           const isCleared = Boolean(je.clearanceStatus === 'cleared' || je.isReconciled);
           const clearDate = je.clearedAt || je.reconciledAt || null;
-          
+
           const vrNo = je.entryNumber || je.reference || '—';
 
           allBankTxns.push({
@@ -5577,7 +5581,7 @@ router.get('/reports/bank-reconciliation',
 
     glTxnsUpToAsOf.forEach((txn) => {
       const clearedBeforeAsOf = txn.isCleared && txn.clearingDate && new Date(txn.clearingDate) <= asOf;
-      
+
       if (!clearedBeforeAsOf) {
         const signedAmt = txn.type === 'Cr' ? -txn.amount : txn.amount;
         unpresentedTotal += signedAmt;
@@ -5807,7 +5811,7 @@ router.get('/reports/cost-center-pl',
     if (fromDate || toDate) {
       match.date = {};
       if (fromDate) match.date.$gte = new Date(fromDate);
-      if (toDate)   match.date.$lte = new Date(toDate);
+      if (toDate) match.date.$lte = new Date(toDate);
     }
 
     const pipeline = [
@@ -5823,7 +5827,7 @@ router.get('/reports/cost-center-pl',
       {
         $group: {
           _id: { costCenter: '$lines.costCenter', accountType: '$accDoc.type' },
-          totalDebit:  { $sum: '$lines.debit' },
+          totalDebit: { $sum: '$lines.debit' },
           totalCredit: { $sum: '$lines.credit' }
         }
       },
@@ -5870,7 +5874,7 @@ router.get('/reports/budget-vs-actual',
 
     const dateMatch = {};
     if (fromDate) dateMatch.$gte = new Date(fromDate);
-    if (toDate)   dateMatch.$lte = new Date(toDate);
+    if (toDate) dateMatch.$lte = new Date(toDate);
 
     const actuals = await JournalEntry.aggregate([
       { $match: jeMatch({ status: 'posted', ...(Object.keys(dateMatch).length ? { date: dateMatch } : {}) }) },
@@ -5899,16 +5903,16 @@ router.get('/reports/budget-vs-actual',
       const budget = cc.budget || 0;
       const variance = budget - actual;
       return {
-        _id:             cc._id,
-        code:            cc.code,
-        name:            cc.name,
-        department:      cc.department?.name,
-        budgetPeriod:    cc.budgetPeriod,
-        budget:          Math.round(budget * 100) / 100,
-        actual:          Math.round(actual * 100) / 100,
-        variance:        Math.round(variance * 100) / 100,
-        variancePct:     budget > 0 ? Math.round((variance / budget) * 10000) / 100 : null,
-        overBudget:      actual > budget
+        _id: cc._id,
+        code: cc.code,
+        name: cc.name,
+        department: cc.department?.name,
+        budgetPeriod: cc.budgetPeriod,
+        budget: Math.round(budget * 100) / 100,
+        actual: Math.round(actual * 100) / 100,
+        variance: Math.round(variance * 100) / 100,
+        variancePct: budget > 0 ? Math.round((variance / budget) * 10000) / 100 : null,
+        overBudget: actual > budget
       };
     });
 
@@ -5920,8 +5924,8 @@ router.get('/reports/budget-vs-actual',
       data: {
         rows: result,
         totals: {
-          budget:   Math.round(totalBudget * 100) / 100,
-          actual:   Math.round(totalActual * 100) / 100,
+          budget: Math.round(totalBudget * 100) / 100,
+          actual: Math.round(totalActual * 100) / 100,
           variance: Math.round((totalBudget - totalActual) * 100) / 100
         }
       }
@@ -5949,7 +5953,7 @@ router.get('/reports/aged-payables',
       if (daysOutstanding > 90) bucket = 'over90';
       else if (daysOutstanding > 60) bucket = 'days61_90';
       else if (daysOutstanding > 30) bucket = 'days31_60';
-      else if (daysOutstanding > 0)  bucket = 'days1_30';
+      else if (daysOutstanding > 0) bucket = 'days1_30';
       buckets[bucket] = Math.round((buckets[bucket] + balance) * 100) / 100;
       return { _id: b._id, reference: b.referenceNumber, supplier: b.supplier, dueDate: b.dueDate, balance, daysOutstanding, bucket };
     });
@@ -5978,7 +5982,7 @@ router.get('/reports/aged-receivables',
       if (daysOutstanding > 90) bucket = 'over90';
       else if (daysOutstanding > 60) bucket = 'days61_90';
       else if (daysOutstanding > 30) bucket = 'days31_60';
-      else if (daysOutstanding > 0)  bucket = 'days1_30';
+      else if (daysOutstanding > 0) bucket = 'days1_30';
       buckets[bucket] = Math.round((buckets[bucket] + balance) * 100) / 100;
       return { _id: inv._id, reference: inv.referenceNumber, customer: inv.customer, dueDate: inv.dueDate, balance, daysOutstanding, bucket };
     });
@@ -6091,26 +6095,26 @@ router.post('/sales-orders/:orderId/create-invoice',
     const company = await resolveCompanyForFinanceRoute(req);
     const arInvoice = await FinanceHelper.createARFromInvoice({
       companyId: company._id,
-      customerName:  order.customer?.name || order.customerName || 'Customer',
+      customerName: order.customer?.name || order.customerName || 'Customer',
       customerEmail: order.customer?.email || '',
-      customerId:    order.customer?._id || null,
+      customerId: order.customer?._id || null,
       invoiceNumber,
-      invoiceDate:   order.orderDate || new Date(),
-      dueDate:       billDueDate,
-      amount:        totalAmount,
+      invoiceDate: order.orderDate || new Date(),
+      dueDate: billDueDate,
+      amount: totalAmount,
       taxAmount,
-      department:    'sales',
-      module:        'sales',
-      referenceId:   order._id,
+      department: 'sales',
+      module: 'sales',
+      referenceId: order._id,
       referenceType: 'invoice',
       lineItems,
-      notes:         notes || `Auto-generated from Sales Order ${order.orderNumber}`,
-      createdBy:     req.user._id
+      notes: notes || `Auto-generated from Sales Order ${order.orderNumber}`,
+      createdBy: req.user._id
     });
 
     // Mark sales order as invoiced
     order.billingStatus = 'fully_invoiced';
-    order.arInvoice     = arInvoice._id;
+    order.arInvoice = arInvoice._id;
     await order.save();
 
     res.status(201).json({
@@ -6135,7 +6139,7 @@ router.post('/year-end-closing',
     const { companyId, jeMatch, withCo } = await financeScope(req);
     const A = acct(companyId);
     const from = new Date(`${year}-01-01`);
-    const to   = new Date(`${year}-12-31T23:59:59.999Z`);
+    const to = new Date(`${year}-12-31T23:59:59.999Z`);
 
     const rows = await JournalEntry.aggregate([
       { $match: jeMatch({ status: 'posted', date: { $gte: from, $lte: to } }) },
@@ -6144,19 +6148,24 @@ router.post('/year-end-closing',
       { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },
       { $unwind: '$acc' },
       { $match: { 'acc.type': { $in: ['revenue', 'income', 'other_income', 'expense', 'cost_of_goods_sold', 'operating_expense', 'other_expense', 'depreciation'] } } },
-      { $project: { accountType: '$acc.type', totalDebit: 1, totalCredit: 1,
-        balance: { $cond: {
-          if: { $in: ['$acc.type', ['expense','cost_of_goods_sold','operating_expense','other_expense','depreciation']] },
-          then: { $subtract: ['$totalDebit','$totalCredit'] },
-          else: { $subtract: ['$totalCredit','$totalDebit'] }
-        }}
-      }}
+      {
+        $project: {
+          accountType: '$acc.type', totalDebit: 1, totalCredit: 1,
+          balance: {
+            $cond: {
+              if: { $in: ['$acc.type', ['expense', 'cost_of_goods_sold', 'operating_expense', 'other_expense', 'depreciation']] },
+              then: { $subtract: ['$totalDebit', '$totalCredit'] },
+              else: { $subtract: ['$totalCredit', '$totalDebit'] }
+            }
+          }
+        }
+      }
     ]);
 
-    const revenueTypes = ['revenue','income','other_income'];
-    const totalRevenue  = rows.filter(r => revenueTypes.includes(r.accountType)).reduce((s,r) => s+(r.balance||0), 0);
-    const totalExpenses = rows.filter(r => !revenueTypes.includes(r.accountType)).reduce((s,r) => s+(r.balance||0), 0);
-    const netIncome     = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+    const revenueTypes = ['revenue', 'income', 'other_income'];
+    const totalRevenue = rows.filter(r => revenueTypes.includes(r.accountType)).reduce((s, r) => s + (r.balance || 0), 0);
+    const totalExpenses = rows.filter(r => !revenueTypes.includes(r.accountType)).reduce((s, r) => s + (r.balance || 0), 0);
+    const netIncome = Math.round((totalRevenue - totalExpenses) * 100) / 100;
 
     if (Math.abs(netIncome) < 0.01) {
       return res.json({ success: true, message: 'Net income is zero — no closing entry needed', data: { netIncome } });
@@ -6175,10 +6184,10 @@ router.post('/year-end-closing',
     // Simplified: single line closing entry for the net
     const closingLines = netIncome > 0
       ? [
-          { account: reAccount._id, description: `Net profit for ${year} transferred to Retained Earnings`, credit: netIncome, department: 'finance' },
-          // Placeholder debit to Income Summary (use a clearing approach)
-          // In practice this balances via the revenue/expense accounts already closed
-        ]
+        { account: reAccount._id, description: `Net profit for ${year} transferred to Retained Earnings`, credit: netIncome, department: 'finance' },
+        // Placeholder debit to Income Summary (use a clearing approach)
+        // In practice this balances via the revenue/expense accounts already closed
+      ]
       : [];
 
     if (netIncome > 0) {
@@ -6195,7 +6204,7 @@ router.post('/year-end-closing',
           createdBy: req.user._id,
           lines: [
             { account: revAccount._id, description: `Closing revenue to retained earnings`, debit: netIncome, department: 'finance' },
-            { account: reAccount._id,  description: `Net income ${year} — retained earnings`, credit: netIncome, department: 'finance' }
+            { account: reAccount._id, description: `Net income ${year} — retained earnings`, credit: netIncome, department: 'finance' }
           ]
         }));
       }
@@ -6212,7 +6221,7 @@ router.post('/year-end-closing',
           journalCode: 'GEN',
           createdBy: req.user._id,
           lines: [
-            { account: reAccount._id,  description: `Net loss ${year} — retained earnings`, debit: Math.abs(netIncome), department: 'finance' },
+            { account: reAccount._id, description: `Net loss ${year} — retained earnings`, debit: Math.abs(netIncome), department: 'finance' },
             { account: expAccount._id, description: `Closing expense to retained earnings`, credit: Math.abs(netIncome), department: 'finance' }
           ]
         }));
@@ -6222,7 +6231,7 @@ router.post('/year-end-closing',
     res.json({
       success: true,
       message: `Year-End closing entry posted for ${year}. Net ${netIncome >= 0 ? 'Income' : 'Loss'}: PKR ${Math.abs(netIncome).toLocaleString()}`,
-      data: { year, netIncome, totalRevenue: Math.round(totalRevenue*100)/100, totalExpenses: Math.round(totalExpenses*100)/100 }
+      data: { year, netIncome, totalRevenue: Math.round(totalRevenue * 100) / 100, totalExpenses: Math.round(totalExpenses * 100) / 100 }
     });
   })
 );
@@ -6235,12 +6244,12 @@ router.get('/reports/cash-flow',
   asyncHandler(async (req, res) => {
     const { fromDate, toDate } = req.query;
     const from = fromDate ? new Date(fromDate) : new Date(new Date().getFullYear(), 0, 1);
-    const to   = toDate   ? new Date(toDate)   : new Date();
+    const to = toDate ? new Date(toDate) : new Date();
     const { jeMatch } = await financeScope(req);
 
-    const operatingTypes  = ['revenue','income','other_income','expense','cost_of_goods_sold','operating_expense','other_expense','depreciation','accounts_receivable','accounts_payable','current_asset','current_liability'];
-    const investingTypes  = ['fixed_asset','other_asset'];
-    const financingTypes  = ['equity','long_term_liability','retained_earnings','owners_equity'];
+    const operatingTypes = ['revenue', 'income', 'other_income', 'expense', 'cost_of_goods_sold', 'operating_expense', 'other_expense', 'depreciation', 'accounts_receivable', 'accounts_payable', 'current_asset', 'current_liability'];
+    const investingTypes = ['fixed_asset', 'other_asset'];
+    const financingTypes = ['equity', 'long_term_liability', 'retained_earnings', 'owners_equity'];
 
     const allRows = await JournalEntry.aggregate([
       { $match: jeMatch({ status: 'posted', date: { $gte: from, $lte: to } }) },
@@ -6248,28 +6257,31 @@ router.get('/reports/cash-flow',
       { $group: { _id: '$lines.account', totalDebit: { $sum: '$lines.debit' }, totalCredit: { $sum: '$lines.credit' } } },
       { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },
       { $unwind: '$acc' },
-      { $project: { accountNumber: '$acc.accountNumber', accountName: '$acc.name', accountType: '$acc.type', totalDebit: 1, totalCredit: 1,
+      {
+        $project: {
+          accountNumber: '$acc.accountNumber', accountName: '$acc.name', accountType: '$acc.type', totalDebit: 1, totalCredit: 1,
           netFlow: { $subtract: ['$totalCredit', '$totalDebit'] }
-      }},
+        }
+      },
       { $sort: { accountNumber: 1 } }
     ]);
 
-    const operating  = allRows.filter(r => operatingTypes.some(t => r.accountType?.includes(t)));
-    const investing  = allRows.filter(r => investingTypes.some(t => r.accountType?.includes(t)));
-    const financing  = allRows.filter(r => financingTypes.some(t => r.accountType?.includes(t)));
+    const operating = allRows.filter(r => operatingTypes.some(t => r.accountType?.includes(t)));
+    const investing = allRows.filter(r => investingTypes.some(t => r.accountType?.includes(t)));
+    const financing = allRows.filter(r => financingTypes.some(t => r.accountType?.includes(t)));
 
-    const totalOperating = Math.round(operating.reduce((s,r)  => s+(r.netFlow||0), 0)*100)/100;
-    const totalInvesting = Math.round(investing.reduce((s,r)  => s+(r.netFlow||0), 0)*100)/100;
-    const totalFinancing = Math.round(financing.reduce((s,r)  => s+(r.netFlow||0), 0)*100)/100;
-    const netCashChange  = Math.round((totalOperating + totalInvesting + totalFinancing)*100)/100;
+    const totalOperating = Math.round(operating.reduce((s, r) => s + (r.netFlow || 0), 0) * 100) / 100;
+    const totalInvesting = Math.round(investing.reduce((s, r) => s + (r.netFlow || 0), 0) * 100) / 100;
+    const totalFinancing = Math.round(financing.reduce((s, r) => s + (r.netFlow || 0), 0) * 100) / 100;
+    const netCashChange = Math.round((totalOperating + totalInvesting + totalFinancing) * 100) / 100;
 
     res.json({
       success: true,
       data: {
         fromDate: from, toDate: to,
-        operating:  { rows: operating,  total: totalOperating },
-        investing:  { rows: investing,  total: totalInvesting },
-        financing:  { rows: financing,  total: totalFinancing },
+        operating: { rows: operating, total: totalOperating },
+        investing: { rows: investing, total: totalInvesting },
+        financing: { rows: financing, total: totalFinancing },
         summary: { totalOperating, totalInvesting, totalFinancing, netCashChange }
       }
     });
@@ -6299,9 +6311,9 @@ router.post('/grn/:grnId/create-bill',
     // Build line items from GRN items
     const lineItems = grn.items.map(item => ({
       description: `${item.itemName} (${item.itemCode}) — GRN ${grn.receiveNumber}`,
-      quantity:  item.quantity,
+      quantity: item.quantity,
       unitPrice: item.unitPrice || 0,
-      taxRate:   0
+      taxRate: 0
     }));
 
     const subtotal = lineItems.reduce((s, l) => s + (l.quantity * l.unitPrice), 0);
@@ -6322,27 +6334,27 @@ router.post('/grn/:grnId/create-bill',
     // Create AP bill via FinanceHelper (posts GRNI → AP journal)
     const apBill = await FinanceHelper.createAPFromBill({
       companyId,
-      vendorName:  grn.supplierName || grn.supplier?.name || 'Unknown Vendor',
+      vendorName: grn.supplierName || grn.supplier?.name || 'Unknown Vendor',
       vendorEmail: grn.supplier?.email || '',
-      vendorId:    grn.supplier?._id || null,
+      vendorId: grn.supplier?._id || null,
       billNumber,
       vendorInvoiceNumber: vendorInvoiceNumber || '',
-      billDate:    grn.receiveDate || new Date(),
-      dueDate:     billDueDate,
-      amount:      subtotal,
-      department:  'procurement',
-      module:      'procurement',
+      billDate: grn.receiveDate || new Date(),
+      dueDate: billDueDate,
+      amount: subtotal,
+      department: 'procurement',
+      module: 'procurement',
       referenceId: grn._id,
       referenceType: 'grn',
       lineItems,
-      notes:       notes || `Auto-generated from GRN ${grn.receiveNumber}`,
-      createdBy:   req.user._id
+      notes: notes || `Auto-generated from GRN ${grn.receiveNumber}`,
+      createdBy: req.user._id
     });
 
     // Update GRN billing status/amount
-    grn.billedAmount     = Math.round((Number(grn.netAmount || grn.total || 0) || 0) * 100) / 100;
-    grn.billingStatus    = 'fully_billed';
-    grn.vendorBill       = apBill._id;
+    grn.billedAmount = Math.round((Number(grn.netAmount || grn.total || 0) || 0) * 100) / 100;
+    grn.billingStatus = 'fully_billed';
+    grn.vendorBill = apBill._id;
     grn.vendorBillNumber = billNumber;
     await grn.save();
 
@@ -6390,31 +6402,31 @@ router.post('/journal-entries/:id/reverse',
 
     // Mirror lines: swap debit ↔ credit
     const reversalLines = original.lines.map(line => ({
-      account:     line.account._id || line.account,
+      account: line.account._id || line.account,
       description: `Reversal: ${line.description || ''}`,
-      debit:       line.credit,
-      credit:      line.debit,
-      department:  line.department,
-      costCenter:  line.costCenter
+      debit: line.credit,
+      credit: line.debit,
+      department: line.department,
+      costCenter: line.costCenter
     }));
 
     const reversalEntry = await FinanceHelper.createAndPostJournalEntry(withCompany({
-      date:          reversalDate,
-      reference:     `REV-${original.entryNumber}`,
-      description:   reason || `Reversal of ${original.entryNumber}`,
-      department:    original.department,
-      module:        original.module,
-      referenceId:   original._id,
+      date: reversalDate,
+      reference: `REV-${original.entryNumber}`,
+      description: reason || `Reversal of ${original.entryNumber}`,
+      department: original.department,
+      module: original.module,
+      referenceId: original._id,
       referenceType: original.referenceType,
-      journalCode:   'GEN',
-      createdBy:     req.user.id,
-      lines:         reversalLines
+      journalCode: 'GEN',
+      createdBy: req.user.id,
+      lines: reversalLines
     }, original.companyId || companyId));
 
     // Mark original as reversed
-    original.isReversed   = true;
+    original.isReversed = true;
     original.reversalEntry = reversalEntry._id;
-    original.status        = 'reversed';
+    original.status = 'reversed';
     await original.save();
 
     res.json({
@@ -6442,13 +6454,13 @@ router.get('/reports/balance-sheet',
       { $unwind: '$acc' },
       {
         $project: {
-          accountNumber:     '$acc.accountNumber',
-          accountName:       '$acc.name',
-          accountType:       '$acc.type',
-          accountCategory:   '$acc.category',
+          accountNumber: '$acc.accountNumber',
+          accountName: '$acc.name',
+          accountType: '$acc.type',
+          accountCategory: '$acc.category',
           accountDetailType: '$acc.detailType',
-          totalDebit:        1,
-          totalCredit:       1,
+          totalDebit: 1,
+          totalCredit: 1,
           // Account model has no normalBalance; use type (matches Account enum).
           // Asset & Expense: debit − credit. Liability, Equity, Revenue: credit − debit.
           balance: {
@@ -6464,20 +6476,20 @@ router.get('/reports/balance-sheet',
     ]);
 
     // BS sections: exact Account.type match
-    const assets      = rows.filter(r => r.accountType === 'Asset');
+    const assets = rows.filter(r => r.accountType === 'Asset');
     const liabilities = rows.filter(r => r.accountType === 'Liability');
-    const equity      = rows.filter(r => r.accountType === 'Equity');
+    const equity = rows.filter(r => r.accountType === 'Equity');
     const revenueRows = rows.filter(r => r.accountType === 'Revenue');
     const expenseRows = rows.filter(r => r.accountType === 'Expense');
 
-    const totalAssets      = assets.reduce((s, r) => s + (r.balance || 0), 0);
+    const totalAssets = assets.reduce((s, r) => s + (r.balance || 0), 0);
     const totalLiabilities = liabilities.reduce((s, r) => s + (r.balance || 0), 0);
-    const rawEquityTotal   = equity.reduce((s, r) => s + (r.balance || 0), 0);
-    const totalRevenue     = revenueRows.reduce((s, r) => s + (r.balance || 0), 0);
-    const totalExpense     = expenseRows.reduce((s, r) => s + (r.balance || 0), 0);
+    const rawEquityTotal = equity.reduce((s, r) => s + (r.balance || 0), 0);
+    const totalRevenue = revenueRows.reduce((s, r) => s + (r.balance || 0), 0);
+    const totalExpense = expenseRows.reduce((s, r) => s + (r.balance || 0), 0);
 
     // Unclosed P&L affects the accounting equation: Assets = Liabilities + Equity + (Revenue − Expense)
-    const netIncomeFromPL  = Math.round((totalRevenue - totalExpense) * 100) / 100;
+    const netIncomeFromPL = Math.round((totalRevenue - totalExpense) * 100) / 100;
 
     // In standard QuickBooks Balance Sheet, Net Income for the period is reported directly under Equity
     const equityWithPL = [...equity];
@@ -6495,17 +6507,17 @@ router.get('/reports/balance-sheet',
     }
 
     const totalEquityWithPL = Math.round((rawEquityTotal + netIncomeFromPL) * 100) / 100;
-    const totalAssetsR      = Math.round(totalAssets * 100) / 100;
-    const totalLiabR        = Math.round(totalLiabilities * 100) / 100;
-    const liabPlusEquityPL  = Math.round((totalLiabilities + totalEquityWithPL) * 100) / 100;
+    const totalAssetsR = Math.round(totalAssets * 100) / 100;
+    const totalLiabR = Math.round(totalLiabilities * 100) / 100;
+    const liabPlusEquityPL = Math.round((totalLiabilities + totalEquityWithPL) * 100) / 100;
 
     res.json({
       success: true,
       data: {
-        asOfDate:    asOf,
-        assets:      { rows: assets,        total: totalAssetsR },
-        liabilities: { rows: liabilities,   total: totalLiabR },
-        equity:      { rows: equityWithPL,  total: totalEquityWithPL },
+        asOfDate: asOf,
+        assets: { rows: assets, total: totalAssetsR },
+        liabilities: { rows: liabilities, total: totalLiabR },
+        equity: { rows: equityWithPL, total: totalEquityWithPL },
         pAndL: {
           revenueRows,
           expenseRows,
@@ -6514,9 +6526,9 @@ router.get('/reports/balance-sheet',
           netIncome: netIncomeFromPL
         },
         totals: {
-          totalAssets:          totalAssetsR,
-          totalLiabilities:     totalLiabR,
-          totalEquity:          totalEquityWithPL,
+          totalAssets: totalAssetsR,
+          totalLiabilities: totalLiabR,
+          totalEquity: totalEquityWithPL,
           liabilitiesAndEquity: liabPlusEquityPL,
           liabilitiesEquityAndPL: liabPlusEquityPL,
           isBalanced: Math.abs(totalAssetsR - liabPlusEquityPL) < 1
@@ -6555,13 +6567,13 @@ router.get('/reports/profit-loss',
       },
       {
         $project: {
-          accountNumber:     '$acc.accountNumber',
-          accountName:       '$acc.name',
-          accountType:       '$acc.type',
-          accountCategory:   '$acc.category',
+          accountNumber: '$acc.accountNumber',
+          accountName: '$acc.name',
+          accountType: '$acc.type',
+          accountCategory: '$acc.category',
           accountDetailType: '$acc.detailType',
-          totalDebit:        1,
-          totalCredit:       1,
+          totalDebit: 1,
+          totalCredit: 1,
           balance: {
             $cond: {
               if: { $eq: ['$acc.type', 'Expense'] },
@@ -6574,25 +6586,25 @@ router.get('/reports/profit-loss',
       { $sort: { accountNumber: 1 } }
     ]);
 
-    const revenue  = rows.filter(r => r.accountType === 'Revenue');
+    const revenue = rows.filter(r => r.accountType === 'Revenue');
     const expenses = rows.filter(r => r.accountType === 'Expense');
 
-    const totalRevenue  = revenue.reduce((s, r) => s + (r.balance || 0), 0);
+    const totalRevenue = revenue.reduce((s, r) => s + (r.balance || 0), 0);
     const totalExpenses = expenses.reduce((s, r) => s + (r.balance || 0), 0);
-    const netProfit     = totalRevenue - totalExpenses;
+    const netProfit = totalRevenue - totalExpenses;
 
     res.json({
       success: true,
       data: {
         fromDate: from,
-        toDate:   to,
-        revenue:  { rows: revenue,  total: Math.round(totalRevenue * 100) / 100 },
+        toDate: to,
+        revenue: { rows: revenue, total: Math.round(totalRevenue * 100) / 100 },
         expenses: { rows: expenses, total: Math.round(totalExpenses * 100) / 100 },
         totals: {
-          totalRevenue:  Math.round(totalRevenue * 100) / 100,
+          totalRevenue: Math.round(totalRevenue * 100) / 100,
           totalExpenses: Math.round(totalExpenses * 100) / 100,
-          netProfit:     Math.round(netProfit * 100) / 100,
-          isProfitable:  netProfit >= 0
+          netProfit: Math.round(netProfit * 100) / 100,
+          isProfitable: netProfit >= 0
         }
       }
     });
@@ -6607,7 +6619,7 @@ router.get('/reports/tax-summary',
   asyncHandler(async (req, res) => {
     const { fromDate, toDate } = req.query;
     const from = fromDate ? new Date(fromDate) : new Date(new Date().getFullYear(), 0, 1);
-    const to   = toDate   ? new Date(toDate)   : new Date();
+    const to = toDate ? new Date(toDate) : new Date();
     const { q } = await financeScope(req);
 
     const inputTaxBills = await AccountsPayable.find(q({
@@ -6620,28 +6632,28 @@ router.get('/reports/tax-summary',
       taxAmount: { $gt: 0 }
     })).select('invoiceNumber customerName amount taxAmount createdAt');
 
-    const totalInputTax  = inputTaxBills.reduce((s, b) => s + (b.taxAmount || 0), 0);
+    const totalInputTax = inputTaxBills.reduce((s, b) => s + (b.taxAmount || 0), 0);
     const totalOutputTax = outputTaxInvoices.reduce((s, i) => s + (i.taxAmount || 0), 0);
-    const netTaxPayable  = totalOutputTax - totalInputTax;
+    const netTaxPayable = totalOutputTax - totalInputTax;
 
     res.json({
       success: true,
       data: {
         fromDate: from,
-        toDate:   to,
+        toDate: to,
         inputTax: {
-          rows:  inputTaxBills,
+          rows: inputTaxBills,
           total: Math.round(totalInputTax * 100) / 100
         },
         outputTax: {
-          rows:  outputTaxInvoices,
+          rows: outputTaxInvoices,
           total: Math.round(totalOutputTax * 100) / 100
         },
         summary: {
-          totalInputTax:  Math.round(totalInputTax * 100) / 100,
+          totalInputTax: Math.round(totalInputTax * 100) / 100,
           totalOutputTax: Math.round(totalOutputTax * 100) / 100,
-          netTaxPayable:  Math.round(netTaxPayable * 100) / 100,
-          isRefundable:   netTaxPayable < 0
+          netTaxPayable: Math.round(netTaxPayable * 100) / 100,
+          isRefundable: netTaxPayable < 0
         }
       }
     });
@@ -6664,7 +6676,7 @@ router.post('/opening-balances',
     }
 
     // Validate balance: debits must equal credits
-    const totalDebits  = lines.reduce((s, l) => s + (Number(l.debit)  || 0), 0);
+    const totalDebits = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
     const totalCredits = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
     if (Math.abs(totalDebits - totalCredits) > 0.01) {
       return res.status(400).json({
@@ -6674,20 +6686,20 @@ router.post('/opening-balances',
     }
 
     const entry = await FinanceHelper.createAndPostJournalEntry(withCo({
-      date:          date ? new Date(date) : new Date(),
-      reference:     'OPEN-BAL',
-      description:   notes || 'Opening balances — system setup',
-      department:    'finance',
-      module:        'finance',
+      date: date ? new Date(date) : new Date(),
+      reference: 'OPEN-BAL',
+      description: notes || 'Opening balances — system setup',
+      department: 'finance',
+      module: 'finance',
       referenceType: 'adjustment',
-      journalCode:   'GEN',
-      createdBy:     req.user.id,
-      lines:         lines.map(l => ({
-        account:     l.account,
+      journalCode: 'GEN',
+      createdBy: req.user.id,
+      lines: lines.map(l => ({
+        account: l.account,
         description: l.description || 'Opening balance',
-        debit:       Number(l.debit)  || 0,
-        credit:      Number(l.credit) || 0,
-        department:  'finance'
+        debit: Number(l.debit) || 0,
+        credit: Number(l.credit) || 0,
+        department: 'finance'
       }))
     }));
 
@@ -6733,7 +6745,7 @@ router.get('/customer-payments',
       for (const p of (inv.payments || [])) {
         const payDate = p.paymentDate ? new Date(p.paymentDate) : null;
         if (fromDate && payDate && payDate < new Date(fromDate)) continue;
-        if (toDate   && payDate && payDate > new Date(toDate))   continue;
+        if (toDate && payDate && payDate > new Date(toDate)) continue;
         if (search) {
           const q = search.toLowerCase();
           const matches = inv.customer?.name?.toLowerCase().includes(q)
@@ -6742,16 +6754,16 @@ router.get('/customer-payments',
           if (!matches) continue;
         }
         payments.push({
-          _id:           p._id,
+          _id: p._id,
           invoiceNumber: inv.invoiceNumber,
-          customerName:  inv.customer?.name || '—',
+          customerName: inv.customer?.name || '—',
           customerEmail: inv.customer?.email || '',
-          paymentDate:   p.paymentDate,
-          amount:        p.amount,
+          paymentDate: p.paymentDate,
+          amount: p.amount,
           paymentMethod: p.paymentMethod,
-          reference:     p.reference,
-          department:    inv.department,
-          invoiceId:     inv._id
+          reference: p.reference,
+          department: inv.department,
+          invoiceId: inv._id
         });
       }
     }
@@ -6776,7 +6788,7 @@ router.get('/credit-notes',
     if (fromDate || toDate) {
       match.invoiceDate = {};
       if (fromDate) match.invoiceDate.$gte = new Date(fromDate);
-      if (toDate)   match.invoiceDate.$lte = new Date(toDate);
+      if (toDate) match.invoiceDate.$lte = new Date(toDate);
     }
     if (search) {
       match.$or = [
@@ -6815,7 +6827,7 @@ router.get('/vendor-payments',
       for (const p of (bill.payments || [])) {
         const payDate = p.paymentDate ? new Date(p.paymentDate) : null;
         if (fromDate && payDate && payDate < new Date(fromDate)) continue;
-        if (toDate   && payDate && payDate > new Date(toDate))   continue;
+        if (toDate && payDate && payDate > new Date(toDate)) continue;
         if (search) {
           const q = search.toLowerCase();
           const matches = bill.vendor?.name?.toLowerCase().includes(q)
@@ -6824,16 +6836,16 @@ router.get('/vendor-payments',
           if (!matches) continue;
         }
         payments.push({
-          _id:           p._id,
-          billNumber:    bill.billNumber,
-          vendorName:    bill.vendor?.name || bill.vendor || '—',
-          vendorEmail:   bill.vendor?.email || '',
-          paymentDate:   p.paymentDate,
-          amount:        p.amount,
+          _id: p._id,
+          billNumber: bill.billNumber,
+          vendorName: bill.vendor?.name || bill.vendor || '—',
+          vendorEmail: bill.vendor?.email || '',
+          paymentDate: p.paymentDate,
+          amount: p.amount,
           paymentMethod: p.paymentMethod,
-          reference:     p.reference,
-          department:    bill.department,
-          billId:        bill._id
+          reference: p.reference,
+          department: bill.department,
+          billId: bill._id
         });
       }
     }
@@ -6858,7 +6870,7 @@ router.get('/vendor-refunds',
     if (fromDate || toDate) {
       match.returnDate = {};
       if (fromDate) match.returnDate.$gte = new Date(fromDate);
-      if (toDate)   match.returnDate.$lte = new Date(toDate);
+      if (toDate) match.returnDate.$lte = new Date(toDate);
     }
     if (search) {
       match.$or = [
@@ -6893,7 +6905,7 @@ router.get('/bill-to-receive',
     if (fromDate || toDate) {
       match.receiveDate = {};
       if (fromDate) match.receiveDate.$gte = new Date(fromDate);
-      if (toDate)   match.receiveDate.$lte = new Date(toDate);
+      if (toDate) match.receiveDate.$lte = new Date(toDate);
     }
     if (search) {
       match.$or = [
@@ -6935,7 +6947,7 @@ router.get('/billed-not-received',
     if (fromDate || toDate) {
       match.billDate = {};
       if (fromDate) match.billDate.$gte = new Date(fromDate);
-      if (toDate)   match.billDate.$lte = new Date(toDate);
+      if (toDate) match.billDate.$lte = new Date(toDate);
     }
     if (search) {
       match.$or = [
@@ -7012,7 +7024,7 @@ router.post('/recurring-journals',
     if (!lines || lines.length < 2) {
       return res.status(400).json({ success: false, message: 'At least 2 journal lines required' });
     }
-    const totalDebit  = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+    const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
     const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       return res.status(400).json({ success: false, message: `Lines not balanced: DR ${totalDebit} ≠ CR ${totalCredit}` });
@@ -7066,26 +7078,26 @@ router.post('/recurring-journals/:id/run',
     assertDocCompany(rj, companyId, 'Recurring journal');
 
     const entry = await FinanceHelper.createAndPostJournalEntry(withCo({
-      date:          new Date(),
-      reference:     `REC-${rj.name.substring(0, 20).replace(/\s/g, '-')}-${Date.now()}`,
-      description:   `[Recurring] ${rj.name}`,
-      department:    rj.department || 'finance',
-      module:        'manual',
+      date: new Date(),
+      reference: `REC-${rj.name.substring(0, 20).replace(/\s/g, '-')}-${Date.now()}`,
+      description: `[Recurring] ${rj.name}`,
+      department: rj.department || 'finance',
+      module: 'manual',
       referenceType: 'manual',
-      journalCode:   rj.journalCode || 'GEN',
-      createdBy:     req.user.id,
-      lines:         rj.lines.map(l => ({
-        account:     l.account._id || l.account,
+      journalCode: rj.journalCode || 'GEN',
+      createdBy: req.user.id,
+      lines: rj.lines.map(l => ({
+        account: l.account._id || l.account,
         description: l.description || rj.name,
-        debit:       l.debit  || 0,
-        credit:      l.credit || 0,
-        department:  l.department || rj.department
+        debit: l.debit || 0,
+        credit: l.credit || 0,
+        department: l.department || rj.department
       }))
     }));
 
-    rj.lastRunDate  = new Date();
-    rj.runCount     += 1;
-    rj.nextRunDate  = rj.computeNextRunDate(new Date());
+    rj.lastRunDate = new Date();
+    rj.runCount += 1;
+    rj.nextRunDate = rj.computeNextRunDate(new Date());
     rj.postedEntries.push(entry._id);
     await rj.save();
 
@@ -7126,7 +7138,7 @@ router.post('/accounts-receivable/:id/send-email',
     <table width="100%"><tr>
       <td><span style="color:#fff;font-size:22px;font-weight:900">SGC International</span><br><span style="color:#bbdefb;font-size:13px">Tax Invoice</span></td>
       <td align="right"><span style="color:#fff;font-size:26px;font-weight:700">${invoice.invoiceNumber}</span><br>
-        <span style="background:${statusColor[invoice.status]||'#555'};color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700">${(invoice.status||'').toUpperCase()}</span>
+        <span style="background:${statusColor[invoice.status] || '#555'};color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700">${(invoice.status || '').toUpperCase()}</span>
       </td>
     </tr></table>
   </td></tr>
@@ -7136,14 +7148,14 @@ router.post('/accounts-receivable/:id/send-email',
       <td width="50%" valign="top">
         <div style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Bill To</div>
         <div style="font-size:16px;font-weight:700;color:#222">${invoice.customer?.name || '—'}</div>
-        ${invoice.customer?.email  ? `<div style="color:#555;font-size:13px">${invoice.customer.email}</div>` : ''}
-        ${invoice.customer?.phone  ? `<div style="color:#555;font-size:13px">${invoice.customer.phone}</div>` : ''}
-        ${invoice.customer?.address? `<div style="color:#555;font-size:13px">${invoice.customer.address}</div>` : ''}
+        ${invoice.customer?.email ? `<div style="color:#555;font-size:13px">${invoice.customer.email}</div>` : ''}
+        ${invoice.customer?.phone ? `<div style="color:#555;font-size:13px">${invoice.customer.phone}</div>` : ''}
+        ${invoice.customer?.address ? `<div style="color:#555;font-size:13px">${invoice.customer.address}</div>` : ''}
       </td>
       <td width="50%" valign="top" align="right">
         <table cellpadding="3" cellspacing="0">
           <tr><td style="color:#888;font-size:13px">Invoice Date:</td><td style="font-weight:600;font-size:13px;padding-left:8px">${fmtDate(invoice.invoiceDate)}</td></tr>
-          <tr><td style="color:#888;font-size:13px">Due Date:</td><td style="font-weight:600;font-size:13px;padding-left:8px;color:${balance>0?'#c62828':'#2e7d32'}">${fmtDate(invoice.dueDate)}</td></tr>
+          <tr><td style="color:#888;font-size:13px">Due Date:</td><td style="font-weight:600;font-size:13px;padding-left:8px;color:${balance > 0 ? '#c62828' : '#2e7d32'}">${fmtDate(invoice.dueDate)}</td></tr>
           ${invoice.department ? `<tr><td style="color:#888;font-size:13px">Department:</td><td style="font-weight:600;font-size:13px;padding-left:8px">${invoice.department}</td></tr>` : ''}
         </table>
       </td>
@@ -7160,9 +7172,9 @@ router.post('/accounts-receivable/:id/send-email',
         <td style="padding:8px 16px;font-size:13px;color:#888">Amount Paid</td>
         <td style="padding:8px 16px;font-size:13px;text-align:right;color:#2e7d32">${fmt(invoice.amountPaid || invoice.paidAmount || 0)}</td>
       </tr>
-      <tr style="background:${balance>0?'#ffebee':'#e8f5e9'}">
-        <td style="padding:10px 16px;font-size:14px;font-weight:700;color:${balance>0?'#c62828':'#2e7d32'}">Balance Due</td>
-        <td style="padding:10px 16px;font-size:18px;font-weight:900;color:${balance>0?'#c62828':'#2e7d32'};text-align:right">${fmt(balance)}</td>
+      <tr style="background:${balance > 0 ? '#ffebee' : '#e8f5e9'}">
+        <td style="padding:10px 16px;font-size:14px;font-weight:700;color:${balance > 0 ? '#c62828' : '#2e7d32'}">Balance Due</td>
+        <td style="padding:10px 16px;font-size:18px;font-weight:900;color:${balance > 0 ? '#c62828' : '#2e7d32'};text-align:right">${fmt(balance)}</td>
       </tr>
     </table>
   </td></tr>
@@ -7200,9 +7212,9 @@ router.get('/budgets',
     const { fiscalYear, department, status } = req.query;
     const { q } = await financeScope(req);
     const filter = q({});
-    if (fiscalYear)  filter.fiscalYear  = Number(fiscalYear);
-    if (department)  filter.department  = department;
-    if (status)      filter.status      = status;
+    if (fiscalYear) filter.fiscalYear = Number(fiscalYear);
+    if (department) filter.department = department;
+    if (status) filter.status = status;
     const budgets = await Budget.find(filter)
       .populate('lines.account', 'name accountNumber type')
       .populate('createdBy', 'name')
@@ -7287,21 +7299,21 @@ router.get('/reports/budget-vs-actual-detailed',
 
     const lines = budget.lines.map(l => {
       const actual = actualMap[l.account?._id?.toString()] || {};
-      const type   = l.account?.type;
+      const type = l.account?.type;
       const actualAmt = type === 'Revenue'
         ? (actual.totalCredit || 0) - (actual.totalDebit || 0)
         : (actual.totalDebit || 0) - (actual.totalCredit || 0);
       const variance = l.budgetAmount - actualAmt;
       return {
-        accountId:    l.account?._id,
-        accountName:  l.account?.name || l.accountName,
-        accountNumber:l.account?.accountNumber,
-        accountType:  type,
+        accountId: l.account?._id,
+        accountName: l.account?.name || l.accountName,
+        accountNumber: l.account?.accountNumber,
+        accountType: type,
         budgetAmount: l.budgetAmount,
         actualAmount: Math.round(actualAmt * 100) / 100,
-        variance:     Math.round(variance * 100) / 100,
-        variancePct:  l.budgetAmount > 0 ? Math.round((variance / l.budgetAmount) * 10000) / 100 : null,
-        overBudget:   actualAmt > l.budgetAmount
+        variance: Math.round(variance * 100) / 100,
+        variancePct: l.budgetAmount > 0 ? Math.round((variance / l.budgetAmount) * 10000) / 100 : null,
+        overBudget: actualAmt > l.budgetAmount
       };
     });
 
@@ -7323,7 +7335,7 @@ router.get('/deferred-entries',
     const { type, status } = req.query;
     const { q } = await financeScope(req);
     const filter = q({});
-    if (type)   filter.type   = type;
+    if (type) filter.type = type;
     if (status) filter.status = status;
     const entries = await DeferredEntry.find(filter)
       .populate('deferredAccount', 'name accountNumber')
@@ -7386,29 +7398,29 @@ router.post('/deferred-entries/:id/recognize/:lineId',
 
     const isRevenue = entry.type === 'deferred_revenue';
     const je = await FinanceHelper.createAndPostJournalEntry(withCo({
-      date:          new Date(),
-      reference:     `DEFERRED-${entry._id}-${line.period}`,
-      description:   `${isRevenue ? 'Revenue' : 'Expense'} Recognition – ${entry.name} (${line.period})`,
-      department:    entry.department || 'finance',
-      module:        'finance',
-      referenceId:   entry._id,
+      date: new Date(),
+      reference: `DEFERRED-${entry._id}-${line.period}`,
+      description: `${isRevenue ? 'Revenue' : 'Expense'} Recognition – ${entry.name} (${line.period})`,
+      department: entry.department || 'finance',
+      module: 'finance',
+      referenceId: entry._id,
       referenceType: 'deferred',
-      journalCode:   isRevenue ? 'REV' : 'GEN',
-      createdBy:     req.user.id,
+      journalCode: isRevenue ? 'REV' : 'GEN',
+      createdBy: req.user.id,
       lines: isRevenue
         ? [
-            { account: entry.deferredAccount,    description: `Deferred revenue – ${entry.name}`, debit:  line.amount, department: entry.department },
-            { account: entry.recognitionAccount, description: `Revenue recognized – ${entry.name}`,credit: line.amount, department: entry.department }
-          ]
+          { account: entry.deferredAccount, description: `Deferred revenue – ${entry.name}`, debit: line.amount, department: entry.department },
+          { account: entry.recognitionAccount, description: `Revenue recognized – ${entry.name}`, credit: line.amount, department: entry.department }
+        ]
         : [
-            { account: entry.recognitionAccount, description: `Expense recognized – ${entry.name}`,  debit:  line.amount, department: entry.department },
-            { account: entry.deferredAccount,    description: `Deferred expense – ${entry.name}`,    credit: line.amount, department: entry.department }
-          ]
+          { account: entry.recognitionAccount, description: `Expense recognized – ${entry.name}`, debit: line.amount, department: entry.department },
+          { account: entry.deferredAccount, description: `Deferred expense – ${entry.name}`, credit: line.amount, department: entry.department }
+        ]
     }));
 
     line.journalEntry = je._id;
-    line.postedAt     = new Date();
-    line.status       = 'posted';
+    line.postedAt = new Date();
+    line.status = 'posted';
     entry.markModified('schedule');
     await entry.save();
 
@@ -7435,10 +7447,10 @@ router.post('/banking/import-statement',
   asyncHandler(async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
-    const XLSX    = require('xlsx');
+    const XLSX = require('xlsx');
     const Banking = require('../models/finance/Banking');
     const { bankAccountId, dateColumn = 'Date', descColumn = 'Description',
-            debitColumn = 'Debit', creditColumn = 'Credit', balanceColumn = 'Balance' } = req.body;
+      debitColumn = 'Debit', creditColumn = 'Credit', balanceColumn = 'Balance' } = req.body;
 
     if (!bankAccountId) return res.status(400).json({ success: false, message: 'bankAccountId is required' });
 
@@ -7451,15 +7463,15 @@ router.post('/banking/import-statement',
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { raw: false, defval: '' });
 
     const imported = [];
-    const skipped  = [];
+    const skipped = [];
 
     for (const row of rows) {
       try {
         const rawDate = row[dateColumn] || row['date'] || row['DATE'] || row['Transaction Date'];
-        const desc    = row[descColumn]  || row['description'] || row['DESC'] || row['Narration'] || '';
-        const debit   = parseFloat((row[debitColumn]  || row['debit']  || row['DEBIT']  || '0').toString().replace(/,/g, '')) || 0;
-        const credit  = parseFloat((row[creditColumn] || row['credit'] || row['CREDIT'] || '0').toString().replace(/,/g, '')) || 0;
-        const balance = parseFloat((row[balanceColumn]|| row['balance']|| row['BALANCE']|| '0').toString().replace(/,/g, '')) || undefined;
+        const desc = row[descColumn] || row['description'] || row['DESC'] || row['Narration'] || '';
+        const debit = parseFloat((row[debitColumn] || row['debit'] || row['DEBIT'] || '0').toString().replace(/,/g, '')) || 0;
+        const credit = parseFloat((row[creditColumn] || row['credit'] || row['CREDIT'] || '0').toString().replace(/,/g, '')) || 0;
+        const balance = parseFloat((row[balanceColumn] || row['balance'] || row['BALANCE'] || '0').toString().replace(/,/g, '')) || undefined;
 
         if (!rawDate) { skipped.push({ row, reason: 'No date' }); continue; }
 
@@ -7468,7 +7480,7 @@ router.post('/banking/import-statement',
         if (debit === 0 && credit === 0) { skipped.push({ row, reason: 'Zero amount' }); continue; }
 
         const amount = credit - debit;
-        const type   = amount >= 0 ? 'credit' : 'debit';
+        const type = amount >= 0 ? 'credit' : 'debit';
 
         // Avoid duplicate imports
         const exists = account.transactions?.some(t =>
@@ -7629,7 +7641,7 @@ router.post('/banking/import-voucher-dates',
 
     for (const [index, row] of rows.entries()) {
       let rawVNo = getFuzzyVal(row, 'Voucher No') || getFuzzyVal(row, 'Voucher Number') || getFuzzyVal(row, 'VNo') || getFuzzyVal(row, 'Entry Number');
-      
+
       if (!rawVNo || !String(rawVNo).trim()) {
         // If row is entirely empty or has no financial data, quietly ignore trailing blank Excel rows
         const desc = String(getFuzzyVal(row, 'Description') || '').trim().toLowerCase();
@@ -7691,13 +7703,13 @@ router.post('/banking/import-voucher-dates',
 
           await GeneralLedger.updateMany(
             { journalEntry: journalEntry._id },
-            { 
-              $set: { 
-                date: parsedDate, 
-                clearanceStatus: 'cleared', 
+            {
+              $set: {
+                date: parsedDate,
+                clearanceStatus: 'cleared',
                 clearedAt: parsedDate,
                 ...(effectiveCreatedBy ? { createdBy: effectiveCreatedBy } : {})
-              } 
+              }
             }
           );
 
@@ -7876,9 +7888,9 @@ router.put('/company-profile',
     const SystemSettings = require('../models/general/SystemSettings');
     const settings = await SystemSettings.getSingleton();
     const allowed = ['name', 'legalName', 'ntn', 'strn', 'address', 'city', 'country',
-                     'phone', 'email', 'website', 'logoUrl', 'currency',
-                     'bankName', 'bankAccount', 'bankIBAN', 'bankBranchCode', 'bankBranchName',
-                     'salaryLetterRefPrefix', 'invoiceFooter'];
+      'phone', 'email', 'website', 'logoUrl', 'currency',
+      'bankName', 'bankAccount', 'bankIBAN', 'bankBranchCode', 'bankBranchName',
+      'salaryLetterRefPrefix', 'invoiceFooter'];
     if (!settings.companyProfile) settings.companyProfile = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) settings.companyProfile[f] = req.body[f]; });
     settings.updatedBy = req.user.id;
@@ -7900,7 +7912,7 @@ router.get('/reports/comparative-pl',
     const getPeriodData = async (fromDate, toDate) => {
       const match = jeMatch({ status: 'posted' });
       if (fromDate) match.date = { ...(match.date || {}), $gte: new Date(fromDate) };
-      if (toDate)   match.date = { ...(match.date || {}), $lte: new Date(toDate) };
+      if (toDate) match.date = { ...(match.date || {}), $lte: new Date(toDate) };
 
       const rows = await GeneralLedger.aggregate([
         { $match: match },
@@ -7914,19 +7926,19 @@ router.get('/reports/comparative-pl',
         {
           $group: {
             _id: '$account',
-            accountName:   { $first: '$acc.name' },
+            accountName: { $first: '$acc.name' },
             accountNumber: { $first: '$acc.accountNumber' },
-            accountType:   { $first: '$acc.type' },
-            totalDebit:    { $sum: '$debit' },
-            totalCredit:   { $sum: '$credit' }
+            accountType: { $first: '$acc.type' },
+            totalDebit: { $sum: '$debit' },
+            totalCredit: { $sum: '$credit' }
           }
         },
         { $sort: { accountNumber: 1 } }
       ]);
 
-      const revenue  = rows.filter(r => r.accountType === 'Revenue');
+      const revenue = rows.filter(r => r.accountType === 'Revenue');
       const expenses = rows.filter(r => r.accountType === 'Expense');
-      const totalRev = revenue.reduce((s, r)  => s + ((r.totalCredit || 0) - (r.totalDebit || 0)), 0);
+      const totalRev = revenue.reduce((s, r) => s + ((r.totalCredit || 0) - (r.totalDebit || 0)), 0);
       const totalExp = expenses.reduce((s, r) => s + ((r.totalDebit || 0) - (r.totalCredit || 0)), 0);
       return { revenue, expenses, totalRevenue: totalRev, totalExpenses: totalExp, netProfit: totalRev - totalExp };
     };
@@ -7966,7 +7978,7 @@ router.get('/reports/department-pl',
     if (fromDate || toDate) {
       match.date = {};
       if (fromDate) match.date.$gte = new Date(fromDate);
-      if (toDate)   match.date.$lte = new Date(toDate);
+      if (toDate) match.date.$lte = new Date(toDate);
     }
     if (department) match.department = department;
 
@@ -7982,12 +7994,12 @@ router.get('/reports/department-pl',
       {
         $group: {
           _id: { account: '$account', dept: '$department' },
-          accountName:   { $first: '$acc.name' },
+          accountName: { $first: '$acc.name' },
           accountNumber: { $first: '$acc.accountNumber' },
-          accountType:   { $first: '$acc.type' },
-          department:    { $first: '$department' },
-          totalDebit:    { $sum: '$debit' },
-          totalCredit:   { $sum: '$credit' }
+          accountType: { $first: '$acc.type' },
+          department: { $first: '$department' },
+          totalDebit: { $sum: '$debit' },
+          totalCredit: { $sum: '$credit' }
         }
       },
       { $sort: { '_id.dept': 1, accountNumber: 1 } }
@@ -8032,23 +8044,23 @@ router.post('/admin/reset-finance',
       return res.status(400).json({ success: false, message: 'Send { confirm: "RESET_FINANCE" } to confirm' });
     }
 
-    const Inventory      = require('../models/procurement/Inventory');
-    const SalesOrder     = require('../models/sales/SalesOrder');
-    const DeferredEntry  = require('../models/finance/DeferredEntry');
-    const Budget         = require('../models/finance/Budget');
-    const FixedAsset     = require('../models/finance/FixedAsset');
+    const Inventory = require('../models/procurement/Inventory');
+    const SalesOrder = require('../models/sales/SalesOrder');
+    const DeferredEntry = require('../models/finance/DeferredEntry');
+    const Budget = require('../models/finance/Budget');
+    const FixedAsset = require('../models/finance/FixedAsset');
 
     const results = {};
 
     // 1. Clear all transactional finance collections
-    results.journalEntries   = (await JournalEntry.deleteMany({})).deletedCount;
-    results.generalLedger    = (await GeneralLedger.deleteMany({})).deletedCount;
-    results.accountsPayable  = (await AccountsPayable.deleteMany({})).deletedCount;
+    results.journalEntries = (await JournalEntry.deleteMany({})).deletedCount;
+    results.generalLedger = (await GeneralLedger.deleteMany({})).deletedCount;
+    results.accountsPayable = (await AccountsPayable.deleteMany({})).deletedCount;
     results.accountsReceivable = (await AccountsReceivable.deleteMany({})).deletedCount;
-    results.recurringJournals  = (await RecurringJournal.deleteMany({})).deletedCount;
-    results.deferredEntries    = (await DeferredEntry.deleteMany({})).deletedCount;
-    results.budgets            = (await Budget.deleteMany({})).deletedCount;
-    results.fixedAssets        = (await FixedAsset.deleteMany({})).deletedCount;
+    results.recurringJournals = (await RecurringJournal.deleteMany({})).deletedCount;
+    results.deferredEntries = (await DeferredEntry.deleteMany({})).deletedCount;
+    results.budgets = (await Budget.deleteMany({})).deletedCount;
+    results.fixedAssets = (await FixedAsset.deleteMany({})).deletedCount;
 
     // 2. Clear Chart of Accounts
     results.accounts = (await Account.deleteMany({})).deletedCount;
@@ -8101,74 +8113,74 @@ router.post('/admin/seed-accounts',
     const standardAccounts = [
       // ── ASSETS ──────────────────────────────────────────────────────
       // Current Assets
-      { accountNumber: '1010', name: 'Cash in Hand',                  type: 'Asset',     category: 'Current Asset',   isSystemAccount: false },
-      { accountNumber: '1020', name: 'Bank Account – Main (HBL)',     type: 'Asset',     category: 'Current Asset',   isSystemAccount: true  },
-      { accountNumber: '1030', name: 'Bank Account – Secondary',      type: 'Asset',     category: 'Current Asset',   isSystemAccount: false },
-      { accountNumber: '1100', name: 'Accounts Receivable',           type: 'Asset',     category: 'Current Asset',   isSystemAccount: true  },
-      { accountNumber: '1110', name: 'Advance to Suppliers',          type: 'Asset',     category: 'Current Asset',   isSystemAccount: false },
-      { accountNumber: '1200', name: 'Raw Materials Inventory',       type: 'Asset',     category: 'Current Asset',   isSystemAccount: true  },
-      { accountNumber: '1210', name: 'Work in Progress',              type: 'Asset',     category: 'Current Asset',   isSystemAccount: false },
-      { accountNumber: '1220', name: 'Finished Goods Inventory',      type: 'Asset',     category: 'Current Asset',   isSystemAccount: false },
-      { accountNumber: '1300', name: 'GST Input Tax Recoverable',     type: 'Asset',     category: 'Current Asset',   isSystemAccount: true  },
-      { accountNumber: '1310', name: 'Prepaid Expenses',              type: 'Asset',     category: 'Current Asset',   isSystemAccount: false },
-      { accountNumber: '1320', name: 'Other Current Assets',          type: 'Asset',     category: 'Current Asset',   isSystemAccount: false },
+      { accountNumber: '1010', name: 'Cash in Hand', type: 'Asset', category: 'Current Asset', isSystemAccount: false },
+      { accountNumber: '1020', name: 'Bank Account – Main (HBL)', type: 'Asset', category: 'Current Asset', isSystemAccount: true },
+      { accountNumber: '1030', name: 'Bank Account – Secondary', type: 'Asset', category: 'Current Asset', isSystemAccount: false },
+      { accountNumber: '1100', name: 'Accounts Receivable', type: 'Asset', category: 'Current Asset', isSystemAccount: true },
+      { accountNumber: '1110', name: 'Advance to Suppliers', type: 'Asset', category: 'Current Asset', isSystemAccount: false },
+      { accountNumber: '1200', name: 'Raw Materials Inventory', type: 'Asset', category: 'Current Asset', isSystemAccount: true },
+      { accountNumber: '1210', name: 'Work in Progress', type: 'Asset', category: 'Current Asset', isSystemAccount: false },
+      { accountNumber: '1220', name: 'Finished Goods Inventory', type: 'Asset', category: 'Current Asset', isSystemAccount: false },
+      { accountNumber: '1300', name: 'GST Input Tax Recoverable', type: 'Asset', category: 'Current Asset', isSystemAccount: true },
+      { accountNumber: '1310', name: 'Prepaid Expenses', type: 'Asset', category: 'Current Asset', isSystemAccount: false },
+      { accountNumber: '1320', name: 'Other Current Assets', type: 'Asset', category: 'Current Asset', isSystemAccount: false },
       // Non-Current Assets
-      { accountNumber: '1500', name: 'Land & Buildings',              type: 'Asset',     category: 'Fixed Asset',     isSystemAccount: false },
-      { accountNumber: '1510', name: 'Plant & Machinery',             type: 'Asset',     category: 'Fixed Asset',     isSystemAccount: false },
-      { accountNumber: '1520', name: 'Vehicles',                      type: 'Asset',     category: 'Fixed Asset',     isSystemAccount: false },
-      { accountNumber: '1530', name: 'Furniture & Fixtures',          type: 'Asset',     category: 'Fixed Asset',     isSystemAccount: false },
-      { accountNumber: '1540', name: 'Computer & IT Equipment',       type: 'Asset',     category: 'Fixed Asset',     isSystemAccount: false },
-      { accountNumber: '1590', name: 'Accumulated Depreciation',      type: 'Asset',     category: 'Fixed Asset',     isSystemAccount: true  },
+      { accountNumber: '1500', name: 'Land & Buildings', type: 'Asset', category: 'Fixed Asset', isSystemAccount: false },
+      { accountNumber: '1510', name: 'Plant & Machinery', type: 'Asset', category: 'Fixed Asset', isSystemAccount: false },
+      { accountNumber: '1520', name: 'Vehicles', type: 'Asset', category: 'Fixed Asset', isSystemAccount: false },
+      { accountNumber: '1530', name: 'Furniture & Fixtures', type: 'Asset', category: 'Fixed Asset', isSystemAccount: false },
+      { accountNumber: '1540', name: 'Computer & IT Equipment', type: 'Asset', category: 'Fixed Asset', isSystemAccount: false },
+      { accountNumber: '1590', name: 'Accumulated Depreciation', type: 'Asset', category: 'Fixed Asset', isSystemAccount: true },
 
       // ── LIABILITIES ─────────────────────────────────────────────────
       // Current Liabilities
-      { accountNumber: '2100', name: 'Accounts Payable',              type: 'Liability', category: 'Current Liability', isSystemAccount: true  },
-      { accountNumber: '2110', name: 'WHT Payable (FBR)',             type: 'Liability', category: 'Current Liability', isSystemAccount: true  },
-      { accountNumber: '2120', name: 'GST / Sales Tax Payable',       type: 'Liability', category: 'Current Liability', isSystemAccount: true  },
-      { accountNumber: '2130', name: 'Salary & Wages Payable',        type: 'Liability', category: 'Current Liability', isSystemAccount: true  },
+      { accountNumber: '2100', name: 'Accounts Payable', type: 'Liability', category: 'Current Liability', isSystemAccount: true },
+      { accountNumber: '2110', name: 'WHT Payable (FBR)', type: 'Liability', category: 'Current Liability', isSystemAccount: true },
+      { accountNumber: '2120', name: 'GST / Sales Tax Payable', type: 'Liability', category: 'Current Liability', isSystemAccount: true },
+      { accountNumber: '2130', name: 'Salary & Wages Payable', type: 'Liability', category: 'Current Liability', isSystemAccount: true },
       { accountNumber: '2140', name: 'GRNI – Goods Received Not Invoiced', type: 'Liability', category: 'Current Liability', isSystemAccount: true },
-      { accountNumber: '2150', name: 'Advance from Customers',        type: 'Liability', category: 'Current Liability', isSystemAccount: false },
-      { accountNumber: '2160', name: 'Deferred Revenue',              type: 'Liability', category: 'Current Liability', isSystemAccount: false },
-      { accountNumber: '2170', name: 'EOBI Payable',                  type: 'Liability', category: 'Current Liability', isSystemAccount: false },
-      { accountNumber: '2180', name: 'PESSI / SESSI Payable',         type: 'Liability', category: 'Current Liability', isSystemAccount: false },
-      { accountNumber: '2190', name: 'Other Current Liabilities',     type: 'Liability', category: 'Current Liability', isSystemAccount: false },
+      { accountNumber: '2150', name: 'Advance from Customers', type: 'Liability', category: 'Current Liability', isSystemAccount: false },
+      { accountNumber: '2160', name: 'Deferred Revenue', type: 'Liability', category: 'Current Liability', isSystemAccount: false },
+      { accountNumber: '2170', name: 'EOBI Payable', type: 'Liability', category: 'Current Liability', isSystemAccount: false },
+      { accountNumber: '2180', name: 'PESSI / SESSI Payable', type: 'Liability', category: 'Current Liability', isSystemAccount: false },
+      { accountNumber: '2190', name: 'Other Current Liabilities', type: 'Liability', category: 'Current Liability', isSystemAccount: false },
       // Non-Current Liabilities
-      { accountNumber: '2500', name: 'Long-Term Loan',                type: 'Liability', category: 'Long-term Liability', isSystemAccount: false },
+      { accountNumber: '2500', name: 'Long-Term Loan', type: 'Liability', category: 'Long-term Liability', isSystemAccount: false },
 
       // ── EQUITY ──────────────────────────────────────────────────────
-      { accountNumber: '3000', name: 'Share Capital',                 type: 'Equity',    category: 'Equity',          isSystemAccount: false },
-      { accountNumber: '3100', name: 'Retained Earnings',             type: 'Equity',    category: 'Equity',          isSystemAccount: true  },
-      { accountNumber: '3200', name: 'Current Year Profit / Loss',    type: 'Equity',    category: 'Equity',          isSystemAccount: true  },
-      { accountNumber: '3300', name: 'Owner Drawings',                type: 'Equity',    category: 'Equity',          isSystemAccount: false },
+      { accountNumber: '3000', name: 'Share Capital', type: 'Equity', category: 'Equity', isSystemAccount: false },
+      { accountNumber: '3100', name: 'Retained Earnings', type: 'Equity', category: 'Equity', isSystemAccount: true },
+      { accountNumber: '3200', name: 'Current Year Profit / Loss', type: 'Equity', category: 'Equity', isSystemAccount: true },
+      { accountNumber: '3300', name: 'Owner Drawings', type: 'Equity', category: 'Equity', isSystemAccount: false },
 
       // ── REVENUE ─────────────────────────────────────────────────────
-      { accountNumber: '4000', name: 'Sales Revenue',                 type: 'Revenue',   category: 'Revenue',         isSystemAccount: true  },
-      { accountNumber: '4100', name: 'Service Revenue',               type: 'Revenue',   category: 'Revenue',         isSystemAccount: false },
-      { accountNumber: '4200', name: 'Other Income',                  type: 'Revenue',   category: 'Revenue',         isSystemAccount: false },
-      { accountNumber: '4300', name: 'Interest Income',               type: 'Revenue',   category: 'Revenue',         isSystemAccount: false },
+      { accountNumber: '4000', name: 'Sales Revenue', type: 'Revenue', category: 'Revenue', isSystemAccount: true },
+      { accountNumber: '4100', name: 'Service Revenue', type: 'Revenue', category: 'Revenue', isSystemAccount: false },
+      { accountNumber: '4200', name: 'Other Income', type: 'Revenue', category: 'Revenue', isSystemAccount: false },
+      { accountNumber: '4300', name: 'Interest Income', type: 'Revenue', category: 'Revenue', isSystemAccount: false },
 
       // ── EXPENSES ────────────────────────────────────────────────────
       // Cost of Goods Sold
-      { accountNumber: '5000', name: 'Cost of Goods Sold (COGS)',     type: 'Expense',   category: 'Cost of Revenue', isSystemAccount: true  },
-      { accountNumber: '5100', name: 'Direct Materials Cost',         type: 'Expense',   category: 'Cost of Revenue', isSystemAccount: false },
-      { accountNumber: '5200', name: 'Direct Labour Cost',            type: 'Expense',   category: 'Cost of Revenue', isSystemAccount: false },
+      { accountNumber: '5000', name: 'Cost of Goods Sold (COGS)', type: 'Expense', category: 'Cost of Revenue', isSystemAccount: true },
+      { accountNumber: '5100', name: 'Direct Materials Cost', type: 'Expense', category: 'Cost of Revenue', isSystemAccount: false },
+      { accountNumber: '5200', name: 'Direct Labour Cost', type: 'Expense', category: 'Cost of Revenue', isSystemAccount: false },
       // Operating Expenses
-      { accountNumber: '6000', name: 'Salaries & Wages',              type: 'Expense',   category: 'Operating Expense', isSystemAccount: true },
-      { accountNumber: '6010', name: 'EOBI Expense',                  type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6020', name: 'PESSI / SESSI Expense',         type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6100', name: 'Rent Expense',                  type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6200', name: 'Utilities (Electricity/Gas)',   type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6300', name: 'Fuel & Transport',              type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6400', name: 'Repairs & Maintenance',         type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6500', name: 'Depreciation Expense',          type: 'Expense',   category: 'Operating Expense', isSystemAccount: true  },
-      { accountNumber: '6600', name: 'Insurance Expense',             type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6700', name: 'Office Supplies & Stationery',  type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6800', name: 'Communication & Internet',      type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '6900', name: 'Travel & Conveyance',           type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '7000', name: 'Professional Fees (Legal/Audit)',type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '7100', name: 'Bank Charges & Interest',       type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '7200', name: 'Income Tax Expense',            type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
-      { accountNumber: '7300', name: 'Miscellaneous Expense',         type: 'Expense',   category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6000', name: 'Salaries & Wages', type: 'Expense', category: 'Operating Expense', isSystemAccount: true },
+      { accountNumber: '6010', name: 'EOBI Expense', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6020', name: 'PESSI / SESSI Expense', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6100', name: 'Rent Expense', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6200', name: 'Utilities (Electricity/Gas)', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6300', name: 'Fuel & Transport', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6400', name: 'Repairs & Maintenance', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6500', name: 'Depreciation Expense', type: 'Expense', category: 'Operating Expense', isSystemAccount: true },
+      { accountNumber: '6600', name: 'Insurance Expense', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6700', name: 'Office Supplies & Stationery', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6800', name: 'Communication & Internet', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '6900', name: 'Travel & Conveyance', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '7000', name: 'Professional Fees (Legal/Audit)', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '7100', name: 'Bank Charges & Interest', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '7200', name: 'Income Tax Expense', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
+      { accountNumber: '7300', name: 'Miscellaneous Expense', type: 'Expense', category: 'Operating Expense', isSystemAccount: false },
     ];
 
     const created = await Account.insertMany(
@@ -8181,11 +8193,11 @@ router.post('/admin/seed-accounts',
       data: {
         total: created.length,
         byType: {
-          Assets:      created.filter(a => a.type === 'Asset').length,
+          Assets: created.filter(a => a.type === 'Asset').length,
           Liabilities: created.filter(a => a.type === 'Liability').length,
-          Equity:      created.filter(a => a.type === 'Equity').length,
-          Revenue:     created.filter(a => a.type === 'Revenue').length,
-          Expenses:    created.filter(a => a.type === 'Expense').length,
+          Equity: created.filter(a => a.type === 'Equity').length,
+          Revenue: created.filter(a => a.type === 'Revenue').length,
+          Expenses: created.filter(a => a.type === 'Expense').length,
         },
         criticalAccounts: created
           .filter(a => a.isSystemAccount)
@@ -8206,16 +8218,16 @@ router.post('/journal-entries/:id/attachments',
   asyncHandler(async (req, res) => {
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
-    if (!req.file)  return res.status(400).json({ success: false, message: 'No file uploaded' });
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
     const attachment = {
-      filename:     req.file.filename,
+      filename: req.file.filename,
       originalName: req.file.originalname,
-      path:         `/uploads/finance/${req.file.filename}`,
-      uploadedBy:   req.user.id,
-      uploadedAt:   new Date(),
-      size:         req.file.size,
-      mimetype:     req.file.mimetype
+      path: `/uploads/finance/${req.file.filename}`,
+      uploadedBy: req.user.id,
+      uploadedAt: new Date(),
+      size: req.file.size,
+      mimetype: req.file.mimetype
     };
 
     entry.attachments = entry.attachments || [];
@@ -8604,7 +8616,7 @@ router.put('/banking-setup',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { paymentTypes, mainAccountHeads, subAccountHeads } = req.body;
-    
+
     const updateDoc = {};
     if (Array.isArray(paymentTypes)) {
       updateDoc.paymentTypes = [...new Set(paymentTypes.map(s => String(s || '').trim()).filter(Boolean))];
