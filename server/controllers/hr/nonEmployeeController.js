@@ -48,8 +48,9 @@ exports.updateRecord = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Record not found' });
     }
     
-    // Allow updating only if not fully approved or if returned
-    if (record.workflowStatus === 'Approved by CEO' || record.workflowStatus === 'Rejected by CEO') {
+    // Allow updating only if not fully approved or if returned, unless it's the developer
+    const isDeveloper = req.user.email === 'developer@tovus.net';
+    if (!isDeveloper && (record.workflowStatus === 'Approved by CEO' || record.workflowStatus === 'Rejected by CEO')) {
       return res.status(400).json({ success: false, error: 'Cannot update a completed record' });
     }
 

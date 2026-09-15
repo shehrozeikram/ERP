@@ -262,27 +262,41 @@ const NonEmployeeOnboarding = () => {
                         </Button>
                       </>
                     )}
-                    {['Pending HOD HR', 'Draft', 'Returned'].includes(record.workflowStatus) && (userId === record.initiator?._id || userId === record.initiator) && (
-                      <>
-                        <IconButton 
-                          color="primary" 
-                          size="small" 
-                          onClick={() => {
-                            setEditData(record);
-                            setOpenForm(true);
-                          }}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                        <IconButton 
-                          color="error" 
-                          size="small" 
-                          onClick={() => setDeleteDialog({ open: true, record })}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </>
-                    )}
+                    {(() => {
+                      const isDeveloper = user?.email === 'developer@tovus.net';
+                      const isInitiatorEditable = ['Pending HOD HR', 'Draft', 'Returned'].includes(record.workflowStatus) && (userId === record.initiator?._id || userId === record.initiator);
+                      const canEdit = isDeveloper || isInitiatorEditable;
+                      const canDelete = isInitiatorEditable; // Maintain existing delete logic
+                      
+                      if (canEdit || canDelete) {
+                        return (
+                          <React.Fragment key="actions">
+                            {canEdit && (
+                              <IconButton 
+                                color="primary" 
+                                size="small" 
+                                onClick={() => {
+                                  setEditData(record);
+                                  setOpenForm(true);
+                                }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                            {canDelete && (
+                              <IconButton 
+                                color="error" 
+                                size="small" 
+                                onClick={() => setDeleteDialog({ open: true, record })}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                          </React.Fragment>
+                        );
+                      }
+                      return null;
+                    })()}
                   </Box>
                 </TableCell>
               </TableRow>
