@@ -67,13 +67,28 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
     const fetchUsers = async () => {
       try {
         const res = await api.get('/auth/users', { params: { limit: 1000, active: true } });
-        setUsers(res.data.data?.users || (Array.isArray(res.data.data) ? res.data.data : []));
+        const fetchedUsers = res.data.data?.users || (Array.isArray(res.data.data) ? res.data.data : []);
+        setUsers(fetchedUsers);
+
+        if (!editData) {
+          const kashif = fetchedUsers.find(u => u.email?.toLowerCase() === 'kashifmahmood@tovus.net');
+          const fahad = fetchedUsers.find(u => {
+            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.toLowerCase();
+            return fullName.includes('fahad') && fullName.includes('farid');
+          });
+          
+          setFormData(prev => ({
+            ...prev,
+            assignedHod: prev.assignedHod || (kashif ? kashif.id || kashif._id : ''),
+            assignedAvp: prev.assignedAvp || (fahad ? fahad.id || fahad._id : '')
+          }));
+        }
       } catch (err) {
         console.error('Failed to fetch users', err);
       }
     };
     if (open) fetchUsers();
-  }, [open]);
+  }, [open, editData]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
