@@ -11,7 +11,7 @@ const fmtPKR = (n) =>
 
 const todayStr = () => new Date().toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
 
-function baseDoc(title, subtitle, jsPDF) {
+function baseDoc(title, subtitle, jsPDF, companyName = COMPANY) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   // Header bar
   doc.setFillColor(25, 118, 210);
@@ -19,7 +19,7 @@ function baseDoc(title, subtitle, jsPDF) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text(COMPANY, 14, 10);
+  doc.text(companyName || COMPANY, 14, 10);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(title, 14, 17);
@@ -321,6 +321,101 @@ export async function exportTaxSummaryPDF(data, filters) {
   const net = (data.totalOutputTax || 0) - (data.totalInputTax || 0);
   doc.text(`Net Tax Payable: ${fmtPKR(net)}`, 14, y + 4);
   doc.save(`Tax-Summary-${filters.fromDate}-${filters.toDate}.pdf`);
+}
+
+export async function exportBankReconciliationPDF(data, filters, bankName, companyName) {
+  const jsPDF = (await import('jspdf')).default;
+  const autoTable = (await import('jspdf-autotable')).default;
+  
+  let subtitle = `${bankName} | As of: ${filters.asOfDate}`;
+  if (data.reconciledUpTo) {
+    subtitle += ` | Reconciled Up To: ${new Date(data.reconciledUpTo).toLocaleDateString('en-PK')}`;
+  }
+  
+  const doc = baseDoc('Bank Reconciliation Statement', subtitle, jsPDF, companyName);
+
+  let y = 45;
+
+  // Summary Table
+  autoTable(doc, {
+    startY: y,
+    theme: 'grid',
+    styles: { fontSize: 9, cellPadding: 2, font: 'helvetica' },
+    headStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: 'bold' },
+    body: [
+      ['Balance as Per Bank Ledger', `${data.glBalance < 0 ? `-${fmtPKR(data.glBalance)}` : fmtPKR(data.glBalance)} ${data.glBalanceType}`],
+      ['Difference (Unpresented / Uncleared Cheques)', `${data.difference < 0 ? `-${fmtPKR(data.difference)}` : fmtPKR(data.difference)} ${data.differenceType}`],
+      [{ content: 'Balance as Per Bank Statement', styles: { fontStyle: 'bold' } }, { content: `${data.bankStatementBalance < 0 ? `-${fmtPKR(data.bankStatementBalance)}` : fmtPKR(data.bankStatementBalance)} ${data.bankStatementBalanceType}`, styles: { fontStyle: 'bold' } }]
+    ]
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Unpresented / Uncleared Cheques & Payments (${(data.unpresentedTransactions || []).length})`, 14, y);
+  y += 5;
+
+  const unpresentedData = (data.unpresentedTransactions || []).map((t) => [
+    t.date ? new Date(t.date).toLocaleDateString('en-PK') : '',
+    t.vrNo || '',
+    t.narration || '',
+    t.reference || '',
+    `${t.type === 'Cr' ? '-' : ''}${fmtPKR(t.amount)} ${t.type}`,
+    t.clearingDate ? new Date(t.clearingDate).toLocaleDateString('en-PK') : ''
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    theme: 'striped',
+    head: [['Date', 'VrNo', 'Narration', 'Reference', 'Amount', 'Expected Clear Date']],
+    body: unpresentedData,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [60, 60, 60], textColor: [255, 255, 255] },
+    columnStyles: {
+      4: { halign: 'right' }
+    }
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+  
+  if (y > 270) {
+    doc.addPage();
+    y = 20;
+  }
+  
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Period Activity (${filters.fromDate} to ${filters.toDate})`, 14, y);
+  y += 5;
+
+  const periodData = [
+    [{ content: 'Opening Balance', colSpan: 4, styles: { fontStyle: 'bold', halign: 'right' } }, { content: `${data.openingBalance < 0 ? '-' : ''}${fmtPKR(data.openingBalance)} ${data.openingBalanceType || ''}`, styles: { fontStyle: 'bold', halign: 'right' } }, ''],
+    ...(data.periodTransactions || []).map((t) => [
+      t.date ? new Date(t.date).toLocaleDateString('en-PK') : '',
+      t.vrNo || '',
+      t.narration || '',
+      t.reference || '',
+      `${t.type === 'Cr' ? '-' : ''}${fmtPKR(t.amount)} ${t.type}`,
+      t.clearingDate ? new Date(t.clearingDate).toLocaleDateString('en-PK') : ''
+    ]),
+    [{ content: 'Closing Balance', colSpan: 4, styles: { fontStyle: 'bold', halign: 'right' } }, { content: `${data.statementTotal < 0 ? '-' : ''}${fmtPKR(data.statementTotal)} ${data.statementTotalType || ''}`, styles: { fontStyle: 'bold', halign: 'right' } }, '']
+  ];
+
+  autoTable(doc, {
+    startY: y,
+    theme: 'striped',
+    head: [['Date', 'VrNo', 'Narration', 'Reference', 'Amount', 'Clear Date']],
+    body: periodData,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [60, 60, 60], textColor: [255, 255, 255] },
+    columnStyles: {
+      4: { halign: 'right' }
+    }
+  });
+
+  doc.save(`Bank-Reconciliation-${filters.asOfDate}.pdf`);
 }
 
 export async function exportTaxSummaryExcel(data, filters) {

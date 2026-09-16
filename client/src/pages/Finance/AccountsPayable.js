@@ -292,6 +292,8 @@ const AccountsPayable = () => {
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [vendors, setVendors] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
   const [error, setError] = useState('');
   const [selectedBill, setSelectedBill] = useState(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -336,7 +338,8 @@ const AccountsPayable = () => {
     amount: 0,
     paymentMethod: 'bank_transfer',
     reference: '',
-    paymentDate: new Date().toISOString().split('T')[0]
+    paymentDate: new Date().toISOString().split('T')[0],
+    costCenter: ''
   });
   const [processingPayment, setProcessingPayment] = useState(false);
   const [bankAccounts, setBankAccounts] = useState([]);
@@ -599,6 +602,10 @@ const AccountsPayable = () => {
   useEffect(() => {
     if (!paymentDialogOpen) return;
     let cancelled = false;
+    api.get('/finance/cost-centers').then(res => {
+      if (!cancelled && res.data.success) setCostCenters(res.data.data);
+    }).catch(e => console.error(e));
+
     fetchFinanceAuthorityCandidates()
       .then((list) => {
         if (!cancelled) setFinanceAuthorityCandidates(list);
@@ -750,6 +757,9 @@ const AccountsPayable = () => {
 
   const handleViewBill = async (bill) => {
     try {
+      api.get('/finance/cost-centers').then(res => {
+        if (res.data.success) setCostCenters(res.data.data);
+      }).catch(e => console.error(e));
       setLoading(true);
       setBillViewTab(0);
       const response = await api.get(`/finance/accounts-payable/${bill._id}`);
@@ -930,7 +940,8 @@ const AccountsPayable = () => {
       paymentMethod: 'bank_transfer',
       reference: '',
       paymentDate: new Date().toISOString().split('T')[0],
-      whtRate: 0
+      whtRate: 0,
+      costCenter: ''
     });
 
     let vendorId = '';
@@ -1154,6 +1165,7 @@ const AccountsPayable = () => {
         paymentDate: paymentData.paymentDate,
         whtRate: Number(paymentData.whtRate) || 0,
         bankAccountId: paymentData.bankAccountId || null,
+        costCenter: paymentData.costCenter || null,
         payingCompanyId: payingCompanyId || selectedCompanyId || null,
         batchId: `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         financeApprovalAuthorities
@@ -1186,6 +1198,17 @@ const AccountsPayable = () => {
       lineItems: bill.lineItems ? JSON.parse(JSON.stringify(bill.lineItems)) : []
     });
     setEditDialogOpen(true);
+  };
+
+  const handleVoucherCreatedClick = async (bill) => {
+    try {
+      const response = await api.get(`/finance/accounts-payable/${bill._id}/pending-voucher`);
+      if (response.data?.journalEntryId) {
+        navigate(`/finance/vouchers/${response.data.journalEntryId}`);
+      }
+    } catch (error) {
+      toast.error('Could not find the pending voucher for this bill.');
+    }
   };
 
   const handleUpdateBill = async () => {
@@ -1710,8 +1733,8 @@ const AccountsPayable = () => {
                           <Box sx={{ display: 'flex', gap: 0.5 }}>
                             <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon fontSize="small" /></IconButton></Tooltip>
                             {bill.status === 'paid' || outstanding <= 0 ? (
-                              <Tooltip title="Fully Paid">
-                                <Chip label="VOUCHER CREATED" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem' }} />
+                              <Tooltip title="View Pending Voucher">
+                                <Chip onClick={() => handleVoucherCreatedClick(bill)} label="VOUCHER CREATED" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem', cursor: 'pointer' }} />
                               </Tooltip>
                             ) : (
                               <Tooltip title="Make Payment">
@@ -3274,6 +3297,19 @@ const AccountsPayable = () => {
                     No Cash and cash equivalents accounts found in the chart. Add accounts under that account type (or subaccounts under them) in Chart of Accounts.
                   </Typography>
                 )}
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Cost Center (Optional)</InputLabel>
+                <Select value={paymentData.costCenter || ''}
+                  onChange={(e) => setPaymentData({ ...paymentData, costCenter: e.target.value })}
+                  label="Cost Center (Optional)">
+                  <MenuItem value="">None</MenuItem>
+                  {costCenters.filter(cc => cc.isActive).map((cc) => (
+                    <MenuItem key={cc._id} value={cc._id}>{cc.name}</MenuItem>
+                  ))}
+                </Select>
               </FormControl>
             </Grid>
             <Grid item xs={6}>

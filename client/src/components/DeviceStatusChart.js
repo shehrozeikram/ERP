@@ -90,7 +90,7 @@ const DeviceStatusChart = () => {
   // Initialize WebSocket connection for real-time device data
   useEffect(() => {
     const baseURL = process.env.NODE_ENV === 'production' 
-      ? 'https://tovus.net' 
+      ? window.location.origin 
       : 'http://localhost:5001';
     
     const socket = io(baseURL, {

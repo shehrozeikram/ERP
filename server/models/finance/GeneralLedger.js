@@ -92,7 +92,7 @@ const generalLedgerSchema = new mongoose.Schema({
   // Analytic / cost-center tag — enables cost-center P&L
   costCenter: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'CostCenter'
+    ref: 'FinanceCostCenter'
   },
   // Status
   status: {

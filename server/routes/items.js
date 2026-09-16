@@ -4,7 +4,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const ItemMaster = require('../models/general/ItemMaster');
 
-const manageCatalog = authorize('super_admin', 'admin', 'procurement_manager');
+const manageCatalog = authorize('super_admin', 'admin', 'procurement_manager', 'general_indent');
 
 /** Internal item name for category-only rows — avoids unique(categoryPath+name) clash with a real item named like the category */
 const CATEGORY_ROOT_ITEM_NAME = '__category_root__';

@@ -219,6 +219,7 @@ const Sidebar = () => {
       // Finance Module
       '/finance': 'finance_dashboard',
       '/finance/accounts': 'chart_of_accounts',
+      '/finance/cost-centers': 'chart_of_accounts',
       '/finance/journal-entries': 'journal_entries',
       '/finance/journals': 'finance_journals',
       '/finance/fiscal-periods': 'fiscal_periods',

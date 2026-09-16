@@ -61,6 +61,7 @@ const JournalEntryForm = () => {
     description: '',
     department: '',
     project: '',
+    costCenter: '',
     referenceId: '',
     referenceType: 'manual',
     financeApprovalAuthorities: {
@@ -69,14 +70,15 @@ const JournalEntryForm = () => {
       financeControllerUser: null
     },
     lines: [
-      { account: '', description: '', debit: 0, credit: 0, department: '' },
-      { account: '', description: '', debit: 0, credit: 0, department: '' }
+      { account: '', description: '', debit: 0, credit: 0, department: '', costCenter: '' },
+      { account: '', description: '', debit: 0, credit: 0, department: '', costCenter: '' }
     ]
   });
 
   const [accounts, setAccounts] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -91,6 +93,7 @@ const JournalEntryForm = () => {
   useEffect(() => {
     if (selectedCompanyId) {
       fetchAccounts();
+      fetchCostCenters();
     }
     if (isEdit) {
       fetchJournalEntry();
@@ -111,12 +114,23 @@ const JournalEntryForm = () => {
 
   const fetchProjects = async () => {
     try {
-      const response = await api.get('/projects');
+      const response = await api.get('/hr/projects');
       if (response.data.success) {
-        setProjects(response.data.data || []);
+        setProjects(response.data.data);
       }
-    } catch (err) {
-      console.error('Error fetching projects:', err);
+    } catch (error) {
+      console.error('Failed to fetch projects', error);
+    }
+  };
+
+  const fetchCostCenters = async () => {
+    try {
+      const response = await api.get('/finance/cost-centers');
+      if (response.data.success) {
+        setCostCenters(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch cost centers', error);
     }
   };
 
@@ -165,6 +179,7 @@ const JournalEntryForm = () => {
           ...line,
           account: line.account?._id || line.account || '',
           department: line.department?._id || line.department || '',
+          costCenter: line.costCenter?._id || line.costCenter || '',
           _accountObj: line.account // preserve full object for display
         }));
         setFormData({ 
@@ -172,7 +187,7 @@ const JournalEntryForm = () => {
           companyId: entryCompanyId,
           date: entry.date ? new Date(entry.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
           department: entry.department?._id || entry.department || '',
-          project: entry.project?._id || entry.project || '',
+          costCenter: entry.costCenter?._id || entry.costCenter || '',
           lines: normalizedLines 
         });
       }
@@ -192,14 +207,25 @@ const JournalEntryForm = () => {
     }));
   };
 
-  const handleLineChange = (index, field) => (event) => {
-    const value = event.target.value;
-    setFormData(prev => ({
-      ...prev,
-      lines: prev.lines.map((line, i) => 
-        i === index ? { ...line, [field]: value } : line
-      )
-    }));
+  const handleLineChange = (index, field, directValue) => {
+    if (directValue !== undefined) {
+      setFormData(prev => ({
+        ...prev,
+        lines: prev.lines.map((line, i) => 
+          i === index ? { ...line, [field]: directValue } : line
+        )
+      }));
+    } else {
+      return (event) => {
+        const value = event?.target?.value;
+        setFormData(prev => ({
+          ...prev,
+          lines: prev.lines.map((line, i) => 
+            i === index ? { ...line, [field]: value } : line
+          )
+        }));
+      };
+    }
   };
 
   const handleLineChangeValue = (index, field, value) => {
@@ -214,7 +240,7 @@ const JournalEntryForm = () => {
   const addLine = () => {
     setFormData(prev => ({
       ...prev,
-      lines: [...prev.lines, { account: '', description: '', debit: 0, credit: 0, department: '' }]
+      lines: [...prev.lines, { account: '', description: '', debit: 0, credit: 0, department: '', costCenter: '' }]
     }));
   };
 
@@ -557,16 +583,16 @@ const JournalEntryForm = () => {
 
               <Grid item xs={12} md={3}>
                 <FormControl fullWidth>
-                  <InputLabel>Project</InputLabel>
+                  <InputLabel>Cost Center</InputLabel>
                   <Select
-                    value={formData.project || ''}
-                    onChange={handleInputChange('project')}
-                    label="Project"
+                    value={formData.costCenter || ''}
+                    onChange={handleInputChange('costCenter')}
+                    label="Cost Center"
                   >
-                    <MenuItem value=""><em>None</em></MenuItem>
-                    {projects.map((proj) => (
-                      <MenuItem key={proj._id} value={proj._id}>
-                        {proj.name} ({proj.code || proj.projectId})
+                    <MenuItem value="">None</MenuItem>
+                    {costCenters.filter(cc => cc.isActive).map((cc) => (
+                      <MenuItem key={cc._id} value={cc._id}>
+                        {cc.name}
                       </MenuItem>
                     ))}
                   </Select>
@@ -608,11 +634,12 @@ const JournalEntryForm = () => {
                   <Table>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ width: 300 }}>Account</TableCell>
-                        <TableCell>Description</TableCell>
-                        <TableCell align="right">Debit</TableCell>
-                        <TableCell align="right">Credit</TableCell>
-                        <TableCell>Department</TableCell>
+                        <TableCell sx={{ minWidth: 200 }}>Account*</TableCell>
+                        <TableCell sx={{ minWidth: 200 }}>Description</TableCell>
+                        <TableCell sx={{ minWidth: 150 }}>Department</TableCell>
+                        <TableCell sx={{ minWidth: 150 }}>Cost Center</TableCell>
+                        <TableCell sx={{ minWidth: 150, textAlign: 'right' }}>Debit (PKR)</TableCell>
+                        <TableCell sx={{ minWidth: 150, textAlign: 'right' }}>Credit (PKR)</TableCell>
                         <TableCell width={50}></TableCell>
                       </TableRow>
                     </TableHead>
@@ -643,6 +670,38 @@ const JournalEntryForm = () => {
                             />
                           </TableCell>
                           <TableCell>
+                            <FormControl fullWidth size="small">
+                              <Select
+                                value={line.department || ''}
+                                onChange={(e) => handleLineChange(index, 'department', e.target.value)}
+                                displayEmpty
+                              >
+                                <MenuItem value="">None</MenuItem>
+                                {departments.map((dept) => (
+                                  <MenuItem key={dept._id} value={dept._id}>
+                                    {dept.name}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </TableCell>
+                          <TableCell>
+                            <FormControl fullWidth size="small">
+                              <Select
+                                value={line.costCenter || ''}
+                                onChange={(e) => handleLineChange(index, 'costCenter', e.target.value)}
+                                displayEmpty
+                              >
+                                <MenuItem value="">None</MenuItem>
+                                {costCenters.filter(cc => cc.isActive).map((cc) => (
+                                  <MenuItem key={cc._id} value={cc._id}>
+                                    {cc.name}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </TableCell>
+                          <TableCell align="right">
                             <TextField
                               type="number"
                               value={line.debit}
@@ -651,7 +710,7 @@ const JournalEntryForm = () => {
                               size="small"
                             />
                           </TableCell>
-                          <TableCell>
+                          <TableCell align="right">
                             <TextField
                               type="number"
                               value={line.credit}
@@ -659,21 +718,6 @@ const JournalEntryForm = () => {
                               inputProps={{ min: 0, step: 0.01 }}
                               size="small"
                             />
-                          </TableCell>
-                          <TableCell>
-                            <FormControl fullWidth size="small">
-                              <Select
-                                value={line.department || ''}
-                                onChange={handleLineChange(index, 'department')}
-                              >
-                                <MenuItem value=""><em>None</em></MenuItem>
-                                {departments.map((dept) => (
-                                  <MenuItem key={dept._id} value={dept._id}>
-                                    {dept.name}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
                           </TableCell>
                           <TableCell>
                             {formData.lines.length > 2 && (

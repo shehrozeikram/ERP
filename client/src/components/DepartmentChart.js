@@ -76,7 +76,7 @@ const DepartmentChart = () => {
   // Initialize WebSocket connection for real-time department data
   useEffect(() => {
     const baseURL = process.env.NODE_ENV === 'production' 
-      ? 'https://tovus.net' 
+      ? window.location.origin 
       : 'http://localhost:5001';
     
     const socket = io(baseURL, {

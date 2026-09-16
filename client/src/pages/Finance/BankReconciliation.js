@@ -31,6 +31,7 @@ import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 import { fetchPayFromAccounts } from '../../utils/payFromAccounts';
 import { formatDate } from '../../utils/dateUtils';
+import { exportBankReconciliationPDF } from '../../utils/reportExport';
 
 const fmt = (n) => Number(Math.abs(n || 0)).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -50,7 +51,7 @@ const clearedAtToYmd = (raw) => {
 };
 
 export default function BankReconciliation() {
-  const { selectedCompanyId } = useFinanceCompany();
+  const { selectedCompanyId, companies } = useFinanceCompany();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -541,12 +542,35 @@ export default function BankReconciliation() {
             <Typography variant="h6" fontWeight={700}>
               Unpresented / Uncleared Cheques &amp; Payments ({(data.unpresentedTransactions || []).length})
             </Typography>
-            <Chip
-              label={`Total Difference: ${data.difference < 0 ? `-${fmt(data.difference)}` : fmt(data.difference)} ${data.differenceType}.`}
-              color={data.differenceType === 'Cr' ? 'error' : 'success'}
-              variant="outlined"
-              sx={{ fontWeight: 700 }}
-            />
+            <Stack direction="row" spacing={2} alignItems="center">
+              <Button 
+                variant="outlined" 
+                color="error" 
+                size="small"
+                startIcon={<PdfIcon />}
+                onClick={() => {
+                  const bankName = bankAccounts.find(b => String(b._id) === String(filters.bankAccountId))?.accountName || 'Bank';
+                  const companyName = companies?.find(c => String(c._id) === String(selectedCompanyId))?.name || '';
+                  exportBankReconciliationPDF(data, filters, bankName, companyName);
+                }}
+              >
+                PDF
+              </Button>
+              {data.reconciledUpTo && (
+                <Chip
+                  label={`Reconciled Up To: ${formatDate(data.reconciledUpTo)}`}
+                  color="primary"
+                  variant="outlined"
+                  sx={{ fontWeight: 700 }}
+                />
+              )}
+              <Chip
+                label={`Total Difference: ${data.difference < 0 ? `-${fmt(data.difference)}` : fmt(data.difference)} ${data.differenceType}.`}
+                color={data.differenceType === 'Cr' ? 'error' : 'success'}
+                variant="outlined"
+                sx={{ fontWeight: 700 }}
+              />
+            </Stack>
           </Box>
 
           <TableContainer component={Paper} variant="outlined">

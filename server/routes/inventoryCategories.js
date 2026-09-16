@@ -57,7 +57,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 // ─── CREATE category ─────────────────────────────────────────────────────────
 router.post('/',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'general_indent'),
   asyncHandler(async (req, res) => {
     const {
       name, description,
@@ -82,7 +82,7 @@ router.post('/',
 
 // ─── UPDATE category ─────────────────────────────────────────────────────────
 router.put('/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+  authorize('super_admin', 'admin', 'finance_manager', 'general_indent'),
   asyncHandler(async (req, res) => {
     const cat = await InventoryCategory.findById(req.params.id);
     if (!cat) return res.status(404).json({ success: false, message: 'Category not found' });

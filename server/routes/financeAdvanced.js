@@ -980,26 +980,38 @@ router.delete('/journal-entries/:id',
     if (apPaymentApp) {
       if (apPaymentApp.sourceType === 'bank_payment') {
         const AccountsPayable = require('../models/finance/AccountsPayable');
-        const bill = await AccountsPayable.findById(apPaymentApp.accountsPayableId);
-        if (bill) {
-          const amountToRemove = apPaymentApp.amount;
-          const refToMatch = apPaymentApp.paymentMeta?.reference;
+        const FinanceHelper = require('../utils/financeHelper');
+        const refToMatch = apPaymentApp.paymentMeta?.reference;
+        
+        const billsToProcess = [];
+        if (apPaymentApp.bills && apPaymentApp.bills.length > 0) {
+          apPaymentApp.bills.forEach(b => billsToProcess.push({ id: b.billId, amount: b.amount }));
+        } else if (apPaymentApp.accountsPayableId) {
+          billsToProcess.push({ id: apPaymentApp.accountsPayableId, amount: apPaymentApp.amount });
+        }
 
-          if (Array.isArray(bill.payments)) {
-            const paymentIndex = bill.payments.findIndex(
-              (p) => p.reference === refToMatch && p.amount === amountToRemove
-            );
-            if (paymentIndex > -1) {
-              bill.payments.splice(paymentIndex, 1);
+        for (const item of billsToProcess) {
+          const bill = await AccountsPayable.findById(item.id);
+          if (bill) {
+            const amountToRemove = item.amount;
+            if (apPaymentApp.workflowStatus === 'fully_approved') {
+              if (Array.isArray(bill.payments)) {
+                const paymentIndex = bill.payments.findIndex(
+                  (p) => p.reference === refToMatch && p.amount === amountToRemove
+                );
+                if (paymentIndex > -1) {
+                  bill.payments.splice(paymentIndex, 1);
+                }
+              }
+              bill.amountPaid = Math.round((Number(bill.amountPaid || 0) - amountToRemove) * 100) / 100;
+              if (bill.amountPaid < 0) bill.amountPaid = 0;
+            } else {
+              bill.paymentPending = Math.round((Number(bill.paymentPending || 0) - amountToRemove) * 100) / 100;
+              if (bill.paymentPending < 0) bill.paymentPending = 0;
             }
+            FinanceHelper._updateDocumentStatus(bill);
+            await bill.save();
           }
-
-          bill.amountPaid = Math.round((Number(bill.amountPaid || 0) - amountToRemove) * 100) / 100;
-          if (bill.amountPaid < 0) bill.amountPaid = 0;
-
-          const FinanceHelper = require('../utils/financeHelper');
-          FinanceHelper._updateDocumentStatus(bill);
-          await bill.save();
         }
       }
       await ApPaymentApplication.findByIdAndDelete(apPaymentApp._id);
@@ -2736,6 +2748,29 @@ router.post('/accounts-payable/apply-employee-advance-batch',
 // @route   GET /api/finance/accounts-payable/:id
 // @desc    Get bill by ID (includes PO-linked docs: indent, quotations, comparative statement, PO, GRN)
 // @access  Private (Finance and Admin)
+// @route   GET /api/finance/accounts-payable/:id/pending-voucher
+// @desc    Get the pending voucher journalEntryId for an AP Bill
+// @access  Private
+router.get('/accounts-payable/:id/pending-voucher',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const ApPaymentApplication = require('../models/finance/ApPaymentApplication');
+    const apApp = await ApPaymentApplication.findOne({
+      $or: [
+        { accountsPayableId: req.params.id },
+        { 'bills.billId': req.params.id }
+      ],
+      workflowStatus: { $ne: 'fully_approved' }
+    }).select('journalEntryId');
+
+    if (!apApp || !apApp.journalEntryId) {
+      return res.status(404).json({ message: 'No pending voucher found for this bill' });
+    }
+
+    res.json({ journalEntryId: apApp.journalEntryId });
+  })
+);
+
 router.get('/accounts-payable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
@@ -5589,6 +5624,16 @@ router.get('/reports/bank-reconciliation',
 
     unpresentedTxns.sort((a, b) => getClearingSortTime(a) - getClearingSortTime(b));
 
+    // Calculate Reconciled Up To Date
+    let reconciledUpTo = new Date(asOf);
+    if (unpresentedTxns.length > 0) {
+      const oldestUnpresentedDate = new Date(Math.min(...unpresentedTxns.map(t => new Date(t.date).getTime())));
+      reconciledUpTo = new Date(oldestUnpresentedDate.getTime() - 24 * 60 * 60 * 1000);
+    } else if (glTxnsUpToAsOf.length > 0) {
+      const latestTxnDate = new Date(Math.max(...glTxnsUpToAsOf.map(t => new Date(t.date).getTime())));
+      reconciledUpTo = new Date(Math.min(asOf.getTime(), latestTxnDate.getTime()));
+    }
+
     // Bank Statement Balance = Balance as per Bank Ledger - Unpresented/Uncleared Difference
     const bankStatementBalance = netGlBalance - unpresentedTotal;
 
@@ -5620,6 +5665,7 @@ router.get('/reports/bank-reconciliation',
         asOfDate: asOf,
         fromDate: periodStartDate,
         toDate: periodEndDate,
+        reconciledUpTo,
         // Summary
         glBalance: Math.round(netGlBalance * 100) / 100,
         glBalanceType: netGlBalance >= 0 ? 'Dr' : 'Cr',

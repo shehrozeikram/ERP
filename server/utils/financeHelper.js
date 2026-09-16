@@ -306,7 +306,7 @@ const FinanceHelper = {
           module: entry.module,
           referenceId: entry.referenceId,
           referenceType: entry.referenceType,
-          costCenter: line.costCenter || null,
+          costCenter: line.costCenter || entry.costCenter || null,
           status: 'posted',
           createdBy: entry.createdBy,
           runningBalance: currentAccount.balance
@@ -491,6 +491,8 @@ const FinanceHelper = {
       doc.status = 'paid';
     } else if (settled > 0) {
       doc.status = 'partial';
+    } else {
+      doc.status = doc.constructor.modelName === 'AccountsReceivable' ? 'sent' : 'approved';
     }
   },
 
@@ -1085,7 +1087,8 @@ const FinanceHelper = {
         bankAccountId,
         payingCompanyId: optsPayingCompanyId = null,
         financeApprovalAuthorities,
-        batchId
+        batchId,
+        costCenter
       } = paymentData;
 
       if (!Array.isArray(bills) || bills.length === 0) {
@@ -1267,6 +1270,7 @@ const FinanceHelper = {
           reference: reference || `BATCH-${Date.now()}`,
           description: `Batch Payment – ${vendorName}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
           department: departmentId,
+          costCenter: costCenter || null,
           module: billObjects[0].bill.module,
           referenceType: 'payment',
           journalCode: 'BANK',

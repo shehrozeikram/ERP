@@ -61,6 +61,11 @@ const journalEntrySchema = new mongoose.Schema({
     ref: 'Project',
     default: null
   },
+  costCenter: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FinanceCostCenter',
+    default: null
+  },
   referenceId: {
     type: mongoose.Schema.Types.ObjectId,
     required: false // Optional reference to source document
@@ -79,6 +84,11 @@ const journalEntrySchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Account',
       required: [true, 'Account is required for each line']
+    },
+    costCenter: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FinanceCostCenter',
+      default: null
     },
     description: {
       type: String,
@@ -115,7 +125,7 @@ const journalEntrySchema = new mongoose.Schema({
     // Analytic / cost-center tagging on each line for cost-center P&L reporting
     costCenter: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'CostCenter'
+      ref: 'FinanceCostCenter'
     }
   }],
   // Totals (calculated)

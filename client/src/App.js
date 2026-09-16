@@ -40,6 +40,7 @@ import AttendanceReport from './pages/HR/AttendanceReport';
 import BiometricIntegration from './pages/HR/BiometricIntegration';
 import FinanceDashboard from './pages/Finance/FinanceDashboard';
 import ChartOfAccounts from './pages/Finance/ChartOfAccounts';
+import FinanceCostCenters from './pages/Finance/Setup/CostCenters';
 import BankingSetup from './pages/Finance/BankingSetup';
 import GeneralLedger from './pages/Finance/GeneralLedger';
 import AccountsReceivable from './pages/Finance/AccountsReceivable';
@@ -1124,6 +1125,10 @@ function App() {
             <Route 
               path="/finance/accounts" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><ChartOfAccounts /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/cost-centers" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinanceCostCenters /></ProtectedRoute>} 
             />
             <Route 
               path="/finance/banking-setup" 

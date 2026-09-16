@@ -695,6 +695,7 @@ export const MODULES = {
         path: '/finance/accounts',
         subItems: [
           { name: 'Chart of Accounts',    path: '/finance/accounts'               },
+          { name: 'Cost Centers',         path: '/finance/cost-centers'           },
           { name: 'Tax Management',       path: '/finance/taxes'                  },
           { name: 'Finance Journals',     path: '/finance/journals'               },
           { name: 'Fiscal Periods',       path: '/finance/fiscal-periods'         },

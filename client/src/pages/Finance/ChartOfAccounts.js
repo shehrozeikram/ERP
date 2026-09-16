@@ -459,8 +459,13 @@ const ChartOfAccounts = () => {
 
   const parentAccountOptions = useMemo(() => {
     const base = (parentAccounts && parentAccounts.length > 0 ? parentAccounts : accounts) || [];
-    return base
-      .filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber))
+    const uniqueAccounts = new Map();
+    base.forEach((a) => {
+      if (a && (a._id || a.id) && (a.name || a.accountNumber)) {
+        uniqueAccounts.set(a.accountNumber || a._id || a.id, a);
+      }
+    });
+    return Array.from(uniqueAccounts.values())
       .sort((a, b) =>
         String(a.accountNumber || '').localeCompare(String(b.accountNumber || ''), undefined, { numeric: true })
       );
@@ -526,7 +531,7 @@ const ChartOfAccounts = () => {
     setError('');
     try {
       const payload = {
-        companyId: selectedCompanyId,
+        companyId: selectedCompanyId === 'all' ? undefined : selectedCompanyId,
         accountNumber,
         name: newAccountForm.name.trim(),
         accountType: newAccountForm.accountType,

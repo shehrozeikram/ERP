@@ -98,7 +98,7 @@ const RealtimeAttendanceMonitor = () => {
   // Initialize Socket.IO connection
   useEffect(() => {
     const baseURL = process.env.NODE_ENV === 'production' 
-      ? 'https://tovus.net' 
+      ? window.location.origin 
       : 'http://localhost:5001';
     
     const newSocket = io(baseURL, {

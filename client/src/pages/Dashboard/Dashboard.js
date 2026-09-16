@@ -337,7 +337,7 @@ const Dashboard = () => {
   // WebSocket connection to get Present Chart data (same as PresentChart component)
   useEffect(() => {
     const baseURL = process.env.NODE_ENV === 'production' 
-      ? 'https://tovus.net' 
+      ? window.location.origin 
       : 'http://localhost:5001';
     
     const socket = io(baseURL, {

@@ -53,6 +53,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import api from '../../services/api';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import AddAccountDialog from '../../components/Finance/AddAccountDialog';
 import { formatPKR } from '../../utils/currency';
 import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
@@ -115,14 +116,6 @@ const VendorAdvance = () => {
   // Quick Add COA Account Dialog
   const [newAccountDialog, setNewAccountDialog] = useState(false);
   const [newAccountRowIndex, setNewAccountRowIndex] = useState(null);
-  const [newAccountForm, setNewAccountForm] = useState({
-    name: '',
-    accountNumber: '',
-    type: 'Expense',
-    category: 'Operating Expenses',
-    description: ''
-  });
-  const [creatingAccount, setCreatingAccount] = useState(false);
 
   // Quick Add Vendor Dialog
   const [openAddVendor, setOpenAddVendor] = useState(false);
@@ -430,44 +423,18 @@ const VendorAdvance = () => {
     return categoryLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
   }, [categoryLines]);
 
-  // Quick Add COA Account Dialog handlers
-  const handleOpenAddAccount = (rowIndex) => {
-    setNewAccountRowIndex(rowIndex);
-    setNewAccountForm({
-      name: '',
-      accountNumber: String(6000 + Math.floor(Math.random() * 900)),
-      type: 'Expense',
-      category: 'Operating Expenses',
-      description: ''
-    });
+  const handleOpenAddAccount = (idx) => {
+    setNewAccountRowIndex(idx);
     setNewAccountDialog(true);
   };
 
-  const handleSaveNewAccount = async () => {
-    if (!newAccountForm.name.trim() || !newAccountForm.accountNumber.trim()) {
-      toast.error('Account name and number are required');
-      return;
+  const handleSaveNewAccount = (newAcc) => {
+    setAccounts((prev) => [...prev, newAcc]);
+    if (newAccountRowIndex !== null) {
+      handleCategoryLineChange(newAccountRowIndex, 'account', newAcc);
     }
-    try {
-      setCreatingAccount(true);
-      const res = await api.post('/finance/accounts', {
-        ...newAccountForm,
-        companyId: selectedCompanyId || undefined
-      });
-      const created = res.data?.data?.account || res.data?.data || res.data?.account;
-      if (created) {
-        toast.success(`Account "${created.name}" created!`);
-        setAccounts((prev) => [...prev, created]);
-        if (newAccountRowIndex !== null) {
-          handleCategoryLineChange(newAccountRowIndex, 'account', created);
-        }
-        setNewAccountDialog(false);
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to create account');
-    } finally {
-      setCreatingAccount(false);
-    }
+    setNewAccountDialog(false);
+    toast.success('Account created and selected');
   };
 
   const handleSaveNewVendor = async (e) => {
@@ -2143,72 +2110,12 @@ const VendorAdvance = () => {
       </Dialog>
 
       {/* Dialog: Quick Add Chart of Accounts Account */}
-      <Dialog open={newAccountDialog} onClose={() => setNewAccountDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Add New Chart of Accounts Category</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField
-              label="Account Name"
-              required
-              fullWidth
-              size="small"
-              placeholder="e.g. Advance / Expense category name"
-              value={newAccountForm.name}
-              onChange={(e) => setNewAccountForm((p) => ({ ...p, name: e.target.value }))}
-            />
-            <TextField
-              label="Account Number / Code"
-              required
-              fullWidth
-              size="small"
-              value={newAccountForm.accountNumber}
-              onChange={(e) => setNewAccountForm((p) => ({ ...p, accountNumber: e.target.value }))}
-            />
-            <FormControl fullWidth size="small">
-              <InputLabel>Account Type</InputLabel>
-              <Select
-                value={newAccountForm.type}
-                label="Account Type"
-                onChange={(e) => setNewAccountForm((p) => ({ ...p, type: e.target.value }))}
-              >
-                <MenuItem value="Expense">Expense</MenuItem>
-                <MenuItem value="Asset">Asset</MenuItem>
-                <MenuItem value="Liability">Liability</MenuItem>
-                <MenuItem value="Equity">Equity</MenuItem>
-                <MenuItem value="Revenue">Revenue</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              label="Category"
-              fullWidth
-              size="small"
-              value={newAccountForm.category}
-              onChange={(e) => setNewAccountForm((p) => ({ ...p, category: e.target.value }))}
-            />
-            <TextField
-              label="Description"
-              multiline
-              rows={2}
-              fullWidth
-              size="small"
-              value={newAccountForm.description}
-              onChange={(e) => setNewAccountForm((p) => ({ ...p, description: e.target.value }))}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => setNewAccountDialog(false)} color="inherit">
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSaveNewAccount}
-            variant="contained"
-            disabled={creatingAccount || !newAccountForm.name.trim() || !newAccountForm.accountNumber.trim()}
-          >
-            {creatingAccount ? 'Saving...' : 'Save & Select'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <AddAccountDialog 
+        open={newAccountDialog} 
+        onClose={() => setNewAccountDialog(false)}
+        onSuccess={handleSaveNewAccount}
+        selectedCompanyId={selectedCompanyId}
+      />
 
       {/* Dialog: Quick Add Vendor */}
       <Dialog open={openAddVendor} onClose={() => setOpenAddVendor(false)} maxWidth="sm" fullWidth>
