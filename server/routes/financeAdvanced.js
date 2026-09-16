@@ -3679,10 +3679,11 @@ router.get('/banking/transactions',
         : {};
       const bankAccounts = await Account.find({
         ...companyAccFilter,
+        type: 'Asset',
         $or: [
-          { type: 'Asset' },
-          { category: { $regex: /cash|bank|current/i } },
+          { category: { $regex: /cash|bank/i } },
           { detailType: { $regex: /cash|bank/i } },
+          { accountType: { $regex: /cash|bank/i } },
           { accountCode: 'BANK' },
           { accountCode: 'CASH' }
         ]
