@@ -94,6 +94,18 @@ const generalLedgerSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FinanceCostCenter'
   },
+  partyType: {
+    type: String,
+    enum: ['Vendor', 'Customer', 'Employee', 'Company'],
+    default: undefined,
+    set: v => (v === '' || v === null) ? undefined : v
+  },
+  party: {
+    type: mongoose.Schema.Types.ObjectId,
+    refPath: 'partyType',
+    default: undefined,
+    set: v => (v === '' || v === null) ? undefined : v
+  },
   // Status
   status: {
     type: String,

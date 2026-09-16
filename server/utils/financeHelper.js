@@ -307,6 +307,8 @@ const FinanceHelper = {
           referenceId: entry.referenceId,
           referenceType: entry.referenceType,
           costCenter: line.costCenter || entry.costCenter || null,
+          partyType: line.partyType || null,
+          party: line.party || null,
           status: 'posted',
           createdBy: entry.createdBy,
           runningBalance: currentAccount.balance
@@ -513,7 +515,7 @@ const FinanceHelper = {
       const {
         customerName, customerEmail, customerId,
         invoiceNumber, invoiceDate, dueDate,
-        amount, department, module, referenceId,
+        amount, department, costCenter, module, referenceId,
         charges, createdBy
       } = options;
       const companyId = co(options);
@@ -529,6 +531,7 @@ const FinanceHelper = {
         arEntry.subtotal = amount;
         arEntry.referenceId = referenceId;
         arEntry.referenceType = 'invoice';
+        arEntry.costCenter = costCenter || arEntry.costCenter;
         if (companyId && !arEntry.companyId) arEntry.companyId = companyId;
         if (createdBy) arEntry.updatedBy = createdBy;
         await arEntry.save();
@@ -551,6 +554,7 @@ const FinanceHelper = {
         })),
         status: 'draft',
         department,
+        costCenter,
         module,
         referenceId,
         referenceType: 'invoice',
@@ -640,6 +644,7 @@ const FinanceHelper = {
           reference: invoiceNumber,
           description: `AR Invoice: ${invoiceNumber} for ${customerName}`,
           department,
+          costCenter,
           module,
           referenceId: arEntry._id,
           referenceType: 'invoice',
@@ -1088,7 +1093,8 @@ const FinanceHelper = {
         payingCompanyId: optsPayingCompanyId = null,
         financeApprovalAuthorities,
         batchId,
-        costCenter
+        costCenter,
+        narration
       } = paymentData;
 
       if (!Array.isArray(bills) || bills.length === 0) {
@@ -1268,7 +1274,7 @@ const FinanceHelper = {
         journalPayload: withVoucherNarration(withCompany({
           date: date || new Date(),
           reference: reference || `BATCH-${Date.now()}`,
-          description: `Batch Payment – ${vendorName}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
+          description: narration || `Batch Payment – ${vendorName}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
           department: departmentId,
           costCenter: costCenter || null,
           module: billObjects[0].bill.module,
@@ -1277,7 +1283,7 @@ const FinanceHelper = {
           voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
           lines,
           payingCompanyId: payingCompanyId || null
-        }, companyId), `Batch Payment for ${billObjects.length} bills`),
+        }, companyId), narration || `Batch Payment for ${billObjects.length} bills`),
         paymentMeta: {
           paymentMethod,
           reference: reference || `BATCH-${Date.now()}`,

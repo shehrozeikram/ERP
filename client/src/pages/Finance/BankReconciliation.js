@@ -19,7 +19,8 @@ import {
   GetApp as DownloadIcon,
   InsertDriveFile as FileIcon,
   Close as CloseIcon,
-  Undo as UndoIcon
+  Undo as UndoIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
@@ -81,6 +82,38 @@ export default function BankReconciliation() {
   const [attachDlg, setAttachDlg] = useState({ open: false, txn: null, uploading: false });
   const [attachError, setAttachError] = useState('');
   const [importDlg, setImportDlg] = useState({ open: false, uploading: false, file: null });
+
+  const [refDlg, setRefDlg] = useState({ open: false, txn: null, reference: '', loading: false });
+
+  const openRefDlg = (txn) => {
+    setRefDlg({ open: true, txn, reference: txn.reference || '', loading: false });
+  };
+
+  const closeRefDlg = () => {
+    setRefDlg({ open: false, txn: null, reference: '', loading: false });
+  };
+
+  const saveReference = async () => {
+    if (!refDlg.txn) return;
+    const targetJeId = refDlg.txn.journalEntry || refDlg.txn.journalEntryId || String(refDlg.txn._id).split('-')[0];
+    if (!targetJeId || !/^[0-9a-fA-F]{24}$/.test(targetJeId)) {
+      setError('Linked voucher not found for updating reference.');
+      return;
+    }
+    
+    try {
+      setRefDlg(p => ({ ...p, loading: true }));
+      await api.put(`/finance/journal-entries/${targetJeId}/reference`, {
+        reference: refDlg.reference
+      });
+      setSuccess('Reference updated successfully');
+      closeRefDlg();
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not update reference');
+      setRefDlg(p => ({ ...p, loading: false }));
+    }
+  };
 
   const openAttachDlg = (txn) => {
     setAttachError('');
@@ -610,7 +643,14 @@ export default function BankReconciliation() {
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                           <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
                           <TableCell>{t.narration}</TableCell>
-                          <TableCell>{t.reference || '—'}</TableCell>
+                          <TableCell sx={{ minWidth: 120 }}>
+                            <Stack direction="row" alignItems="center" gap={0.5}>
+                              <Typography variant="body2">{t.reference || '—'}</Typography>
+                              <IconButton size="small" onClick={() => openRefDlg(t)} sx={{ opacity: 0.3, '&:hover': { opacity: 1 } }}>
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Stack>
+                          </TableCell>
                           <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
                             {t.type === 'Cr' ? `-${fmt(t.amount)}` : fmt(t.amount)}{' '}
                             <Typography component="span" fontWeight={700} color={t.type === 'Cr' ? 'error.main' : 'success.main'}>
@@ -845,7 +885,14 @@ export default function BankReconciliation() {
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
                     <TableCell>{t.narration}</TableCell>
-                    <TableCell>{t.reference || '—'}</TableCell>
+                    <TableCell sx={{ minWidth: 120 }}>
+                      <Stack direction="row" alignItems="center" gap={0.5}>
+                        <Typography variant="body2">{t.reference || '—'}</Typography>
+                        <IconButton size="small" onClick={() => openRefDlg(t)} sx={{ opacity: 0.3, '&:hover': { opacity: 1 } }}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    </TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
                       {t.type === 'Cr' ? `-${fmt(t.amount)}` : fmt(t.amount)}{' '}
                       <Typography component="span" fontWeight={700} color={t.type === 'Cr' ? 'error.main' : 'success.main'}>
@@ -959,8 +1006,29 @@ export default function BankReconciliation() {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeClearanceDialog}>Cancel</Button>
+          <Button onClick={closeClearanceDialog} color="inherit">Cancel</Button>
           <Button variant="contained" onClick={saveClearance}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog for Editing Reference / Cheque Number */}
+      <Dialog open={refDlg.open} onClose={closeRefDlg} maxWidth="xs" fullWidth>
+        <DialogTitle>Edit Reference / Cheque No.</DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            label="Cheque No. / Reference"
+            size="small"
+            fullWidth
+            value={refDlg.reference}
+            onChange={(e) => setRefDlg({ ...refDlg, reference: e.target.value })}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeRefDlg} color="inherit" disabled={refDlg.loading}>Cancel</Button>
+          <Button onClick={saveReference} variant="contained" disabled={refDlg.loading}>
+            {refDlg.loading ? <CircularProgress size={24} /> : 'Save'}
+          </Button>
         </DialogActions>
       </Dialog>
 

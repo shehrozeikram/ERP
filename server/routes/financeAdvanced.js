@@ -937,7 +937,8 @@ router.get('/journal-entries/:id',
       .populate('lines.account', 'accountNumber name type category')
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName')
-      .populate('project', 'name code');
+      .populate('project', 'name code')
+      .populate('costCenter', 'name code');
 
     if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
 
@@ -1249,6 +1250,73 @@ router.post('/journal-entries',
       message: 'Journal entry created successfully',
       data: entry
     });
+  })
+);
+
+// @route   PUT /api/finance/journal-entries/:id/reference
+// @desc    Update Journal Entry reference globally (cascades to GL, Banking, AP, Advances)
+// @access  Private (Finance and Admin)
+router.put('/journal-entries/:id/reference',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { reference } = req.body;
+    if (!reference) return res.status(400).json({ success: false, message: 'Reference is required' });
+
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' });
+
+    const oldReference = entry.reference;
+    entry.reference = reference;
+    await entry.save();
+
+    // 1. Update GeneralLedger
+    await mongoose.model('GeneralLedger').updateMany({ journalEntry: entry._id }, { reference });
+
+    // 2. Update Banking
+    const Banking = mongoose.model('Banking');
+    await Banking.updateMany(
+      { 'transactions.journalEntry': entry._id },
+      { $set: { 'transactions.$[elem].reference': reference } },
+      { arrayFilters: [{ 'elem.journalEntry': entry._id }] }
+    );
+    
+    if (oldReference) {
+      await Banking.updateMany(
+        { 'transactions.reference': oldReference },
+        { $set: { 'transactions.$[elem].reference': reference } },
+        { arrayFilters: [{ 'elem.reference': oldReference }] }
+      );
+    }
+
+    // 3. Trace back to source document
+    if (entry.referenceType === 'payment' && entry.referenceId) {
+      const ApPaymentApp = mongoose.model('ApPaymentApplication');
+      const AccountsPayable = mongoose.model('AccountsPayable');
+      
+      const app = await ApPaymentApp.findById(entry.referenceId);
+      if (app) {
+        app.paymentMeta = app.paymentMeta || {};
+        const appOldRef = app.paymentMeta.reference || oldReference;
+        app.paymentMeta.reference = reference;
+        await ApPaymentApp.updateOne({ _id: app._id }, { $set: { paymentMeta: app.paymentMeta } });
+
+        if (appOldRef) {
+          await AccountsPayable.updateMany(
+            { 'payments.reference': appOldRef },
+            { $set: { 'payments.$[elem].reference': reference } },
+            { arrayFilters: [{ 'elem.reference': appOldRef }] }
+          );
+        }
+      }
+    } else if (entry.referenceType === 'vendor_advance' && entry.referenceId) {
+      const VendorAdvance = mongoose.model('VendorAdvance');
+      await VendorAdvance.updateOne(
+        { _id: entry.referenceId },
+        { $set: { reference: reference, chequeNumber: reference } }
+      );
+    }
+
+    res.json({ success: true, message: 'Reference updated globally', data: entry });
   })
 );
 
@@ -1817,6 +1885,7 @@ router.post('/accounts-receivable',
       dueDate: req.body.dueDate,
       amount: req.body.totalAmount,
       department: req.body.department || 'general',
+      costCenter: req.body.costCenter || null,
       module: req.body.module || 'general',
       referenceId: req.body.referenceId || null,
       lineItems,

@@ -126,6 +126,18 @@ const journalEntrySchema = new mongoose.Schema({
     costCenter: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'FinanceCostCenter'
+    },
+    partyType: {
+      type: String,
+      enum: ['Vendor', 'Customer', 'Employee', 'Company'],
+      default: undefined,
+      set: v => (v === '' || v === null) ? undefined : v
+    },
+    party: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: 'lines.partyType',
+      default: undefined,
+      set: v => (v === '' || v === null) ? undefined : v
     }
   }],
   // Totals (calculated)

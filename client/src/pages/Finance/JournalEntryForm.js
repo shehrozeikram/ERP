@@ -70,8 +70,8 @@ const JournalEntryForm = () => {
       financeControllerUser: null
     },
     lines: [
-      { account: '', description: '', debit: 0, credit: 0, department: '', costCenter: '' },
-      { account: '', description: '', debit: 0, credit: 0, department: '', costCenter: '' }
+      { account: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' },
+      { account: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' }
     ]
   });
 
@@ -79,6 +79,9 @@ const JournalEntryForm = () => {
   const [departments, setDepartments] = useState([]);
   const [projects, setProjects] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -88,6 +91,9 @@ const JournalEntryForm = () => {
   useEffect(() => {
     fetchDepartments();
     fetchProjects();
+    fetchVendors();
+    fetchCustomers();
+    fetchEmployees();
   }, []);
 
   useEffect(() => {
@@ -121,6 +127,33 @@ const JournalEntryForm = () => {
     } catch (error) {
       console.error('Failed to fetch projects', error);
     }
+  };
+
+  const fetchVendors = async () => {
+    try {
+      const res = await api.get('/procurement/vendors', { params: { limit: 1000 } });
+      if (res.data.success) {
+        setVendors(res.data.data.vendors || []);
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchCustomers = async () => {
+    try {
+      const res = await api.get('/sales/customers', { params: { limit: 1000 } });
+      if (res.data.success) {
+        setCustomers(res.data.data.customers || []);
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchEmployees = async () => {
+    try {
+      const res = await api.get('/hr/employees?getAll=true');
+      if (res.data.success) {
+        setEmployees(res.data.data || []);
+      }
+    } catch (e) { console.error(e); }
   };
 
   const fetchCostCenters = async () => {
@@ -240,7 +273,7 @@ const JournalEntryForm = () => {
   const addLine = () => {
     setFormData(prev => ({
       ...prev,
-      lines: [...prev.lines, { account: '', description: '', debit: 0, credit: 0, department: '', costCenter: '' }]
+      lines: [...prev.lines, { account: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' }]
     }));
   };
 
@@ -637,7 +670,8 @@ const JournalEntryForm = () => {
                         <TableCell sx={{ minWidth: 200 }}>Account*</TableCell>
                         <TableCell sx={{ minWidth: 200 }}>Description</TableCell>
                         <TableCell sx={{ minWidth: 150 }}>Department</TableCell>
-                        <TableCell sx={{ minWidth: 150 }}>Cost Center</TableCell>
+                        <TableCell sx={{ minWidth: 120 }}>Party Type</TableCell>
+                        <TableCell sx={{ minWidth: 200 }}>Name / Party</TableCell>
                         <TableCell sx={{ minWidth: 150, textAlign: 'right' }}>Debit (PKR)</TableCell>
                         <TableCell sx={{ minWidth: 150, textAlign: 'right' }}>Credit (PKR)</TableCell>
                         <TableCell width={50}></TableCell>
@@ -688,18 +722,38 @@ const JournalEntryForm = () => {
                           <TableCell>
                             <FormControl fullWidth size="small">
                               <Select
-                                value={line.costCenter || ''}
-                                onChange={(e) => handleLineChange(index, 'costCenter', e.target.value)}
+                                value={line.partyType || ''}
+                                onChange={(e) => {
+                                  handleLineChange(index, 'partyType', e.target.value);
+                                  handleLineChangeValue(index, 'party', '');
+                                }}
                                 displayEmpty
                               >
                                 <MenuItem value="">None</MenuItem>
-                                {costCenters.filter(cc => cc.isActive).map((cc) => (
-                                  <MenuItem key={cc._id} value={cc._id}>
-                                    {cc.name}
-                                  </MenuItem>
-                                ))}
+                                <MenuItem value="Vendor">Vendor</MenuItem>
+                                <MenuItem value="Customer">Customer</MenuItem>
+                                <MenuItem value="Employee">Employee</MenuItem>
                               </Select>
                             </FormControl>
+                          </TableCell>
+                          <TableCell>
+                            <Autocomplete
+                              size="small"
+                              disabled={!line.partyType}
+                              options={line.partyType === 'Vendor' ? vendors : line.partyType === 'Customer' ? customers : line.partyType === 'Employee' ? employees : []}
+                              getOptionLabel={(option) => {
+                                if (!option) return '';
+                                if (line.partyType === 'Employee') return `${option.firstName || ''} ${option.lastName || ''} - ${option.employeeId || ''}`;
+                                return option.name || option.vendorName || option.customerName || option.companyName || '';
+                              }}
+                              value={(line.partyType === 'Vendor' ? vendors : line.partyType === 'Customer' ? customers : line.partyType === 'Employee' ? employees : []).find(p => p._id === line.party) || null}
+                              onChange={(_, newValue) => {
+                                handleLineChangeValue(index, 'party', newValue ? newValue._id : '');
+                              }}
+                              isOptionEqualToValue={(option, val) => option?._id === val?._id}
+                              renderInput={(params) => <TextField {...params} label="Select Party" variant="outlined" size="small" />}
+                              fullWidth
+                            />
                           </TableCell>
                           <TableCell align="right">
                             <TextField

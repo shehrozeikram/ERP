@@ -338,6 +338,7 @@ const AccountsPayable = () => {
     amount: 0,
     paymentMethod: 'bank_transfer',
     reference: '',
+    narration: '',
     paymentDate: new Date().toISOString().split('T')[0],
     costCenter: ''
   });
@@ -1162,6 +1163,7 @@ const AccountsPayable = () => {
         bills: billsPayload,
         paymentMethod: paymentData.paymentMethod,
         reference: paymentData.reference || `BATCH-${Date.now()}`,
+        narration: paymentData.narration,
         paymentDate: paymentData.paymentDate,
         whtRate: Number(paymentData.whtRate) || 0,
         bankAccountId: paymentData.bankAccountId || null,
@@ -3322,6 +3324,13 @@ const AccountsPayable = () => {
               <TextField fullWidth label="Reference / Cheque # / TT #"
                 value={paymentData.reference}
                 onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
+                size="small" />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth label="Narration / Description"
+                value={paymentData.narration}
+                onChange={(e) => setPaymentData({ ...paymentData, narration: e.target.value })}
+                placeholder="Enter narration for voucher"
                 size="small" />
             </Grid>
           </Grid>

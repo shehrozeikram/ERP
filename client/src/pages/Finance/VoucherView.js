@@ -486,7 +486,7 @@ const VoucherView = () => {
               <TableCell sx={{ fontWeight: 700 }}>Account Title</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Narration</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Project</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Cost Center</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>Debit</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>Credit</TableCell>
             </TableRow>
@@ -506,7 +506,7 @@ const VoucherView = () => {
                 </TableCell>
                 <TableCell>{line.description || entry.description || '—'}</TableCell>
                 <TableCell>{entry.reference || '—'}</TableCell>
-                <TableCell>{entry.module || '—'}</TableCell>
+                <TableCell>{entry.costCenter?.name || entry.costCenter || '—'}</TableCell>
                 <TableCell align="right">{line.debit ? formatPKR(line.debit) : '0'}</TableCell>
                 <TableCell align="right">{line.credit ? formatPKR(line.credit) : '0'}</TableCell>
               </TableRow>

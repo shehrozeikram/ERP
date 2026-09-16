@@ -120,6 +120,11 @@ const accountsReceivableSchema = new mongoose.Schema({
     trim: true,
     default: 'sales'
   },
+  costCenter: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FinanceCostCenter',
+    default: null
+  },
   module: {
     type: String,
     trim: true,

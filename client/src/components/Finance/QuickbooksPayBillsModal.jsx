@@ -84,6 +84,7 @@ export default function QuickbooksPayBillsModal({
     paymentMethod: 'bank_transfer',
     bankAccountId: '',
     reference: '',
+    narration: '',
     whtRate: 0
   });
 
@@ -363,6 +364,7 @@ export default function QuickbooksPayBillsModal({
         bills: billsPayload,
         paymentMethod: paymentForm.paymentMethod,
         reference: paymentForm.reference || `BATCH-${Date.now()}`,
+        narration: paymentForm.narration,
         paymentDate: paymentForm.paymentDate,
         whtRate: Number(paymentForm.whtRate) || 0,
         bankAccountId: paymentForm.bankAccountId || null,
@@ -608,6 +610,15 @@ export default function QuickbooksPayBillsModal({
                 value={paymentForm.reference}
                 onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
                 placeholder="e.g. CHQ-991204"
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth size="small" label="Narration / Description"
+                value={paymentForm.narration}
+                onChange={(e) => setPaymentForm({ ...paymentForm, narration: e.target.value })}
+                placeholder="Enter payment narration for voucher"
               />
             </Grid>
 

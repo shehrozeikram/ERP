@@ -79,6 +79,7 @@ const StandardCustomerInvoiceForm = () => {
   const [dueDate, setDueDate] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('net_30');
   const [department, setDepartment] = useState('general');
+  const [costCenter, setCostCenter] = useState('');
   const [notes, setNotes] = useState('');
 
   // Line items
@@ -87,6 +88,7 @@ const StandardCustomerInvoiceForm = () => {
   // Master Data
   const [accounts, setAccounts] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
   const [companiesList, setCompaniesList] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [loadingMaster, setLoadingMaster] = useState(false);
@@ -128,10 +130,11 @@ const StandardCustomerInvoiceForm = () => {
     const fetchData = async () => {
       setLoadingMaster(true);
       try {
-        const [accRes, compRes, deptRes] = await Promise.all([
+        const [accRes, compRes, deptRes, ccRes] = await Promise.all([
           api.get('/finance/accounts', { params: { limit: 5000, companyId: selectedCompanyId } }).catch(() => ({ data: { data: [] } })),
           api.get('/finance/companies').catch(() => ({ data: { data: [] } })),
-          api.get('/indents/departments').catch(() => ({ data: { data: [] } }))
+          api.get('/indents/departments').catch(() => ({ data: { data: [] } })),
+          api.get('/finance/cost-centers').catch(() => ({ data: { data: [] } }))
         ]);
 
         const aList = accRes.data?.data?.accounts || accRes.data?.accounts || accRes.data?.data || [];
@@ -146,6 +149,9 @@ const StandardCustomerInvoiceForm = () => {
 
         const dList = deptRes.data?.data || [];
         setDepartments(Array.isArray(dList) ? dList : []);
+
+        const ccList = ccRes.data?.data || [];
+        setCostCenters(Array.isArray(ccList) ? ccList : []);
 
         // Auto-generate invoice number suggestion
         const now = new Date();
@@ -275,6 +281,7 @@ const StandardCustomerInvoiceForm = () => {
         dueDate,
         paymentTerms,
         department: department || 'general',
+        costCenter: costCenter || undefined,
         notes,
         totalAmount: grandTotal,
         companyId: selectedCompany?._id || selectedCompanyId || undefined,
@@ -480,9 +487,22 @@ const StandardCustomerInvoiceForm = () => {
                     <MenuItem value="operations">Operations</MenuItem>
                     <MenuItem value="admin">Administration</MenuItem>
                     {departments.map((d) => (
-                      <MenuItem key={d._id || d.name} value={d.name?.toLowerCase()}>
-                        {d.name}
-                      </MenuItem>
+                      <MenuItem key={d._id} value={d._id}>{d.name}</MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    select
+                    label="Cost Center"
+                    size="small"
+                    value={costCenter}
+                    onChange={(e) => setCostCenter(e.target.value)}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    {costCenters.filter(cc => cc.isActive).map((cc) => (
+                      <MenuItem key={cc._id} value={cc._id}>{cc.name}</MenuItem>
                     ))}
                   </TextField>
                 </Grid>
