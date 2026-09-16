@@ -166,32 +166,50 @@ router.get('/server-stats', asyncHandler(async (req, res) => {
 }));
 
 // ─── GET /api/developer/backup ───────────────────────────────────────────────
-router.get('/backup', asyncHandler(async (req, res) => {
+router.get('/backup', (req, res) => {
   const uri = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL;
   if (!uri) {
     return res.status(500).json({ success: false, message: 'MongoDB URI not found in environment variables.' });
   }
 
-  const backupFileName = `backup-${Date.now()}.gzip`;
-  const backupFilePath = path.join(os.tmpdir(), backupFileName);
+  const backupFileName = `database-backup-${Date.now()}.gzip`;
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${backupFileName}"`);
 
-  try {
-    const cmd = `mongodump --uri="${uri}" --archive="${backupFilePath}" --gzip`;
-    await execPromise(cmd);
+  const { spawn } = require('child_process');
+  
+  // mongodump outputs to stdout when --archive is specified without a value
+  const dump = spawn('mongodump', ['--uri', uri, '--archive', '--gzip']);
+
+  dump.stdout.pipe(res);
+
+  dump.stderr.on('data', (data) => {
+    // mongodump outputs progress to stderr, we ignore it to avoid buffering issues
+  });
+
+  dump.on('error', (err) => {
+    console.error('mongodump error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Failed to start backup process.' });
+    }
+  });
+
+  dump.on('close', (code) => {
+    if (code !== 0) {
+      console.error(`mongodump process exited with code ${code}`);
+    }
+  });
+});
+
+// ─── GET /api/developer/delete-logs ──────────────────────────────────────────
+router.get('/delete-logs', asyncHandler(async (req, res) => {
+  const UserActivityLog = require('../models/general/UserActivityLog');
+  const logs = await UserActivityLog.find({ actionType: 'delete' })
+    .sort({ timestamp: -1 })
+    .limit(100)
+    .lean();
     
-    res.download(backupFilePath, backupFileName, (err) => {
-      if (err) {
-        console.error('Error downloading backup:', err);
-      }
-      // Clean up the file after download
-      require('fs').unlink(backupFilePath, (unlinkErr) => {
-        if (unlinkErr) console.error('Error deleting backup file:', unlinkErr);
-      });
-    });
-  } catch (error) {
-    console.error('Backup error:', error);
-    res.status(500).json({ success: false, message: 'Failed to generate backup.', error: error.message });
-  }
+  res.json({ success: true, data: logs });
 }));
 
 // ─── GET /api/developer/financials ────────────────────────────────────────────

@@ -6,7 +6,7 @@ export const getServerStats = () => api.get(`${BASE}/server-stats`);
 
 export const getFinancials = () => api.get(`${BASE}/financials`);
 
-export const triggerDatabaseBackup = () => api.get(`${BASE}/backup`, { responseType: 'blob' });
+export const getDeleteLogs = () => api.get(`${BASE}/delete-logs`);
 
-const developerService = { getServerStats, getFinancials, triggerDatabaseBackup };
+const developerService = { getServerStats, getFinancials, getDeleteLogs };
 export default developerService;

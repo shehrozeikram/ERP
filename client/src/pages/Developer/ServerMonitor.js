@@ -9,9 +9,10 @@ import {
   Memory as MemoryIcon, Storage as DiskIcon, Speed as CpuIcon,
   AccessTime as UptimeIcon, Computer as ServerIcon, Code as CodeIcon,
   Dns as MongoIcon, Refresh as RefreshIcon, CheckCircle as OnlineIcon,
-  Error as ErrorIcon, Circle as CircleIcon, Download as DownloadIcon
+  Error as ErrorIcon, Circle as CircleIcon, Download as DownloadIcon,
+  History as HistoryIcon, DeleteSweep as DeleteIcon
 } from '@mui/icons-material';
-import { getServerStats, triggerDatabaseBackup } from '../../services/developerService';
+import { getServerStats, getDeleteLogs } from '../../services/developerService';
 
 const fmt = (v, unit = '') => v !== undefined && v !== null ? `${v}${unit}` : 'N/A';
 
@@ -69,40 +70,46 @@ export default function ServerMonitor() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [backupLoading, setBackupLoading] = useState(false);
 
-  const handleBackup = async () => {
+  const handleBackup = () => {
     try {
       setBackupLoading(true);
-      const res = await triggerDatabaseBackup();
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const token = localStorage.getItem('token');
+      const apiBase = process.env.NODE_ENV === 'production'
+        ? window.location.origin + '/api'
+        : (process.env.REACT_APP_API_URL || 'http://localhost:5001/api');
+      const downloadUrl = `${apiBase}/developer/backup?token=${token}`;
+      
       const link = document.createElement('a');
-      link.href = url;
-      const contentDisposition = res.headers['content-disposition'];
-      let fileName = 'database-backup.gzip';
-      if (contentDisposition) {
-        const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
-        if (fileNameMatch && fileNameMatch.length === 2) {
-          fileName = fileNameMatch[1];
-        }
-      }
-      link.setAttribute('download', fileName);
+      link.href = downloadUrl;
+      link.setAttribute('download', 'database-backup.gzip');
       document.body.appendChild(link);
       link.click();
       link.remove();
+      
+      // Reset loading state after a delay since we can't track stream completion
+      setTimeout(() => setBackupLoading(false), 5000);
     } catch (e) {
       console.error('Backup failed:', e);
       alert('Backup failed. Please try again.');
-    } finally {
       setBackupLoading(false);
     }
   };
 
+  const [deleteLogs, setDeleteLogs] = useState([]);
+
   const load = useCallback(async () => {
     try {
       setError('');
-      const res = await getServerStats();
+      const [res, logRes] = await Promise.all([
+        getServerStats(),
+        getDeleteLogs().catch(() => ({ data: { success: false, data: [] } }))
+      ]);
       if (res.data?.success) {
         setData(res.data.data);
         setLastUpdated(new Date());
+      }
+      if (logRes.data?.success) {
+        setDeleteLogs(logRes.data.data);
       }
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to fetch server stats');
@@ -305,6 +312,38 @@ export default function ServerMonitor() {
                     <TableCell>
                       <Chip size="small" label={p.restarts} color={p.restarts > 10 ? 'warning' : 'default'} />
                     </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </>
+      )}
+      {/* Delete Logs */}
+      {deleteLogs?.length > 0 && (
+        <>
+          <SectionTitle icon={<DeleteIcon />}>Recent Deletions (Activity Log)</SectionTitle>
+          <TableContainer component={Paper} sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', mb: 4, maxHeight: 400 }} elevation={0}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  {['Time', 'User', 'Module', 'Endpoint', 'Description', 'Resource ID'].map(h => (
+                    <TableCell key={h} sx={{ bgcolor: 'action.hover', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'text.secondary' }}>{h}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {deleteLogs.map((log, i) => (
+                  <TableRow key={i} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{new Date(log.timestamp).toLocaleString()}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={600}>{log.username}</Typography>
+                      <Typography variant="caption" color="text.secondary">{log.email}</Typography>
+                    </TableCell>
+                    <TableCell><Chip size="small" label={log.module} variant="outlined" /></TableCell>
+                    <TableCell sx={{ fontSize: '0.8rem', wordBreak: 'break-all', maxWidth: 200 }}>{log.endpoint}</TableCell>
+                    <TableCell>{log.description}</TableCell>
+                    <TableCell sx={{ fontSize: '0.8rem' }}>{log.resourceId || 'N/A'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
