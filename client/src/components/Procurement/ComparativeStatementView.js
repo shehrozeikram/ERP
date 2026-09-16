@@ -338,7 +338,7 @@ const ComparativeStatementView = ({
                             const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
                             const isNotQuoted = !quoteItem || ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0);
                             const itemTotal = !isNotQuoted
-                              ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
+                              ? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0))
                               : 0;
                             const isAssignedToThis = vendorAssignments[itemIndex] === quote._id;
                             const cellBg = isAssignedToThis ? '#c8e6c9' : undefined;
@@ -409,13 +409,13 @@ const ComparativeStatementView = ({
                       const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
                       if (!quoteItem) return sum;
                       const itemTotal = !((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)
-                        ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
+                        ? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0))
                         : 0;
                       return sum + (Number(itemTotal) || 0);
                     }, 0);
                     return (
                       <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
-                        {formatNumber(visibleTotal || quote.totalAmount || 0)}
+                        {formatNumber(visibleTotal || quote.subtotal || quote.totalAmount || 0)}
                       </td>
                     );
                   })}
@@ -445,11 +445,16 @@ const ComparativeStatementView = ({
                       const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
                       if (!quoteItem) return sum;
                       const itemTotal = !((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)
-                        ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
+                        ? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0))
                         : 0;
                       return sum + (Number(itemTotal) || 0);
                     }, 0);
-                    const grand = Math.max(0, (visibleTotal || quote.totalAmount || 0) - (quote.discountAmount || 0));
+                    const baseTotal = visibleTotal || quote.subtotal || quote.totalAmount || 0;
+                    // If baseTotal is totalAmount, discount might already be applied.
+                    // But visibleTotal (calculated above) and quote.subtotal do NOT have discount applied.
+                    // If visibleTotal or subtotal is used, we must subtract discount.
+                    const isTotalAmountFallback = !visibleTotal && !quote.subtotal;
+                    const grand = Math.max(0, baseTotal - (isTotalAmountFallback ? 0 : (quote.discountAmount || 0)));
                     return (
                       <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>
                         {formatNumber(grand)}
