@@ -8,6 +8,7 @@
 
 const express = require('express');
 const os = require('os');
+const path = require('path');
 const { exec } = require('child_process');
 const mongoose = require('mongoose');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -162,6 +163,35 @@ router.get('/server-stats', asyncHandler(async (req, res) => {
       pm2: pm2Processes
     }
   });
+}));
+
+// ─── GET /api/developer/backup ───────────────────────────────────────────────
+router.get('/backup', asyncHandler(async (req, res) => {
+  const uri = process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL;
+  if (!uri) {
+    return res.status(500).json({ success: false, message: 'MongoDB URI not found in environment variables.' });
+  }
+
+  const backupFileName = `backup-${Date.now()}.gzip`;
+  const backupFilePath = path.join(os.tmpdir(), backupFileName);
+
+  try {
+    const cmd = `mongodump --uri="${uri}" --archive="${backupFilePath}" --gzip`;
+    await execPromise(cmd);
+    
+    res.download(backupFilePath, backupFileName, (err) => {
+      if (err) {
+        console.error('Error downloading backup:', err);
+      }
+      // Clean up the file after download
+      require('fs').unlink(backupFilePath, (unlinkErr) => {
+        if (unlinkErr) console.error('Error deleting backup file:', unlinkErr);
+      });
+    });
+  } catch (error) {
+    console.error('Backup error:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate backup.', error: error.message });
+  }
 }));
 
 // ─── GET /api/developer/financials ────────────────────────────────────────────

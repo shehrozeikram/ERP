@@ -3,15 +3,15 @@ import {
   Box, Card, CardContent, Chip, CircularProgress, Divider, Grid,
   IconButton, LinearProgress, Paper, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Tooltip,
-  Typography, Alert, Switch, FormControlLabel
+  Typography, Alert, Switch, FormControlLabel, Button
 } from '@mui/material';
 import {
   Memory as MemoryIcon, Storage as DiskIcon, Speed as CpuIcon,
   AccessTime as UptimeIcon, Computer as ServerIcon, Code as CodeIcon,
   Dns as MongoIcon, Refresh as RefreshIcon, CheckCircle as OnlineIcon,
-  Error as ErrorIcon, Circle as CircleIcon
+  Error as ErrorIcon, Circle as CircleIcon, Download as DownloadIcon
 } from '@mui/icons-material';
-import { getServerStats } from '../../services/developerService';
+import { getServerStats, triggerDatabaseBackup } from '../../services/developerService';
 
 const fmt = (v, unit = '') => v !== undefined && v !== null ? `${v}${unit}` : 'N/A';
 
@@ -52,11 +52,12 @@ const MeterCard = ({ label, value, percent, color, icon, sub }) => (
   </Card>
 );
 
-const SectionTitle = ({ icon, children }) => (
+const SectionTitle = ({ icon, children, action }) => (
   <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2, mt: 3 }}>
     <Box sx={{ color: 'primary.main', display: 'flex' }}>{icon}</Box>
     <Typography variant="h6" fontWeight={700}>{children}</Typography>
     <Divider sx={{ flex: 1 }} />
+    {action && <Box>{action}</Box>}
   </Stack>
 );
 
@@ -66,6 +67,34 @@ export default function ServerMonitor() {
   const [error, setError] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [backupLoading, setBackupLoading] = useState(false);
+
+  const handleBackup = async () => {
+    try {
+      setBackupLoading(true);
+      const res = await triggerDatabaseBackup();
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const contentDisposition = res.headers['content-disposition'];
+      let fileName = 'database-backup.gzip';
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        if (fileNameMatch && fileNameMatch.length === 2) {
+          fileName = fileNameMatch[1];
+        }
+      }
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      console.error('Backup failed:', e);
+      alert('Backup failed. Please try again.');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -206,7 +235,23 @@ export default function ServerMonitor() {
       </Grid>
 
       {/* MongoDB Stats */}
-      <SectionTitle icon={<MongoIcon />}>MongoDB Database</SectionTitle>
+      <SectionTitle 
+        icon={<MongoIcon />}
+        action={
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={backupLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+            onClick={handleBackup}
+            disabled={backupLoading}
+            size="small"
+          >
+            {backupLoading ? 'Backing Up...' : 'Full Backup'}
+          </Button>
+        }
+      >
+        MongoDB Database
+      </SectionTitle>
       <Grid container spacing={2}>
         {[
           { label: 'Database', value: mongodb?.db },
