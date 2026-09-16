@@ -2,19 +2,21 @@ const mongoose = require('mongoose');
 
 const nonEmployeeRecordSchema = new mongoose.Schema({
   recordNumber: { type: String, unique: true },
-  firstName: { type: String, required: true },
-  lastName: { type: String },
-  cnic: { type: String, required: true },
-  phone: { type: String },
-  address: { type: String },
-  role: { type: String, required: true, default: 'Housemaid' }, // e.g. Housemaid, Security Guard
-  expectedWages: { type: Number, default: 0 },
-  justification: { type: String },
+  employees: [{
+    firstName: { type: String, required: true },
+    lastName: { type: String },
+    cnic: { type: String, required: true },
+    phone: { type: String },
+    address: { type: String },
+    role: { type: String, required: true, default: 'Housemaid' }, // e.g. Housemaid, Security Guard
+    expectedWages: { type: Number, default: 0 },
+    justification: { type: String }
+  }],
   
   // Workflow tracking
   workflowStatus: { 
     type: String, 
-    enum: ['Draft', 'Pending HOD HR', 'Pending AVP', 'Forwarded to CEO', 'Approved by CEO', 'Rejected by CEO', 'Returned'],
+    enum: ['Draft', 'Pending HOD HR', 'Pending AVP', 'Pending Chairman', 'Forwarded to CEO', 'Approved by CEO', 'Rejected by CEO', 'Returned'],
     default: 'Pending HOD HR'
   },
   
@@ -33,6 +35,12 @@ const nonEmployeeRecordSchema = new mongoose.Schema({
   avpApprovedAt: { type: Date },
   avpComments: { type: String },
   avpSignature: { type: String },
+
+  assignedChairman: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  chairmanApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  chairmanApprovedAt: { type: Date },
+  chairmanComments: { type: String },
+  chairmanSignature: { type: String },
 
   ceoApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   ceoApprovedAt: { type: Date },

@@ -904,7 +904,7 @@ const FinanceHelper = {
         await FinanceHelper.createAndPostJournalEntry(
           withVoucherNarration(withCompany({
             date: date || new Date(),
-            reference: reference || invoice.invoiceNumber,
+            reference: reference || '',
             description: `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
             department: invoice.department,
             module: invoice.module,
@@ -1045,7 +1045,7 @@ const FinanceHelper = {
         financeApprovalAuthorities: authorities,
         journalPayload: withVoucherNarration(withCompany({
           date: date || new Date(),
-          reference: reference || bill.billNumber,
+          reference: reference || '',
           description: `Payment: ${bill.billNumber} – ${bill.vendor.name} (pending finance signatures)`,
           department: bill.department,
           module: bill.module,
@@ -1056,7 +1056,7 @@ const FinanceHelper = {
         }, companyId), getBillNarration(bill)),
         paymentMeta: {
           paymentMethod,
-          reference: reference || bill.billNumber,
+          reference: reference || '',
           batchId: batchId || null,
           whtRate,
           bankAccountId: bankAccount ? bankAccount._id : null,
@@ -1273,7 +1273,7 @@ const FinanceHelper = {
         financeApprovalAuthorities: authorities,
         journalPayload: withVoucherNarration(withCompany({
           date: date || new Date(),
-          reference: reference || `BATCH-${Date.now()}`,
+          reference: reference || '',
           description: narration || `Batch Payment – ${vendorName}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
           department: departmentId,
           costCenter: costCenter || null,
@@ -1286,7 +1286,7 @@ const FinanceHelper = {
         }, companyId), narration || `Batch Payment for ${billObjects.length} bills`),
         paymentMeta: {
           paymentMethod,
-          reference: reference || `BATCH-${Date.now()}`,
+          reference: reference || '',
           batchId: batchId || null,
           whtRate,
           bankAccountId: bankAccount ? bankAccount._id : null,
@@ -1377,7 +1377,7 @@ const FinanceHelper = {
       amount: amount_,
       paymentMethod: paymentMethod || 'bank_transfer',
       bankAccountId: bankAccount._id,
-      reference: reference || `ADV-${Date.now()}`,
+      reference: reference || '',
       chequeNumber: cleanChequeNo || undefined,
       paymentDate: date || new Date(),
       createdBy,

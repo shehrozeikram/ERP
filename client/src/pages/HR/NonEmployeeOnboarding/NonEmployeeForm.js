@@ -8,7 +8,12 @@ import {
   TextField,
   Grid,
   MenuItem,
+  IconButton,
+  Box,
+  Typography,
+  Divider,
 } from '@mui/material';
+import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import nonEmployeeService from '../../../services/nonEmployeeService';
 import api from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -17,7 +22,8 @@ import toast from 'react-hot-toast';
 const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
   const { user } = useAuth();
   const [users, setUsers] = useState([]);
-  const [formData, setFormData] = useState({
+  
+  const defaultRecord = {
     firstName: '',
     lastName: '',
     cnic: '',
@@ -25,15 +31,19 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
     address: '',
     role: 'Housemaid',
     expectedWages: '',
-    justification: '',
+    justification: ''
+  };
+
+  const [records, setRecords] = useState([{ ...defaultRecord }]);
+  const [approvers, setApprovers] = useState({
     assignedHod: '',
     assignedAvp: '',
-    requesterSignature: user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || ''),
+    assignedChairman: ''
   });
 
   React.useEffect(() => {
     if (editData) {
-      setFormData({
+      setRecords(editData.employees && editData.employees.length > 0 ? editData.employees : [{
         firstName: editData.firstName || '',
         lastName: editData.lastName || '',
         cnic: editData.cnic || '',
@@ -41,25 +51,16 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
         address: editData.address || '',
         role: editData.role || 'Housemaid',
         expectedWages: editData.expectedWages || '',
-        justification: editData.justification || '',
+        justification: editData.justification || ''
+      }]);
+      setApprovers({
         assignedHod: editData.assignedHod?._id || editData.assignedHod || '',
         assignedAvp: editData.assignedAvp?._id || editData.assignedAvp || '',
-        requesterSignature: editData.requesterSignature || user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || ''),
+        assignedChairman: editData.assignedChairman?._id || editData.assignedChairman || ''
       });
     } else {
-      setFormData({
-        firstName: '',
-        lastName: '',
-        cnic: '',
-        phone: '',
-        address: '',
-        role: 'Housemaid',
-        expectedWages: '',
-        justification: '',
-        assignedHod: '',
-        assignedAvp: '',
-        requesterSignature: user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || ''),
-      });
+      setRecords([{ ...defaultRecord }]);
+      // Keep existing approver selections
     }
   }, [editData, open, user]);
 
@@ -71,16 +72,24 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
         setUsers(fetchedUsers);
 
         if (!editData) {
-          const kashif = fetchedUsers.find(u => u.email?.toLowerCase() === 'kashifmahmood@tovus.net');
-          const fahad = fetchedUsers.find(u => {
-            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.toLowerCase();
-            return fullName.includes('fahad') && fullName.includes('farid');
-          });
+          const hod = fetchedUsers.find(u => 
+            u.department?.toLowerCase() === 'human resource' && 
+            u.position?.toLowerCase() === 'general manager'
+          );
           
-          setFormData(prev => ({
+          const avp = fetchedUsers.find(u => 
+            u.position?.toLowerCase() === 'assistant vice president'
+          );
+          
+          const chairman = fetchedUsers.find(u => 
+            u.position?.toLowerCase() === 'chairman steering committee'
+          );
+          
+          setApprovers(prev => ({
             ...prev,
-            assignedHod: prev.assignedHod || (kashif ? kashif.id || kashif._id : ''),
-            assignedAvp: prev.assignedAvp || (fahad ? fahad.id || fahad._id : '')
+            assignedHod: prev.assignedHod || (hod ? hod.id || hod._id : ''),
+            assignedAvp: prev.assignedAvp || (avp ? avp.id || avp._id : ''),
+            assignedChairman: prev.assignedChairman || (chairman ? chairman.id || chairman._id : '')
           }));
         }
       } catch (err) {
@@ -90,154 +99,212 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
     if (open) fetchUsers();
   }, [open, editData]);
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleRecordChange = (index, field, value) => {
+    const newRecords = [...records];
+    newRecords[index][field] = value;
+    setRecords(newRecords);
+  };
+
+  const addRecord = () => {
+    setRecords([...records, { ...defaultRecord }]);
+  };
+
+  const removeRecord = (index) => {
+    if (records.length > 1) {
+      const newRecords = records.filter((_, i) => i !== index);
+      setRecords(newRecords);
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const requesterSignature = user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || '');
+
       if (editData) {
-        await nonEmployeeService.updateRecord(editData._id, formData);
+        const payload = { employees: records, ...approvers, requesterSignature };
+        await nonEmployeeService.updateRecord(editData._id, payload);
         toast.success('Record updated successfully');
       } else {
-        await nonEmployeeService.createRecord(formData);
-        toast.success('Record created and submitted to HOD HR');
+        const payload = { employees: records, ...approvers, requesterSignature };
+        await nonEmployeeService.createRecord(payload);
+        toast.success(`Successfully created batch record with ${records.length} employee(s) and submitted to HOD HR`);
       }
       onSuccess();
     } catch (error) {
-      toast.error(editData ? 'Failed to update record' : 'Failed to create record');
+      toast.error(editData ? 'Failed to update record' : 'Failed to create records');
       console.error(error);
     }
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>{editData ? 'Edit Non-Employee Record' : 'New Non-Employee Record'}</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent dividers>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="firstName" 
-                label="First Name" 
-                fullWidth 
-                required 
-                value={formData.firstName}
-                onChange={handleChange}
-              />
+          
+
+
+          <Box mt={3} mb={1} display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">Employees</Typography>
+            {!editData && (
+              <Button startIcon={<AddIcon />} variant="outlined" size="small" onClick={addRecord}>
+                Add Row
+              </Button>
+            )}
+          </Box>
+
+          {records.map((record, index) => (
+            <Box key={index} sx={{ mb: 4, p: 2, border: '1px solid #e0e0e0', borderRadius: 2, position: 'relative' }}>
+              {records.length > 1 && !editData && (
+                <IconButton 
+                  color="error" 
+                  onClick={() => removeRecord(index)}
+                  sx={{ position: 'absolute', top: 8, right: 8 }}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              )}
+              <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                Record #{index + 1}
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField 
+                    label="First Name" 
+                    fullWidth 
+                    required 
+                    value={record.firstName}
+                    onChange={(e) => handleRecordChange(index, 'firstName', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField 
+                    label="Last Name" 
+                    fullWidth 
+                    value={record.lastName}
+                    onChange={(e) => handleRecordChange(index, 'lastName', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField 
+                    label="CNIC" 
+                    fullWidth 
+                    required 
+                    value={record.cnic}
+                    onChange={(e) => handleRecordChange(index, 'cnic', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField 
+                    label="Phone" 
+                    fullWidth 
+                    value={record.phone}
+                    onChange={(e) => handleRecordChange(index, 'phone', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField 
+                    label="Address" 
+                    fullWidth 
+                    multiline
+                    rows={2}
+                    value={record.address}
+                    onChange={(e) => handleRecordChange(index, 'address', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField 
+                    label="Role" 
+                    fullWidth 
+                    required 
+                    select
+                    value={record.role}
+                    onChange={(e) => handleRecordChange(index, 'role', e.target.value)}
+                  >
+                    <MenuItem value="Housemaid">Housemaid</MenuItem>
+                    <MenuItem value="Security Guard">Security Guard</MenuItem>
+                    <MenuItem value="Gardener">Gardener</MenuItem>
+                    <MenuItem value="Other">Other</MenuItem>
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField 
+                    label="Expected Wages" 
+                    type="number"
+                    fullWidth 
+                    value={record.expectedWages}
+                    onChange={(e) => handleRecordChange(index, 'expectedWages', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField 
+                    label="Justification / Remarks" 
+                    fullWidth 
+                    multiline
+                    rows={3}
+                    value={record.justification}
+                    onChange={(e) => handleRecordChange(index, 'justification', e.target.value)}
+                  />
+                </Grid>
+              </Grid>
+            </Box>
+          ))}
+
+          <Box mt={2}>
+            <Typography variant="h6" gutterBottom>Approval Authorities</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={4}>
+                <TextField 
+                  label="HOD HR" 
+                  fullWidth 
+                  required 
+                  select
+                  value={approvers.assignedHod}
+                  onChange={(e) => setApprovers({ ...approvers, assignedHod: e.target.value })}
+                >
+                  {users.map(u => (
+                    <MenuItem key={u.id || u._id} value={u.id || u._id}>
+                      {u.firstName} {u.lastName} ({u.email})
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField 
+                  label="AVP Taj Fahad Farid" 
+                  fullWidth 
+                  required 
+                  select
+                  value={approvers.assignedAvp}
+                  onChange={(e) => setApprovers({ ...approvers, assignedAvp: e.target.value })}
+                >
+                  {users.map(u => (
+                    <MenuItem key={u.id || u._id} value={u.id || u._id}>
+                      {u.firstName} {u.lastName} ({u.email})
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField 
+                  label="Chairman Steering Committee" 
+                  fullWidth 
+                  required 
+                  select
+                  value={approvers.assignedChairman}
+                  onChange={(e) => setApprovers({ ...approvers, assignedChairman: e.target.value })}
+                >
+                  {users.map(u => (
+                    <MenuItem key={u.id || u._id} value={u.id || u._id}>
+                      {u.firstName} {u.lastName} ({u.email})
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="lastName" 
-                label="Last Name" 
-                fullWidth 
-                value={formData.lastName}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="cnic" 
-                label="CNIC" 
-                fullWidth 
-                required 
-                value={formData.cnic}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="phone" 
-                label="Phone" 
-                fullWidth 
-                value={formData.phone}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField 
-                name="address" 
-                label="Address" 
-                fullWidth 
-                multiline
-                rows={2}
-                value={formData.address}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="role" 
-                label="Role" 
-                fullWidth 
-                required 
-                select
-                value={formData.role}
-                onChange={handleChange}
-              >
-                <MenuItem value="Housemaid">Housemaid</MenuItem>
-                <MenuItem value="Security Guard">Security Guard</MenuItem>
-                <MenuItem value="Gardener">Gardener</MenuItem>
-                <MenuItem value="Other">Other</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="expectedWages" 
-                label="Expected Wages" 
-                type="number"
-                fullWidth 
-                value={formData.expectedWages}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField 
-                name="justification" 
-                label="Justification / Remarks" 
-                fullWidth 
-                multiline
-                rows={3}
-                value={formData.justification}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="assignedHod" 
-                label="HOD HR (Approval Authority)" 
-                fullWidth 
-                required 
-                select
-                value={formData.assignedHod}
-                onChange={handleChange}
-              >
-                {users.map(u => (
-                  <MenuItem key={u.id || u._id} value={u.id || u._id}>
-                    {u.firstName} {u.lastName} ({u.email})
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField 
-                name="assignedAvp" 
-                label="AVP Taj Fahad Farid (Approval Authority)" 
-                fullWidth 
-                required 
-                select
-                value={formData.assignedAvp}
-                onChange={handleChange}
-              >
-                {users.map(u => (
-                  <MenuItem key={u.id || u._id} value={u.id || u._id}>
-                    {u.firstName} {u.lastName} ({u.email})
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-          </Grid>
+          </Box>
+
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>Cancel</Button>

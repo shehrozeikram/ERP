@@ -326,7 +326,7 @@ router.get('/finance-authority-candidates',
     }
 
     let users = await User.find({ $and: andClauses })
-      .select('firstName lastName email employeeId department role digitalSignature')
+      .select('firstName lastName email employeeId department position role digitalSignature')
       .sort({ firstName: 1, lastName: 1 })
       .limit(limit)
       .lean();

@@ -363,7 +363,7 @@ export default function QuickbooksPayBillsModal({
       await api.post(`/finance/accounts-payable/batch-payment`, {
         bills: billsPayload,
         paymentMethod: paymentForm.paymentMethod,
-        reference: paymentForm.reference || `BATCH-${Date.now()}`,
+        reference: paymentForm.reference || '',
         narration: paymentForm.narration,
         paymentDate: paymentForm.paymentDate,
         whtRate: Number(paymentForm.whtRate) || 0,

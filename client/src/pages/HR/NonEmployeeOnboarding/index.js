@@ -90,6 +90,11 @@ const NonEmployeeOnboarding = () => {
           comments: approvalComments,
           signature: approvalSignature.trim()
         });
+      } else if (approvalType === 'Chairman') {
+        await nonEmployeeService.approveByChairman(item._id, {
+          comments: approvalComments,
+          signature: approvalSignature.trim()
+        });
       } else {
         await nonEmployeeService.approveByAVP(item._id, {
           comments: approvalComments,
@@ -120,6 +125,11 @@ const NonEmployeeOnboarding = () => {
     try {
       if (approvalType === 'HOD') {
         await nonEmployeeService.rejectByHOD(item._id, {
+          comments: approvalComments,
+          signature: approvalSignature.trim()
+        });
+      } else if (approvalType === 'Chairman') {
+        await nonEmployeeService.rejectByChairman(item._id, {
           comments: approvalComments,
           signature: approvalSignature.trim()
         });
@@ -193,6 +203,7 @@ const NonEmployeeOnboarding = () => {
               const authorityMap = {
                 'Pending HOD HR': 'HOD HR',
                 'Pending AVP': 'AVP (Taj Fahad Farid)',
+                'Pending Chairman': 'Chairman Steering Committee',
                 'Forwarded to CEO': 'CEO Secretariat',
                 'Approved by CEO': 'Approved',
                 'Rejected by CEO': 'Rejected',
@@ -203,20 +214,32 @@ const NonEmployeeOnboarding = () => {
               const userId = user?.id || user?._id;
               const isPendingHOD = record.workflowStatus === 'Pending HOD HR' && (userId === record.assignedHod?._id || userId === record.assignedHod);
               const isPendingAVP = record.workflowStatus === 'Pending AVP' && (userId === record.assignedAvp?._id || userId === record.assignedAvp);
-              const isPendingAuthority = isPendingHOD || isPendingAVP;
-              const currentPendingType = isPendingHOD ? 'HOD' : 'AVP';
+              const isPendingChairman = record.workflowStatus === 'Pending Chairman' && (userId === record.assignedChairman?._id || userId === record.assignedChairman);
+              const isPendingAuthority = isPendingHOD || isPendingAVP || isPendingChairman;
+              const currentPendingType = isPendingHOD ? 'HOD' : isPendingAVP ? 'AVP' : 'Chairman';
               
               const isDeveloper = user?.email === 'developer@tovus.net';
               const isInitiatorEditable = ['Pending HOD HR', 'Draft', 'Returned'].includes(record.workflowStatus) && (userId === record.initiator?._id || userId === record.initiator);
               const canEdit = isDeveloper || isInitiatorEditable;
               const canDelete = isInitiatorEditable; // Maintain existing delete logic
 
+              const numEmployees = record.employees?.length || 0;
+              const displayName = numEmployees > 0 
+                ? record.employees.map(e => `${e.firstName} ${e.lastName || ''}`.trim()).join(', ')
+                : 'N/A';
+              const displayRole = numEmployees > 0 
+                ? record.employees.map(e => e.role).join(', ')
+                : 'N/A';
+              const displayCnic = numEmployees > 0 
+                ? record.employees.map(e => e.cnic).join(', ')
+                : 'N/A';
+
               return (
                 <TableRow key={record._id}>
                   <TableCell>{record.recordNumber}</TableCell>
-                  <TableCell>{`${record.firstName} ${record.lastName || ''}`}</TableCell>
-                  <TableCell>{record.role}</TableCell>
-                  <TableCell>{record.cnic}</TableCell>
+                  <TableCell>{displayName}</TableCell>
+                  <TableCell>{displayRole}</TableCell>
+                  <TableCell>{displayCnic}</TableCell>
                   <TableCell>
                   <Chip 
                     label={record.workflowStatus} 
@@ -323,10 +346,10 @@ const NonEmployeeOnboarding = () => {
         <DialogContent dividers>
           <Box mb={2}>
             <Typography variant="subtitle1" fontWeight="bold">
-              Record: {approvalDialog.record?.recordNumber} - {approvalDialog.record?.firstName} {approvalDialog.record?.lastName}
+              Batch Record: {approvalDialog.record?.recordNumber}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Role: {approvalDialog.record?.role}, CNIC: {approvalDialog.record?.cnic}
+              Contains {approvalDialog.record?.employees?.length || 0} employees
             </Typography>
           </Box>
           <TextField
@@ -369,7 +392,7 @@ const NonEmployeeOnboarding = () => {
         <DialogContent dividers>
           <Box mb={2}>
             <Typography variant="subtitle1" fontWeight="bold">
-              Record: {rejectDialog.record?.recordNumber} - {rejectDialog.record?.firstName} {rejectDialog.record?.lastName}
+              Batch Record: {rejectDialog.record?.recordNumber}
             </Typography>
           </Box>
           <TextField
@@ -399,8 +422,8 @@ const NonEmployeeOnboarding = () => {
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, record: null })} maxWidth="xs" fullWidth>
         <DialogTitle>Delete Record</DialogTitle>
         <DialogContent dividers>
-          <Typography>Are you sure you want to delete the onboarding record for <strong>{deleteDialog.record?.firstName} {deleteDialog.record?.lastName}</strong>?</Typography>
-          <Typography variant="body2" color="error" sx={{ mt: 1 }}>This action cannot be undone.</Typography>
+          <Typography>Are you sure you want to delete the batch onboarding record <strong>{deleteDialog.record?.recordNumber}</strong>?</Typography>
+          <Typography variant="body2" color="error" sx={{ mt: 1 }}>This action cannot be undone and will delete all employees in this batch.</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialog({ open: false, record: null })}>Cancel</Button>
@@ -417,68 +440,64 @@ const NonEmployeeOnboarding = () => {
 
       <Dialog open={viewDialog.open} onClose={() => setViewDialog({ open: false, record: null })} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05), borderBottom: '1px solid', borderColor: 'divider', fontWeight: 700 }}>
-          Non-Employee Onboarding Details
+          Non-Employee Batch Record Details - {viewDialog.record?.recordNumber}
         </DialogTitle>
         <DialogContent sx={{ p: { xs: 2, md: 4 } }}>
           <Box mb={4}>
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, height: '100%' }}>
-                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
-                    Candidate Profile
-                  </Typography>
-                  <Box display="flex" flexDirection="column" gap={2}>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Full Name</Typography>
-                      <Typography variant="body1" fontWeight={600}>{viewDialog.record?.firstName} {viewDialog.record?.lastName}</Typography>
+            <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
+              Employees Included ({viewDialog.record?.employees?.length || 0})
+            </Typography>
+            {viewDialog.record?.employees?.map((emp, index) => (
+              <Paper key={index} variant="outlined" sx={{ p: 2.5, borderRadius: 2, mb: 2 }}>
+                <Typography variant="subtitle2" color="primary" gutterBottom>
+                  Record #{index + 1}
+                </Typography>
+                <Grid container spacing={3}>
+                  <Grid item xs={12} md={6}>
+                    <Box display="flex" flexDirection="column" gap={2}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Full Name</Typography>
+                        <Typography variant="body1" fontWeight={600}>{emp.firstName} {emp.lastName}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">CNIC</Typography>
+                        <Typography variant="body1">{emp.cnic}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Role / Designation</Typography>
+                        <Typography variant="body1">{emp.role}</Typography>
+                      </Box>
                     </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">CNIC</Typography>
-                      <Typography variant="body1">{viewDialog.record?.cnic}</Typography>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Box display="flex" flexDirection="column" gap={2}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Phone</Typography>
+                        <Typography variant="body1">{emp.phone || 'N/A'}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Address</Typography>
+                        <Typography variant="body1">{emp.address || 'N/A'}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Expected Wages</Typography>
+                        <Typography variant="body1" color="success.main" fontWeight={700}>
+                          {emp.expectedWages ? `${Number(emp.expectedWages).toLocaleString()} PKR` : '0 PKR'}
+                        </Typography>
+                      </Box>
                     </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Role / Designation</Typography>
-                      <Typography variant="body1">{viewDialog.record?.role}</Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Box p={1.5} bgcolor={alpha(theme.palette.info.main, 0.05)} borderRadius={1} border={`1px solid ${alpha(theme.palette.info.main, 0.2)}`}>
+                      <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>Justification / Remarks</Typography>
+                      <Typography variant="body2">{emp.justification || 'No justification provided.'}</Typography>
                     </Box>
-                  </Box>
-                </Paper>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, height: '100%' }}>
-                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
-                    Contact & Remuneration
-                  </Typography>
-                  <Box display="flex" flexDirection="column" gap={2}>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Phone</Typography>
-                      <Typography variant="body1">{viewDialog.record?.phone || 'N/A'}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Address</Typography>
-                      <Typography variant="body1">{viewDialog.record?.address || 'N/A'}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Expected Wages</Typography>
-                      <Typography variant="body1" color="success.main" fontWeight={700}>
-                        {viewDialog.record?.expectedWages ? `${Number(viewDialog.record.expectedWages).toLocaleString()} PKR` : '0 PKR'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Paper>
-              </Grid>
-            </Grid>
+                  </Grid>
+                </Grid>
+              </Paper>
+            ))}
           </Box>
 
-          <Box mb={4}>
-            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, bgcolor: alpha(theme.palette.info.main, 0.03), borderColor: alpha(theme.palette.info.main, 0.2) }}>
-              <Typography variant="overline" color="info.dark" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1 }}>
-                Justification / Remarks
-              </Typography>
-              <Typography variant="body1" sx={{ color: 'text.primary', lineHeight: 1.7 }}>
-                {viewDialog.record?.justification || 'No justification provided.'}
-              </Typography>
-            </Paper>
-          </Box>
 
           <Box>
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
@@ -487,7 +506,7 @@ const NonEmployeeOnboarding = () => {
               </Typography>
               <Grid container spacing={4}>
                 {/* HOD HR Approval */}
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={6} md={3}>
                   <Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>HOD HR</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -511,7 +530,7 @@ const NonEmployeeOnboarding = () => {
                 </Grid>
 
                 {/* AVP Approval */}
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={6} md={3}>
                   <Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>AVP (Taj Fahad Farid)</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -534,8 +553,32 @@ const NonEmployeeOnboarding = () => {
                   </Box>
                 </Grid>
 
+                {/* Chairman Approval */}
+                <Grid item xs={12} sm={6} md={3}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>Chairman Steering Committee</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      {viewDialog.record?.chairmanApprovedBy ? `${viewDialog.record.chairmanApprovedBy.firstName || ''} ${viewDialog.record.chairmanApprovedBy.lastName || ''}`.trim() || viewDialog.record.chairmanApprovedBy.email || 'Approved' : 'Pending'}
+                    </Typography>
+                    {viewDialog.record?.chairmanApprovedAt && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        {formatDateTime(viewDialog.record.chairmanApprovedAt)}
+                      </Typography>
+                    )}
+                    {viewDialog.record?.chairmanSignature ? (
+                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
+                        <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.record.chairmanSignature }} alt="Chairman Signature" />
+                      </Box>
+                    ) : (
+                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
+                        <Typography variant="caption" color="text.disabled">No Signature</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Grid>
+
                 {/* CEO Approval */}
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={6} md={3}>
                   <Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>CEO Secretariat</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>

@@ -609,7 +609,17 @@ const AccountsPayable = () => {
 
     fetchFinanceAuthorityCandidates()
       .then((list) => {
-        if (!cancelled) setFinanceAuthorityCandidates(list);
+        if (!cancelled) {
+          setFinanceAuthorityCandidates(list);
+          const gmFinance = list.find(u => u.position?.toLowerCase() === 'general manager' && u.department?.toLowerCase() === 'finance/accounts');
+          const srManager = list.find(u => u.position?.toLowerCase() === 'sr manager' && u.department?.toLowerCase() === 'finance/accounts');
+          
+          setBillPaymentFinAuth(prev => ({
+            ...prev,
+            financeControllerUser: prev.financeControllerUser || gmFinance || null,
+            accountsManagerUser: prev.accountsManagerUser || srManager || null
+          }));
+        }
       })
       .catch(() => {
         if (!cancelled) setFinanceAuthorityCandidates([]);
@@ -1162,7 +1172,7 @@ const AccountsPayable = () => {
       const payRes = await api.post('/finance/accounts-payable/batch-payment', {
         bills: billsPayload,
         paymentMethod: paymentData.paymentMethod,
-        reference: paymentData.reference || `BATCH-${Date.now()}`,
+        reference: paymentData.reference || '',
         narration: paymentData.narration,
         paymentDate: paymentData.paymentDate,
         whtRate: Number(paymentData.whtRate) || 0,
@@ -2810,20 +2820,7 @@ const AccountsPayable = () => {
                 </Stack>
               </Paper>
             </Grid>
-            <Grid item xs={12}>
-              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
-                <Grid container spacing={1.5}>
-                  <FinanceApprovalAuthorityPicker
-                    finAuth={billPaymentFinAuth}
-                    onChange={setBillPaymentFinAuth}
-                    candidateUsers={financeAuthorityCandidates}
-                    preparerName={preparerDisplayName}
-                    disabled={processingCaApply || processingPayment}
-                    title="Finance approval authorities (required before apply or payment)"
-                  />
-                </Grid>
-              </Paper>
-            </Grid>
+
             <Grid item xs={12}>
               <Paper variant="outlined" sx={{ p: 1.5 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
@@ -3332,6 +3329,20 @@ const AccountsPayable = () => {
                 onChange={(e) => setPaymentData({ ...paymentData, narration: e.target.value })}
                 placeholder="Enter narration for voucher"
                 size="small" />
+            </Grid>
+            <Grid item xs={12}>
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
+                <Grid container spacing={1.5}>
+                  <FinanceApprovalAuthorityPicker
+                    finAuth={billPaymentFinAuth}
+                    onChange={setBillPaymentFinAuth}
+                    candidateUsers={financeAuthorityCandidates}
+                    preparerName={preparerDisplayName}
+                    disabled={processingCaApply || processingPayment}
+                    title="Finance approval authorities (required before apply or payment)"
+                  />
+                </Grid>
+              </Paper>
             </Grid>
           </Grid>
         </DialogContent>

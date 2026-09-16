@@ -44,6 +44,10 @@ router.put('/:id/reject-hod', nonEmployeeController.rejectByHOD);
 router.put('/:id/approve-avp', nonEmployeeController.approveByAVP);
 router.put('/:id/reject-avp', nonEmployeeController.rejectByAVP);
 
+// Chairman Approval
+router.put('/:id/approve-chairman', nonEmployeeController.approveByChairman);
+router.put('/:id/reject-chairman', nonEmployeeController.rejectByChairman);
+
 router.route('/:id')
   .get(nonEmployeeController.getRecordById)
   .put(upload.array('attachments', 5), nonEmployeeController.updateRecord)

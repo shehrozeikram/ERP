@@ -521,7 +521,7 @@ router.get('/approver-candidates',
       }
     }
     const users = await User.find(filter)
-      .select('firstName lastName email employeeId department')
+      .select('firstName lastName email employeeId department position')
       .sort({ firstName: 1, lastName: 1 })
       .limit(limit)
       .lean();
