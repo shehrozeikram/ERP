@@ -626,11 +626,11 @@ const UtilityBillDetails = () => {
       </div>
       <div class="meta">
         <div class="meta-block">
+          <div class="meta-row"><span class="lbl">Company</span><span>${esc(displayValue(bill?.site))}</span></div>
           <div class="meta-row"><span class="lbl">Date</span><span>${esc(formatInvoiceDateDmy(bd))}</span></div>
           <div class="meta-row"><span class="lbl">Bill ID</span><span>${esc(displayValue(bill?.billId))}</span></div>
           <div class="meta-row"><span class="lbl">Supplier</span><span>${esc(getVendorSupplierLine())}</span></div>
           <div class="meta-row"><span class="lbl">Payee Name</span><span>${esc(getPayeeNameLine())}</span></div>
-          <div class="meta-row"><span class="lbl">Company</span><span>${esc(displayValue(bill?.site))}</span></div>
           <div class="meta-row"><span class="lbl">Address</span><span>${esc(displayValue(bill?.location))}</span></div>
         </div>
         <div class="meta-block meta-block-right">
@@ -1031,6 +1031,8 @@ const UtilityBillDetails = () => {
               }}
             >
               <Box sx={{ display: 'grid', gridTemplateColumns: '100px 1fr', rowGap: 0.75, columnGap: 1, fontSize: 13 }}>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Company</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{displayValue(bill.site)}</Typography>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Date</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{formatInvoiceDateDmy(bill.billDate)}</Typography>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Bill ID</Typography>
@@ -1041,8 +1043,6 @@ const UtilityBillDetails = () => {
                 <Typography sx={{ fontWeight: 700 }}>{getVendorSupplierLine()}</Typography>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Payee Name</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{getPayeeNameLine()}</Typography>
-                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Company</Typography>
-                <Typography sx={{ fontWeight: 700 }}>{displayValue(bill.site)}</Typography>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Address</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{displayValue(bill.location)}</Typography>
               </Box>
