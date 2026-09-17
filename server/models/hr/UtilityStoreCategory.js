@@ -17,6 +17,11 @@ const utilityStoreCategorySchema = new mongoose.Schema({
     ref: 'UtilityStoreCategory',
     default: null
   },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    default: null
+  },
   chartOfAccount: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Account',

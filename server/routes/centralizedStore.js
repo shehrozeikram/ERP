@@ -11,6 +11,8 @@ const Account = require('../models/finance/Account');
 const FinanceHelper = require('../utils/financeHelper');
 const { importUtilityBills2026 } = require('../utils/importUtilityBills2026');
 
+const PlacementCompany = require('../models/hr/Company');
+
 const loadDepartments = () =>
   Department.find({ isActive: true }).select('name code').sort({ name: 1 }).lean();
 
@@ -56,8 +58,13 @@ router.get(
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
       await ensureStoreItemsHaveCodes(300);
       const categories = await UtilityStoreCategory.find({ isActive: true })
+        .populate('company', 'name companyCode')
         .populate('parentCategory', 'name')
-        .populate('chartOfAccount', 'name accountNumber')
+        .populate({
+          path: 'chartOfAccount',
+          select: 'name accountNumber companyId type parentAccount',
+          populate: { path: 'companyId', select: 'name companyCode' }
+        })
         .sort({ sortOrder: 1, name: 1 })
         .lean();
       const items = await populateItem(
@@ -68,7 +75,7 @@ router.get(
         isActive: true,
         type: 'Expense'
       })
-        .select('accountNumber name category')
+        .select('accountNumber name category companyId parentAccount')
         .sort({ accountNumber: 1 })
         .lean();
 
@@ -83,6 +90,12 @@ router.get(
       }
 
       const departments = await loadDepartments();
+      const companies = await PlacementCompany.find({ isActive: true }).select('name companyCode').sort({ name: 1 }).lean();
+      const accounts = await Account.find({ isActive: true })
+        .populate('parentAccount', 'accountNumber name')
+        .select('accountNumber name type category parentAccount companyId isActive')
+        .sort({ accountNumber: 1 })
+        .lean();
 
       res.json({
         success: true,
@@ -92,6 +105,8 @@ router.get(
           items,
           expenseAccounts,
           departments,
+          companies,
+          accounts,
           siteOptions: store.siteOptions || []
         }
       });
@@ -110,13 +125,24 @@ router.get(
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
       await ensureStoreItemsHaveCodes(300);
       const categories = await UtilityStoreCategory.find()
+        .populate('company', 'name companyCode')
         .populate('parentCategory', 'name')
-        .populate('chartOfAccount', 'name accountNumber')
+        .populate({
+          path: 'chartOfAccount',
+          select: 'name accountNumber companyId type parentAccount',
+          populate: { path: 'companyId', select: 'name companyCode' }
+        })
         .sort({ sortOrder: 1, name: 1 })
         .lean();
       const items = await populateItem(UtilityStoreItem.find().sort({ sortOrder: 1, name: 1 }));
 
       const departments = await loadDepartments();
+      const companies = await PlacementCompany.find({ isActive: true }).select('name companyCode').sort({ name: 1 }).lean();
+      const accounts = await Account.find({ isActive: true })
+        .populate('parentAccount', 'accountNumber name')
+        .select('accountNumber name type category parentAccount companyId isActive')
+        .sort({ accountNumber: 1 })
+        .lean();
 
       res.json({
         success: true,
@@ -125,6 +151,8 @@ router.get(
           categories,
           items,
           departments,
+          companies,
+          accounts,
           siteOptions: store.siteOptions || []
         }
       });
@@ -182,7 +210,7 @@ router.post(
   permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'),
   async (req, res) => {
     try {
-      const { name, description, sortOrder, parentCategory, chartOfAccount } = req.body;
+      const { name, description, sortOrder, parentCategory, chartOfAccount, company } = req.body;
       if (!name?.trim()) {
         return res.status(400).json({ success: false, message: 'Category name is required' });
       }
@@ -195,12 +223,18 @@ router.post(
         sortOrder: Number(sortOrder) || 0,
         parentCategory: parentCategory || null,
         chartOfAccount: chartOfAccount || null,
+        company: company || null,
         createdBy: getActorId(req),
         updatedBy: getActorId(req)
       });
       cat = await UtilityStoreCategory.findById(cat._id)
+        .populate('company', 'name companyCode')
         .populate('parentCategory', 'name')
-        .populate('chartOfAccount', 'name accountNumber');
+        .populate({
+          path: 'chartOfAccount',
+          select: 'name accountNumber companyId type parentAccount',
+          populate: { path: 'companyId', select: 'name companyCode' }
+        });
       res.status(201).json({ success: true, data: cat });
     } catch (error) {
       if (error.code === 11000) {
@@ -224,6 +258,7 @@ router.put(
       if (req.body.isActive !== undefined) cat.isActive = Boolean(req.body.isActive);
       if (req.body.parentCategory !== undefined) cat.parentCategory = req.body.parentCategory || null;
       if (req.body.chartOfAccount !== undefined) cat.chartOfAccount = req.body.chartOfAccount || null;
+      if (req.body.company !== undefined) cat.company = req.body.company || null;
       
       if (!cat.parentCategory && !cat.chartOfAccount) {
         return res.status(400).json({ success: false, message: 'Chart of Account is required for top-level categories' });
@@ -232,8 +267,13 @@ router.put(
       cat.updatedBy = getActorId(req);
       await cat.save();
       cat = await UtilityStoreCategory.findById(cat._id)
+        .populate('company', 'name companyCode')
         .populate('parentCategory', 'name')
-        .populate('chartOfAccount', 'name accountNumber');
+        .populate({
+          path: 'chartOfAccount',
+          select: 'name accountNumber companyId type parentAccount',
+          populate: { path: 'companyId', select: 'name companyCode' }
+        });
       res.json({ success: true, data: cat });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });

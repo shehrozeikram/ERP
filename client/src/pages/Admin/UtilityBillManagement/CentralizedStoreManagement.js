@@ -102,11 +102,13 @@ const CentralizedStoreManagement = () => {
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
   const [expenseAccounts, setExpenseAccounts] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [allAccounts, setAllAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [catDialog, setCatDialog] = useState({ open: false, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '' });
+  const [catDialog, setCatDialog] = useState({ open: false, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '', company: '' });
   const [itemForm, setItemForm] = useState(emptyItemForm);
   const [addItemDialogOpen, setAddItemDialogOpen] = useState(false);
   const [treeDialogOpen, setTreeDialogOpen] = useState(false);
@@ -133,8 +135,16 @@ const CentralizedStoreManagement = () => {
       setItems(res.data?.items || []);
       setDepartments(res.data?.departments || []);
       setSiteOptions(res.data?.siteOptions || []);
+      setCompanies(res.data?.companies || []);
+      setAllAccounts(res.data?.accounts || []);
       const catRes = await centralizedStoreService.getCatalog();
       setExpenseAccounts(catRes.data?.expenseAccounts || []);
+      if (!res.data?.companies?.length && catRes.data?.companies?.length) {
+        setCompanies(catRes.data.companies);
+      }
+      if (!res.data?.accounts?.length && catRes.data?.accounts?.length) {
+        setAllAccounts(catRes.data.accounts);
+      }
       if (!res.data?.departments?.length && catRes.data?.departments?.length) {
         setDepartments(catRes.data.departments);
       }
@@ -151,6 +161,17 @@ const CentralizedStoreManagement = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  const availableCategoryAccounts = useMemo(() => {
+    const sourceAccounts = allAccounts.length > 0 ? allAccounts : expenseAccounts;
+    if (!catDialog.company || catDialog.company === 'all') {
+      return sourceAccounts;
+    }
+    return sourceAccounts.filter((acc) => {
+      const compId = acc.companyId?._id || acc.companyId;
+      return String(compId) === String(catDialog.company) || !compId;
+    });
+  }, [allAccounts, expenseAccounts, catDialog.company]);
 
   const defaultExpenseAccountId = useMemo(
     () => expenseAccounts.find((a) => a.accountNumber === '6200')?._id || expenseAccounts[0]?._id || '',
@@ -229,13 +250,19 @@ const CentralizedStoreManagement = () => {
       return;
     }
     try {
-      const body = { name: catDialog.name, description: catDialog.description, parentCategory: catDialog.parentCategory, chartOfAccount: catDialog.chartOfAccount };
+      const body = {
+        name: catDialog.name,
+        description: catDialog.description,
+        parentCategory: catDialog.parentCategory,
+        chartOfAccount: catDialog.chartOfAccount,
+        company: catDialog.company || null
+      };
       if (catDialog.editing) {
         await centralizedStoreService.updateCategory(catDialog.editing, body);
       } else {
         await centralizedStoreService.createCategory(body);
       }
-      setCatDialog({ open: false, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '' });
+      setCatDialog({ open: false, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '', company: '' });
       setSuccess('Category saved');
       load();
     } catch (err) {
@@ -609,7 +636,8 @@ const CentralizedStoreManagement = () => {
                 name: category.name,
                 description: category.description || '',
                 parentCategory: category.parentCategory?._id || category.parentCategory || '',
-                chartOfAccount: category.chartOfAccount?._id || category.chartOfAccount || ''
+                chartOfAccount: category.chartOfAccount?._id || category.chartOfAccount || '',
+                company: category.company?._id || category.company || category.chartOfAccount?.companyId?._id || category.chartOfAccount?.companyId || ''
               });
             }}>
               <EditIcon fontSize="small" />
@@ -702,7 +730,7 @@ const CentralizedStoreManagement = () => {
           <Button
             startIcon={<AddIcon />}
             variant="outlined"
-            onClick={() => setCatDialog({ open: true, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '' })}
+            onClick={() => setCatDialog({ open: true, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '', company: '' })}
           >
             Add category
           </Button>
@@ -882,6 +910,23 @@ const CentralizedStoreManagement = () => {
                 ))}
               </Select>
             </FormControl>
+
+            <FormControl fullWidth>
+              <InputLabel>Company (Chart of Accounts Filter)</InputLabel>
+              <Select
+                value={catDialog.company || ''}
+                label="Company (Chart of Accounts Filter)"
+                onChange={(e) => setCatDialog((prev) => ({ ...prev, company: e.target.value }))}
+              >
+                <MenuItem value=""><em>All Companies / General</em></MenuItem>
+                {companies.map((comp) => (
+                  <MenuItem key={comp._id} value={comp._id}>
+                    {comp.name} {comp.companyCode ? `(${comp.companyCode})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
             <FormControl fullWidth required={!catDialog.parentCategory}>
               <InputLabel>Chart of Account {!catDialog.parentCategory ? '' : '(Optional)'}</InputLabel>
               <Select
@@ -890,10 +935,28 @@ const CentralizedStoreManagement = () => {
                 onChange={(e) => setCatDialog({ ...catDialog, chartOfAccount: e.target.value })}
               >
                 <MenuItem value=""><em>{catDialog.parentCategory ? 'Inherit' : 'Select an account'}</em></MenuItem>
-                {expenseAccounts.map((a) => (
-                  <MenuItem key={a._id} value={a._id}>{accountLabel(a)}</MenuItem>
-                ))}
+                {availableCategoryAccounts.map((a) => {
+                  const isSub = Boolean(a.parentAccount);
+                  return (
+                    <MenuItem
+                      key={a._id}
+                      value={a._id}
+                      sx={{
+                        pl: isSub ? 4 : 2,
+                        fontWeight: isSub ? 400 : 600,
+                        color: isSub ? 'text.secondary' : 'text.primary'
+                      }}
+                    >
+                      {isSub ? `↳ ${a.accountNumber} — ${a.name} (Sub-account)` : `${a.accountNumber} — ${a.name}`}
+                    </MenuItem>
+                  );
+                })}
               </Select>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1, display: 'block' }}>
+                {catDialog.company
+                  ? `Showing accounts for selected company (${availableCategoryAccounts.length} accounts including sub-accounts)`
+                  : `Showing all chart of accounts (${availableCategoryAccounts.length} accounts including sub-accounts)`}
+              </Typography>
             </FormControl>
           </Stack>
         </DialogContent>
