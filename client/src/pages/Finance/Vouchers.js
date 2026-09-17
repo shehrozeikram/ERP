@@ -139,6 +139,7 @@ const Vouchers = () => {
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [initialDraftCheckDone, setInitialDraftCheckDone] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [totalCount, setTotalCount] = useState(0);
@@ -540,12 +541,13 @@ const Vouchers = () => {
   const fetchEntries = async (opts = {}) => {
     const nextPage = opts.page ?? page;
     const nextRowsPerPage = opts.rowsPerPage ?? rowsPerPage;
+    const currentStatus = opts.status !== undefined ? opts.status : status;
     try {
       setLoading(true);
       const params = new URLSearchParams();
       params.append('page', String(nextPage + 1));
       params.append('limit', String(nextRowsPerPage));
-      if (status) params.append('status', status);
+      if (currentStatus) params.append('status', currentStatus);
       if (search.trim()) params.append('search', search.trim());
       if (voucherType) params.append('referenceType', voucherType);
       // Payroll accrual JVs are auto-posted backend entries; finance uses Payroll Queue + BPV on payment.
@@ -569,10 +571,41 @@ const Vouchers = () => {
 
   useEffect(() => {
     setPage(0);
+    setInitialDraftCheckDone(false);
   }, [selectedCompanyId]);
 
   useEffect(() => {
-    fetchEntries();
+    if (!initialDraftCheckDone) {
+      const checkDrafts = async () => {
+        try {
+          setLoading(true);
+          const params = new URLSearchParams();
+          params.append('page', '1');
+          params.append('limit', '1');
+          params.append('status', 'draft');
+          if (voucherType) params.append('referenceType', voucherType);
+          params.append('excludeReferenceTypes', 'payroll');
+          if (selectedCompanyId) params.append('companyId', selectedCompanyId);
+          
+          const res = await api.get(`/finance/journal-entries?${params.toString()}`);
+          const count = res?.data?.data?.pagination?.totalCount || 0;
+          
+          if (count > 0) {
+            setStatus('draft');
+            await fetchEntries({ page: 0, status: 'draft' });
+          } else {
+            await fetchEntries({ page: 0, status: '' });
+          }
+        } catch (e) {
+          await fetchEntries({ page: 0 });
+        } finally {
+          setInitialDraftCheckDone(true);
+        }
+      };
+      checkDrafts();
+    } else {
+      fetchEntries();
+    }
   }, [page, rowsPerPage, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voucherRows = useMemo(() => (

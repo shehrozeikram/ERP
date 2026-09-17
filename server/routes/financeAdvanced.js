@@ -1191,7 +1191,7 @@ router.post('/journal-entries',
   authorize('super_admin', 'admin', 'finance_manager'),
   [
     body('description').trim().notEmpty().withMessage('Description is required'),
-    body('department').isMongoId().withMessage('Valid department ID is required'),
+    body('department').optional(),
     body('module').optional(),
     body('project').optional().custom((val) => {
       if (val === '' || val === null || val === undefined) return true;
@@ -1379,7 +1379,7 @@ router.put('/journal-entries/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   [
     body('description').trim().notEmpty().withMessage('Description is required'),
-    body('department').isMongoId().withMessage('Valid department ID is required'),
+    body('department').optional(),
     body('module').optional(),
     body('project').optional().custom((val) => {
       if (val === '' || val === null || val === undefined) return true;
