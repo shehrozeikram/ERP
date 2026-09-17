@@ -665,7 +665,8 @@ const Vouchers = () => {
                 <TableCell>Voucher No</TableCell>
                 <TableCell>Voucher Type</TableCell>
                 <TableCell>Company</TableCell>
-                <TableCell>Vendor / Employee</TableCell>
+                <TableCell>Vendor/Customer/Employee</TableCell>
+                <TableCell>Cost Center</TableCell>
                 <TableCell>Department</TableCell>
                 <TableCell>Cheque Number</TableCell>
                 <TableCell>Description</TableCell>
@@ -678,7 +679,7 @@ const Vouchers = () => {
               {loading ? (
                 <TableRow><TableCell colSpan={11} align="center"><CircularProgress size={24} /></TableCell></TableRow>
               ) : voucherRows.length === 0 ? (
-                <TableRow><TableCell colSpan={11} align="center">No vouchers found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={12} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => {
                 return (
                   <TableRow key={row._id} hover>
@@ -687,6 +688,7 @@ const Vouchers = () => {
                     <TableCell>{row.voucherType}</TableCell>
                     <TableCell>{row.companyId?.name || row.customCompany || '—'}</TableCell>
                     <TableCell>{row.vendorOrEmployeeName || '—'}</TableCell>
+                    <TableCell>{row.costCenter?.name || row.costCenter || '—'}</TableCell>
                     <TableCell>{row.department?.name || (typeof row.department === 'string' ? row.department : '—')}</TableCell>
                     <TableCell>{row.reference || '—'}</TableCell>
                     <TableCell>{row.description}</TableCell>

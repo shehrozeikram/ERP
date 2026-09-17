@@ -52,6 +52,7 @@ import {
   Email as EmailIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import QuickbooksReceivePaymentModal from '../../components/Finance/QuickbooksReceivePaymentModal';
 import api from '../../services/api';
 import { financeListFromResponse } from '../../utils/financeApiData';
 import { formatPKR } from '../../utils/currency';
@@ -187,40 +188,15 @@ const AccountsReceivable = () => {
     }
   };
 
+  
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+
   const handleOpenPayment = (invoice) => {
     setSelectedInvoice(invoice);
-    setPaymentData({
-      amount:        Math.round((invoice.totalAmount - (invoice.paidAmount || 0)) * 100) / 100,
-      paymentMethod: 'bank_transfer',
-      reference:     '',
-      paymentDate:   new Date().toISOString().split('T')[0],
-      bankAccountId: ''
-    });
-    setPaymentDialogOpen(true);
+    setPaymentModalOpen(true);
   };
 
-  const handleRecordPayment = async () => {
-    if (paymentData.amount <= 0) {
-      toast.error('Payment amount must be greater than zero');
-      return;
-    }
-
-    try {
-      setProcessingPayment(true);
-      const response = await api.post(`/finance/accounts-receivable/${selectedInvoice._id}/payment`, paymentData);
-      if (response.data.success) {
-        toast.success('Payment recorded successfully');
-        setPaymentDialogOpen(false);
-        fetchAccountsReceivable();
-      }
-    } catch (error) {
-      console.error('Error recording payment:', error);
-      toast.error(error.response?.data?.message || 'Failed to record payment');
-    } finally {
-      setProcessingPayment(false);
-    }
-  };
-
+  
   const handleOpenEdit = (invoice) => {
     setSelectedInvoice(invoice);
     setEditData({
@@ -336,6 +312,16 @@ const AccountsReceivable = () => {
               onClick={() => toast.success('Export functionality coming soon')}
             >
               Export
+            </Button>
+            
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<PaymentIcon />}
+              onClick={() => { setSelectedInvoice(null); setPaymentModalOpen(true); }}
+              sx={{ mr: 2 }}
+            >
+              Receive Payment
             </Button>
             <Button
               variant="contained"
@@ -537,10 +523,10 @@ const AccountsReceivable = () => {
                       <TableCell>
                         <Box>
                           <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                            {invoice.customerName || 'Unknown Customer'}
+                            {invoice.customer?.name || invoice.customerName || 'Unknown Customer'}
                           </Typography>
                           <Typography variant="caption" color="textSecondary">
-                            {invoice.customerEmail}
+                            {invoice.customer?.email || invoice.customerEmail || ''}
                           </Typography>
                         </Box>
                       </TableCell>
@@ -697,8 +683,8 @@ const AccountsReceivable = () => {
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
                 <Typography variant="subtitle2" color="textSecondary">Customer Information</Typography>
-                <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{selectedInvoice.customerName}</Typography>
-                <Typography variant="body2">{selectedInvoice.customerEmail}</Typography>
+                <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{selectedInvoice.customer?.name || selectedInvoice.customerName}</Typography>
+                <Typography variant="body2">{selectedInvoice.customer?.email || selectedInvoice.customerEmail}</Typography>
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="subtitle2" color="textSecondary">Invoice Status</Typography>
@@ -770,84 +756,17 @@ const AccountsReceivable = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Record Payment Dialog */}
-      <Dialog 
-        open={paymentDialogOpen} 
-        onClose={() => setPaymentDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          Register Receipt — {selectedInvoice?.invoiceNumber}
-          <Typography variant="body2" color="text.secondary">Customer: {selectedInvoice?.customer?.name || selectedInvoice?.customerName}</Typography>
-        </DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Invoice Total: <strong>{selectedInvoice ? formatPKR(selectedInvoice.totalAmount) : 0}</strong> &nbsp;|&nbsp;
-                Received: <strong>{formatPKR(selectedInvoice?.paidAmount || 0)}</strong> &nbsp;|&nbsp;
-                Outstanding: <strong style={{ color: '#2e7d32' }}>{selectedInvoice ? formatPKR(selectedInvoice.totalAmount - (selectedInvoice.paidAmount || 0)) : 0}</strong>
-              </Typography>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth label="Receipt Amount (PKR)" type="number"
-                value={paymentData.amount}
-                onChange={(e) => setPaymentData({ ...paymentData, amount: parseFloat(e.target.value) })}
-                size="small" inputProps={{ min: 0, step: 0.01 }} />
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Payment Method</InputLabel>
-                <Select value={paymentData.paymentMethod}
-                  onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
-                  label="Payment Method">
-                  <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                  <MenuItem value="check">Cheque</MenuItem>
-                  <MenuItem value="cash">Cash</MenuItem>
-                  <MenuItem value="other">Other</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Deposit To Account</InputLabel>
-                <Select value={paymentData.bankAccountId || ''}
-                  onChange={(e) => setPaymentData({ ...paymentData, bankAccountId: e.target.value })}
-                  label="Deposit To Account">
-                  <MenuItem value="">— Auto (default bank) —</MenuItem>
-                  {bankAccounts.map(a => (
-                    <MenuItem key={a._id} value={a._id}>{a.accountNumber} — {a.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <TextField fullWidth label="Receipt Date" type="date"
-                value={paymentData.paymentDate}
-                onChange={(e) => setPaymentData({ ...paymentData, paymentDate: e.target.value })}
-                InputLabelProps={{ shrink: true }} size="small" />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField fullWidth label="Reference / Receipt # / Cheque #"
-                value={paymentData.reference}
-                onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
-                size="small" />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            color="success" 
-            onClick={handleRecordPayment}
-            disabled={processingPayment}
-          >
-            {processingPayment ? 'Processing...' : 'Confirm Receipt'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      
+      <QuickbooksReceivePaymentModal
+        open={paymentModalOpen}
+        onClose={() => setPaymentModalOpen(false)}
+        onSuccess={fetchAccountsReceivable}
+        selectedCompanyId={selectedCompanyId}
+        preselectedCustomerId={selectedInvoice?.customer?._id || selectedInvoice?.customerId || selectedInvoice?.customer?.name || selectedInvoice?.customerName}
+        preselectedCustomerName={selectedInvoice?.customer?.name || selectedInvoice?.customerName}
+        preselectedInvoiceId={selectedInvoice?._id}
+      />
+
 
       {/* Edit Invoice Dialog */}
       <Dialog 

@@ -1155,6 +1155,10 @@ function App() {
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><GeneralLedger /></ProtectedRoute>} 
             />
             <Route 
+              path="/finance/customers" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><SalesCustomers /></ProtectedRoute>} 
+            />
+            <Route 
               path="/finance/accounts-receivable" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AccountsReceivable /></ProtectedRoute>} 
             />

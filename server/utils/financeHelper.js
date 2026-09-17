@@ -907,6 +907,8 @@ const FinanceHelper = {
             reference: reference || '',
             description: `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
             department: invoice.department,
+            costCenter: invoice.costCenter?._id || invoice.costCenter || paymentData.costCenter || null,
+            vendorOrEmployeeName: invoice.customer?.name || invoice.customerName || 'Customer',
             module: invoice.module,
             referenceId: invoice._id,
             referenceType: 'receipt',

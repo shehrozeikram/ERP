@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
+  createFilterOptions,
   Box,
   Card,
   CardContent,
@@ -65,6 +66,8 @@ const emptyLine = () => ({
   amount: ''
 });
 
+const filter = createFilterOptions();
+
 const StandardCustomerInvoiceForm = () => {
   const navigate = useNavigate();
   const { selectedCompanyId } = useFinanceCompany();
@@ -91,6 +94,8 @@ const StandardCustomerInvoiceForm = () => {
   const [costCenters, setCostCenters] = useState([]);
   const [companiesList, setCompaniesList] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState(null);
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [loadingMaster, setLoadingMaster] = useState(false);
 
   // Quick Add Revenue Account Dialog
@@ -104,6 +109,16 @@ const StandardCustomerInvoiceForm = () => {
     description: ''
   });
   const [creatingAccount, setCreatingAccount] = useState(false);
+
+  // Quick Add Customer Dialog
+  const [newCustomerDialog, setNewCustomerDialog] = useState(false);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    street: ''
+  });
 
   // Submitting
   const [submitting, setSubmitting] = useState(false);
@@ -130,11 +145,12 @@ const StandardCustomerInvoiceForm = () => {
     const fetchData = async () => {
       setLoadingMaster(true);
       try {
-        const [accRes, compRes, deptRes, ccRes] = await Promise.all([
+        const [accRes, compRes, deptRes, ccRes, custRes] = await Promise.all([
           api.get('/finance/accounts', { params: { limit: 5000, companyId: selectedCompanyId } }).catch(() => ({ data: { data: [] } })),
           api.get('/finance/companies').catch(() => ({ data: { data: [] } })),
           api.get('/indents/departments').catch(() => ({ data: { data: [] } })),
-          api.get('/finance/cost-centers').catch(() => ({ data: { data: [] } }))
+          api.get('/finance/cost-centers').catch(() => ({ data: { data: [] } })),
+          api.get('/sales/customers', { params: { limit: 5000 } }).catch(() => ({ data: { data: { customers: [] } } }))
         ]);
 
         const aList = accRes.data?.data?.accounts || accRes.data?.accounts || accRes.data?.data || [];
@@ -152,6 +168,9 @@ const StandardCustomerInvoiceForm = () => {
 
         const ccList = ccRes.data?.data || [];
         setCostCenters(Array.isArray(ccList) ? ccList : []);
+
+        const custList = custRes.data?.data?.customers || custRes.data?.customers || custRes.data?.data || [];
+        setCustomers(Array.isArray(custList) ? custList : []);
 
         // Auto-generate invoice number suggestion
         const now = new Date();
@@ -242,6 +261,62 @@ const StandardCustomerInvoiceForm = () => {
       toast.error(err.response?.data?.message || 'Failed to create account');
     } finally {
       setCreatingAccount(false);
+    }
+  };
+
+  // Quick Add Customer Dialog Handlers
+  const handleOpenAddCustomer = () => {
+    setNewCustomerForm({ name: '', email: '', phone: '', street: '' });
+    setNewCustomerDialog(true);
+  };
+
+  const handleSaveNewCustomer = async (e) => {
+    e.preventDefault();
+    if (!newCustomerForm.name.trim()) {
+      toast.error('Customer Name is required');
+      return;
+    }
+    try {
+      setCreatingCustomer(true);
+      const payload = {
+        name: newCustomerForm.name,
+        email: newCustomerForm.email,
+        phone: newCustomerForm.phone,
+        address: newCustomerForm.street ? { street: newCustomerForm.street } : undefined,
+        type: 'corporate',
+        status: 'active'
+      };
+      const res = await api.post('/sales/customers', payload);
+      if (res.data?.success || res.status === 201 || res.status === 200) {
+        const created = res.data?.data || res.data;
+        toast.success(`Customer "${created.name}" created!`);
+        setCustomers((prev) => [created, ...prev]);
+        setSelectedCustomer(created);
+        setCustomerName(created.name);
+        setCustomerEmail(created.email || '');
+        setCustomerPhone(created.phone || '');
+        setCustomerAddress(created.address?.street || '');
+        setNewCustomerDialog(false);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create customer');
+    } finally {
+      setCreatingCustomer(false);
+    }
+  };
+
+  const handleCustomerSelect = (e, val) => {
+    setSelectedCustomer(val);
+    if (val) {
+      setCustomerName(val.name || '');
+      setCustomerEmail(val.email || '');
+      setCustomerPhone(val.phone || '');
+      setCustomerAddress(val.address?.street || '');
+    } else {
+      setCustomerName('');
+      setCustomerEmail('');
+      setCustomerPhone('');
+      setCustomerAddress('');
     }
   };
 
@@ -355,46 +430,50 @@ const StandardCustomerInvoiceForm = () => {
                 Customer Information
               </Typography>
               <Stack spacing={2}>
-                <TextField
-                  fullWidth
-                  label="Customer Name"
-                  size="small"
-                  required
-                  placeholder="e.g. Acme Corp / Resident Name"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                />
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="Customer Email"
-                      size="small"
-                      type="email"
-                      placeholder="billing@customer.com"
-                      value={customerEmail}
-                      onChange={(e) => setCustomerEmail(e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="Phone / Contact"
-                      size="small"
-                      placeholder="0300-1234567"
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                    />
-                  </Grid>
-                </Grid>
-                <TextField
-                  fullWidth
-                  label="Billing Address"
-                  size="small"
-                  placeholder="Plot / Office / Street Address"
-                  value={customerAddress}
-                  onChange={(e) => setCustomerAddress(e.target.value)}
-                />
+                  <Autocomplete
+                    fullWidth
+                    options={customers}
+                    getOptionLabel={(opt) => {
+                      if (opt?.__isNewOption) return '+ Add new customer';
+                      return opt?.name || '';
+                    }}
+                    value={selectedCustomer || null}
+                    isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
+                    filterOptions={(options, params) => {
+                      const filtered = filter(options, params);
+                      return [{ __isNewOption: true }, ...filtered];
+                    }}
+                    onChange={(e, val) => {
+                      if (val?.__isNewOption) {
+                        handleOpenAddCustomer();
+                        return;
+                      }
+                      handleCustomerSelect(e, val);
+                    }}
+                    renderOption={(props, option) => {
+                      if (option.__isNewOption) {
+                        return (
+                          <li {...props} key="add-new-customer" style={{ color: '#1976d2', fontWeight: 600, borderBottom: '1px solid #e0e0e0' }}>
+                            <AddIcon fontSize="small" sx={{ mr: 1 }} /> + Add new customer
+                          </li>
+                        );
+                      }
+                      return (
+                        <li {...props} key={option._id}>
+                          {option.name}
+                        </li>
+                      );
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Customer"
+                        size="small"
+                        required
+                        placeholder="Select a customer"
+                      />
+                    )}
+                  />
               </Stack>
             </Grid>
 
@@ -788,6 +867,62 @@ const StandardCustomerInvoiceForm = () => {
             disabled={creatingAccount || !newAccountForm.name.trim() || !newAccountForm.accountNumber.trim()}
           >
             {creatingAccount ? 'Saving...' : 'Save Account'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* New Customer Dialog */}
+      <Dialog open={newCustomerDialog} onClose={() => !creatingCustomer && setNewCustomerDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h6" fontWeight={700}>Quick Add Customer</Typography>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ mt: 1 }}>
+          <Stack spacing={2}>
+            <TextField
+              label="Customer / Company Name"
+              required
+              fullWidth
+              size="small"
+              value={newCustomerForm.name}
+              onChange={(e) => setNewCustomerForm((p) => ({ ...p, name: e.target.value }))}
+            />
+            <TextField
+              label="Email"
+              fullWidth
+              size="small"
+              type="email"
+              value={newCustomerForm.email}
+              onChange={(e) => setNewCustomerForm((p) => ({ ...p, email: e.target.value }))}
+            />
+            <TextField
+              label="Phone"
+              fullWidth
+              size="small"
+              value={newCustomerForm.phone}
+              onChange={(e) => setNewCustomerForm((p) => ({ ...p, phone: e.target.value }))}
+            />
+            <TextField
+              label="Street Address"
+              fullWidth
+              size="small"
+              multiline
+              rows={2}
+              value={newCustomerForm.street}
+              onChange={(e) => setNewCustomerForm((p) => ({ ...p, street: e.target.value }))}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setNewCustomerDialog(false)} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveNewCustomer}
+            variant="contained"
+            disabled={creatingCustomer || !newCustomerForm.name.trim()}
+          >
+            {creatingCustomer ? 'Saving...' : 'Save Customer'}
           </Button>
         </DialogActions>
       </Dialog>

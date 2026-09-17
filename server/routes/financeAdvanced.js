@@ -1018,6 +1018,37 @@ router.delete('/journal-entries/:id',
       await ApPaymentApplication.findByIdAndDelete(apPaymentApp._id);
     }
 
+
+    // Check if voucher is linked to an Accounts Receivable receipt
+    if (entry.referenceType === 'receipt' && entry.referenceId) {
+      const AccountsReceivable = require('../models/finance/AccountsReceivable');
+      const invoice = await AccountsReceivable.findById(entry.referenceId);
+      
+      if (invoice && Array.isArray(invoice.payments)) {
+        // Find the amount from the bank line of the voucher
+        // or just match based on date and reference if available.
+        // Actually, since this is a receipt voucher, the total bank debit is the payment amount.
+        const bankLine = entry.lines.find(l => l.debit > 0 && l.account);
+        const amountToRemove = bankLine ? bankLine.debit : 0;
+        
+        if (amountToRemove > 0) {
+          // Remove from payments array (using amount and reference match if reference was saved, otherwise just amount)
+          const paymentIndex = invoice.payments.findIndex(p => p.amount === amountToRemove);
+          if (paymentIndex > -1) {
+            invoice.payments.splice(paymentIndex, 1);
+          }
+          
+          invoice.amountPaid = Math.round((Number(invoice.amountPaid || 0) - amountToRemove) * 100) / 100;
+          if (invoice.amountPaid < 0) invoice.amountPaid = 0;
+          
+          const FinanceHelper = require('../utils/financeHelper');
+          FinanceHelper._updateDocumentStatus(invoice);
+          await invoice.save();
+        }
+      }
+    }
+
+
     // Delete associated General Ledger entries
     await GeneralLedger.deleteMany({ journalEntry: entry._id });
 
@@ -1307,6 +1338,26 @@ router.put('/journal-entries/:id/reference',
             { arrayFilters: [{ 'elem.reference': appOldRef }] }
           );
         }
+      }
+    
+    } else if (entry.referenceType === 'receipt' && entry.referenceId) {
+      const AccountsReceivable = require('../models/finance/AccountsReceivable');
+      // If there's an old reference, update the exact payment
+      if (oldReference) {
+        await AccountsReceivable.updateMany(
+          { _id: entry.referenceId, 'payments.reference': oldReference },
+          { $set: { 'payments.$[elem].reference': reference } },
+          { arrayFilters: [{ 'elem.reference': oldReference }] }
+        );
+      } else {
+        // If no old reference, we just update the first payment without a reference that matches the amount?
+        // A simpler brute force since we know the invoice: just update any blank references to the new cheque number.
+        // Or we can just set all blank references to this cheque number if it matches the total.
+        await AccountsReceivable.updateMany(
+          { _id: entry.referenceId, 'payments.reference': { $in: [null, ''] } },
+          { $set: { 'payments.$[elem].reference': reference } },
+          { arrayFilters: [{ 'elem.reference': { $in: [null, ''] } }] }
+        );
       }
     } else if (entry.referenceType === 'vendor_advance' && entry.referenceId) {
       const VendorAdvance = mongoose.model('VendorAdvance');
@@ -1976,6 +2027,7 @@ router.post('/accounts-receivable/:id/payment',
         reference: req.body.reference,
         date: req.body.paymentDate,
         bankAccountId: req.body.bankAccountId || null,
+        financeApprovalAuthorities: req.body.financeApprovalAuthorities || null,
         createdBy: req.user._id
       });
 

@@ -614,6 +614,7 @@ export const MODULES = {
         name: 'Customers',
         path: '/finance/accounts-receivable',
         subItems: [
+          { name: 'Customer List',        path: '/finance/customers'           },
           { name: 'AR Invoices',          path: '/finance/accounts-receivable' },
           { name: 'Credit Notes',         path: '/finance/credit-notes'        },
           { name: 'Customer Payments',    path: '/finance/customer-payments'   },
@@ -1430,6 +1431,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/company-profile': 'company_profile',
       '/finance/inventory-valuation': 'inventory_valuation',
       '/finance/general-ledger': 'general_ledger',
+      '/finance/customers': 'customers',
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-receivable/new': 'accounts_receivable',
       '/finance/vendors': 'accounts_payable',

@@ -9,7 +9,7 @@ const SalesProduct = require('../models/sales/SalesProduct');
 const financeIntegrationService = require('../services/financeIntegrationService');
 
 const router = express.Router();
-const SALES_ROLES = ['super_admin', 'admin', 'sales_manager', 'sales_rep'];
+const SALES_ROLES = ['super_admin', 'admin', 'sales_manager', 'sales_rep', 'finance_manager'];
 
 const handleValidationErrors = (req, res) => {
   const errors = validationResult(req);
