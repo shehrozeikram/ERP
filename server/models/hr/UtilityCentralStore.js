@@ -34,6 +34,22 @@ const utilityCentralStoreSchema = new mongoose.Schema({
     type: [String],
     default: () => [...DEFAULT_SITE_OPTIONS]
   },
+  /** Dynamic types for items instead of hardcoded enums. */
+  utilityTypes: {
+    type: [String],
+    default: () => [
+      'Electricity',
+      'Water',
+      'Gas',
+      'Internet',
+      'Phone',
+      'Maintenance',
+      'Security',
+      'Cleaning',
+      'Rent',
+      'Other'
+    ]
+  },
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -48,8 +64,11 @@ utilityCentralStoreSchema.statics.getOrCreate = async function (userId) {
       siteOptions: [...DEFAULT_SITE_OPTIONS],
       updatedBy: userId
     });
-  } else if (!store.siteOptions?.length) {
-    store.siteOptions = [...DEFAULT_SITE_OPTIONS];
+  } else if (!store.siteOptions?.length || !store.utilityTypes?.length) {
+    if (!store.siteOptions?.length) store.siteOptions = [...DEFAULT_SITE_OPTIONS];
+    if (!store.utilityTypes?.length) store.utilityTypes = [
+      'Electricity', 'Water', 'Gas', 'Internet', 'Phone', 'Maintenance', 'Security', 'Cleaning', 'Rent', 'Other'
+    ];
     store.updatedBy = userId;
     await store.save();
   }

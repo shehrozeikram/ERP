@@ -36,6 +36,7 @@ const ensureStoreItemsHaveCodes = async (limit = 250) => {
 
 const populateItem = (q) => q
   .populate('category', 'name')
+  .populate('company', 'name')
   .populate('expenseAccount', 'accountNumber name type')
   .populate('createdBy', 'firstName lastName email')
   .populate('updatedBy', 'firstName lastName email');
@@ -107,7 +108,8 @@ router.get(
           departments,
           companies,
           accounts,
-          siteOptions: store.siteOptions || []
+          siteOptions: store.siteOptions || [],
+          utilityTypes: store.utilityTypes || []
         }
       });
     } catch (error) {
@@ -153,7 +155,8 @@ router.get(
           departments,
           companies,
           accounts,
-          siteOptions: store.siteOptions || []
+          siteOptions: store.siteOptions || [],
+          utilityTypes: store.utilityTypes || []
         }
       });
     } catch (error) {
@@ -181,6 +184,31 @@ router.post(
         await store.save();
       }
       res.json({ success: true, data: { siteOptions: store.siteOptions } });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+);
+
+router.post(
+  '/utility-types',
+  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  async (req, res) => {
+    try {
+      const name = String(req.body.name || '').trim();
+      if (!name) {
+        return res.status(400).json({ success: false, message: 'Type name is required' });
+      }
+      const store = await UtilityCentralStore.getOrCreate(getActorId(req));
+      const types = [...(store.utilityTypes || [])];
+      if (!types.some((s) => s.toLowerCase() === name.toLowerCase())) {
+        types.push(name);
+        types.sort((a, b) => a.localeCompare(b));
+        store.utilityTypes = types;
+        store.updatedBy = getActorId(req);
+        await store.save();
+      }
+      res.json({ success: true, data: { utilityTypes: store.utilityTypes } });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -317,7 +345,7 @@ router.post(
   async (req, res) => {
     try {
       const {
-        category, name, code, utilityType, meterNumber, location, site, department,
+        category, name, code, utilityType, meterNumber, referenceNumber, location, company, department,
         expenseAccount, defaultAmount, description, sortOrder
       } = req.body;
       if (!category || !name?.trim()) {
@@ -345,8 +373,9 @@ router.post(
         code: code || '',
         utilityType: utilityType || 'Electricity',
         meterNumber: meterNumber || '',
+        referenceNumber: referenceNumber || '',
         location: location || '',
-        site: site || '',
+        company: company || null,
         department: department || '',
         expenseAccount: expenseAccountId,
         defaultAmount: Number(defaultAmount) || 0,
@@ -374,7 +403,7 @@ router.put(
       const item = await UtilityStoreItem.findById(req.params.id);
       if (!item) return res.status(404).json({ success: false, message: 'Item not found' });
       const fields = [
-        'name', 'code', 'utilityType', 'meterNumber', 'location', 'site', 'department',
+        'name', 'code', 'utilityType', 'meterNumber', 'referenceNumber', 'location', 'company', 'department',
         'description', 'defaultAmount', 'sortOrder', 'isActive', 'category', 'expenseAccount'
       ];
       fields.forEach((f) => {
@@ -508,7 +537,7 @@ router.post(
               utilityType: catDef.utilityType,
               meterNumber,
               location: catDef.site || 'Main Office',
-              site: catDef.site || '',
+              company: null,
               expenseAccount: catDef.expenseAccount,
               defaultAmount: 0,
               description: '',

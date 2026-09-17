@@ -23,21 +23,14 @@ const utilityStoreItemSchema = new mongoose.Schema({
   },
   utilityType: {
     type: String,
-    enum: [
-      'Electricity',
-      'Water',
-      'Gas',
-      'Internet',
-      'Phone',
-      'Maintenance',
-      'Security',
-      'Cleaning',
-      'Rent',
-      'Other'
-    ],
     default: 'Electricity'
   },
   meterNumber: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  referenceNumber: {
     type: String,
     trim: true,
     default: ''
@@ -47,10 +40,9 @@ const utilityStoreItemSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
-  site: {
-    type: String,
-    trim: true,
-    default: ''
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany'
   },
   department: {
     type: String,

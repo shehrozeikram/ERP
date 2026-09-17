@@ -3,28 +3,26 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
-  Divider,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   FormControl,
   Grid,
   IconButton,
   InputLabel,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
   MenuItem,
   Paper,
   Select,
   Stack,
   Table,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Collapse,
   TableBody,
   TableCell,
   TableContainer,
@@ -40,9 +38,8 @@ import {
   ArrowBack as ArrowBackIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  Refresh as RefreshIcon,
-  AccountTree as AccountTreeIcon,
   Folder as FolderIcon,
+  Refresh as RefreshIcon,
   Category as CategoryIcon,
   ExpandMore as ExpandMoreIcon,
   ChevronRight as ChevronRightIcon
@@ -53,7 +50,6 @@ import { formatPKR } from '../../../utils/currency';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 
-const UTILITY_TYPES = ['Electricity', 'Water', 'Gas', 'Internet', 'Phone', 'Maintenance', 'Security', 'Cleaning', 'Rent', 'Other'];
 
 const mapCategoryToUtilityType = (categoryName = '') => {
   const n = String(categoryName).toLowerCase();
@@ -75,11 +71,13 @@ const categoryUsesMeter = (categoryName = '') => {
 
 const emptyItemForm = {
   category: '',
+  subCategory: '',
   name: '',
   utilityType: 'Electricity',
   meterNumber: '',
+  referenceNumber: '',
   location: '',
-  site: '',
+  company: '',
   department: '',
   expenseAccount: '',
   defaultAmount: 0,
@@ -93,7 +91,7 @@ const emptyEditDialog = {
   ...emptyItemForm
 };
 
-const SITE_ADD_NEW = '__add_new_site__';
+const TYPE_ADD_NEW = '__add_new_type__';
 
 const CentralizedStoreManagement = () => {
   const theme = useTheme();
@@ -115,14 +113,14 @@ const CentralizedStoreManagement = () => {
   const [expandedNodes, setExpandedNodes] = useState({});
   const [editDialog, setEditDialog] = useState(emptyEditDialog);
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [subCategoryFilter, setSubCategoryFilter] = useState('all');
   const [departments, setDepartments] = useState([]);
-  const [siteOptions, setSiteOptions] = useState([]);
-  const [siteDialog, setSiteDialog] = useState({ open: false, name: '' });
-  const [siteDialogTarget, setSiteDialogTarget] = useState('item');
+  const [utilityTypes, setUtilityTypes] = useState([]);
+  const [typeDialog, setTypeDialog] = useState({ open: false, name: '' });
 
   const pagination = usePagination({
     defaultRowsPerPage: 25,
-    resetDependencies: [categoryFilter]
+    resetDependencies: [categoryFilter, subCategoryFilter]
   });
 
   const load = useCallback(async () => {
@@ -134,7 +132,7 @@ const CentralizedStoreManagement = () => {
       setCategories(res.data?.categories || []);
       setItems(res.data?.items || []);
       setDepartments(res.data?.departments || []);
-      setSiteOptions(res.data?.siteOptions || []);
+      setUtilityTypes(res.data?.utilityTypes || []);
       setCompanies(res.data?.companies || []);
       setAllAccounts(res.data?.accounts || []);
       const catRes = await centralizedStoreService.getCatalog();
@@ -148,8 +146,8 @@ const CentralizedStoreManagement = () => {
       if (!res.data?.departments?.length && catRes.data?.departments?.length) {
         setDepartments(catRes.data.departments);
       }
-      if (!res.data?.siteOptions?.length && catRes.data?.siteOptions?.length) {
-        setSiteOptions(catRes.data.siteOptions);
+      if (!res.data?.utilityTypes?.length && catRes.data?.utilityTypes?.length) {
+        setUtilityTypes(catRes.data.utilityTypes);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load centralized store');
@@ -173,10 +171,6 @@ const CentralizedStoreManagement = () => {
     });
   }, [allAccounts, expenseAccounts, catDialog.company]);
 
-  const defaultExpenseAccountId = useMemo(
-    () => expenseAccounts.find((a) => a.accountNumber === '6200')?._id || expenseAccounts[0]?._id || '',
-    [expenseAccounts]
-  );
 
 
 
@@ -197,10 +191,20 @@ const CentralizedStoreManagement = () => {
 
   const filteredItems = useMemo(() => {
     if (categoryFilter === 'all') return sortedItems;
-    return sortedItems.filter(
-      (item) => String(item.category?._id || item.category) === String(categoryFilter)
-    );
-  }, [sortedItems, categoryFilter]);
+    
+    // First, determine all valid category IDs that belong to the selected top-level category
+    const validCatIds = categories
+      .filter(c => String(c._id) === categoryFilter || String(c.parentCategory?._id || c.parentCategory) === categoryFilter)
+      .map(c => String(c._id));
+
+    return sortedItems.filter((item) => {
+      const itemCatId = String(item.category?._id || item.category);
+      if (subCategoryFilter && subCategoryFilter !== 'all') {
+        return itemCatId === subCategoryFilter;
+      }
+      return validCatIds.includes(itemCatId);
+    });
+  }, [sortedItems, categoryFilter, subCategoryFilter, categories]);
 
   useEffect(() => {
     const total = filteredItems.length;
@@ -208,7 +212,7 @@ const CentralizedStoreManagement = () => {
     if (total > 0 && pagination.page > maxPage) {
       pagination.setPage(maxPage);
     }
-  }, [filteredItems.length, pagination.rowsPerPage, pagination.page, pagination.setPage]);
+  }, [filteredItems.length, pagination]);
 
   const pagedItems = useMemo(() => {
     const start = pagination.page * pagination.rowsPerPage;
@@ -278,6 +282,7 @@ const CentralizedStoreManagement = () => {
     setItemForm((prev) => ({
       ...prev,
       category: categoryId,
+      subCategory: '',
       utilityType: mapCategoryToUtilityType(cat?.name),
       name: prev.name || (usesMeter ? `Meter ${nextMeter}` : ''),
       meterNumber: usesMeter ? (prev.meterNumber || String(nextMeter)) : '',
@@ -293,11 +298,13 @@ const CentralizedStoreManagement = () => {
     const nextMeter = catItems.length + 1;
     setItemForm({
       category,
+      subCategory: '',
       name: usesMeter ? `Meter ${nextMeter}` : '',
       utilityType: mapCategoryToUtilityType(cat?.name),
       meterNumber: usesMeter ? String(nextMeter) : '',
+      referenceNumber: '',
       location: 'Main Office',
-      site: '',
+      company: '',
       department: '',
       expenseAccount: '',
       defaultAmount: 0,
@@ -306,14 +313,16 @@ const CentralizedStoreManagement = () => {
   };
 
   const buildItemBody = (form) => {
-    const usesMeter = categoryUsesMeter(categoryNameById.get(String(form.category)));
+    const finalCategory = form.subCategory || form.category;
+    const usesMeter = categoryUsesMeter(categoryNameById.get(String(finalCategory)));
     return {
-      category: form.category,
+      category: finalCategory,
       name: form.name,
       utilityType: form.utilityType,
       meterNumber: usesMeter ? form.meterNumber : '',
+      referenceNumber: form.referenceNumber || '',
       location: form.location,
-      site: form.site,
+      company: form.company,
       department: form.department,
       expenseAccount: form.expenseAccount,
       defaultAmount: Number(form.defaultAmount) || 0,
@@ -346,16 +355,30 @@ const CentralizedStoreManagement = () => {
   };
 
   const openEditItem = (item) => {
+    let catId = item.category?._id || item.category;
+    let parentCatId = '';
+    let subCatId = '';
+
+    const catObj = categories.find(c => String(c._id) === String(catId));
+    if (catObj && catObj.parentCategory) {
+      subCatId = catId;
+      parentCatId = catObj.parentCategory._id || catObj.parentCategory;
+    } else {
+      parentCatId = catId;
+    }
+
     setEditDialog({
       open: true,
       editing: item._id,
       code: item.code || '',
-      category: item.category?._id || item.category,
+      category: parentCatId || '',
+      subCategory: subCatId || '',
       name: item.name,
       utilityType: item.utilityType,
       meterNumber: item.meterNumber || '',
+      referenceNumber: item.referenceNumber || '',
       location: item.location || '',
-      site: item.site || '',
+      company: item.company?._id || item.company || '',
       department: item.department || '',
       expenseAccount: item.expenseAccount?._id || item.expenseAccount,
       defaultAmount: item.defaultAmount || 0,
@@ -379,30 +402,23 @@ const CentralizedStoreManagement = () => {
 
   const accountLabel = (acc) => (acc ? `${acc.accountNumber} — ${acc.name}` : '—');
 
-  const openAddSiteDialog = (target) => {
-    setSiteDialogTarget(target);
-    setSiteDialog({ open: true, name: '' });
-  };
 
-  const saveNewSiteOption = async () => {
-    const name = siteDialog.name?.trim();
+
+  const saveNewType = async () => {
+    const name = typeDialog.name?.trim();
     if (!name) {
-      setError('Account name is required');
+      setError('Type name is required');
       return;
     }
     try {
-      const res = await centralizedStoreService.addSiteOption(name);
-      const options = res.data?.siteOptions || [];
-      setSiteOptions(options);
-      if (siteDialogTarget === 'edit') {
-        setEditDialog((prev) => ({ ...prev, site: name }));
-      } else {
-        setItemForm((prev) => ({ ...prev, site: name }));
-      }
-      setSiteDialog({ open: false, name: '' });
-      setSuccess(`Account "${name}" added`);
+      const res = await centralizedStoreService.addUtilityType(name);
+      const types = res.data?.utilityTypes || [];
+      setUtilityTypes(types);
+      setItemForm((prev) => ({ ...prev, utilityType: name }));
+      setTypeDialog({ open: false, name: '' });
+      setSuccess(`Type "${name}" added`);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to add account');
+      setError(err.response?.data?.message || 'Failed to add type');
     }
   };
 
@@ -429,35 +445,22 @@ const CentralizedStoreManagement = () => {
     </FormControl>
   );
 
-  const renderAccountField = (form, setForm, isEdit = false) => (
+  const renderCompanyField = (form, setForm) => (
     <FormControl fullWidth>
-      <InputLabel>Account</InputLabel>
+      <InputLabel>Company</InputLabel>
       <Select
-        value={form.site || ''}
-        label="Account"
-        onChange={(e) => {
-          if (e.target.value === SITE_ADD_NEW) {
-            openAddSiteDialog(isEdit ? 'edit' : 'item');
-            return;
-          }
-          setForm((prev) => ({ ...prev, site: e.target.value }));
-        }}
+        value={form.company || ''}
+        label="Company"
+        onChange={(e) => setForm((prev) => ({ ...prev, company: e.target.value }))}
       >
         <MenuItem value="">
-          <em>Select account</em>
+          <em>None</em>
         </MenuItem>
-        {form.site && !(siteOptions || []).includes(form.site) && (
-          <MenuItem value={form.site}>{form.site}</MenuItem>
-        )}
-        {(siteOptions || []).map((site) => (
-          <MenuItem key={site} value={site}>
-            {site}
+        {(companies || []).map((c) => (
+          <MenuItem key={c._id} value={c._id}>
+            {c.name}
           </MenuItem>
         ))}
-        <Divider sx={{ my: 0.5 }} />
-        <MenuItem value={SITE_ADD_NEW} sx={{ color: 'primary.main', fontWeight: 600 }}>
-          + Add new account…
-        </MenuItem>
       </Select>
     </FormControl>
   );
@@ -468,15 +471,23 @@ const CentralizedStoreManagement = () => {
     setForm((prev) => ({
       ...prev,
       category: categoryId,
+      subCategory: '',
       utilityType: mapCategoryToUtilityType(cat?.name),
       meterNumber: usesMeter ? prev.meterNumber : ''
     }));
   };
 
   const renderItemFields = (form, setForm, { showCode = false, code = '', isEdit = false } = {}) => {
-    const selectedCategoryName = categoryNameById.get(String(form.category)) || '';
+    const finalCat = form.subCategory || form.category;
+    const selectedCategoryName = categoryNameById.get(String(finalCat)) || '';
     const showMeterField = categoryUsesMeter(selectedCategoryName);
-    const fieldCol = showCode ? 6 : showMeterField ? 4 : 6;
+    const showRefField = ['electricity', 'gas', 'water', 'internet'].includes((form.utilityType || '').toLowerCase());
+    const fieldCol = showCode ? 6 : 4;
+
+    const availableSubCategories = categories.filter(c => {
+      const parentId = c.parentCategory?._id || c.parentCategory;
+      return String(parentId) === String(form.category);
+    });
 
     return (
       <Grid container spacing={2}>
@@ -494,15 +505,30 @@ const CentralizedStoreManagement = () => {
                 }
               }}
             >
-              {categories.map((c) => {
-                const isSub = Boolean(c.parentCategory);
-                const parentName = isSub ? (c.parentCategory?.name || '') : '';
-                return (
-                  <MenuItem key={c._id} value={c._id}>
-                    {isSub ? `${parentName} > ${c.name}` : c.name}
-                  </MenuItem>
-                );
-              })}
+              {categories.filter(c => !c.parentCategory).map((c) => (
+                <MenuItem key={c._id} value={c._id}>
+                  {c.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <FormControl fullWidth disabled={!form.category || availableSubCategories.length === 0}>
+            <InputLabel>Sub Category</InputLabel>
+            <Select
+              value={form.subCategory || ''}
+              label="Sub Category"
+              onChange={(e) => setForm(prev => ({ ...prev, subCategory: e.target.value }))}
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {availableSubCategories.map((c) => (
+                <MenuItem key={c._id} value={c._id}>
+                  {c.name}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
         </Grid>
@@ -516,6 +542,7 @@ const CentralizedStoreManagement = () => {
             placeholder="e.g. Meter 1, Main building"
           />
         </Grid>
+
         {showCode && (
           <Grid item xs={12} md={6}>
             <TextField label="Item code" value={code} fullWidth disabled />
@@ -523,15 +550,28 @@ const CentralizedStoreManagement = () => {
         )}
         <Grid item xs={12} md={fieldCol}>
           <FormControl fullWidth>
-            <InputLabel>Utility type</InputLabel>
+            <InputLabel>Type</InputLabel>
             <Select
-              value={form.utilityType}
-              label="Utility type"
-              onChange={(e) => setForm({ ...form, utilityType: e.target.value })}
+              value={form.utilityType || ''}
+              label="Type"
+              onChange={(e) => {
+                if (e.target.value === TYPE_ADD_NEW) {
+                  setTypeDialog({ open: true, name: '' });
+                  return;
+                }
+                setForm({ ...form, utilityType: e.target.value });
+              }}
             >
-              {UTILITY_TYPES.map((t) => (
+              {form.utilityType && !(utilityTypes || []).includes(form.utilityType) && (
+                <MenuItem value={form.utilityType}>{form.utilityType}</MenuItem>
+              )}
+              {(utilityTypes || []).map((t) => (
                 <MenuItem key={t} value={t}>{t}</MenuItem>
               ))}
+              <Divider sx={{ my: 0.5 }} />
+              <MenuItem value={TYPE_ADD_NEW} sx={{ color: 'primary.main', fontWeight: 600 }}>
+                + Add new type...
+              </MenuItem>
             </Select>
           </FormControl>
         </Grid>
@@ -543,6 +583,17 @@ const CentralizedStoreManagement = () => {
               onChange={(e) => setForm({ ...form, meterNumber: e.target.value })}
               fullWidth
               placeholder="e.g. 1, 2, 3"
+            />
+          </Grid>
+        )}
+        {showRefField && (
+          <Grid item xs={12} md={fieldCol}>
+            <TextField
+              label="Reference no."
+              value={form.referenceNumber || ''}
+              onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })}
+              fullWidth
+              placeholder="e.g. 143135..."
             />
           </Grid>
         )}
@@ -565,7 +616,7 @@ const CentralizedStoreManagement = () => {
           />
         </Grid>
         <Grid item xs={12} md={4}>
-          {renderAccountField(form, setForm, isEdit)}
+          {renderCompanyField(form, setForm)}
         </Grid>
         <Grid item xs={12} md={4}>
           {renderDepartmentField(form, setForm)}
@@ -775,16 +826,38 @@ const CentralizedStoreManagement = () => {
             <Select
               value={categoryFilter}
               label="Filter by category"
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setSubCategoryFilter('all');
+              }}
             >
               <MenuItem value="all">All categories</MenuItem>
-              {categories.map((c) => (
+              {categories.filter(c => !c.parentCategory).map((c) => (
                 <MenuItem key={c._id} value={c._id}>
-                  {c.parentCategory ? `${c.parentCategory.name} > ${c.name}` : c.name}
+                  {c.name}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
+          {categoryFilter !== 'all' && categories.filter(c => String(c.parentCategory?._id || c.parentCategory) === String(categoryFilter)).length > 0 && (
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>Sub Category</InputLabel>
+              <Select
+                value={subCategoryFilter}
+                label="Sub Category"
+                onChange={(e) => setSubCategoryFilter(e.target.value)}
+              >
+                <MenuItem value="all">All sub categories</MenuItem>
+                {categories
+                  .filter(c => String(c.parentCategory?._id || c.parentCategory) === String(categoryFilter))
+                  .map((c) => (
+                    <MenuItem key={c._id} value={c._id}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          )}
         </Stack>
       </Stack>
 
@@ -796,9 +869,9 @@ const CentralizedStoreManagement = () => {
               <TableCell><strong>Code</strong></TableCell>
               <TableCell><strong>Item name</strong></TableCell>
               <TableCell><strong>Type</strong></TableCell>
-              <TableCell><strong>Meter</strong></TableCell>
+              <TableCell><strong>Ref No.</strong></TableCell>
               <TableCell><strong>Location</strong></TableCell>
-              <TableCell><strong>Account</strong></TableCell>
+              <TableCell><strong>Company</strong></TableCell>
               <TableCell align="right"><strong>Amount</strong></TableCell>
               <TableCell><strong>COA</strong></TableCell>
               <TableCell align="right"><strong>Actions</strong></TableCell>
@@ -830,9 +903,9 @@ const CentralizedStoreManagement = () => {
                     </TableCell>
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.utilityType}</TableCell>
-                    <TableCell>{item.meterNumber || '—'}</TableCell>
+                    <TableCell>{item.referenceNumber || '—'}</TableCell>
                     <TableCell>{item.location || '—'}</TableCell>
-                    <TableCell>{item.site || '—'}</TableCell>
+                    <TableCell>{item.company?.name || '—'}</TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                       {formatPKR(item.defaultAmount || 0)}
                     </TableCell>
@@ -981,28 +1054,25 @@ const CentralizedStoreManagement = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={siteDialog.open} onClose={() => setSiteDialog({ open: false, name: '' })} maxWidth="xs" fullWidth>
-        <DialogTitle>Add account option</DialogTitle>
-        <DialogContent>
+
+
+      <Dialog open={typeDialog.open} onClose={() => setTypeDialog({ open: false, name: '' })} maxWidth="xs" fullWidth>
+        <DialogTitle>Add New Type</DialogTitle>
+        <DialogContent dividers>
           <TextField
-            autoFocus
-            label="Account name"
-            value={siteDialog.name}
-            onChange={(e) => setSiteDialog({ ...siteDialog, name: e.target.value })}
+            label="Type Name"
             fullWidth
-            sx={{ mt: 1 }}
-            placeholder="e.g. SGC, Head Office"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') saveNewSiteOption();
-            }}
+            value={typeDialog.name}
+            onChange={(e) => setTypeDialog({ ...typeDialog, name: e.target.value })}
+            autoFocus
+            placeholder="e.g. Maintenance, Electricity..."
           />
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-            This account will be saved and available in the dropdown for all future items.
-          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSiteDialog({ open: false, name: '' })}>Cancel</Button>
-          <Button onClick={saveNewSiteOption} variant="contained" disabled={saving}>Save</Button>
+          <Button onClick={() => setTypeDialog({ open: false, name: '' })}>Cancel</Button>
+          <Button variant="contained" onClick={saveNewType}>
+            Save
+          </Button>
         </DialogActions>
       </Dialog>
 

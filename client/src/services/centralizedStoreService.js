@@ -17,6 +17,10 @@ const centralizedStoreService = {
     const res = await api.post('/admin/centralized-store/site-options', { name });
     return res.data;
   },
+  addUtilityType: async (name) => {
+    const res = await api.post('/admin/centralized-store/utility-types', { name });
+    return res.data;
+  },
   seedDefaults: async () => {
     const res = await api.post('/admin/centralized-store/seed-defaults');
     return res.data;
