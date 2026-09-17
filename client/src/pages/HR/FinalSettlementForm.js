@@ -167,8 +167,8 @@ const FinalSettlementForm = () => {
       settlementType: values.settlementType,
       reason: values.reason,
       lastWorkingDate: values.lastWorkingDate,
-      settlementDate: values.settlementDate,
-      noticePeriod: values.noticePeriod,
+      settlementDate: values.settlementDate || values.lastWorkingDate || new Date().toISOString().split('T')[0],
+      noticePeriod: values.noticePeriod || 30,
       noticePeriodServed: values.noticePeriodServed,
       noticePeriodShortfall: shortfallDays,
       paymentMethod: values.paymentMethod,
@@ -213,8 +213,6 @@ const FinalSettlementForm = () => {
     settlementType: Yup.string().required('Settlement type is required'),
     reason: Yup.string().required('Reason is required').min(10, 'Reason must be at least 10 characters'),
     lastWorkingDate: Yup.date().required('Last working date is required'),
-    settlementDate: Yup.date().required('Settlement date is required'),
-    noticePeriod: Yup.number().min(0, 'Notice period cannot be negative'),
     noticePeriodServed: Yup.number().min(0, 'Notice period served cannot be negative'),
     paymentMethod: Yup.string().required('Payment method is required'),
     bankDetails: Yup.object({
@@ -647,7 +645,7 @@ const FinalSettlementForm = () => {
       case 0: // Employee & Basic Info
         return ['employeeId'];
       case 1: // Settlement Details
-        return ['settlementType', 'reason', 'lastWorkingDate', 'settlementDate'];
+        return ['settlementType', 'reason', 'lastWorkingDate'];
       case 2: // Salary & Calculations
         return []; // No required fields in this step
       case 3: // Payment & Documents
@@ -669,17 +667,18 @@ const FinalSettlementForm = () => {
   // Calculate notice period shortfall
   const noticePeriodShortfall = Math.max(0, formik.values.noticePeriod - formik.values.noticePeriodServed);
 
-  // Auto-prorate earnings based on notice period shortfall
+  // Auto-prorate earnings based on notice period served
   useEffect(() => {
     if (!selectedEmployee) return;
 
-    // Helper to prorate base amounts based on 30 days
+    const servedDays = Number(formik.values.noticePeriodServed);
+
+    // Helper to prorate base amounts based on notice period served (30 days standard month)
     const prorate = (amount) => {
       const baseAmount = Number(amount) || 0;
       if (baseAmount === 0) return 0;
-      if (noticePeriodShortfall >= 30) return 0;
-      const deduction = Math.round((baseAmount / 30) * noticePeriodShortfall);
-      return Math.max(0, baseAmount - deduction);
+      if (!servedDays || servedDays <= 0) return baseAmount;
+      return Math.round((baseAmount / 30) * servedDays);
     };
 
     const grossSalary = Math.round(selectedEmployee.salary?.gross || 70000);
@@ -704,7 +703,7 @@ const FinalSettlementForm = () => {
     }
     
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noticePeriodShortfall, selectedEmployee]);
+  }, [formik.values.noticePeriodServed, selectedEmployee]);
 
   const settlementTotals = computeSettlementTotals(formik.values);
 
@@ -882,7 +881,7 @@ const FinalSettlementForm = () => {
               />
             </Grid>
 
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12}>
               <TextField
                 fullWidth
                 type="date"
@@ -895,56 +894,6 @@ const FinalSettlementForm = () => {
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
-
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="date"
-                name="settlementDate"
-                label="Settlement Date"
-                value={formik.values.settlementDate}
-                onChange={formik.handleChange}
-                error={formik.touched.settlementDate && Boolean(formik.errors.settlementDate)}
-                helperText={formik.touched.settlementDate && formik.errors.settlementDate}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="number"
-                name="noticePeriod"
-                label="Notice Period (Days)"
-                value={formik.values.noticePeriod}
-                onChange={formik.handleChange}
-                error={formik.touched.noticePeriod && Boolean(formik.errors.noticePeriod)}
-                helperText={formik.touched.noticePeriod && formik.errors.noticePeriod}
-              />
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="number"
-                name="noticePeriodServed"
-                label="Notice Period Served (Days)"
-                value={formik.values.noticePeriodServed}
-                onChange={formik.handleChange}
-                error={formik.touched.noticePeriodServed && Boolean(formik.errors.noticePeriodServed)}
-                helperText={formik.touched.noticePeriodServed && formik.errors.noticePeriodServed}
-              />
-            </Grid>
-
-            {noticePeriodShortfall > 0 && (
-              <Grid item xs={12}>
-                <Alert severity="warning">
-                  Notice period shortfall: {noticePeriodShortfall} days
-                  <br />
-                  Estimated deduction: {formatPKR(Math.round((selectedEmployee?.salary?.gross || 70000) / 30 * noticePeriodShortfall))}
-                </Alert>
-              </Grid>
-            )}
           </Grid>
         );
 
@@ -1008,14 +957,37 @@ const FinalSettlementForm = () => {
                   <TextField
                     fullWidth
                     type="number"
-                    name="actualSalary"
-                    label="Actual Salary"
-                    value={Math.round((formik.values.dailyRate || 0) * noticePeriodShortfall)}
-                    InputProps={amountInputProps}
-                    disabled
-                    helperText="Daily rate × notice shortfall days"
+                    name="noticePeriodServed"
+                    label="Notice Period Served (Days)"
+                    value={formik.values.noticePeriodServed}
+                    onChange={formik.handleChange}
+                    error={formik.touched.noticePeriodServed && Boolean(formik.errors.noticePeriodServed)}
+                    helperText={formik.touched.noticePeriodServed && formik.errors.noticePeriodServed}
                   />
                 </Grid>
+
+                <Grid item xs={12} md={3}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="actualSalary"
+                    label="Actual Salary"
+                    value={Math.round((formik.values.dailyRate || 0) * (formik.values.noticePeriodServed || 0))}
+                    InputProps={amountInputProps}
+                    disabled
+                    helperText="Daily rate × notice period served days"
+                  />
+                </Grid>
+
+                {formik.values.noticePeriodServed > 0 && (
+                  <Grid item xs={12}>
+                    <Alert severity="info">
+                      Notice period served: {formik.values.noticePeriodServed} days
+                      <br />
+                      Estimated salary: {formatPKR(Math.round((formik.values.dailyRate || (selectedEmployee?.salary?.gross || 70000) / 30) * formik.values.noticePeriodServed))}
+                    </Alert>
+                  </Grid>
+                )}
 
                 <Grid item xs={12}>
                   <Divider sx={{ my: 1 }} />
@@ -1212,7 +1184,7 @@ const FinalSettlementForm = () => {
                     value={formik.values.deductions.noticePeriodDeduction}
                     onChange={formik.handleChange}
                     InputProps={amountInputProps}
-                    helperText={`${noticePeriodShortfall} days shortfall`}
+                    helperText={formik.values.noticePeriodServed > 0 ? `${formik.values.noticePeriodServed} days served` : 'Manual deduction if applicable'}
                   />
                 </Grid>
 
@@ -1489,8 +1461,6 @@ const FinalSettlementForm = () => {
                   </Typography>
                   <Typography><strong>Type:</strong> {finalSettlementService.getSettlementTypeLabel(formik.values.settlementType)}</Typography>
                   <Typography><strong>Last Working Date:</strong> {formik.values.lastWorkingDate}</Typography>
-                  <Typography><strong>Settlement Date:</strong> {formik.values.settlementDate}</Typography>
-                  <Typography><strong>Notice Period:</strong> {formik.values.noticePeriod} days</Typography>
                   <Typography><strong>Notice Served:</strong> {formik.values.noticePeriodServed} days</Typography>
                   {noticePeriodShortfall > 0 && (
                     <Typography color="error">
