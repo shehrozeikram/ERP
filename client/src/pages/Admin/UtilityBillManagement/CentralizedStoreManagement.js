@@ -43,6 +43,7 @@ import {
   Refresh as RefreshIcon,
   AccountTree as AccountTreeIcon,
   Folder as FolderIcon,
+  Category as CategoryIcon,
   ExpandMore as ExpandMoreIcon,
   ChevronRight as ChevronRightIcon
 } from '@mui/icons-material';
@@ -568,52 +569,76 @@ const CentralizedStoreManagement = () => {
         <ListItem 
           button 
           onClick={() => setExpandedNodes(prev => ({ ...prev, [category._id]: !isExpanded }))}
-          sx={{ pl: 2 + level * 4, borderBottom: '1px solid', borderColor: 'divider' }}
-          secondaryAction={
-            <Stack direction="row" spacing={1}>
-              <IconButton edge="end" aria-label="edit" size="small" onClick={(e) => {
-                e.stopPropagation();
-                setCatDialog({
-                  open: true,
-                  editing: category._id,
-                  name: category.name,
-                  description: category.description || '',
-                  parentCategory: category.parentCategory?._id || category.parentCategory || '',
-                  chartOfAccount: category.chartOfAccount?._id || category.chartOfAccount || ''
-                });
-              }}>
-                <EditIcon fontSize="small" />
-              </IconButton>
-              <IconButton edge="end" aria-label="delete" size="small" color="error" onClick={async (e) => {
-                e.stopPropagation();
-                if (!window.confirm(`Delete category "${category.name}" and all its items?`)) return;
-                await centralizedStoreService.deleteCategory(category._id);
-                load();
-              }}>
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </Stack>
-          }
+          sx={{ 
+            pl: 2 + level * 4, 
+            pr: 2,
+            py: 1.5,
+            borderBottom: level > 0 ? '1px dashed' : 'none', 
+            borderColor: 'divider',
+            transition: 'background-color 0.2s',
+            '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) }
+          }}
         >
-          <ListItemIcon>
+          <ListItemIcon sx={{ minWidth: 40 }}>
             <FolderIcon color={level === 0 ? "primary" : "action"} fontSize={level === 0 ? "medium" : "small"} />
           </ListItemIcon>
+          
           <ListItemText 
             primary={
-              <Typography variant={level === 0 ? "subtitle2" : "body2"} fontWeight={level === 0 ? 600 : 500}>
+              <Typography variant={level === 0 ? "subtitle1" : "body2"} fontWeight={level === 0 ? 700 : 500} color={level === 0 ? "text.primary" : "text.secondary"}>
                 {category.name}
               </Typography>
             }
-            secondary={category.chartOfAccount ? `COA: ${category.chartOfAccount.accountNumber || accountLabel(category.chartOfAccount).split(' — ')[0]}` : (level === 0 ? 'No COA' : 'Inherited COA')} 
           />
-          {children.length > 0 ? (isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />) : null}
+          
+          <Stack direction="row" spacing={1} alignItems="center" onClick={e => e.stopPropagation()}>
+            {category.chartOfAccount && (
+              <Chip 
+                size="small" 
+                label={`COA: ${category.chartOfAccount.accountNumber || accountLabel(category.chartOfAccount).split(' — ')[0]}`} 
+                color={level === 0 ? "primary" : "default"}
+                variant={level === 0 ? "filled" : "outlined"}
+                sx={{ mr: 1, fontWeight: 500 }}
+              />
+            )}
+            <IconButton aria-label="edit" size="small" sx={{ color: 'text.secondary' }} onClick={(e) => {
+              e.stopPropagation();
+              setCatDialog({
+                open: true,
+                editing: category._id,
+                name: category.name,
+                description: category.description || '',
+                parentCategory: category.parentCategory?._id || category.parentCategory || '',
+                chartOfAccount: category.chartOfAccount?._id || category.chartOfAccount || ''
+              });
+            }}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+            <IconButton aria-label="delete" size="small" color="error" onClick={async (e) => {
+              e.stopPropagation();
+              if (!window.confirm(`Delete category "${category.name}" and all its items?`)) return;
+              await centralizedStoreService.deleteCategory(category._id);
+              load();
+            }}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+
+          {children.length > 0 ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
+              {isExpanded ? <ExpandMoreIcon color="action" /> : <ChevronRightIcon color="action" />}
+            </Box>
+          ) : (
+            <Box sx={{ width: 24, ml: 1 }} />
+          )}
         </ListItem>
+        
         <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-          <List component="div" disablePadding>
+          <List component="div" disablePadding sx={{ bgcolor: alpha(theme.palette.action.hover, 0.2) }}>
             {children.map(child => renderCategoryNode(child, level + 1))}
             {children.length === 0 && level === 0 && (
-              <ListItem sx={{ pl: 2 + (level + 1) * 4 }}>
-                <ListItemText secondary="No subcategories" />
+              <ListItem sx={{ pl: 2 + (level + 1) * 4, py: 2 }}>
+                <ListItemText primary={<Typography variant="body2" color="text.disabled" fontStyle="italic">No subcategories</Typography>} />
               </ListItem>
             )}
           </List>
@@ -667,12 +692,12 @@ const CentralizedStoreManagement = () => {
         </Typography>
         <Stack direction="row" gap={1}>
           <Button
-            startIcon={<AccountTreeIcon />}
+            startIcon={<CategoryIcon />}
             variant="outlined"
             color="secondary"
             onClick={() => setTreeDialogOpen(true)}
           >
-            View Hierarchy
+            View Categories
           </Button>
           <Button
             startIcon={<AddIcon />}
@@ -919,11 +944,20 @@ const CentralizedStoreManagement = () => {
       </Dialog>
 
       {/* Category Tree Dialog */}
-      <Dialog open={treeDialogOpen} onClose={() => setTreeDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Categories</DialogTitle>
-        <DialogContent dividers>
-          <List>
-            {categories.filter(c => !c.parentCategory).map(parent => renderCategoryNode(parent, 0))}
+      <Dialog open={treeDialogOpen} onClose={() => setTreeDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h5" fontWeight="bold">Store Categories</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Manage your centralized store categories and their chart of accounts.
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: 'grey.50', p: 3 }}>
+          <List sx={{ p: 0 }}>
+            {categories.filter(c => !c.parentCategory).map(parent => (
+              <Paper key={parent._id} variant="outlined" sx={{ mb: 2, overflow: 'hidden', bgcolor: 'background.paper', borderRadius: 2 }}>
+                {renderCategoryNode(parent, 0)}
+              </Paper>
+            ))}
             {categories.filter(c => !c.parentCategory).length === 0 && (
               <Typography variant="body2" color="textSecondary" align="center" sx={{ py: 3 }}>
                 No categories found.
@@ -931,8 +965,8 @@ const CentralizedStoreManagement = () => {
             )}
           </List>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTreeDialogOpen(false)}>Close</Button>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button variant="outlined" onClick={() => setTreeDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
