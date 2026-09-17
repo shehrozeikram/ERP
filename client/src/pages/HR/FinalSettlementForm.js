@@ -115,7 +115,6 @@ const FinalSettlementForm = () => {
       parseAmount(d.taxDeductions) +
       parseAmount(d.healthInsurance) +
       parseAmount(d.providentFund) +
-      parseAmount(d.eobi) +
       parseAmount(d.security) +
       parseAmount(d.pension) +
       parseAmount(d.otherDeductions);
@@ -152,7 +151,7 @@ const FinalSettlementForm = () => {
     const deductions = {
       incomeTax: parseAmount(d.taxDeductions),
       providentFund: parseAmount(d.providentFund),
-      eobi: parseAmount(d.eobi),
+      eobi: 0,
       loanDeductions: parseAmount(d.loanDeductions),
       noticePeriodDeduction: parseAmount(d.noticePeriodDeduction),
       security: parseAmount(d.security),
@@ -409,7 +408,6 @@ const FinalSettlementForm = () => {
       
       // Calculate salary breakdown
       const grossSalary = Math.round(employee.salary?.gross || 70000);
-      const basicSalary = employee.salary?.basic ? Math.round(employee.salary.basic) : Math.round(grossSalary * 0.6666);
       // Fetch allowances from employee profile if available
       const medicalAllowance = employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0;
       const houseRentAllowance = employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0;
@@ -419,6 +417,9 @@ const FinalSettlementForm = () => {
       const specialAllowance = employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0;
       const otherAllowances = employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0;
       const transportAllowance = employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0;
+
+      const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
+      const basicSalary = employee.salary?.basic ? Math.round(employee.salary.basic) : Math.max(0, grossSalary - allowancesSum);
       
       // Calculate daily rate and leave encashment
       const dailyRate = Math.round(grossSalary / 30);
@@ -462,6 +463,7 @@ const FinalSettlementForm = () => {
       formik.setFieldValue('deductions.noticePeriodDeduction', noticeDeduction);
       formik.setFieldValue('deductions.loanDeductions', 0); // Will be updated after loans are fetched
       formik.setFieldValue('deductions.advanceDeductions', 0);
+      formik.setFieldValue('deductions.eobi', 0);
       // Fetch deductions from employee profile
       const taxDeduction = employee.deductions?.incomeTax || employee.salary?.tax || 0;
       formik.setFieldValue('deductions.taxDeductions', taxDeduction);
@@ -471,9 +473,6 @@ const FinalSettlementForm = () => {
       }
       if (employee.deductions?.providentFund) {
         formik.setFieldValue('deductions.providentFund', employee.deductions.providentFund);
-      }
-      if (employee.eobi?.isRegistered || employee.eobi?.isActive) {
-        formik.setFieldValue('deductions.eobi', employee.eobi?.amount || 407);
       }
       const securityAmount = Number(
         employee.employeeSecurity?.totalAccumulated || 
@@ -681,8 +680,18 @@ const FinalSettlementForm = () => {
       return Math.round((baseAmount / 30) * servedDays);
     };
 
-    const grossSalary = Math.round(selectedEmployee.salary?.gross || 70000);
-    const basicSalary = selectedEmployee.salary?.basic ? Math.round(selectedEmployee.salary.basic) : Math.round(grossSalary * 0.6666);
+    const grossSalary = Math.round(selectedEmployee.salary?.gross || formik.values.grossSalary || 70000);
+    const medicalAllowance = selectedEmployee.allowances?.medical?.isActive ? selectedEmployee.allowances.medical.amount : 0;
+    const houseRentAllowance = selectedEmployee.allowances?.houseRent?.isActive ? selectedEmployee.allowances.houseRent.amount : 0;
+    const foodAllowance = selectedEmployee.allowances?.food?.isActive ? selectedEmployee.allowances.food.amount : 0;
+    const vehicleAllowance = selectedEmployee.allowances?.vehicle?.isActive ? selectedEmployee.allowances.vehicle.amount : 0;
+    const fuelAllowance = selectedEmployee.allowances?.fuel?.isActive ? selectedEmployee.allowances.fuel.amount : 0;
+    const specialAllowance = selectedEmployee.allowances?.special?.isActive ? selectedEmployee.allowances.special.amount : 0;
+    const otherAllowances = selectedEmployee.allowances?.other?.isActive ? selectedEmployee.allowances.other.amount : 0;
+    const transportAllowance = selectedEmployee.allowances?.conveyance?.isActive ? selectedEmployee.allowances.conveyance.amount : 0;
+
+    const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
+    const basicSalary = selectedEmployee.salary?.basic ? Math.round(selectedEmployee.salary.basic) : Math.max(0, grossSalary - allowancesSum);
     
     formik.setFieldValue('earnings.basicSalary', prorate(basicSalary));
     
@@ -1249,17 +1258,7 @@ const FinalSettlementForm = () => {
                   />
                 </Grid>
 
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    name="deductions.eobi"
-                    label="EOBI"
-                    value={formik.values.deductions.eobi}
-                    onChange={formik.handleChange}
-                    InputProps={amountInputProps}
-                  />
-                </Grid>
+
 
                 <Grid item xs={12} md={6}>
                   <TextField
