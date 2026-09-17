@@ -625,6 +625,18 @@ const getUserAllowedSubmodules = async (userId, module) => {
         });
       }
     }
+
+    const userDept = typeof user.department === 'string'
+      ? user.department
+      : (user.department?.name || user.department?.dept_name || '');
+    const isFinanceDept = /finance/i.test(userDept) ||
+                          user.role === ROLES.FINANCE_MANAGER ||
+                          /finance/i.test(String(user.role));
+
+    if (isFinanceDept) {
+      if (module === MODULES.ADMIN) allowedSubmodules.add('utility_bills_management');
+      if (module === 'general') allowedSubmodules.add('centralized_store');
+    }
     
     return Array.from(allowedSubmodules);
   }
@@ -670,6 +682,25 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
     user.role === ROLES.DEVELOPER
   ) {
     return true;
+  }
+  
+  // Grant access for Centralized Store & Utility Bills Management if user belongs to Finance department or has Finance role
+  const userDept = typeof user.department === 'string'
+    ? user.department
+    : (user.department?.name || user.department?.dept_name || '');
+  const isFinanceDept = /finance/i.test(userDept) ||
+                        user.role === ROLES.FINANCE_MANAGER ||
+                        /finance/i.test(String(user.role));
+
+  if (isFinanceDept) {
+    if (
+      (module === MODULES.ADMIN && submodule === 'utility_bills_management') ||
+      (module === 'general' && submodule === 'centralized_store') ||
+      submodule === 'centralized_store' ||
+      submodule === 'utility_bills_management'
+    ) {
+      return true;
+    }
   }
   
   // NEW: Check multiple roles first (if assigned)

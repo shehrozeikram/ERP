@@ -14,10 +14,12 @@ const SALES_ROLES = ['super_admin', 'admin', 'sales_manager', 'sales_rep', 'fina
 const handleValidationErrors = (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    const errorArr = errors.array();
+    const firstMsg = errorArr[0]?.msg || 'Validation failed';
     return res.status(400).json({
       success: false,
-      message: 'Validation failed',
-      errors: errors.array()
+      message: firstMsg,
+      errors: errorArr
     });
   }
 };
@@ -48,11 +50,10 @@ const buildOrderItems = async (items = []) => {
     const total = Number(((unitPrice * quantity) - discount).toFixed(2));
 
     mapped.push({
-      product: productDoc?._id || (mongoose.Types.ObjectId.isValid(item.product) ? item.product : undefined),
-      productName: item.productName || productDoc?.name || 'Custom Item',
-      sku: item.sku || productDoc?.sku,
-      unitPrice,
+      product: item.product || null,
+      productName: item.productName || productDoc?.name || 'Custom Product',
       quantity,
+      unitPrice,
       discount,
       total
     });
@@ -60,9 +61,10 @@ const buildOrderItems = async (items = []) => {
   return mapped;
 };
 
-// =====================
-// Dashboard & Reports
-// =====================
+const computeOrderTotal = (items = []) =>
+  Number(items.reduce((sum, item) => sum + (item.total || 0), 0).toFixed(2));
+
+// Dashboard metrics
 router.get('/dashboard',
   authorize(...SALES_ROLES),
   asyncHandler(async (_req, res) => {
@@ -269,14 +271,17 @@ router.post('/customers',
   authorize(...SALES_ROLES),
   [
     body('name').notEmpty().withMessage('Customer name is required'),
-    body('email').optional().isEmail().withMessage('Email must be valid')
+    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Email must be valid')
   ],
   asyncHandler(async (req, res) => {
     const errorResponse = handleValidationErrors(req, res);
     if (errorResponse) return errorResponse;
 
+    const payload = { ...req.body };
+    if (payload.email === '') delete payload.email;
+
     const customer = await SalesCustomer.create({
-      ...req.body,
+      ...payload,
       owner: req.user?._id
     });
 
@@ -314,9 +319,12 @@ router.get('/customers/:id',
 router.put('/customers/:id',
   authorize(...SALES_ROLES),
   asyncHandler(async (req, res) => {
+    const payload = { ...req.body };
+    if (payload.email === '') delete payload.email;
+
     const customer = await SalesCustomer.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      payload,
       { new: true, runValidators: true }
     );
 

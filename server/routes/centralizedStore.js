@@ -247,7 +247,7 @@ router.post(
 
 router.put(
   '/categories/:id',
-  authorize('super_admin', 'admin', 'finance_manager', 'hr_manager'),
+  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
   async (req, res) => {
     try {
       let cat = await UtilityStoreCategory.findById(req.params.id);
@@ -368,7 +368,7 @@ router.post(
 
 router.put(
   '/items/:id',
-  authorize('super_admin', 'admin', 'finance_manager', 'hr_manager'),
+  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
   async (req, res) => {
     try {
       const item = await UtilityStoreItem.findById(req.params.id);

@@ -121,7 +121,7 @@ router.get('/leads',
 router.post('/leads', [
   body('firstName').trim().isLength({ min: 1, max: 50 }).withMessage('First name is required and must be less than 50 characters'),
   body('lastName').trim().isLength({ min: 1, max: 50 }).withMessage('Last name is required and must be less than 50 characters'),
-  body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail().withMessage('Valid email is required'),
   leadPhoneValidator,
   body('company').optional().trim().isLength({ max: 100 }).withMessage('Company name must be less than 100 characters'),
   body('source').isIn(['Website', 'Social Media', 'Referral', 'Cold Call', 'Trade Show', 'Advertisement', 'Email Campaign', 'Walk-in', 'Phone Call', 'Other']).withMessage('Valid source is required'),
@@ -186,7 +186,7 @@ router.get('/leads/:id',
 router.put('/leads/:id', [
   body('firstName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('First name must be less than 50 characters'),
   body('lastName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be less than 50 characters'),
-  body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail().withMessage('Valid email is required'),
   leadPhoneValidator,
   body('status').optional().isIn(['New', 'Contacted', 'Qualified', 'Proposal Sent', 'Negotiation', 'Won', 'Lost', 'Unqualified']).withMessage('Valid status is required')
 ], authorize('super_admin', 'admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
@@ -390,7 +390,7 @@ router.get('/companies',
 router.post('/companies', [
   body('name').trim().isLength({ min: 1, max: 100 }).withMessage('Company name is required and must be less than 100 characters'),
   body('industry').trim().isLength({ min: 1, max: 100 }).withMessage('Industry is required and must be less than 100 characters'),
-  body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('phone').optional().matches(/^[\+]?[0-9][\d]{0,15}$/).withMessage('Valid phone number is required'),
   body('website').optional().custom((value) => {
     if (value && value.trim() !== '') {
@@ -540,7 +540,7 @@ router.get('/companies/:id',
 router.put('/companies/:id', [
   body('name').optional().trim().isLength({ min: 1, max: 100 }).withMessage('Company name must be less than 100 characters'),
   body('industry').optional().trim().isLength({ min: 1, max: 100 }).withMessage('Industry must be less than 100 characters'),
-  body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('status').optional().isIn(['Active', 'Inactive', 'Lead', 'Prospect', 'Customer', 'Former Customer']).withMessage('Valid status is required')
 ], authorize('super_admin', 'admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
@@ -780,7 +780,7 @@ router.get('/contacts',
 router.post('/contacts', [
   body('firstName').trim().isLength({ min: 1, max: 50 }).withMessage('First name is required and must be less than 50 characters'),
   body('lastName').trim().isLength({ min: 1, max: 50 }).withMessage('Last name is required and must be less than 50 characters'),
-  body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('company').optional().isString().withMessage('Company must be a string'),
   body('phone').optional().custom((value) => {
     if (value && value.trim() !== '') {
@@ -944,7 +944,7 @@ router.get('/contacts/:id',
 router.put('/contacts/:id', [
   body('firstName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('First name must be less than 50 characters'),
   body('lastName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be less than 50 characters'),
-  body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('phone').optional().custom((value) => {
     if (value && value !== '') {
       const phoneRegex = /^[\+]?[0-9][\d]{0,15}$/;
