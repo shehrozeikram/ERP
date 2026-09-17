@@ -246,12 +246,24 @@ router.delete(
   permissions.checkSubRolePermission('admin', 'utility_bills_management', 'delete'),
   async (req, res) => {
     try {
-      const inUse = await UtilityStoreItem.countDocuments({ category: req.params.id });
-      if (inUse) {
-        return res.status(400).json({ success: false, message: 'Remove items in this category first' });
+      async function getDescendantCategoryIds(id) {
+        let ids = [id];
+        const children = await UtilityStoreCategory.find({ parentCategory: id }, '_id');
+        for (let child of children) {
+          ids = ids.concat(await getDescendantCategoryIds(child._id));
+        }
+        return ids;
       }
-      await UtilityStoreCategory.findByIdAndDelete(req.params.id);
-      res.json({ success: true, message: 'Category deleted' });
+      
+      const categoryIdsToDelete = await getDescendantCategoryIds(req.params.id);
+
+      // Delete all items in these categories
+      await UtilityStoreItem.deleteMany({ category: { $in: categoryIdsToDelete } });
+
+      // Delete the categories
+      await UtilityStoreCategory.deleteMany({ _id: { $in: categoryIdsToDelete } });
+
+      res.json({ success: true, message: 'Category, subcategories, and all associated items deleted' });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
