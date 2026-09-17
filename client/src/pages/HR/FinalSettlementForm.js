@@ -64,17 +64,17 @@ const FinalSettlementForm = () => {
   // Filter employees based on search term
   const filteredEmployees = employees.filter((employee) => {
     if (!employeeSearch) return true;
-    
+
     const searchTerm = employeeSearch.toLowerCase();
-    const employeeName = employee.fullName || 
-      `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 
+    const employeeName = employee.fullName ||
+      `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
       'Unknown';
-    const departmentName = typeof employee.placementDepartment === 'object' ? 
-      (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') : 
-      typeof employee.department === 'object' ? 
-      (employee.department?.name || employee.department?.title || 'Unknown') : 
-      (employee.placementDepartment || employee.department || 'Unknown');
-    
+    const departmentName = typeof employee.placementDepartment === 'object' ?
+      (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') :
+      typeof employee.department === 'object' ?
+        (employee.department?.name || employee.department?.title || 'Unknown') :
+        (employee.placementDepartment || employee.department || 'Unknown');
+
     return (
       employee.employeeId?.toLowerCase().includes(searchTerm) ||
       employeeName.toLowerCase().includes(searchTerm) ||
@@ -318,7 +318,7 @@ const FinalSettlementForm = () => {
             severity: 'success'
           });
         }
-        
+
         setTimeout(() => {
           navigate('/hr/settlements');
         }, 1500);
@@ -356,13 +356,13 @@ const FinalSettlementForm = () => {
   // Load employee loans
   const fetchEmployeeLoans = async (employeeObjectId) => {
     if (!employeeObjectId) return;
-    
+
     try {
       setLoansLoading(true);
       const response = await api.get(`/loans/employee/${employeeObjectId}`);
       const loans = response.data || [];
       setEmployeeLoans(loans);
-      
+
       // Update loan deductions field
       const totalLoans = loans.reduce((sum, loan) => sum + (loan.outstandingBalance || 0), 0);
       formik.setFieldValue('deductions.loanDeductions', totalLoans);
@@ -383,34 +383,34 @@ const FinalSettlementForm = () => {
   const handleEmployeeChange = (employeeId) => {
     formik.setFieldValue('employeeId', employeeId);
     const employee = employees.find(emp => emp.employeeId === employeeId);
-    
+
     if (employee) {
       // Get employee name from firstName + lastName or fullName virtual
-      const employeeName = employee.fullName || 
-        `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 
+      const employeeName = employee.fullName ||
+        `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
         'Unknown';
-      
+
       // Handle nested department object
-      const departmentName = typeof employee.placementDepartment === 'object' ? 
-        (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') : 
-        typeof employee.department === 'object' ? 
-        (employee.department?.name || employee.department?.title || 'Unknown') : 
-        (employee.placementDepartment || employee.department || 'Unknown');
-      
+      const departmentName = typeof employee.placementDepartment === 'object' ?
+        (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') :
+        typeof employee.department === 'object' ?
+          (employee.department?.name || employee.department?.title || 'Unknown') :
+          (employee.placementDepartment || employee.department || 'Unknown');
+
       // Handle nested designation object
-      const designationName = typeof employee.designation === 'object' ? 
-        (employee.designation?.name || employee.designation?.title || 'Unknown') : 
+      const designationName = typeof employee.designation === 'object' ?
+        (employee.designation?.name || employee.designation?.title || 'Unknown') :
         (employee.designation || 'Unknown');
-      
+
       const processedEmployee = {
         ...employee,
         name: employeeName,
         department: departmentName,
         designation: designationName
       };
-      
+
       setSelectedEmployee(processedEmployee);
-      
+
       // Helper to safely extract numeric allowance amount
       const getAllow = (key) => {
         const a = employee.allowances?.[key] || employee.salary?.[key];
@@ -435,97 +435,91 @@ const FinalSettlementForm = () => {
       const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
       const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
-      const basicSalary = employee.salary?.basic ? Math.round(employee.salary.basic) : Math.max(0, grossSalary - allowancesSum);
-      
+      const basicSalary = employee.salary?.basic ? Math.round(employee.salary.basic) : Math.round(grossSalary * 0.6666);
+
       // Calculate daily rate and leave encashment
       const dailyRate = Math.round(grossSalary / 30);
       const leaveEncashment = 0; // Default to 0, user will input manually
-      
+
       // Calculate gratuity based on years of service (using Gross Salary)
-      const yearsOfService = employee.dateOfJoining ? 
+      const yearsOfService = employee.dateOfJoining ?
         Math.floor((new Date() - new Date(employee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365)) : 0;
       const gratuity = Math.round(grossSalary * Math.min(yearsOfService, 5)); // Max 5 years
-      
-      // Auto-populate earnings with calculated values
-      formik.setFieldValue('earnings.basicSalary', basicSalary);
-      formik.setFieldValue('earnings.houseRent', houseRentAllowance);
-      formik.setFieldValue('earnings.medicalAllowance', medicalAllowance);
-      formik.setFieldValue('earnings.transportAllowance', transportAllowance);
-      formik.setFieldValue('earnings.foodAllowance', foodAllowance);
-      formik.setFieldValue('earnings.vehicleAllowance', vehicleAllowance);
-      formik.setFieldValue('earnings.fuelAllowance', fuelAllowance);
-      formik.setFieldValue('earnings.specialAllowance', specialAllowance);
-      formik.setFieldValue('earnings.otherAllowances', otherAllowances);
-      formik.setFieldValue('earnings.leaveEncashment', leaveEncashment);
-      formik.setFieldValue('earnings.gratuity', gratuity);
-      formik.setFieldValue('earnings.bonus', 0);
-      formik.setFieldValue('earnings.overtime', 0);
-      formik.setFieldValue('earnings.otherEarnings', 0);
 
-      formik.setFieldValue('basicSalary', basicSalary);
-      formik.setFieldValue('grossSalary', grossSalary);
-      formik.setFieldValue('netSalary', employee.salary?.net || grossSalary);
-      formik.setFieldValue('dailyRate', dailyRate);
-      
-      // Auto-populate leave balance
       const leaveBalance = employee.leaveBalance || {};
-      formik.setFieldValue('leaveBalance.annual', leaveBalance.annual || 0);
-      formik.setFieldValue('leaveBalance.sick', leaveBalance.sick || 0);
-      formik.setFieldValue('leaveBalance.casual', leaveBalance.casual || 0);
-      formik.setFieldValue('leaveBalance.other', leaveBalance.other || 0);
-      
-      // Calculate notice period deduction
-      const noticeDeduction = 0; // Default to 0, user will input manually
-      formik.setFieldValue('deductions.noticePeriodDeduction', noticeDeduction);
-      formik.setFieldValue('deductions.loanDeductions', 0); // Will be updated after loans are fetched
-      formik.setFieldValue('deductions.advanceDeductions', 0);
-      formik.setFieldValue('deductions.eobi', 0);
-      // Fetch deductions from employee profile
       const taxDeduction = employee.deductions?.incomeTax || employee.salary?.tax || 0;
-      formik.setFieldValue('deductions.taxDeductions', taxDeduction);
-      
-      if (employee.deductions?.healthInsurance || employee.deductions?.insurance) {
-        formik.setFieldValue('deductions.healthInsurance', employee.deductions.healthInsurance || employee.deductions.insurance);
-      }
-      if (employee.deductions?.providentFund) {
-        formik.setFieldValue('deductions.providentFund', employee.deductions.providentFund);
-      }
       const securityAmount = Number(
-        employee.employeeSecurity?.totalAccumulated || 
-        employee.employeeSecurity?.amount || 
-        employee.salary?.security || 
-        employee.deductions?.security || 
+        employee.employeeSecurity?.totalAccumulated ||
+        employee.employeeSecurity?.amount ||
+        employee.salary?.security ||
+        employee.deductions?.security ||
         0
       );
-      formik.setFieldValue('deductions.security', securityAmount);
 
-      if (employee.deductions?.pension) {
-        formik.setFieldValue('deductions.pension', employee.deductions.pension);
-      }
-      if (employee.deductions?.other) {
-        formik.setFieldValue('deductions.otherDeductions', employee.deductions.other);
-      }
-      
+      // Update Formik values in one single atomic call so nested fields do not collide
+      formik.setValues((prevValues) => ({
+        ...prevValues,
+        employeeId: employee.employeeId,
+        basicSalary,
+        grossSalary,
+        netSalary: employee.salary?.net || grossSalary,
+        dailyRate,
+        earnings: {
+          ...prevValues.earnings,
+          basicSalary,
+          houseRent: houseRentAllowance,
+          medicalAllowance,
+          transportAllowance,
+          foodAllowance,
+          vehicleAllowance,
+          fuelAllowance,
+          specialAllowance,
+          otherAllowances,
+          leaveEncashment,
+          gratuity,
+          bonus: 0,
+          overtime: 0,
+          otherEarnings: 0
+        },
+        deductions: {
+          ...prevValues.deductions,
+          noticePeriodDeduction: 0,
+          loanDeductions: 0,
+          advanceDeductions: 0,
+          eobi: 0,
+          taxDeductions: taxDeduction,
+          healthInsurance: employee.deductions?.healthInsurance || employee.deductions?.insurance || 0,
+          providentFund: employee.deductions?.providentFund || 0,
+          security: securityAmount,
+          pension: employee.deductions?.pension || 0,
+          otherDeductions: employee.deductions?.other || 0
+        },
+        leaveBalance: {
+          annual: leaveBalance.annual || 0,
+          sick: leaveBalance.sick || 0,
+          casual: leaveBalance.casual || 0,
+          other: leaveBalance.other || 0
+        },
+        bankDetails: {
+          bankName: employee.bankDetails?.bankName || prevValues.bankDetails?.bankName || '',
+          accountNumber: employee.bankDetails?.accountNumber || prevValues.bankDetails?.accountNumber || '',
+          accountTitle: employeeName || prevValues.bankDetails?.accountTitle || ''
+        }
+      }));
+
       fetchEmployeeLoans(employee._id);
-      
-      // Pre-fill bank details if available
-      if (employee.bankDetails) {
-        formik.setFieldValue('bankDetails.bankName', employee.bankDetails.bankName || '');
-        formik.setFieldValue('bankDetails.accountNumber', employee.bankDetails.accountNumber || '');
-        formik.setFieldValue('bankDetails.accountTitle', employeeName);
-      }
     }
   };
 
   // Load settlement data for editing
   const loadSettlementData = async () => {
     if (!id) return;
-    
+
     try {
       setLoading(true);
       const response = await finalSettlementService.getSettlement(id);
       const settlement = response.data;
-      
+
       const earnings = settlement.earnings || {};
       const deductions = settlement.deductions || {};
       const leaveBalance = settlement.leaveBalance || {};
@@ -585,20 +579,20 @@ const FinalSettlementForm = () => {
           other: leaveBalance.other || 0
         }
       });
-      
+
       // Get employee name from firstName + lastName or fullName virtual
-      const employeeName = settlement.employeeName || 
-        `${settlement.employee?.firstName || ''} ${settlement.employee?.lastName || ''}`.trim() || 
+      const employeeName = settlement.employeeName ||
+        `${settlement.employee?.firstName || ''} ${settlement.employee?.lastName || ''}`.trim() ||
         'Unknown';
-      
-      const departmentName = typeof settlement.department === 'object' ? 
-        (settlement.department?.name || settlement.department?.title || 'Unknown') : 
+
+      const departmentName = typeof settlement.department === 'object' ?
+        (settlement.department?.name || settlement.department?.title || 'Unknown') :
         (settlement.department || 'Unknown');
-      
-      const designationName = typeof settlement.designation === 'object' ? 
-        (settlement.designation?.name || settlement.designation?.title || 'Unknown') : 
+
+      const designationName = typeof settlement.designation === 'object' ?
+        (settlement.designation?.name || settlement.designation?.title || 'Unknown') :
         (settlement.designation || 'Unknown');
-      
+
       setSelectedEmployee({
         _id: settlement.employee?._id || settlement.employee,
         employeeId: settlement.employeeId,
@@ -606,7 +600,7 @@ const FinalSettlementForm = () => {
         department: departmentName,
         designation: designationName
       });
-      
+
       setEmployeeLoans(settlement.loans || []);
     } catch (error) {
       console.error('Error loading settlement:', error);
@@ -632,13 +626,13 @@ const FinalSettlementForm = () => {
     // Validate current step before moving to next
     const currentStepFields = getStepFields(activeStep);
     const stepErrors = {};
-    
+
     currentStepFields.forEach(field => {
       if (formik.errors[field]) {
         stepErrors[field] = formik.errors[field];
       }
     });
-    
+
     if (Object.keys(stepErrors).length > 0) {
       // Mark fields as touched to show errors
       const touchedFields = {};
@@ -646,7 +640,7 @@ const FinalSettlementForm = () => {
         touchedFields[field] = true;
       });
       formik.setTouched({ ...formik.touched, ...touchedFields });
-      
+
       setSnackbar({
         open: true,
         message: 'Please fill in all required fields before proceeding',
@@ -654,7 +648,7 @@ const FinalSettlementForm = () => {
       });
       return;
     }
-    
+
     setActiveStep((prevStep) => prevStep + 1);
   };
 
@@ -722,22 +716,27 @@ const FinalSettlementForm = () => {
     const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
     const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
-    const basicSalary = selectedEmployee.salary?.basic ? Math.round(selectedEmployee.salary.basic) : Math.max(0, grossSalary - allowancesSum);
+    const basicSalary = selectedEmployee.salary?.basic ? Math.round(selectedEmployee.salary.basic) : (allowancesSum > 0 ? Math.max(0, grossSalary - allowancesSum) : grossSalary);
 
-    formik.setFieldValue('earnings.basicSalary', prorate(basicSalary));
-    formik.setFieldValue('earnings.medicalAllowance', prorate(medicalAllowance));
-    formik.setFieldValue('earnings.houseRent', prorate(houseRentAllowance));
-    formik.setFieldValue('earnings.transportAllowance', prorate(transportAllowance));
-    formik.setFieldValue('earnings.foodAllowance', prorate(foodAllowance));
-    formik.setFieldValue('earnings.vehicleAllowance', prorate(vehicleAllowance));
-    formik.setFieldValue('earnings.fuelAllowance', prorate(fuelAllowance));
-    formik.setFieldValue('earnings.specialAllowance', prorate(specialAllowance));
-    formik.setFieldValue('earnings.otherAllowances', prorate(otherAllowances));
-
-    // Ensure notice period deduction is 0 since we've prorated the earnings directly
-    if (formik.values.deductions.noticePeriodDeduction !== 0) {
-      formik.setFieldValue('deductions.noticePeriodDeduction', 0);
-    }
+    formik.setValues((prevValues) => ({
+      ...prevValues,
+      earnings: {
+        ...prevValues.earnings,
+        basicSalary: prorate(basicSalary),
+        medicalAllowance: prorate(medicalAllowance),
+        houseRent: prorate(houseRentAllowance),
+        transportAllowance: prorate(transportAllowance),
+        foodAllowance: prorate(foodAllowance),
+        vehicleAllowance: prorate(vehicleAllowance),
+        fuelAllowance: prorate(fuelAllowance),
+        specialAllowance: prorate(specialAllowance),
+        otherAllowances: prorate(otherAllowances)
+      },
+      deductions: {
+        ...prevValues.deductions,
+        noticePeriodDeduction: 0
+      }
+    }));
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formik.values.noticePeriodServed, selectedEmployee]);
@@ -797,7 +796,7 @@ const FinalSettlementForm = () => {
                       }}
                     />
                   </Box>
-                  
+
                   {employeesLoading ? (
                     <MenuItem disabled>
                       <Box display="flex" alignItems="center" justifyContent="center" width="100%">
@@ -814,17 +813,17 @@ const FinalSettlementForm = () => {
                   ) : (
                     filteredEmployees.map((employee) => {
                       // Get employee name from firstName + lastName or fullName virtual
-                      const employeeName = employee.fullName || 
-                        `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 
+                      const employeeName = employee.fullName ||
+                        `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
                         'Unknown';
-                      
+
                       // Handle nested department object
-                      const departmentName = typeof employee.placementDepartment === 'object' ? 
-                        (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') : 
-                        typeof employee.department === 'object' ? 
-                        (employee.department?.name || employee.department?.title || 'Unknown') : 
-                        (employee.placementDepartment || employee.department || 'Unknown');
-                      
+                      const departmentName = typeof employee.placementDepartment === 'object' ?
+                        (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') :
+                        typeof employee.department === 'object' ?
+                          (employee.department?.name || employee.department?.title || 'Unknown') :
+                          (employee.placementDepartment || employee.department || 'Unknown');
+
                       return (
                         <MenuItem key={employee._id} value={employee.employeeId}>
                           <Box>
@@ -845,7 +844,7 @@ const FinalSettlementForm = () => {
                 )}
               </FormControl>
             </Grid>
-            
+
             <Grid item xs={12} md={6}>
               <FormControl fullWidth error={formik.touched.settlementType && Boolean(formik.errors.settlementType)}>
                 <InputLabel>Settlement Type</InputLabel>
@@ -1547,8 +1546,8 @@ const FinalSettlementForm = () => {
 
   if (loading) {
     return (
-      <PageLoading 
-        message="Loading final settlement form..." 
+      <PageLoading
+        message="Loading final settlement form..."
         showSkeleton={true}
         skeletonType="cards"
       />
