@@ -434,8 +434,7 @@ const FinalSettlementForm = () => {
       const otherAllowances = getAllow('other');
       const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
-      const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
-      const basicSalary = employee.salary?.basic ? Math.round(employee.salary.basic) : Math.round(grossSalary * 0.6666);
+      const basicSalary = grossSalary;
 
       // Calculate daily rate and leave encashment
       const dailyRate = Math.round(grossSalary / 30);
@@ -715,14 +714,13 @@ const FinalSettlementForm = () => {
     const otherAllowances = getAllow('other');
     const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
-    const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
-    const basicSalary = selectedEmployee.salary?.basic ? Math.round(selectedEmployee.salary.basic) : (allowancesSum > 0 ? Math.max(0, grossSalary - allowancesSum) : grossSalary);
+    const earnedSalary = prorate(grossSalary);
 
     formik.setValues((prevValues) => ({
       ...prevValues,
       earnings: {
         ...prevValues.earnings,
-        basicSalary: prorate(basicSalary),
+        basicSalary: earnedSalary,
         medicalAllowance: prorate(medicalAllowance),
         houseRent: prorate(houseRentAllowance),
         transportAllowance: prorate(transportAllowance),
