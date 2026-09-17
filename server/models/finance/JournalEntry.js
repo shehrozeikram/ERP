@@ -50,7 +50,7 @@ const journalEntrySchema = new mongoose.Schema({
   department: {
     type: mongoose.Schema.Types.Mixed,
     ref: 'Department',
-    required: [true, 'Department is required']
+    required: false
   },
   module: {
     type: String,

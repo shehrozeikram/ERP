@@ -7,7 +7,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 dotenv.config({ path: path.join(__dirname, '../.env.production') });
 
 const Account = require('../models/finance/Account');
-const PlacementCompany = require('../models/hr/PlacementCompany');
+const PlacementCompany = require('../models/hr/Company');
 
 const seedData = [
   { accountNumber: '1001', name: 'Cash in Hand', type: 'Asset', category: 'Current Assets', detailType: 'Cash and Cash Equivalents' },
