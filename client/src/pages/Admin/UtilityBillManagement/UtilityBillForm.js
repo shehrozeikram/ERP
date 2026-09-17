@@ -340,6 +340,7 @@ const UtilityBillForm = () => {
   const [storeCategories, setStoreCategories] = useState([]);
   const [storeItems, setStoreItems] = useState([]);
   const [selectedBillCategory, setSelectedBillCategory] = useState(null);
+  const [selectedBillSubCategory, setSelectedBillSubCategory] = useState(null);
   const [pendingStoreItem, setPendingStoreItem] = useState(null);
   const [billLines, setBillLines] = useState([]);
   const [companiesList, setCompaniesList] = useState([]);
@@ -383,19 +384,27 @@ const UtilityBillForm = () => {
     if (!billLines.length || selectedBillCategory || !storeCategories.length) return;
     const firstLine = billLines[0];
     const firstCatName = firstLine.categoryName;
+    
+    let targetCat = null;
     if (firstCatName) {
-      const cat = storeCategories.find((c) => c.name === firstCatName);
-      if (cat) {
-        setSelectedBillCategory(cat);
-        return;
-      }
-    }
-    if (firstLine.storeItem && storeItems.length) {
+      targetCat = storeCategories.find((c) => c.name === firstCatName);
+    } else if (firstLine.storeItem && storeItems.length) {
       const item = storeItems.find((i) => String(i._id) === String(firstLine.storeItem));
       const catId = item?.category?._id || item?.category;
       if (catId) {
-        const cat = storeCategories.find((c) => String(c._id) === String(catId));
-        if (cat) setSelectedBillCategory(cat);
+        targetCat = storeCategories.find((c) => String(c._id) === String(catId));
+      }
+    }
+    
+    if (targetCat) {
+      if (targetCat.parentCategory) {
+        const parentId = targetCat.parentCategory._id || targetCat.parentCategory;
+        const parent = storeCategories.find(c => String(c._id) === String(parentId));
+        setSelectedBillCategory(parent || targetCat);
+        setSelectedBillSubCategory(targetCat);
+      } else {
+        setSelectedBillCategory(targetCat);
+        setSelectedBillSubCategory(null);
       }
     }
   }, [billLines, storeCategories, storeItems, selectedBillCategory]);
@@ -495,10 +504,14 @@ const UtilityBillForm = () => {
   );
 
   const itemsInSelectedCategory = useMemo(() => {
-    if (!selectedBillCategory?._id) return [];
-    const catId = String(selectedBillCategory._id);
-    return storeItems.filter((item) => String(item.category?._id || item.category) === catId);
-  }, [storeItems, selectedBillCategory]);
+    const finalCat = selectedBillSubCategory || selectedBillCategory;
+    if (!finalCat?._id) return [];
+    const catId = String(finalCat._id);
+    const validCatIds = storeCategories
+      .filter(c => String(c._id) === catId || String(c.parentCategory?._id || c.parentCategory) === catId)
+      .map(c => String(c._id));
+    return storeItems.filter((item) => validCatIds.includes(String(item.category?._id || item.category)));
+  }, [storeItems, selectedBillCategory, selectedBillSubCategory, storeCategories]);
 
   useEffect(() => {
     if (!useStoreBill) return;
@@ -513,7 +526,8 @@ const UtilityBillForm = () => {
       return;
     }
     setError(null);
-    const categoryName = storeItem.category?.name || selectedBillCategory?.name || '';
+    const finalCat = selectedBillSubCategory || selectedBillCategory;
+    const categoryName = storeItem.category?.name || finalCat?.name || '';
     const lineLabel = categoryName ? `${categoryName} — ${storeItem.name}` : storeItem.name;
     setBillLines((prev) => [
       ...prev,
@@ -1341,27 +1355,55 @@ const UtilityBillForm = () => {
                     </Grid>
                   )}
                   <Grid item xs={12} md={isCentralizedStoreBill ? 3 : 4}>
-                    <FormControl fullWidth>
-                      <InputLabel>Category</InputLabel>
-                      <Select
-                        value={selectedBillCategory?._id || ''}
-                        label="Category"
-                        onChange={(e) => {
-                          const cat = (storeCategories || []).find((c) => String(c?._id) === String(e.target.value));
-                          setSelectedBillCategory(cat || null);
-                          setPendingStoreItem(null);
-                        }}
-                      >
-                        <MenuItem value="">
-                          <em>Select category</em>
-                        </MenuItem>
-                        {(storeCategories || []).map((cat) => (
-                          <MenuItem key={cat?._id || cat?.name} value={cat?._id}>
-                            {cat?.name}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12} sm={6}>
+                        <FormControl fullWidth>
+                          <InputLabel>Category</InputLabel>
+                          <Select
+                            value={selectedBillCategory?._id || ''}
+                            label="Category"
+                            onChange={(e) => {
+                              const cat = (storeCategories || []).find((c) => String(c?._id) === String(e.target.value));
+                              setSelectedBillCategory(cat || null);
+                              setSelectedBillSubCategory(null);
+                              setPendingStoreItem(null);
+                            }}
+                          >
+                            <MenuItem value="">
+                              <em>Select category</em>
+                            </MenuItem>
+                            {(storeCategories || []).filter(c => !c.parentCategory).map((cat) => (
+                              <MenuItem key={cat?._id || cat?.name} value={cat?._id}>
+                                {cat?.name}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <FormControl fullWidth disabled={!selectedBillCategory || !(storeCategories || []).some(c => String(c.parentCategory?._id || c.parentCategory) === String(selectedBillCategory?._id))}>
+                          <InputLabel>Sub Category</InputLabel>
+                          <Select
+                            value={selectedBillSubCategory?._id || ''}
+                            label="Sub Category"
+                            onChange={(e) => {
+                              const cat = (storeCategories || []).find((c) => String(c?._id) === String(e.target.value));
+                              setSelectedBillSubCategory(cat || null);
+                              setPendingStoreItem(null);
+                            }}
+                          >
+                            <MenuItem value="">
+                              <em>None</em>
+                            </MenuItem>
+                            {(storeCategories || []).filter(c => String(c.parentCategory?._id || c.parentCategory) === String(selectedBillCategory?._id)).map((cat) => (
+                              <MenuItem key={cat?._id || cat?.name} value={cat?._id}>
+                                {cat?.name}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                    </Grid>
                   </Grid>
                   <Grid item xs={12} md={isCentralizedStoreBill ? 3 : 4}>
                     <Autocomplete
