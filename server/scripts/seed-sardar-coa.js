@@ -4,10 +4,13 @@ const path = require('path');
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '../.env') });
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 dotenv.config({ path: path.join(__dirname, '../.env.production') });
+dotenv.config({ path: path.join(__dirname, '../../.env.production') });
 
 const Account = require('../models/finance/Account');
 const PlacementCompany = require('../models/hr/Company');
+const { connectDB } = require('../config/database');
 
 const seedData = [
   { accountNumber: '1001', name: 'Cash in Hand', type: 'Asset', category: 'Current Assets', detailType: 'Cash and Cash Equivalents' },
@@ -32,9 +35,13 @@ const seedData = [
 
 async function seedSardarCOA() {
   try {
-    const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
+    const uri = process.env.MONGO_URI || process.env.MONGODB_URI || process.env.MONGODB_URI_LOCAL;
     console.log('Connecting to database...');
-    await mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+    if (uri) {
+      await mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+    } else {
+      await connectDB();
+    }
     console.log('Connected.');
 
     const company = await PlacementCompany.findOne({ name: /Sardar Group/i });
