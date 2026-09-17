@@ -1270,6 +1270,12 @@ router.post('/journal-entries',
     if (entryData.project === '') {
       entryData.project = null;
     }
+    if (entryData.department === '') {
+      entryData.department = null;
+    }
+    if (entryData.costCenter === '') {
+      entryData.costCenter = null;
+    }
     if (entryData.lines) {
       entryData.lines = entryData.lines.map(line => {
         const newLine = { ...line };
@@ -1483,7 +1489,8 @@ router.put('/journal-entries/:id',
     })) : [];
 
     entry.description = req.body.description;
-    entry.department = req.body.department;
+    entry.department = req.body.department === '' ? null : (req.body.department || null);
+    entry.costCenter = req.body.costCenter === '' ? null : (req.body.costCenter || null);
     entry.module = req.body.module || 'general';
     entry.reference = req.body.reference || '';
     entry.referenceId = req.body.referenceId === '' ? null : (req.body.referenceId || entry.referenceId);
