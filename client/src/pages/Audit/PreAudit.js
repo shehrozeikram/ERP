@@ -892,6 +892,7 @@ const PreAudit = () => {
             <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{displayValue(bill.custodian)}</Typography>
           </Box>
           <Box sx={{ textAlign: { xs: 'left', md: 'right' }, lineHeight: 2, mt: { xs: 2, md: 0 }, color: 'grey.800' }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 13, textTransform: 'uppercase' }}>{displayValue(bill.company)}</Typography>
             <Typography sx={{ fontWeight: 800, fontSize: 13 }}>{formatDateForDocument(bill.billDate)}</Typography>
             <Typography sx={{ fontWeight: 800, fontSize: 13 }}>{bill.billId}</Typography>
           </Box>
