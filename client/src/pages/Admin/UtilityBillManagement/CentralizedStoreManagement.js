@@ -79,7 +79,6 @@ const emptyItemForm = {
   location: '',
   company: '',
   department: '',
-  expenseAccount: '',
   defaultAmount: 0,
   description: ''
 };
@@ -306,7 +305,6 @@ const CentralizedStoreManagement = () => {
       location: 'Main Office',
       company: '',
       department: '',
-      expenseAccount: '',
       defaultAmount: 0,
       description: ''
     });
@@ -324,7 +322,6 @@ const CentralizedStoreManagement = () => {
       location: form.location,
       company: form.company,
       department: form.department,
-      expenseAccount: form.expenseAccount,
       defaultAmount: Number(form.defaultAmount) || 0,
       description: form.description
     };
@@ -380,7 +377,6 @@ const CentralizedStoreManagement = () => {
       location: item.location || '',
       company: item.company?._id || item.company || '',
       department: item.department || '',
-      expenseAccount: item.expenseAccount?._id || item.expenseAccount,
       defaultAmount: item.defaultAmount || 0,
       description: item.description || ''
     });
@@ -873,7 +869,6 @@ const CentralizedStoreManagement = () => {
               <TableCell><strong>Location</strong></TableCell>
               <TableCell><strong>Company</strong></TableCell>
               <TableCell align="right"><strong>Amount</strong></TableCell>
-              <TableCell><strong>COA</strong></TableCell>
               <TableCell align="right"><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
@@ -908,11 +903,6 @@ const CentralizedStoreManagement = () => {
                     <TableCell>{item.company?.name || '—'}</TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                       {formatPKR(item.defaultAmount || 0)}
-                    </TableCell>
-                    <TableCell sx={{ maxWidth: 180 }}>
-                      <Typography variant="caption" noWrap title={accountLabel(item.expenseAccount)}>
-                        {accountLabel(item.expenseAccount)}
-                      </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <IconButton size="small" onClick={() => openEditItem(item)} aria-label="Edit item">
