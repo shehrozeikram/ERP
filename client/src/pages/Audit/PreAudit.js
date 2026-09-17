@@ -2443,6 +2443,7 @@ const PreAudit = () => {
                                           <TableCell>Module</TableCell>
                                           <TableCell>Type</TableCell>
                                           <TableCell>Date</TableCell>
+                                          <TableCell>Amount</TableCell>
                                           <TableCell>Previous Month Bill</TableCell>
                                           <TableCell>Priority</TableCell>
                                           <TableCell>Status</TableCell>
@@ -2527,6 +2528,12 @@ const PreAudit = () => {
                                               <Chip label={doc.documentType} size="small" />
                                             </TableCell>
                                             <TableCell>{formatDate(doc.documentDate)}</TableCell>
+                                            <TableCell>
+                                              {(() => {
+                                                const amt = doc.amount ?? doc.totalAmount ?? doc.originalDocument?.amount ?? doc.originalDocument?.totalAmount ?? doc.originalDocument?.grandTotal;
+                                                return (amt !== undefined && amt !== null) ? formatPKR(amt) : '—';
+                                              })()}
+                                            </TableCell>
                                             <TableCell>
                                               {(() => {
                                                 const lastMonthAmt = doc.lastMonthAmount ?? doc.originalDocument?.lastMonthAmount;
