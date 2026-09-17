@@ -556,6 +556,72 @@ const CentralizedStoreManagement = () => {
     );
   };
 
+  const renderCategoryNode = (category, level = 0) => {
+    const children = categories.filter(c => {
+      const parentId = c.parentCategory?._id || c.parentCategory;
+      return String(parentId) === String(category._id);
+    });
+    const isExpanded = expandedNodes[category._id];
+    
+    return (
+      <React.Fragment key={category._id}>
+        <ListItem 
+          button 
+          onClick={() => setExpandedNodes(prev => ({ ...prev, [category._id]: !isExpanded }))}
+          sx={{ pl: 2 + level * 4, borderBottom: '1px solid', borderColor: 'divider' }}
+          secondaryAction={
+            <Stack direction="row" spacing={1}>
+              <IconButton edge="end" aria-label="edit" size="small" onClick={(e) => {
+                e.stopPropagation();
+                setCatDialog({
+                  open: true,
+                  editing: category._id,
+                  name: category.name,
+                  description: category.description || '',
+                  parentCategory: category.parentCategory?._id || category.parentCategory || '',
+                  chartOfAccount: category.chartOfAccount?._id || category.chartOfAccount || ''
+                });
+              }}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+              <IconButton edge="end" aria-label="delete" size="small" color="error" onClick={async (e) => {
+                e.stopPropagation();
+                if (!window.confirm(`Delete category "${category.name}" and all its items?`)) return;
+                await centralizedStoreService.deleteCategory(category._id);
+                load();
+              }}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          }
+        >
+          <ListItemIcon>
+            <FolderIcon color={level === 0 ? "primary" : "action"} fontSize={level === 0 ? "medium" : "small"} />
+          </ListItemIcon>
+          <ListItemText 
+            primary={
+              <Typography variant={level === 0 ? "subtitle2" : "body2"} fontWeight={level === 0 ? 600 : 500}>
+                {category.name}
+              </Typography>
+            }
+            secondary={category.chartOfAccount ? `COA: ${category.chartOfAccount.accountNumber || accountLabel(category.chartOfAccount).split(' — ')[0]}` : (level === 0 ? 'No COA' : 'Inherited COA')} 
+          />
+          {children.length > 0 ? (isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />) : null}
+        </ListItem>
+        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            {children.map(child => renderCategoryNode(child, level + 1))}
+            {children.length === 0 && level === 0 && (
+              <ListItem sx={{ pl: 2 + (level + 1) * 4 }}>
+                <ListItemText secondary="No subcategories" />
+              </ListItem>
+            )}
+          </List>
+        </Collapse>
+      </React.Fragment>
+    );
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
@@ -618,34 +684,7 @@ const CentralizedStoreManagement = () => {
         </Stack>
       </Stack>
 
-      {categories.length > 0 && (
-        <Stack direction="row" flexWrap="wrap" gap={1} mb={3}>
-          {categories.map((category) => (
-            <Chip
-              key={category._id}
-              label={category.parentCategory ? `${category.parentCategory.name} > ${category.name}` : category.name}
-              onClick={() => handleCategoryChange(category._id)}
-              onDelete={async () => {
-                if (!window.confirm(`Delete category "${category.name}" and all its items?`)) return;
-                await centralizedStoreService.deleteCategory(category._id);
-                load();
-              }}
-              color={String(itemForm.category) === String(category._id) ? 'primary' : 'default'}
-              variant={String(itemForm.category) === String(category._id) ? 'filled' : 'outlined'}
-            />
-          ))}
-        </Stack>
-      )}
 
-      {!categories.length && !loading && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography color="text.secondary">
-              No categories yet. Click &quot;Setup defaults&quot; or &quot;Add category&quot; to get started.
-            </Typography>
-          </CardContent>
-        </Card>
-      )}
 
       <Dialog open={addItemDialogOpen} onClose={() => setAddItemDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>Add item</DialogTitle>
@@ -881,50 +920,10 @@ const CentralizedStoreManagement = () => {
 
       {/* Category Tree Dialog */}
       <Dialog open={treeDialogOpen} onClose={() => setTreeDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Category Hierarchy</DialogTitle>
+        <DialogTitle>Categories</DialogTitle>
         <DialogContent dividers>
           <List>
-            {categories.filter(c => !c.parentCategory).map(parent => {
-              const children = categories.filter(c => c.parentCategory?._id === parent._id);
-              const isExpanded = expandedNodes[parent._id];
-              return (
-                <React.Fragment key={parent._id}>
-                  <ListItem 
-                    button 
-                    onClick={() => setExpandedNodes(prev => ({ ...prev, [parent._id]: !isExpanded }))}
-                  >
-                    <ListItemIcon>
-                      <FolderIcon color="primary" />
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary={parent.name} 
-                      secondary={parent.chartOfAccount ? `COA: ${parent.chartOfAccount.accountNumber}` : 'No COA'} 
-                    />
-                    {children.length > 0 ? (isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />) : null}
-                  </ListItem>
-                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                    <List component="div" disablePadding>
-                      {children.map(child => (
-                        <ListItem key={child._id} sx={{ pl: 4 }}>
-                          <ListItemIcon>
-                            <FolderIcon color="action" fontSize="small" />
-                          </ListItemIcon>
-                          <ListItemText 
-                            primary={child.name} 
-                            secondary={child.chartOfAccount ? `COA: ${child.chartOfAccount.accountNumber}` : 'Inherited COA'} 
-                          />
-                        </ListItem>
-                      ))}
-                      {children.length === 0 && (
-                        <ListItem sx={{ pl: 4 }}>
-                          <ListItemText secondary="No subcategories" />
-                        </ListItem>
-                      )}
-                    </List>
-                  </Collapse>
-                </React.Fragment>
-              );
-            })}
+            {categories.filter(c => !c.parentCategory).map(parent => renderCategoryNode(parent, 0))}
             {categories.filter(c => !c.parentCategory).length === 0 && (
               <Typography variant="body2" color="textSecondary" align="center" sx={{ py: 3 }}>
                 No categories found.
