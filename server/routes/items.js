@@ -60,6 +60,7 @@ router.get(
   manageCatalog,
   asyncHandler(async (req, res) => {
     const items = await ItemMaster.find({})
+      .populate('accountId', 'accountNumber name')
       .sort({ updatedAt: -1, categoryPath: 1, isCategoryRoot: -1, srNo: 1, name: 1 })
       .lean();
     res.json({ success: true, data: items });
@@ -105,7 +106,8 @@ router.post(
         name: CATEGORY_ROOT_ITEM_NAME,
         srNo: 0,
         isActive: true,
-        isCategoryRoot: true
+        isCategoryRoot: true,
+        accountId: req.body.accountId || null
       });
       res.status(201).json({ success: true, data: doc });
     } catch (e) {
@@ -179,7 +181,8 @@ router.post(
       name,
       srNo,
       isActive: true,
-      isCategoryRoot: false
+      isCategoryRoot: false,
+      accountId: req.body.accountId || null
     });
     await removeCategoryRootsForPath(categoryPath);
     res.status(201).json({ success: true, data: doc });
@@ -202,6 +205,7 @@ router.put(
     const nextPath = req.body.categoryPath !== undefined ? trimStr(req.body.categoryPath) : doc.categoryPath;
     const nextSr = req.body.srNo !== undefined ? parseInt(req.body.srNo, 10) : doc.srNo;
     const nextActive = req.body.isActive !== undefined ? !!req.body.isActive : doc.isActive;
+    const nextAccountId = req.body.accountId !== undefined ? (req.body.accountId || null) : doc.accountId;
 
     if (!nextCategory) return res.status(400).json({ success: false, message: 'Category is required' });
     if (!nextPath) return res.status(400).json({ success: false, message: 'Category path is required' });
@@ -240,6 +244,7 @@ router.put(
     doc.categoryPath = nextPath;
     doc.srNo = nextSr;
     doc.isActive = nextActive;
+    doc.accountId = nextAccountId;
     await doc.save();
 
     if (!doc.isCategoryRoot) {

@@ -8,7 +8,8 @@ const itemMasterSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     isActive: { type: Boolean, default: true },
     /** When true, this row exists only so the category appears before any real items are added. Hidden from indent item pickers. */
-    isCategoryRoot: { type: Boolean, default: false }
+    isCategoryRoot: { type: Boolean, default: false },
+    accountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null }
   },
   { timestamps: true }
 );

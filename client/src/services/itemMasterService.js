@@ -8,8 +8,8 @@ export const fetchItems = (params = {}) => api.get(base, { params });
 
 export const fetchItemMasterManageList = () => api.get(`${base}/manage-list`);
 
-export const createItemCategory = (category, categoryPath) =>
-  api.post(`${base}/categories`, { category, ...(categoryPath ? { categoryPath } : {}) });
+export const createItemCategory = (category, categoryPath, accountId) =>
+  api.post(`${base}/categories`, { category, ...(categoryPath ? { categoryPath } : {}), ...(accountId ? { accountId } : {}) });
 
 export const createItemMaster = (payload) => api.post(base, payload);
 

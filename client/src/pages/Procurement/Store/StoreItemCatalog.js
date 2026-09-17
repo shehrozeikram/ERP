@@ -29,7 +29,8 @@ import {
   Snackbar,
   CircularProgress,
   Toolbar,
-  InputAdornment
+  InputAdornment,
+  Autocomplete
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -46,6 +47,7 @@ import {
   updateItemMaster,
   deactivateItemMaster
 } from '../../../services/itemMasterService';
+import api from '../../../services/api';
 
 const StoreItemCatalog = () => {
   const [rows, setRows] = useState([]);
@@ -53,7 +55,25 @@ const StoreItemCatalog = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
-  const [categoryForm, setCategoryForm] = useState({ category: '' });
+  const [categoryForm, setCategoryForm] = useState({ category: '', accountId: null });
+
+  const [accounts, setAccounts] = useState([]);
+
+  useEffect(() => {
+    const fetchSgcAccounts = async () => {
+      try {
+        const compRes = await api.get('/finance/companies', { params: { status: 'active' } });
+        const sgc = (compRes.data?.data || []).find(c => String(c.name).trim().toUpperCase() === 'SARDAR GROUP OF COMPANIES');
+        if (sgc) {
+          const accRes = await api.get('/finance/accounts', { params: { companyId: sgc._id, limit: 5000 } });
+          setAccounts(accRes.data?.data || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch SGC accounts', err);
+      }
+    };
+    fetchSgcAccounts();
+  }, []);
 
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -61,7 +81,8 @@ const StoreItemCatalog = () => {
     category: '',
     categoryPath: '',
     name: '',
-    srNo: ''
+    srNo: '',
+    accountId: null
   });
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -107,7 +128,7 @@ const StoreItemCatalog = () => {
   }, [rows]);
 
   const openAddCategory = () => {
-    setCategoryForm({ category: '' });
+    setCategoryForm({ category: '', accountId: null });
     setCategoryDialogOpen(true);
   };
 
@@ -119,7 +140,7 @@ const StoreItemCatalog = () => {
     }
     try {
       setSaving(true);
-      await createItemCategory(c);
+      await createItemCategory(c, null, categoryForm.accountId ? categoryForm.accountId._id : null);
       setSnackbar({ open: true, message: 'Category created', severity: 'success' });
       setCategoryDialogOpen(false);
       setSearch('');
@@ -144,7 +165,8 @@ const StoreItemCatalog = () => {
       category: first,
       categoryPath: first,
       name: '',
-      srNo: ''
+      srNo: '',
+      accountId: null
     });
     setItemDialogOpen(true);
   };
@@ -155,7 +177,8 @@ const StoreItemCatalog = () => {
       category: row.category || '',
       categoryPath: row.categoryPath || row.category || '',
       name: row.isCategoryRoot ? '' : row.name || '',
-      srNo: row.srNo != null ? String(row.srNo) : ''
+      srNo: row.srNo != null ? String(row.srNo) : '',
+      accountId: accounts.find(a => a._id === (row.accountId?._id || row.accountId)) || null
     });
     setItemDialogOpen(true);
   };
@@ -177,7 +200,8 @@ const StoreItemCatalog = () => {
             category,
             categoryPath,
             name: category,
-            isActive: true
+            isActive: true,
+            accountId: itemForm.accountId ? itemForm.accountId._id : null
           });
           setSnackbar({ open: true, message: 'Category updated', severity: 'success' });
           setItemDialogOpen(false);
@@ -204,6 +228,7 @@ const StoreItemCatalog = () => {
           category,
           categoryPath,
           name,
+          accountId: itemForm.accountId ? itemForm.accountId._id : null,
           ...(Number.isFinite(sr) ? { srNo: sr } : {})
         });
         setSnackbar({ open: true, message: 'Item updated', severity: 'success' });
@@ -230,6 +255,7 @@ const StoreItemCatalog = () => {
         category,
         categoryPath,
         name,
+        accountId: itemForm.accountId ? itemForm.accountId._id : null,
         ...(itemForm.srNo?.trim() ? { srNo: parseInt(itemForm.srNo, 10) } : {})
       });
       setSnackbar({ open: true, message: 'Item created', severity: 'success' });
@@ -496,8 +522,16 @@ const StoreItemCatalog = () => {
             margin="normal"
             label="Category name"
             value={categoryForm.category}
-            onChange={(e) => setCategoryForm({ category: e.target.value })}
+            onChange={(e) => setCategoryForm({ ...categoryForm, category: e.target.value })}
             placeholder="e.g. Bricks, Cement, Electrical"
+          />
+          <Autocomplete
+            options={accounts}
+            getOptionLabel={(o) => o.accountNumber && o.name ? `${o.accountNumber} - ${o.name}` : o.name || ''}
+            value={categoryForm.accountId}
+            onChange={(e, v) => setCategoryForm({ ...categoryForm, accountId: v })}
+            renderInput={(params) => <TextField {...params} label="Chart of Account (SGC)" margin="normal" size="small" />}
+            isOptionEqualToValue={(o, v) => o._id === v._id}
           />
         </DialogContent>
         <DialogActions>
@@ -534,6 +568,14 @@ const StoreItemCatalog = () => {
                 value={itemForm.categoryPath}
                 onChange={(e) => setItemForm((f) => ({ ...f, categoryPath: e.target.value }))}
               />
+              <Autocomplete
+                options={accounts}
+                getOptionLabel={(o) => o.accountNumber && o.name ? `${o.accountNumber} - ${o.name}` : o.name || ''}
+                value={itemForm.accountId}
+                onChange={(e, v) => setItemForm((f) => ({ ...f, accountId: v }))}
+                renderInput={(params) => <TextField {...params} label="Chart of Account (SGC)" margin="normal" size="small" />}
+                isOptionEqualToValue={(o, v) => o._id === v._id}
+              />
             </>
           ) : editingId ? (
             <>
@@ -569,6 +611,14 @@ const StoreItemCatalog = () => {
                 label="Serial #"
                 value={itemForm.srNo}
                 onChange={(e) => setItemForm((f) => ({ ...f, srNo: e.target.value }))}
+              />
+              <Autocomplete
+                options={accounts}
+                getOptionLabel={(o) => o.accountNumber && o.name ? `${o.accountNumber} - ${o.name}` : o.name || ''}
+                value={itemForm.accountId}
+                onChange={(e, v) => setItemForm((f) => ({ ...f, accountId: v }))}
+                renderInput={(params) => <TextField {...params} label="Chart of Account (SGC)" margin="normal" size="small" />}
+                isOptionEqualToValue={(o, v) => o._id === v._id}
               />
             </>
           ) : (
@@ -616,6 +666,14 @@ const StoreItemCatalog = () => {
                 value={itemForm.srNo}
                 onChange={(e) => setItemForm((f) => ({ ...f, srNo: e.target.value }))}
                 placeholder="Auto if empty"
+              />
+              <Autocomplete
+                options={accounts}
+                getOptionLabel={(o) => o.accountNumber && o.name ? `${o.accountNumber} - ${o.name}` : o.name || ''}
+                value={itemForm.accountId}
+                onChange={(e, v) => setItemForm((f) => ({ ...f, accountId: v }))}
+                renderInput={(params) => <TextField {...params} label="Chart of Account (SGC)" margin="normal" size="small" />}
+                isOptionEqualToValue={(o, v) => o._id === v._id}
               />
             </>
           )}
