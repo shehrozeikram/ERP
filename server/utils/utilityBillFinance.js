@@ -43,10 +43,20 @@ const buildUtilityBillLineItems = (bill) => {
       const amt = round2(line.amount);
       const label = line.itemName || line.utilityType || 'Item';
       const loc = line.site || line.location || '';
-      const codePart = line.itemCode ? ` [${line.itemCode}]` : '';
+      let itemCode = line.itemCode || '';
+      if (!itemCode && line.storeItem) {
+        if (typeof line.storeItem === 'object' && line.storeItem.code) itemCode = line.storeItem.code;
+        if (typeof line.storeItem === 'object' && line.storeItem.itemCode) itemCode = line.storeItem.itemCode;
+      }
+      if (!itemCode) {
+        const text = [line.description, line.itemName].filter(Boolean).join(' ');
+        const match = text.match(/\[([A-Za-z0-9_-]+)\]/);
+        if (match && match[1]) itemCode = match[1];
+      }
+      const codePart = itemCode ? ` [${itemCode}]` : '';
       return {
         itemName: label,
-        itemCode: line.itemCode || '',
+        itemCode: itemCode,
         description: `${label}${codePart}${loc ? ` — ${loc}` : ''}${line.meterNumber ? ` (Meter ${line.meterNumber})` : ''}`.trim(),
         quantity: 1,
         unitPrice: amt,

@@ -66,16 +66,24 @@ export default function BillPrint() {
     notes: bill.notes || bill.internalNotes || getBillNarrationDisplay(bill),
     forWhat: bill.forWhat || getBillNarrationDisplay(bill),
     billLines: (bill.lineItems && bill.lineItems.length > 0)
-      ? bill.lineItems.map((line, idx) => ({
-          ...line,
-          category: line.category || line.accountName || line.account?.name || (line.accountNumber ? `Account ${line.accountNumber}` : '—'),
-          accountName: line.accountName || line.account?.name || '',
-          accountNumber: line.accountNumber || line.account?.accountNumber || '',
-          itemName: line.description || line.itemName || (line.accountNumber ? `Account ${line.accountNumber}` : 'Item'),
-          description: line.description || line.itemName || '',
-          itemCode: line.itemCode || line.accountNumber || '—',
-          amount: line.amount || (line.quantity * line.unitPrice) || 0
-        }))
+      ? bill.lineItems.map((line, idx) => {
+          let code = (line.itemCode && line.itemCode !== '—') ? line.itemCode : '';
+          if (!code) {
+            const text = [line.description, line.itemName].filter(Boolean).join(' ');
+            const match = text.match(/\[([A-Za-z0-9_-]+)\]/);
+            if (match && match[1]) code = match[1];
+          }
+          return {
+            ...line,
+            category: line.category || line.accountName || line.account?.name || (line.accountNumber ? `Account ${line.accountNumber}` : '—'),
+            accountName: line.accountName || line.account?.name || '',
+            accountNumber: line.accountNumber || line.account?.accountNumber || '',
+            itemName: line.itemName || line.description || (line.accountNumber ? `Account ${line.accountNumber}` : 'Item'),
+            description: line.description || line.itemName || '',
+            itemCode: code || line.accountNumber || '—',
+            amount: line.amount || (line.quantity * line.unitPrice) || 0
+          };
+        })
       : (bill.billLines || [])
   };
 

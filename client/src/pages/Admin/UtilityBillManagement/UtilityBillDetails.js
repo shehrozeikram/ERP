@@ -368,15 +368,30 @@ const UtilityBillDetails = () => {
       return '—';
     }
     const snap = displayValue(line?.itemCode);
-    if (snap) return snap;
+    if (snap && snap !== '—') return snap;
     const si = line?.storeItem;
     if (si && typeof si === 'object' && si.code) return String(si.code).trim();
+    if (si && typeof si === 'object' && si.itemCode) return String(si.itemCode).trim();
+    if (line?.productCode && String(line.productCode).trim() !== '' && String(line.productCode).trim() !== '—') {
+      return String(line.productCode).trim();
+    }
+    const text = [line?.description, line?.itemName, line?.notes].filter(Boolean).join(' ');
+    const match = text.match(/\[([A-Za-z0-9_-]+)\]/);
+    if (match && match[1]) return match[1].trim();
     return '—';
   };
 
   const getStoreLineProductCode = (line) => getStoreLineCategoryOrCode(line);
   const getStoreLineDescription = (line) => {
-    return line?.description || line?.itemName || '—';
+    const name = (line?.itemName || '').trim();
+    const desc = (line?.description || '').trim();
+    if (name && desc) {
+      if (name === desc) return name;
+      if (desc.includes(name)) return desc;
+      if (name.includes(desc)) return name;
+      return `${name} — ${desc}`;
+    }
+    return name || desc || '—';
   };
   const getStoreInvoiceNarration = () => displayValue(bill?.notes) || getForWhat() || '—';
   const getStoreInvoiceLinesTotal = () =>

@@ -53,12 +53,29 @@ export const getStoreLineProductCode = (line) => {
   if (snap !== '—') return snap;
   const si = line?.storeItem;
   if (si && typeof si === 'object' && si.code) return String(si.code).trim();
+  if (si && typeof si === 'object' && si.itemCode) return String(si.itemCode).trim();
+  if (line?.productCode && String(line.productCode).trim() !== '' && String(line.productCode).trim() !== '—') {
+    return String(line.productCode).trim();
+  }
+  if (line?.code && String(line.code).trim() !== '' && String(line.code).trim() !== '—') {
+    return String(line.code).trim();
+  }
+  const text = [line?.itemName, line?.description, line?.notes].filter(Boolean).join(' ');
+  const match = text.match(/\[([A-Za-z0-9_-]+)\]/);
+  if (match && match[1]) return match[1].trim();
   return '—';
 };
 
 export const getStoreLineDescription = (line) => {
-  const parts = [line?.itemName, line?.description].filter(Boolean);
-  return parts.join(' — ') || '—';
+  const name = (line?.itemName || '').trim();
+  const desc = (line?.description || '').trim();
+  if (name && desc) {
+    if (name === desc) return name;
+    if (desc.includes(name)) return desc;
+    if (name.includes(desc)) return name;
+    return `${name} — ${desc}`;
+  }
+  return name || desc || '—';
 };
 
 export const isChartOfAccountsBill = (bill) => {
