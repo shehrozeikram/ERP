@@ -210,6 +210,16 @@ const accountsPayableSchema = new mongoose.Schema({
   preAuditInitialApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   // Line items
   lineItems: [{
+    itemName: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    itemCode: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     description: {
       type: String,
       required: [true, 'Line item description is required'],

@@ -45,6 +45,8 @@ const buildUtilityBillLineItems = (bill) => {
       const loc = line.site || line.location || '';
       const codePart = line.itemCode ? ` [${line.itemCode}]` : '';
       return {
+        itemName: label,
+        itemCode: line.itemCode || '',
         description: `${label}${codePart}${loc ? ` — ${loc}` : ''}${line.meterNumber ? ` (Meter ${line.meterNumber})` : ''}`.trim(),
         quantity: 1,
         unitPrice: amt,

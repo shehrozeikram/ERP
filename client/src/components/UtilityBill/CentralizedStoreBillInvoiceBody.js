@@ -134,8 +134,9 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: '4%' }}>S. No</TableCell>
-              <TableCell sx={{ width: isCoa ? '18%' : '11%' }}>{isCoa ? 'Category' : 'Product Code'}</TableCell>
-              <TableCell sx={{ width: isCoa ? '32%' : '27%' }}>Description</TableCell>
+              <TableCell sx={{ width: isCoa ? '14%' : '11%' }}>{isCoa ? 'Category' : 'Product Code'}</TableCell>
+              <TableCell sx={{ width: '10%' }}>Company</TableCell>
+              <TableCell sx={{ width: isCoa ? '28%' : '23%' }}>Description</TableCell>
               <TableCell sx={{ width: '12%', '@media print': { display: 'none' } }}>Attachments</TableCell>
               <TableCell sx={{ width: '7%' }}>Units</TableCell>
               <TableCell sx={{ width: '8%', textAlign: 'right' }}>Quantity</TableCell>
@@ -162,6 +163,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                   <TableCell sx={{ wordBreak: 'break-word', fontSize: 11, fontWeight: isCoa ? 600 : 400 }}>
                     {categoryOrCode}
                   </TableCell>
+                  <TableCell sx={{ fontSize: 11 }}>{line.company || line.site || '—'}</TableCell>
                   <TableCell sx={{ lineHeight: 1.35 }}>{lineLabel}</TableCell>
                   <TableCell sx={{ '@media print': { display: 'none' } }}>
                     <LineAttachmentsView line={line} previewTitle={lineLabel} />
@@ -193,7 +195,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                 }
               }}
             >
-              <TableCell colSpan={6} align="right" sx={{ borderRight: '1px solid', borderColor: 'grey.400', '@media print': { display: 'table-cell' } }}>
+              <TableCell colSpan={7} align="right" sx={{ borderRight: '1px solid', borderColor: 'grey.400', '@media print': { display: 'table-cell' } }}>
                 Sub Total
               </TableCell>
               <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
