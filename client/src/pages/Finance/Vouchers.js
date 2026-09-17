@@ -148,6 +148,9 @@ const Vouchers = () => {
   const [viewDialog, setViewDialog] = useState({
     open: false,
     voucher: null,
+    billVoucher: null,
+    billVouchers: [],
+    activeVoucherSubTab: 'bill',
     po: null,
     poQuotations: [],
     poGrns: [],
@@ -337,6 +340,33 @@ const Vouchers = () => {
         }
       } catch (_) {}
 
+      // Resolve Bill Voucher (Voucher Type: BILL) created when the bill was created
+      let billVouchers = [];
+      if (fullVoucher.voucherSeries === 'BILL' || fullVoucher.referenceType === 'bill') {
+        billVouchers.push(fullVoucher);
+      } else {
+        if (poBills && poBills.length > 0) {
+          for (const b of poBills) {
+            try {
+              const jRes = await api.get(`/finance/journal-entries/by-bill/${b._id || b.billNumber}`).catch(() => null);
+              if (jRes?.data?.data && !billVouchers.some(jv => String(jv._id) === String(jRes.data.data._id))) {
+                billVouchers.push(jRes.data.data);
+              }
+            } catch (_) {}
+          }
+        }
+        if (billVouchers.length === 0 && (fullVoucher.reference || fullVoucher.referenceId)) {
+          try {
+            const target = fullVoucher.reference || fullVoucher.referenceId;
+            const jRes = await api.get(`/finance/journal-entries/by-bill/${target}`).catch(() => null);
+            if (jRes?.data?.data && !billVouchers.some(jv => String(jv._id) === String(jRes.data.data._id))) {
+              billVouchers.push(jRes.data.data);
+            }
+          } catch (_) {}
+        }
+      }
+      const billVoucher = billVouchers[0] || null;
+
       if (!poId) {
         const fallbackDocs = (fullVoucher.attachments || []).map((att, idx) => ({
           id: att._id || `att-${idx}`,
@@ -362,6 +392,9 @@ const Vouchers = () => {
         setViewDialog({
           open: true,
           voucher: fullVoucher,
+          billVoucher,
+          billVouchers,
+          activeVoucherSubTab: billVoucher ? 'bill' : 'payment',
           po: null,
           poBills,
           poQuotations: [],
@@ -448,6 +481,9 @@ const Vouchers = () => {
       setViewDialog({
         open: true,
         voucher: fullVoucher,
+        billVoucher,
+        billVouchers,
+        activeVoucherSubTab: billVoucher ? 'bill' : 'payment',
         po: d,
         poBills,
         poQuotations,
@@ -948,154 +984,197 @@ const Vouchers = () => {
               </Tabs>
 
               {/* ----------------- SECTION 0: VOUCHER DETAILS ----------------- */}
-              {(multiPrintMode ? printSelection.voucher : viewDialog.poAuditTab === 0) && viewDialog.voucher && (
-                <Box
-                  sx={{
-                    p: 2,
-                    '@media print': {
-                      p: 0,
-                      m: 0,
-                      pageBreakAfter: 'always',
-                      breakAfter: 'page',
-                      pageBreakInside: 'avoid',
-                      breakInside: 'avoid',
-                      height: 'auto',
-                      maxHeight: 'none',
-                      overflow: 'visible'
-                    }
-                  }}
-                >
-                  <Paper
-                    sx={{
-                      p: { xs: 3, sm: 3.5, md: 4 },
-                      maxWidth: '210mm',
-                      mx: 'auto',
-                      backgroundColor: '#fff',
-                      boxShadow: 'none',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      fontFamily: 'Arial, sans-serif',
-                      '@media print': {
-                        p: '10mm 14mm',
-                        boxShadow: 'none',
-                        border: 'none',
-                        maxWidth: '100%',
-                        mx: 0,
-                        pageBreakInside: 'avoid',
-                        breakInside: 'avoid'
-                      }
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, '@media print': { mb: 2 } }}>
-                      <Box>
-                        <Typography fontWeight={700} sx={{ fontSize: '1.4rem', '@media print': { fontSize: '1.65rem', lineHeight: 1.2 } }}>
-                          {viewDialog.voucher?.companyId?.name || viewDialog.voucher?.customCompany || 'Sardar Group of Companies'}
-                        </Typography>
-                        <Typography fontWeight={700} color="primary" sx={{ fontSize: '1.2rem', textTransform: 'uppercase', '@media print': { fontSize: '1.45rem', mt: 0.5, letterSpacing: 0.5 } }}>
-                          {viewDialog.voucher?.voucherSeries
-                            ? `${viewDialog.voucher.voucherSeries} Voucher`
-                            : `${String(viewDialog.voucher?.voucherType || viewDialog.voucher?.referenceType || 'Payment').toUpperCase()} VOUCHER`}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ textAlign: 'right' }}>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.5 } }}><strong>Date:</strong> {formatDateForPrint(viewDialog.voucher.date)}</Typography>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.05rem', mb: 0.5 } }}>
-                          <strong>Time:</strong> {viewDialog.voucher.createdAt
-                            ? new Date(viewDialog.voucher.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
-                            : new Date(viewDialog.voucher.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-                        </Typography>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Status:</strong> {getVoucherStatusDisplay(viewDialog.voucher).label}</Typography>
-                      </Box>
-                    </Box>
+              {(multiPrintMode ? printSelection.voucher : viewDialog.poAuditTab === 0) && (viewDialog.billVoucher || viewDialog.voucher) && (
+                (() => {
+                  const activeVoucher = (multiPrintMode && viewDialog.billVoucher)
+                    ? viewDialog.billVoucher
+                    : (viewDialog.activeVoucherSubTab === 'payment' && viewDialog.voucher)
+                      ? viewDialog.voucher
+                      : (viewDialog.billVoucher || viewDialog.voucher);
+                  if (!activeVoucher) return null;
 
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, p: 2, bgcolor: '#f9f9f9', borderRadius: 1, border: '1px solid #eee', '@media print': { p: 1.8, mb: 2, bgcolor: '#fcfcfc', border: '1.5px solid #ddd' } }}>
-                      <Box sx={{ '@media print': { lineHeight: 1.7 } }}>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Voucher No:</strong> {viewDialog.voucher.entryNumber || '—'}</Typography>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Voucher Type:</strong> {viewDialog.voucher.voucherType || viewDialog.voucher.referenceType || '—'}</Typography>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Reference:</strong> {viewDialog.voucher.reference || '—'}</Typography>
-                      </Box>
-                      <Box sx={{ textAlign: 'right', '@media print': { lineHeight: 1.7 } }}>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Amount:</strong> {formatPKR(viewDialog.voucher.totalDebits || 0)}</Typography>
-                        <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Module:</strong> {viewDialog.voucher.module || 'Finance'}</Typography>
-                        {viewDialog.voucher.signedBySignatory && (
-                          <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Signed By:</strong> {viewDialog.voucher.signedBySignatory}</Typography>
+                  const hasBothVouchers = Boolean(
+                    viewDialog.billVoucher &&
+                    viewDialog.voucher &&
+                    String(viewDialog.billVoucher._id || '') !== String(viewDialog.voucher._id || '')
+                  );
+
+                  return (
+                    <Box
+                      sx={{
+                        p: 2,
+                        '@media print': {
+                          p: 0,
+                          m: 0,
+                          pageBreakAfter: 'always',
+                          breakAfter: 'page',
+                          pageBreakInside: 'avoid',
+                          breakInside: 'avoid',
+                          height: 'auto',
+                          maxHeight: 'none',
+                          overflow: 'visible'
+                        }
+                      }}
+                    >
+                      {/* Sub-tab toggle for Screen view when viewing linked Payment Voucher */}
+                      {hasBothVouchers && !multiPrintMode && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, '@media print': { display: 'none !important' } }}>
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button
+                              size="small"
+                              variant={viewDialog.activeVoucherSubTab === 'bill' ? 'contained' : 'outlined'}
+                              onClick={() => setViewDialog((prev) => ({ ...prev, activeVoucherSubTab: 'bill' }))}
+                              startIcon={<VoucherIcon />}
+                              sx={{ textTransform: 'none', fontWeight: 600 }}
+                            >
+                              Bill Voucher ({viewDialog.billVoucher.entryNumber || 'Voucher Type: BILL'})
+                            </Button>
+                            <Button
+                              size="small"
+                              variant={viewDialog.activeVoucherSubTab === 'payment' ? 'contained' : 'outlined'}
+                              onClick={() => setViewDialog((prev) => ({ ...prev, activeVoucherSubTab: 'payment' }))}
+                              sx={{ textTransform: 'none', fontWeight: 600 }}
+                            >
+                              Payment Voucher ({viewDialog.voucher.entryNumber || 'Payment'})
+                            </Button>
+                          </Box>
+                          <Typography variant="caption" color="text.secondary">
+                            (Print All will print the <strong>Bill Voucher</strong>)
+                          </Typography>
+                        </Box>
+                      )}
+
+                      <Paper
+                        sx={{
+                          p: { xs: 3, sm: 3.5, md: 4 },
+                          maxWidth: '210mm',
+                          mx: 'auto',
+                          backgroundColor: '#fff',
+                          boxShadow: 'none',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          fontFamily: 'Arial, sans-serif',
+                          '@media print': {
+                            p: '10mm 14mm',
+                            boxShadow: 'none',
+                            border: 'none',
+                            maxWidth: '100%',
+                            mx: 0,
+                            pageBreakInside: 'avoid',
+                            breakInside: 'avoid'
+                          }
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, '@media print': { mb: 2 } }}>
+                          <Box>
+                            <Typography fontWeight={700} sx={{ fontSize: '1.4rem', '@media print': { fontSize: '1.65rem', lineHeight: 1.2 } }}>
+                              {activeVoucher?.companyId?.name || activeVoucher?.customCompany || 'Sardar Group of Companies'}
+                            </Typography>
+                            <Typography fontWeight={700} color="primary" sx={{ fontSize: '1.2rem', textTransform: 'uppercase', '@media print': { fontSize: '1.45rem', mt: 0.5, letterSpacing: 0.5 } }}>
+                              {activeVoucher?.voucherSeries
+                                ? `${activeVoucher.voucherSeries} Voucher`
+                                : `${String(activeVoucher?.voucherType || activeVoucher?.referenceType || 'Bill').toUpperCase()} VOUCHER`}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.5 } }}><strong>Date:</strong> {formatDateForPrint(activeVoucher.date)}</Typography>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.05rem', mb: 0.5 } }}>
+                              <strong>Time:</strong> {activeVoucher.createdAt
+                                ? new Date(activeVoucher.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+                                : new Date(activeVoucher.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                            </Typography>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Status:</strong> {getVoucherStatusDisplay(activeVoucher).label}</Typography>
+                          </Box>
+                        </Box>
+
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, p: 2, bgcolor: '#f9f9f9', borderRadius: 1, border: '1px solid #eee', '@media print': { p: 1.8, mb: 2, bgcolor: '#fcfcfc', border: '1.5px solid #ddd' } }}>
+                          <Box sx={{ '@media print': { lineHeight: 1.7 } }}>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Voucher No:</strong> {activeVoucher.entryNumber || '—'}</Typography>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Voucher Type:</strong> {String(activeVoucher.voucherType || activeVoucher.voucherSeries || activeVoucher.referenceType || 'BILL').toUpperCase()}</Typography>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Reference:</strong> {activeVoucher.reference || '—'}</Typography>
+                          </Box>
+                          <Box sx={{ textAlign: 'right', '@media print': { lineHeight: 1.7 } }}>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Amount:</strong> {formatPKR(activeVoucher.totalDebits || 0)}</Typography>
+                            <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.4 } }}><strong>Module:</strong> {activeVoucher.module || 'Finance'}</Typography>
+                            {activeVoucher.signedBySignatory && (
+                              <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem' } }}><strong>Signed By:</strong> {activeVoucher.signedBySignatory}</Typography>
+                            )}
+                          </Box>
+                        </Box>
+
+                        {activeVoucher.description && (
+                          <Box sx={{ mb: 2.5, '@media print': { mb: 2 } }}>
+                            <Typography variant="subtitle2" fontWeight={700} sx={{ '@media print': { fontSize: '1.15rem', mb: 0.5 } }}>Narration / Description:</Typography>
+                            <Typography variant="body2" sx={{ p: 1.5, bgcolor: '#fcfcfc', border: '1px solid #eee', borderRadius: 0.5, '@media print': { fontSize: '1.05rem', p: 1.2, border: '1.5px solid #ddd' } }}>
+                              {activeVoucher.description}
+                            </Typography>
+                          </Box>
                         )}
-                      </Box>
-                    </Box>
 
-                    {viewDialog.voucher.description && (
-                      <Box sx={{ mb: 2.5, '@media print': { mb: 2 } }}>
-                        <Typography variant="subtitle2" fontWeight={700} sx={{ '@media print': { fontSize: '1.15rem', mb: 0.5 } }}>Narration / Description:</Typography>
-                        <Typography variant="body2" sx={{ p: 1.5, bgcolor: '#fcfcfc', border: '1px solid #eee', borderRadius: 0.5, '@media print': { fontSize: '1.05rem', p: 1.2, border: '1.5px solid #ddd' } }}>
-                          {viewDialog.voucher.description}
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, '@media print': { fontSize: '1.25rem', mb: 0.8 } }}>
+                          Accounting Entries &amp; Lines
                         </Typography>
-                      </Box>
-                    )}
+                        <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', mb: 2.5, '@media print': { mb: 2, border: '1.5px solid #000' } }}>
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'grey.100', '@media print': { bgcolor: '#f2f2f2' } }}>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Account Title</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Narration</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Ref</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }} align="right">Debit (PKR)</TableCell>
+                              <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }} align="right">Credit (PKR)</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {(activeVoucher.lines || []).map((line, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>
+                                  {line?.account?.name || line?.accountTitle || '—'}
+                                  {line?.account?.accountNumber ? (
+                                    <Typography variant="caption" display="block" color="text.secondary" sx={{ '@media print': { fontSize: '0.85rem' } }}>({line.account.accountNumber})</Typography>
+                                  ) : null}
+                                </TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{line.description || activeVoucher.description || '—'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>
+                                  {(() => {
+                                    const acc = line?.account || {};
+                                    const category = (acc.category || line?.category || '').toLowerCase();
+                                    const detailType = (acc.detailType || line?.detailType || '').toLowerCase();
+                                    const accountCode = (acc.accountCode || line?.accountCode || '').toUpperCase();
+                                    const name = (acc.name || line?.accountTitle || line?.name || '').toLowerCase();
 
-                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, '@media print': { fontSize: '1.25rem', mb: 0.8 } }}>
-                      Accounting Entries &amp; Lines
-                    </Typography>
-                    <Table size="small" sx={{ border: '1px solid', borderColor: 'divider', mb: 2.5, '@media print': { mb: 2, border: '1.5px solid #000' } }}>
-                      <TableHead>
-                        <TableRow sx={{ bgcolor: 'grey.100', '@media print': { bgcolor: '#f2f2f2' } }}>
-                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Account Title</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Narration</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>Ref</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }} align="right">Debit (PKR)</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }} align="right">Credit (PKR)</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {(viewDialog.voucher.lines || []).map((line, idx) => (
-                          <TableRow key={idx}>
-                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>
-                              {line?.account?.name || line?.accountTitle || '—'}
-                              {line?.account?.accountNumber ? (
-                                <Typography variant="caption" display="block" color="text.secondary" sx={{ '@media print': { fontSize: '0.85rem' } }}>({line.account.accountNumber})</Typography>
-                              ) : null}
-                            </TableCell>
-                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{line.description || viewDialog.voucher.description || '—'}</TableCell>
-                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>
-                              {(() => {
-                                const acc = line?.account || {};
-                                const category = (acc.category || line?.category || '').toLowerCase();
-                                const detailType = (acc.detailType || line?.detailType || '').toLowerCase();
-                                const accountCode = (acc.accountCode || line?.accountCode || '').toUpperCase();
-                                const name = (acc.name || line?.accountTitle || line?.name || '').toLowerCase();
+                                    const isTaxOrWhtLine = accountCode.includes('WHT') || accountCode.includes('TAX') ||
+                                      name.includes('wht') || name.includes('withholding') || name.includes('tax payable') || name.includes('income tax');
 
-                                const isTaxOrWhtLine = accountCode.includes('WHT') || accountCode.includes('TAX') ||
-                                  name.includes('wht') || name.includes('withholding') || name.includes('tax payable') || name.includes('income tax');
+                                    if (isTaxOrWhtLine) {
+                                      return '—';
+                                    }
 
-                                if (isTaxOrWhtLine) {
-                                  return '—';
-                                }
+                                    const isBankOrCashLine = line?.isBank || line?.isBankLine ||
+                                      category.includes('bank') || category.includes('cash') ||
+                                      detailType.includes('bank') || detailType.includes('cash') ||
+                                      accountCode.includes('BANK') || accountCode.includes('CASH') ||
+                                      name.includes('bank') || name.includes('hbl') || name.includes('meezan') || name.includes('mcb') || name.includes('ubl') || name.includes('faysal') || name.includes('bop') || name.includes('allied') || name.includes('cash') || name.includes('c/a') || name.includes('a/c');
 
-                                const isBankOrCashLine = line?.isBank || line?.isBankLine ||
-                                  category.includes('bank') || category.includes('cash') ||
-                                  detailType.includes('bank') || detailType.includes('cash') ||
-                                  accountCode.includes('BANK') || accountCode.includes('CASH') ||
-                                  name.includes('bank') || name.includes('hbl') || name.includes('meezan') || name.includes('mcb') || name.includes('ubl') || name.includes('faysal') || name.includes('bop') || name.includes('allied') || name.includes('cash') || name.includes('c/a') || name.includes('a/c');
-
-                                if (line?.reference || line?.chequeNumber) {
-                                  return line.reference || line.chequeNumber;
-                                }
-                                if (isBankOrCashLine) {
-                                  return viewDialog.voucher.chequeNumber || viewDialog.voucher.reference || '—';
-                                }
-                                return '—';
-                              })()}
-                            </TableCell>
-                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.debit ? formatPKR(line.debit) : '0'}</TableCell>
-                            <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.credit ? formatPKR(line.credit) : '0'}</TableCell>
-                          </TableRow>
-                        ))}
-                        <TableRow sx={{ bgcolor: '#fafafa', '@media print': { bgcolor: '#f5f5f5' } }}>
-                          <TableCell colSpan={3} align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>Total</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>{formatPKR(viewDialog.voucher.totalDebits || 0)}</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>{formatPKR(viewDialog.voucher.totalCredits || 0)}</TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
+                                    if (line?.reference || line?.chequeNumber) {
+                                      return line.reference || line.chequeNumber;
+                                    }
+                                    if (isBankOrCashLine) {
+                                      return activeVoucher.chequeNumber || activeVoucher.reference || '—';
+                                    }
+                                    return '—';
+                                  })()}
+                                </TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.debit ? formatPKR(line.debit) : '0'}</TableCell>
+                                <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.credit ? formatPKR(line.credit) : '0'}</TableCell>
+                              </TableRow>
+                            ))}
+                            <TableRow sx={{ bgcolor: '#fafafa', '@media print': { bgcolor: '#f5f5f5' } }}>
+                              <TableCell colSpan={3} align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>Total</TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>{formatPKR(activeVoucher.totalDebits || 0)}</TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 700, border: '1px solid', borderColor: 'divider', '@media print': { py: 1.2, px: 1.5, fontSize: '1.15rem', border: '1px solid #000' } }}>{formatPKR(activeVoucher.totalCredits || 0)}</TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
 
                     {/* Voucher Finance Approval Authorities */}
                     {viewDialog.financeAuthorityDoc && (
@@ -1172,7 +1251,9 @@ const Vouchers = () => {
                     )}
                   </Paper>
                 </Box>
-              )}
+              );
+            })()
+          )}
 
               {/* ----------------- SECTION 1: INDENT ----------------- */}
               {(multiPrintMode ? (printSelection.indent && viewDialog.po?.indent) : viewDialog.poAuditTab === 1) && (
@@ -2084,8 +2165,12 @@ const Vouchers = () => {
               }
               label={
                 <Box>
-                  <Typography variant="body2" fontWeight={600}>Voucher (General Ledger &amp; Lines)</Typography>
-                  <Typography variant="caption" color="text.secondary">Voucher summary, accounting entries &amp; authorities</Typography>
+                  <Typography variant="body2" fontWeight={600}>
+                    {viewDialog.billVoucher ? `Bill Voucher (${viewDialog.billVoucher.entryNumber || 'Voucher Type: BILL'})` : 'Voucher (General Ledger & Lines)'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {viewDialog.billVoucher ? 'Bill creation voucher entries & lines (Voucher Type: BILL)' : 'Voucher summary, accounting entries & authorities'}
+                  </Typography>
                 </Box>
               }
               sx={{ mb: 1 }}

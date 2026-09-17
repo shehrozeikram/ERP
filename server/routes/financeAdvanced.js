@@ -928,6 +928,68 @@ router.get('/journal-entries',
   })
 );
 
+// @route   GET /api/finance/journal-entries/by-bill/:billIdOrNumber
+// @desc    Get bill journal entry (Voucher Type: BILL) linked to a bill ID or billNumber
+// @access  Private (Finance and Admin)
+router.get('/journal-entries/by-bill/:billIdOrNumber',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const raw = String(req.params.billIdOrNumber || '').trim();
+    if (!raw) return res.json({ success: true, data: null });
+
+    const isOid = mongoose.Types.ObjectId.isValid(raw);
+    const orQueries = [
+      { reference: raw },
+      { reference: { $regex: `^${raw}$`, $options: 'i' } }
+    ];
+    if (isOid) {
+      orQueries.push({ referenceId: raw });
+    }
+
+    let entry = await JournalEntry.findOne({
+      $or: orQueries,
+      $or: [
+        { referenceType: 'bill' },
+        { voucherSeries: 'BILL' }
+      ]
+    })
+      .populate('companyId', 'name companyCode')
+      .populate('lines.account', 'accountNumber name type category')
+      .populate('createdBy', 'firstName lastName')
+      .populate('approvedBy', 'firstName lastName')
+      .populate('project', 'name code')
+      .populate('costCenter', 'name code')
+      .lean();
+
+    if (!entry && isOid) {
+      const AccountsPayable = require('../models/finance/AccountsPayable');
+      const apDoc = await AccountsPayable.findById(raw).lean();
+      if (apDoc?.billNumber) {
+        entry = await JournalEntry.findOne({
+          $or: [
+            { reference: apDoc.billNumber },
+            { reference: { $regex: `^${apDoc.billNumber}$`, $options: 'i' } },
+            { referenceId: apDoc._id }
+          ],
+          $or: [
+            { referenceType: 'bill' },
+            { voucherSeries: 'BILL' }
+          ]
+        })
+          .populate('companyId', 'name companyCode')
+          .populate('lines.account', 'accountNumber name type category')
+          .populate('createdBy', 'firstName lastName')
+          .populate('approvedBy', 'firstName lastName')
+          .populate('project', 'name code')
+          .populate('costCenter', 'name code')
+          .lean();
+      }
+    }
+
+    res.json({ success: true, data: entry || null });
+  })
+);
+
 // @route   GET /api/finance/journal-entries/:id
 // @desc    Get single journal entry with populated lines
 // @access  Private (Finance and Admin)
