@@ -138,7 +138,12 @@ const FinalSettlementForm = () => {
       houseRent: parseAmount(e.houseRent),
       medicalAllowance: parseAmount(e.medicalAllowance),
       conveyanceAllowance: parseAmount(e.transportAllowance),
-      otherAllowances: parseAmount(e.otherAllowances) + parseAmount(e.foodAllowance) + parseAmount(e.vehicleAllowance) + parseAmount(e.fuelAllowance) + parseAmount(e.specialAllowance) + parseAmount(e.otherEarnings),
+      foodAllowance: parseAmount(e.foodAllowance),
+      vehicleAllowance: parseAmount(e.vehicleAllowance),
+      fuelAllowance: parseAmount(e.fuelAllowance),
+      specialAllowance: parseAmount(e.specialAllowance),
+      otherAllowances: parseAmount(e.otherAllowances),
+      otherEarnings: parseAmount(e.otherEarnings),
       overtime: parseAmount(e.overtime),
       bonus: parseAmount(e.bonus),
       gratuity: parseAmount(e.gratuity),
@@ -406,17 +411,28 @@ const FinalSettlementForm = () => {
       
       setSelectedEmployee(processedEmployee);
       
+      // Helper to safely extract numeric allowance amount
+      const getAllow = (key) => {
+        const a = employee.allowances?.[key] || employee.salary?.[key];
+        if (a == null) return 0;
+        if (typeof a === 'number') return a > 0 ? a : 0;
+        if (typeof a === 'object') {
+          if (a.isActive === false) return 0;
+          return Number(a.amount) || 0;
+        }
+        return Number(a) || 0;
+      };
+
       // Calculate salary breakdown
       const grossSalary = Math.round(employee.salary?.gross || 70000);
-      // Fetch allowances from employee profile if available
-      const medicalAllowance = employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0;
-      const houseRentAllowance = employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0;
-      const foodAllowance = employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0;
-      const vehicleAllowance = employee.allowances?.vehicle?.isActive ? employee.allowances.vehicle.amount : 0;
-      const fuelAllowance = employee.allowances?.fuel?.isActive ? employee.allowances.fuel.amount : 0;
-      const specialAllowance = employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0;
-      const otherAllowances = employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0;
-      const transportAllowance = employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0;
+      const medicalAllowance = getAllow('medical');
+      const houseRentAllowance = getAllow('houseRent');
+      const foodAllowance = getAllow('food');
+      const vehicleAllowance = getAllow('vehicle');
+      const fuelAllowance = getAllow('fuel');
+      const specialAllowance = getAllow('special');
+      const otherAllowances = getAllow('other');
+      const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
       const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
       const basicSalary = employee.salary?.basic ? Math.round(employee.salary.basic) : Math.max(0, grossSalary - allowancesSum);
@@ -537,14 +553,18 @@ const FinalSettlementForm = () => {
           basicSalary: earnings.basicSalary || 0,
           houseRent: earnings.houseRent || 0,
           medicalAllowance: earnings.medicalAllowance || 0,
-          transportAllowance: earnings.conveyanceAllowance || 0,
+          transportAllowance: earnings.conveyanceAllowance || earnings.transportAllowance || 0,
+          foodAllowance: earnings.foodAllowance || 0,
+          vehicleAllowance: earnings.vehicleAllowance || 0,
+          fuelAllowance: earnings.fuelAllowance || 0,
+          specialAllowance: earnings.specialAllowance || 0,
           otherAllowances: earnings.otherAllowances || 0,
           leaveEncashment: earnings.leaveEncashment || 0,
           noticePay: earnings.noticePay || 0,
           gratuity: earnings.gratuity || 0,
           bonus: earnings.bonus || 0,
           overtime: earnings.overtime || 0,
-          otherEarnings: 0
+          otherEarnings: earnings.otherEarnings || 0
         },
         deductions: {
           noticePeriodDeduction: deductions.noticePeriodDeduction || 0,
@@ -680,37 +700,45 @@ const FinalSettlementForm = () => {
       return Math.round((baseAmount / 30) * servedDays);
     };
 
+    const getAllow = (key) => {
+      const a = selectedEmployee.allowances?.[key] || selectedEmployee.salary?.[key];
+      if (a == null) return 0;
+      if (typeof a === 'number') return a > 0 ? a : 0;
+      if (typeof a === 'object') {
+        if (a.isActive === false) return 0;
+        return Number(a.amount) || 0;
+      }
+      return Number(a) || 0;
+    };
+
     const grossSalary = Math.round(selectedEmployee.salary?.gross || formik.values.grossSalary || 70000);
-    const medicalAllowance = selectedEmployee.allowances?.medical?.isActive ? selectedEmployee.allowances.medical.amount : 0;
-    const houseRentAllowance = selectedEmployee.allowances?.houseRent?.isActive ? selectedEmployee.allowances.houseRent.amount : 0;
-    const foodAllowance = selectedEmployee.allowances?.food?.isActive ? selectedEmployee.allowances.food.amount : 0;
-    const vehicleAllowance = selectedEmployee.allowances?.vehicle?.isActive ? selectedEmployee.allowances.vehicle.amount : 0;
-    const fuelAllowance = selectedEmployee.allowances?.fuel?.isActive ? selectedEmployee.allowances.fuel.amount : 0;
-    const specialAllowance = selectedEmployee.allowances?.special?.isActive ? selectedEmployee.allowances.special.amount : 0;
-    const otherAllowances = selectedEmployee.allowances?.other?.isActive ? selectedEmployee.allowances.other.amount : 0;
-    const transportAllowance = selectedEmployee.allowances?.conveyance?.isActive ? selectedEmployee.allowances.conveyance.amount : 0;
+    const medicalAllowance = getAllow('medical');
+    const houseRentAllowance = getAllow('houseRent');
+    const foodAllowance = getAllow('food');
+    const vehicleAllowance = getAllow('vehicle');
+    const fuelAllowance = getAllow('fuel');
+    const specialAllowance = getAllow('special');
+    const otherAllowances = getAllow('other');
+    const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
     const allowancesSum = medicalAllowance + houseRentAllowance + foodAllowance + vehicleAllowance + fuelAllowance + specialAllowance + otherAllowances + transportAllowance;
     const basicSalary = selectedEmployee.salary?.basic ? Math.round(selectedEmployee.salary.basic) : Math.max(0, grossSalary - allowancesSum);
-    
+
     formik.setFieldValue('earnings.basicSalary', prorate(basicSalary));
-    
-    if (selectedEmployee.allowances) {
-      if (selectedEmployee.allowances.medical?.isActive) formik.setFieldValue('earnings.medicalAllowance', prorate(selectedEmployee.allowances.medical.amount));
-      if (selectedEmployee.allowances.houseRent?.isActive) formik.setFieldValue('earnings.houseRent', prorate(selectedEmployee.allowances.houseRent.amount));
-      if (selectedEmployee.allowances.conveyance?.isActive) formik.setFieldValue('earnings.transportAllowance', prorate(selectedEmployee.allowances.conveyance.amount));
-      if (selectedEmployee.allowances.food?.isActive) formik.setFieldValue('earnings.foodAllowance', prorate(selectedEmployee.allowances.food.amount));
-      if (selectedEmployee.allowances.vehicle?.isActive) formik.setFieldValue('earnings.vehicleAllowance', prorate(selectedEmployee.allowances.vehicle.amount));
-      if (selectedEmployee.allowances.fuel?.isActive) formik.setFieldValue('earnings.fuelAllowance', prorate(selectedEmployee.allowances.fuel.amount));
-      if (selectedEmployee.allowances.special?.isActive) formik.setFieldValue('earnings.specialAllowance', prorate(selectedEmployee.allowances.special.amount));
-      if (selectedEmployee.allowances.other?.isActive) formik.setFieldValue('earnings.otherAllowances', prorate(selectedEmployee.allowances.other.amount));
-    }
-    
+    formik.setFieldValue('earnings.medicalAllowance', prorate(medicalAllowance));
+    formik.setFieldValue('earnings.houseRent', prorate(houseRentAllowance));
+    formik.setFieldValue('earnings.transportAllowance', prorate(transportAllowance));
+    formik.setFieldValue('earnings.foodAllowance', prorate(foodAllowance));
+    formik.setFieldValue('earnings.vehicleAllowance', prorate(vehicleAllowance));
+    formik.setFieldValue('earnings.fuelAllowance', prorate(fuelAllowance));
+    formik.setFieldValue('earnings.specialAllowance', prorate(specialAllowance));
+    formik.setFieldValue('earnings.otherAllowances', prorate(otherAllowances));
+
     // Ensure notice period deduction is 0 since we've prorated the earnings directly
     if (formik.values.deductions.noticePeriodDeduction !== 0) {
       formik.setFieldValue('deductions.noticePeriodDeduction', 0);
     }
-    
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formik.values.noticePeriodServed, selectedEmployee]);
 
