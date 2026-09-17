@@ -578,9 +578,11 @@ router.post('/accounts',
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error("Journal Entry Validation Error (PUT):", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        errors: errors.array(),
         errors: errors.array()
       });
     }
@@ -641,9 +643,11 @@ router.put('/accounts/:id',
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error("Journal Entry Validation Error (PUT):", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        errors: errors.array(),
         errors: errors.array()
       });
     }
@@ -1205,9 +1209,11 @@ router.post('/journal-entries',
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error("Journal Entry Validation Error:", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        errors: errors.array(),
         errors: errors.array()
       });
     }
@@ -1393,9 +1399,11 @@ router.put('/journal-entries/:id',
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error("Journal Entry Validation Error (PUT):", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        errors: errors.array(),
         errors: errors.array()
       });
     }
@@ -1909,9 +1917,11 @@ router.post('/accounts-receivable',
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error("Journal Entry Validation Error (PUT):", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        errors: errors.array(),
         errors: errors.array()
       });
     }
@@ -3505,9 +3515,11 @@ router.post('/accounts-payable',
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error("Journal Entry Validation Error (PUT):", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        errors: errors.array(),
         errors: errors.array()
       });
     }
@@ -4145,9 +4157,11 @@ router.post('/banking',
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error("Journal Entry Validation Error (PUT):", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        errors: errors.array(),
         errors: errors.array()
       });
     }
