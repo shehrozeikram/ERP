@@ -46,8 +46,7 @@ const employeeSchema = new mongoose.Schema({
   idCard: {
     type: String,
     required: [true, 'ID Card number is required'],
-    trim: true,
-    unique: true
+    trim: true
   },
   nationality: {
     type: String,
@@ -1331,6 +1330,11 @@ const employeeSchema = new mongoose.Schema({
 employeeSchema.index(
   { employeeId: 1 },
   { unique: true, partialFilterExpression: { isDeleted: false } }
+);
+// Partial unique: idCard must be unique only among active non-deleted employees (allows creating a new employee with the same ID card if previous employee is inactive/terminated)
+employeeSchema.index(
+  { idCard: 1 },
+  { unique: true, partialFilterExpression: { isActive: true, isDeleted: false } }
 );
 // Partial index: only index non-empty emails. Allows multiple docs with null/empty email.
 employeeSchema.index(

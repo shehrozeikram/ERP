@@ -65,9 +65,16 @@ const connectDB = async () => {
         : `✅ MongoDB Connected: ${conn.connection.host}`
     );
 
-    // Sync partial unique indexes (employeeId, land moza slug, etc.)
+    // Sync partial unique indexes (employeeId, idCard, land moza slug, etc.)
     try {
       const Employee = require('../models/hr/Employee');
+      const empIndexes = await Employee.collection.indexes();
+      for (const idx of empIndexes) {
+        if (idx.name === 'idCard_1' && !idx.partialFilterExpression) {
+          console.log('🔄 Dropping old non-partial idCard_1 index on Employee collection...');
+          await Employee.collection.dropIndex('idCard_1');
+        }
+      }
       await Employee.syncIndexes();
     } catch (syncErr) {
       console.warn('⚠️ Employee index sync skipped:', syncErr.message);

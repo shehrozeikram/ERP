@@ -619,6 +619,21 @@ router.post('/employees', [
       employeeData.allowances = buildAllowancesPayload(employeeData.allowances);
     }
 
+    // Check if another ACTIVE employee already exists with the same ID Card number
+    if (employeeData.idCard) {
+      const activeEmpWithSameIdCard = await Employee.findOne({
+        idCard: employeeData.idCard.trim(),
+        isActive: true,
+        isDeleted: false
+      });
+      if (activeEmpWithSameIdCard) {
+        return res.status(400).json({
+          success: false,
+          message: `An active employee (${activeEmpWithSameIdCard.firstName} ${activeEmpWithSameIdCard.lastName || ''} - Code: ${activeEmpWithSameIdCard.employeeId}) already exists with ID Card "${employeeData.idCard}".`
+        });
+      }
+    }
+
     const { applyEmploymentStatusSync } = require('../utils/employeeEmploymentStatus');
     const employee = new Employee(applyEmploymentStatusSync(employeeData));
     await employee.save();
@@ -644,7 +659,7 @@ router.post('/employees', [
     } else if (field === 'idCard') {
       return res.status(400).json({
         success: false,
-        message: `An employee with ID Card "${value}" already exists. Please use a different ID Card number.`
+        message: `An active employee with ID Card "${value}" already exists. Please use a different ID Card number or deactivate the existing employee.`
       });
     } else {
       return res.status(400).json({
@@ -1229,7 +1244,7 @@ router.put('/employees/:id', [
         if (field === 'idCard') {
           return res.status(400).json({
             success: false,
-            message: `An employee with ID Card "${value}" already exists. Please use a different ID Card number.`
+            message: `An active employee with ID Card "${value}" already exists. Please use a different ID Card number or deactivate the existing employee.`
           });
         }
       }
