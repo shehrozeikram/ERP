@@ -1744,11 +1744,12 @@ const AccountsPayable = () => {
                         <TableCell>
                           <Box sx={{ display: 'flex', gap: 0.5 }}>
                             <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon fontSize="small" /></IconButton></Tooltip>
-                            {bill.status === 'paid' || outstanding <= 0 ? (
+                            {getSettlementPending(bill) > 0 && (
                               <Tooltip title="View Pending Voucher">
                                 <Chip onClick={() => handleVoucherCreatedClick(bill)} label="VOUCHER CREATED" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem', cursor: 'pointer' }} />
                               </Tooltip>
-                            ) : (
+                            )}
+                            {bill.status !== 'paid' && outstanding > 0 && (
                               <Tooltip title="Make Payment">
                                 <IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)}>
                                   <PaymentIcon fontSize="small" />

@@ -1,0 +1,5 @@
+#!/usr/bin/expect -f
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no root@68.183.215.177 "rm -f /var/www/sgc-erp/query.js /var/www/sgc-erp/query_ren.js /var/www/sgc-erp/query_ren2.js /var/www/sgc-erp/search_all.js /var/www/sgc-erp/get_bill.js /var/www/sgc-erp/get_ap.js /var/www/sgc-erp/update_prod.js /var/www/sgc-erp/update_prod2.js"
+expect "password:" { send "sardar1Sahab\r" }
+expect eof
