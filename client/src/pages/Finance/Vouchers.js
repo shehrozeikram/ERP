@@ -1922,118 +1922,273 @@ const Vouchers = () => {
                             });
                           };
 
-                          const userDisplayName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.name || '-';
-                          const history = Array.isArray(b.workflowHistory) ? [...b.workflowHistory].reverse() : [];
-                          const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
-                          const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
+                          const userDisplayName = (u) => {
+                            if (!u) return '-';
+                            if (typeof u === 'string') return u;
+                            const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.name || u.email;
+                            return name || '-';
+                          };
 
-                          const rows = [
-                            {
-                              authority: 'Sig of Requester',
-                              name: userDisplayName(b.createdBy),
-                              signatureUser: b.createdBy,
-                              dateTime: b.createdAt ? formatDateTime(b.createdAt) : '-'
-                            },
-                            {
-                              authority: 'Pre-Audit Authority',
-                              name: userDisplayName(preAuditEntry?.changedBy),
-                              signatureUser: preAuditEntry?.changedBy || null,
-                              dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
-                            },
-                            {
-                              authority: 'Audit Director',
-                              name: userDisplayName(directorEntry?.changedBy),
-                              signatureUser: directorEntry?.changedBy || null,
-                              signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : directorEntry?.changedBy?.digitalSignature || '',
-                              dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+                          const rows = [];
+                          const isCentralizedStore = b?.referenceType === 'utility_bill' || b?.module === 'taj_utilities';
+                          const srcBill = b?.sourceUtilityBill;
+
+                          // 1. Sig of Requester
+                          const requester = (isCentralizedStore && srcBill?.createdBy) ? srcBill.createdBy : b?.createdBy;
+                          const requesterDate = (isCentralizedStore && srcBill?.createdAt) ? srcBill.createdAt : b?.createdAt;
+                          rows.push({
+                            authority: 'Sig of Requester',
+                            name: userDisplayName(requester),
+                            status: 'Approved',
+                            signatureUser: requester || null,
+                            signaturePath: requester?.digitalSignature || '',
+                            dateTime: requesterDate ? formatDateTime(requesterDate) : '-'
+                          });
+
+                          // 2. Manager / HOD Approver (from source utility bill)
+                          if (isCentralizedStore && srcBill) {
+                            const approvalChain = Array.isArray(srcBill.approvalChain) ? srcBill.approvalChain : [];
+                            approvalChain.forEach((step) => {
+                              if (step.status === 'approved' && step.approver) {
+                                rows.push({
+                                  authority: 'Manager / HOD Approver',
+                                  name: userDisplayName(step.approver),
+                                  status: 'Approved',
+                                  signatureUser: step.approver || null,
+                                  signaturePath: step.approver?.digitalSignature || '',
+                                  dateTime: step.actedAt ? formatDateTime(step.actedAt) : '-'
+                                });
+                              }
+                            });
+                            if (!rows.some(r => r.authority === 'Manager / HOD Approver') && srcBill.approvedBy) {
+                              rows.push({
+                                authority: 'Manager / HOD Approver',
+                                name: userDisplayName(srcBill.approvedBy),
+                                status: 'Approved',
+                                signatureUser: srcBill.approvedBy || null,
+                                signaturePath: srcBill.approvedBy?.digitalSignature || '',
+                                dateTime: srcBill.approvedAt ? formatDateTime(srcBill.approvedAt) : '-'
+                              });
                             }
-                          ];
+                          }
+
+                          // 3. Pre-Audit & 4. Audit Director
+                          const auditHistory = (isCentralizedStore && srcBill && Array.isArray(srcBill.workflowHistory) && srcBill.workflowHistory.length > 0)
+                            ? [...srcBill.workflowHistory]
+                            : (Array.isArray(b?.workflowHistory) ? [...b.workflowHistory] : []);
+
+                          const preAuditEntry = [...auditHistory].reverse().find((e) =>
+                            e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' ||
+                            e.toStatus === 'Initial Pre-Audit Approved' || e.toStatus?.includes('Pre-Audit') || e.toStatus === 'Send to Audit'
+                          );
+                          const directorEntry = [...auditHistory].reverse().find((e) =>
+                            e.toStatus === 'approved' || e.toStatus === 'Approved' ||
+                            e.toStatus?.includes('Audit Director') || e.toStatus?.startsWith('Approved (from')
+                          );
+
+                          rows.push({
+                            authority: 'Pre-Audit Authority',
+                            name: userDisplayName(preAuditEntry?.changedBy),
+                            status: preAuditEntry ? 'Approved' : 'Pending',
+                            signatureUser: preAuditEntry?.changedBy || null,
+                            signaturePath: preAuditEntry?.stampUsed && preAuditEntry?.stampImage ? preAuditEntry.stampImage : (preAuditEntry?.changedBy?.digitalSignature || ''),
+                            dateTime: preAuditEntry?.changedAt ? formatDateTime(preAuditEntry.changedAt) : '-'
+                          });
+
+                          rows.push({
+                            authority: 'Audit Director',
+                            name: userDisplayName(directorEntry?.changedBy),
+                            status: directorEntry ? 'Approved' : 'Pending',
+                            signatureUser: directorEntry?.changedBy || null,
+                            signaturePath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : (directorEntry?.changedBy?.digitalSignature || ''),
+                            dateTime: directorEntry?.changedAt ? formatDateTime(directorEntry.changedAt) : '-'
+                          });
+
+                          // 5. Finance
+                          if (Array.isArray(b?.financeApprovalAuthorities) && b.financeApprovalAuthorities.length > 0) {
+                            b.financeApprovalAuthorities.forEach((auth) => {
+                              rows.push({
+                                authority: auth.levelName || auth.levelKey || 'Finance Authority',
+                                name: auth.assignedUser ? userDisplayName(auth.assignedUser) : (auth.userName || '-'),
+                                status: auth.status || 'Pending',
+                                signatureUser: auth.assignedUser || null,
+                                signaturePath: auth.digitalSignature || auth.assignedUser?.digitalSignature || '',
+                                dateTime: auth.actedAt ? formatDateTime(auth.actedAt) : '-'
+                              });
+                            });
+                          } else {
+                            rows.push({
+                              authority: 'Finance Authority',
+                              name: userDisplayName(b?.approval?.approvedBy),
+                              status: b?.approval?.approvedBy ? 'Approved' : (b?.status === 'paid' ? 'Approved' : 'Pending'),
+                              signatureUser: b?.approval?.approvedBy || null,
+                              dateTime: b?.approval?.approvedDate ? formatDateTime(b.approval.approvedDate) : '-'
+                            });
+                          }
+
                           return rows;
                         };
 
                         const getSignatureSource = (row) => row?.signaturePath || row?.signatureUser?.digitalSignature || '';
+                        const vendorName = b?.vendorName || b?.vendor?.name || (typeof b?.vendor === 'string' ? b?.vendor : '—');
+                        const billCompanyName = b?.companyId?.name || b?.company?.name || b?.company || 'SGC International';
+
+                        const normalizedBillData = {
+                          ...b,
+                          billId: b.billNumber,
+                          billDate: b.billDate,
+                          createdAt: b.createdAt || b.billDate,
+                          provider: vendorName,
+                          location: billCompanyName,
+                          notes: b.notes || b.internalNotes,
+                          forWhat: b.forWhat || b.notes,
+                          billLines: (b.lineItems && b.lineItems.length > 0)
+                            ? b.lineItems.map((line, idx) => {
+                                let code = (line.itemCode && line.itemCode !== '—') ? line.itemCode : '';
+                                if (!code) {
+                                  const text = [line.description, line.itemName].filter(Boolean).join(' ');
+                                  const match = text.match(/\[([A-Za-z0-9_-]+)\]/);
+                                  if (match && match[1]) code = match[1];
+                                }
+                                return {
+                                  ...line,
+                                  category: line.category || line.accountName || line.account?.name || (line.accountNumber ? `Account ${line.accountNumber}` : '—'),
+                                  accountName: line.accountName || line.account?.name || '',
+                                  accountNumber: line.accountNumber || line.account?.accountNumber || '',
+                                  itemName: line.itemName || line.description || (line.accountNumber ? `Account ${line.accountNumber}` : 'Item'),
+                                  description: line.description || line.itemName || '',
+                                  itemCode: code || line.accountNumber || '—',
+                                  amount: line.amount || (line.quantity * line.unitPrice) || 0,
+                                  attachments: idx === 0 && b.attachments?.length ? b.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
+                                };
+                              })
+                            : (b.billLines || [])
+                        };
+
+                        const billStatusColorMap = {
+                          draft: 'default',
+                          pending: 'warning',
+                          approved: 'info',
+                          paid: 'success',
+                          partial: 'warning',
+                          cancelled: 'error'
+                        };
 
                         return (
                           <Box key={b._id} sx={{ '@media print': { pageBreakAfter: 'always', breakAfter: 'page', pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
-                            <Paper sx={{ p: { xs: 2.5, sm: 3 }, border: '1px solid #ccc', '@media print': { p: '10mm 14mm', border: 'none' } }}>
+                            <Paper
+                              sx={{
+                                p: { xs: 3, sm: 4 },
+                                maxWidth: '210mm',
+                                mx: 'auto',
+                                backgroundColor: '#fff',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                                borderRadius: 1,
+                                fontFamily: 'Arial, sans-serif',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                '@media print': {
+                                  p: '8mm 12mm',
+                                  boxShadow: 'none',
+                                  border: 'none',
+                                  maxWidth: '100%',
+                                  mx: 0,
+                                  pageBreakInside: 'avoid',
+                                  breakInside: 'avoid'
+                                }
+                              }}
+                            >
+                              {/* Document Header */}
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, pb: 2, borderBottom: '2px solid #1e293b' }}>
+                                <Box>
+                                  <Typography fontWeight={900} sx={{ fontSize: '1.5rem', color: '#1e293b' }}>
+                                    {billCompanyName}
+                                  </Typography>
+                                  <Typography fontWeight={800} color="primary" sx={{ fontSize: '1.15rem', textTransform: 'uppercase', mt: 0.5 }}>
+                                    VENDOR BILL INVOICE
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ textAlign: 'right' }}>
+                                  <Typography variant="h6" fontWeight={800} color="primary.main">
+                                    {b.billNumber}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ mt: 0.5 }}>
+                                    <strong>Date:</strong> {formatDateForPrint(b.billDate)}
+                                  </Typography>
+                                  <Box sx={{ mt: 0.5 }}>
+                                    <Chip
+                                      label={b.status?.toUpperCase() || 'DRAFT'}
+                                      size="small"
+                                      color={billStatusColorMap[b.status] || 'default'}
+                                      sx={{ fontWeight: 700 }}
+                                    />
+                                  </Box>
+                                </Box>
+                              </Box>
+
+                              {/* Body */}
                               <CentralizedStoreBillInvoiceBody
-                                bill={{
-                                  ...b,
-                                  billId: b.billNumber,
-                                  billDate: b.billDate,
-                                  createdAt: b.createdAt || b.billDate,
-                                  provider: b.vendorName || b.vendor?.name,
-                                  location: b.company || b.vendor?.address?.city || b.department || 'N/A',
-                                  notes: b.notes || b.internalNotes,
-                                  forWhat: b.forWhat || b.notes,
-                                  billLines: (b.lineItems && b.lineItems.length > 0)
-                                    ? b.lineItems.map((line, idx) => ({
-                                        ...line,
-                                        category: line.category || line.accountName || line.account?.name || (line.accountNumber ? `Account ${line.accountNumber}` : '—'),
-                                        accountName: line.accountName || line.account?.name || '',
-                                        accountNumber: line.accountNumber || line.account?.accountNumber || '',
-                                        itemName: line.description || line.itemName || (line.accountNumber ? `Account ${line.accountNumber}` : 'Item'),
-                                        description: line.description || line.itemName || '',
-                                        itemCode: line.itemCode || line.accountNumber || '—',
-                                        amount: line.amount || (line.quantity * line.unitPrice),
-                                        attachments: idx === 0 && b.attachments?.length ? b.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
-                                      }))
-                                    : (b.billLines || [])
-                                }}
+                                bill={normalizedBillData}
                                 showChargesSummary={true}
                               />
 
-                              {/* Approval Authority Table */}
-                              <Table
-                                size="small"
-                                sx={{
-                                  mt: 3,
-                                  mb: 1,
-                                  border: '1px solid',
-                                  borderColor: 'grey.300',
-                                  '& th': {
-                                    bgcolor: 'grey.100',
-                                    fontWeight: 800,
-                                    fontSize: 13,
-                                    borderBottom: '1px solid',
-                                    borderColor: 'grey.300'
-                                  },
-                                  '& td': {
-                                    fontSize: 13,
-                                    borderBottom: '1px solid',
-                                    borderColor: 'grey.200',
-                                    py: 1.2
-                                  },
-                                  '& tr:last-child td': {
-                                    borderBottom: 0
-                                  }
-                                }}
-                              >
-                                <TableHead>
-                                  <TableRow>
-                                    <TableCell>Authority</TableCell>
-                                    <TableCell>Name</TableCell>
-                                    <TableCell>Digital Signature</TableCell>
-                                    <TableCell>Date &amp; Time</TableCell>
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {getApprovalRows().map((row) => (
-                                    <TableRow key={row.authority}>
-                                      <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
-                                      <TableCell>{row.name || '-'}</TableCell>
-                                      <TableCell>
-                                        {getSignatureSource(row) ? (
-                                          <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
-                                        ) : (
-                                          '-'
-                                        )}
-                                      </TableCell>
-                                      <TableCell>{row.dateTime || '-'}</TableCell>
+                              {/* Finance Document Approval Authority Table */}
+                              <Box sx={{ mt: 2.5, '@media print': { mt: 2, pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                                <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1, color: '#1e293b', '@media print': { fontSize: '11px', mb: 0.5 } }}>
+                                  Finance Document Approval Authority
+                                </Typography>
+                                <Table
+                                  size="small"
+                                  sx={{
+                                    border: '1.5px solid #334155',
+                                    '& th': {
+                                      bgcolor: '#f1f5f9',
+                                      fontWeight: 800,
+                                      fontSize: 12,
+                                      border: '1px solid #cbd5e1',
+                                      color: '#0f172a',
+                                      py: 0.6,
+                                      px: 1,
+                                      '@media print': { py: 0.4, px: 0.8, fontSize: '10px' }
+                                    },
+                                    '& td': {
+                                      fontSize: 12,
+                                      border: '1px solid #cbd5e1',
+                                      py: 0.6,
+                                      px: 1,
+                                      verticalAlign: 'middle',
+                                      '@media print': { py: 0.4, px: 0.8, fontSize: '10px' }
+                                    }
+                                  }}
+                                >
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell sx={{ width: '25%' }}>Authority</TableCell>
+                                      <TableCell sx={{ width: '25%' }}>Name</TableCell>
+                                      <TableCell sx={{ width: '25%' }} align="center">Digital Signature</TableCell>
+                                      <TableCell sx={{ width: '25%' }}>Date &amp; Time</TableCell>
                                     </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
+                                  </TableHead>
+                                  <TableBody>
+                                    {getApprovalRows().map((row) => (
+                                      <TableRow key={row.authority}>
+                                        <TableCell sx={{ fontWeight: 800 }}>{row.authority}</TableCell>
+                                        <TableCell>{row.name || '-'}</TableCell>
+                                        <TableCell align="center">
+                                          {getSignatureSource(row) ? (
+                                            <Box sx={{ maxHeight: 28, display: 'flex', justifyContent: 'center', alignItems: 'center', '& img': { maxHeight: 28, width: 'auto', objectFit: 'contain' } }}>
+                                              <DigitalSignatureImage userOrPath={getSignatureSource(row)} alt={`${row.authority} signature`} />
+                                            </Box>
+                                          ) : (
+                                            '-'
+                                          )}
+                                        </TableCell>
+                                        <TableCell>{row.dateTime || '-'}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </Box>
                             </Paper>
                           </Box>
                         );

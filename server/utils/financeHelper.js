@@ -298,7 +298,7 @@ const FinanceHelper = {
           account: accountRef,
           date: entry.date,
           entryNumber: entry.entryNumber,
-          reference: entry.reference,
+          reference: line.reference || entry.reference,
           description: line.description || entry.description,
           debit: line.debit,
           credit: line.credit,

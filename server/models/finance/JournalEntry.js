@@ -95,6 +95,11 @@ const journalEntrySchema = new mongoose.Schema({
       trim: true,
       maxlength: [500, 'Line description cannot exceed 500 characters']
     },
+    reference: {
+      type: String,
+      trim: true,
+      maxlength: [100, 'Reference cannot exceed 100 characters']
+    },
     debit: {
       type: Number,
       default: 0,

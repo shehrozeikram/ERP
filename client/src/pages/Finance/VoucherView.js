@@ -505,7 +505,7 @@ const VoucherView = () => {
                   {line?.account?.accountNumber ? <Typography variant="caption" display="block" sx={{ fontSize: '9.5px !important' }}>({line.account.accountNumber})</Typography> : null}
                 </TableCell>
                 <TableCell>{line.description || entry.description || '—'}</TableCell>
-                <TableCell>{entry.reference || '—'}</TableCell>
+                <TableCell>{line.reference || entry.reference || '—'}</TableCell>
                 <TableCell>{entry.costCenter?.name || entry.costCenter || '—'}</TableCell>
                 <TableCell align="right">{line.debit ? formatPKR(line.debit) : '0'}</TableCell>
                 <TableCell align="right">{line.credit ? formatPKR(line.credit) : '0'}</TableCell>

@@ -70,8 +70,8 @@ const JournalEntryForm = () => {
       financeControllerUser: null
     },
     lines: [
-      { account: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' },
-      { account: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' }
+      { account: '', reference: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' },
+      { account: '', reference: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' }
     ]
   });
 
@@ -211,6 +211,7 @@ const JournalEntryForm = () => {
         const normalizedLines = (entry.lines || []).map(line => ({
           ...line,
           account: line.account?._id || line.account || '',
+          reference: line.reference || '',
           department: line.department?._id || line.department || '',
           costCenter: line.costCenter?._id || line.costCenter || '',
           _accountObj: line.account // preserve full object for display
@@ -273,7 +274,7 @@ const JournalEntryForm = () => {
   const addLine = () => {
     setFormData(prev => ({
       ...prev,
-      lines: [...prev.lines, { account: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' }]
+      lines: [...prev.lines, { account: '', reference: '', description: '', debit: 0, credit: 0, department: '', partyType: '', party: '' }]
     }));
   };
 
@@ -421,7 +422,6 @@ const JournalEntryForm = () => {
         {/* Summary chips */}
         <Paper variant="outlined" sx={{ p: 2, mb: 3, display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
           <Box><Typography variant="caption" color="text.secondary">Date</Typography><Typography fontWeight={700}>{formData.date ? new Date(formData.date).toLocaleDateString() : '—'}</Typography></Box>
-          <Box><Typography variant="caption" color="text.secondary">Reference</Typography><Typography fontWeight={700}>{formData.reference || '—'}</Typography></Box>
           <Box><Typography variant="caption" color="text.secondary">Department</Typography><Typography fontWeight={700}>{formData.department?.toUpperCase()}</Typography></Box>
           <Box><Typography variant="caption" color="text.secondary">Module</Typography><Typography fontWeight={700}>{formData.module?.toUpperCase()}</Typography></Box>
           <Box flex={1} />
@@ -442,6 +442,7 @@ const JournalEntryForm = () => {
                   <TableRow sx={{ bgcolor: 'grey.50' }}>
                     <TableCell><b>#</b></TableCell>
                     <TableCell><b>Account</b></TableCell>
+                    <TableCell><b>Reference</b></TableCell>
                     <TableCell><b>Description</b></TableCell>
                     <TableCell align="right"><b>Debit (PKR)</b></TableCell>
                     <TableCell align="right"><b>Credit (PKR)</b></TableCell>
@@ -462,6 +463,7 @@ const JournalEntryForm = () => {
                         <TableCell>
                           <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>{accLabel}</Typography>
                         </TableCell>
+                        <TableCell sx={{ color: 'text.secondary' }}>{line.reference || '—'}</TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>{line.description}</TableCell>
                         <TableCell align="right" sx={{ fontWeight: dr > 0 ? 700 : 400, color: dr > 0 ? 'success.main' : 'text.disabled' }}>
                           {dr > 0 ? formatPKR(dr) : '—'}
@@ -475,7 +477,7 @@ const JournalEntryForm = () => {
                   })}
                   {/* Totals row */}
                   <TableRow sx={{ bgcolor: 'grey.100' }}>
-                    <TableCell colSpan={3} align="right"><b>Totals</b></TableCell>
+                    <TableCell colSpan={4} align="right"><b>Totals</b></TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800, color: 'success.main' }}><b>{formatPKR(totalDr)}</b></TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800, color: 'primary.main' }}><b>{formatPKR(totalCr)}</b></TableCell>
                     <TableCell />
@@ -575,7 +577,7 @@ const JournalEntryForm = () => {
                 <Divider sx={{ mb: 3 }} />
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   type="date"
@@ -587,17 +589,7 @@ const JournalEntryForm = () => {
                 />
               </Grid>
 
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  label="Reference"
-                  value={formData.reference}
-                  onChange={handleInputChange('reference')}
-                  placeholder="Optional reference number"
-                />
-              </Grid>
-
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} md={4}>
                 <FormControl fullWidth required>
                   <InputLabel>Department</InputLabel>
                   <Select
@@ -614,7 +606,7 @@ const JournalEntryForm = () => {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} md={4}>
                 <FormControl fullWidth>
                   <InputLabel>Cost Center</InputLabel>
                   <Select
@@ -668,12 +660,13 @@ const JournalEntryForm = () => {
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ minWidth: 200 }}>Account*</TableCell>
-                        <TableCell sx={{ minWidth: 200 }}>Description</TableCell>
-                        <TableCell sx={{ minWidth: 150 }}>Department</TableCell>
+                        <TableCell sx={{ minWidth: 150 }}>Reference</TableCell>
+                        <TableCell sx={{ minWidth: 180 }}>Description</TableCell>
+                        <TableCell sx={{ minWidth: 140 }}>Department</TableCell>
                         <TableCell sx={{ minWidth: 120 }}>Party Type</TableCell>
-                        <TableCell sx={{ minWidth: 200 }}>Name / Party</TableCell>
-                        <TableCell sx={{ minWidth: 150, textAlign: 'right' }}>Debit (PKR)</TableCell>
-                        <TableCell sx={{ minWidth: 150, textAlign: 'right' }}>Credit (PKR)</TableCell>
+                        <TableCell sx={{ minWidth: 180 }}>Name / Party</TableCell>
+                        <TableCell sx={{ minWidth: 130, textAlign: 'right' }}>Debit (PKR)</TableCell>
+                        <TableCell sx={{ minWidth: 130, textAlign: 'right' }}>Credit (PKR)</TableCell>
                         <TableCell width={50}></TableCell>
                       </TableRow>
                     </TableHead>
@@ -692,6 +685,15 @@ const JournalEntryForm = () => {
                               isOptionEqualToValue={(option, val) => option?._id === val?._id}
                               renderInput={(params) => <TextField {...params} label="Select Account" variant="outlined" required size="small" />}
                               fullWidth
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              value={line.reference || ''}
+                              onChange={handleLineChange(index, 'reference')}
+                              placeholder="Line reference"
+                              size="small"
                             />
                           </TableCell>
                           <TableCell>
