@@ -165,13 +165,13 @@ const Payroll = () => {
       // Get General Payroll statistics from current overview instead of historical payrolls
       const response = await api.get('/payroll/current-overview');
       const overviewData = response.data.data || {};
-      
+
       // Transform current overview data to match the expected stats format
       setStats({
         totalPayrolls: overviewData.totalEmployees || 0,
         totalGrossSalary: overviewData.totalGrossSalary || 0,
         totalNetSalary: overviewData.totalNetSalary || 0,
-        averageNetSalary: overviewData.totalEmployees > 0 ? 
+        averageNetSalary: overviewData.totalEmployees > 0 ?
           (overviewData.totalNetSalary / overviewData.totalEmployees) : 0
       });
     } catch (error) {
@@ -184,7 +184,7 @@ const Payroll = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const params = new URLSearchParams();
       if (monthlyFilters.status) {
         params.set('status', monthlyFilters.status);
@@ -194,18 +194,18 @@ const Payroll = () => {
         timeout: 90000 // 90 seconds timeout for large payroll datasets
       });
       const payrollData = response.data.data || [];
-      
+
       // Validate payroll data before setting state
-      const validatedPayrolls = payrollData.filter(payroll => 
-        payroll && 
-        typeof payroll.month === 'number' && 
-        typeof payroll.year === 'number' && 
+      const validatedPayrolls = payrollData.filter(payroll =>
+        payroll &&
+        typeof payroll.month === 'number' &&
+        typeof payroll.year === 'number' &&
         payroll.employee
       );
-      
+
       setPayrolls(validatedPayrolls);
       setTotalItems(validatedPayrolls.length);
-      
+
       if (response.data.count && response.data.count >= 5000) {
         console.warn(`⚠️ Loaded ${response.data.count} payrolls. If data seems incomplete, try filtering by date range.`);
       }
@@ -305,7 +305,7 @@ const Payroll = () => {
   // Group payrolls by month and year - fixed dependency array
   useEffect(() => {
     const filteredPayrolls = getFilteredPayrolls();
-    
+
     if (filteredPayrolls.length > 0) {
       const grouped = filteredPayrolls.reduce((acc, payroll) => {
         // Ensure month and year exist before processing
@@ -313,7 +313,7 @@ const Payroll = () => {
           console.warn('Payroll missing month or year:', payroll);
           return acc;
         }
-        
+
         const key = `${payroll.month}-${payroll.year}`;
         if (!acc[key]) {
           acc[key] = {
@@ -343,21 +343,21 @@ const Payroll = () => {
       });
 
       // Sort employees within each monthly group by Employee ID in ascending order
-              monthlyArray.forEach(monthly => {
-          monthly.payrolls.sort((a, b) => {
-            // Convert Employee ID to number for proper numerical sorting
-            const idA = parseInt(a.employee?.employeeId) || 0;
-            const idB = parseInt(b.employee?.employeeId) || 0;
-            return idA - idB; // Ascending order (1, 2, 3, ...)
-          });
+      monthlyArray.forEach(monthly => {
+        monthly.payrolls.sort((a, b) => {
+          // Convert Employee ID to number for proper numerical sorting
+          const idA = parseInt(a.employee?.employeeId) || 0;
+          const idB = parseInt(b.employee?.employeeId) || 0;
+          return idA - idB; // Ascending order (1, 2, 3, ...)
         });
-        
-        // Additional safety check - filter out any invalid entries
-        monthlyArray.forEach(monthly => {
-          monthly.payrolls = monthly.payrolls.filter(payroll => 
-            payroll && payroll.month && payroll.year && payroll.employee
-          );
-        });
+      });
+
+      // Additional safety check - filter out any invalid entries
+      monthlyArray.forEach(monthly => {
+        monthly.payrolls = monthly.payrolls.filter(payroll =>
+          payroll && payroll.month && payroll.year && payroll.employee
+        );
+      });
 
       setMonthlyPayrolls(monthlyArray);
       setTotalItems(monthlyArray.length);
@@ -462,10 +462,10 @@ const Payroll = () => {
     const monthKey = `${monthly.month}-${monthly.year}`;
     const currentPage = employeeDetailsPage[monthKey] || 0;
     const currentRowsPerPage = employeeDetailsRowsPerPage[monthKey] || 10;
-    
+
     const startIndex = currentPage * currentRowsPerPage;
     const endIndex = startIndex + currentRowsPerPage;
-    
+
     return {
       paginatedEmployees: monthly.payrolls.slice(startIndex, endIndex),
       currentPage,
@@ -623,7 +623,7 @@ const Payroll = () => {
       const jsPDF = (await import('jspdf')).default;
       const autoTable = (await import('jspdf-autotable')).default;
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      
+
       // Header bar
       doc.setFillColor(25, 118, 210);
       doc.rect(0, 0, 420, 22, 'F');
@@ -673,6 +673,136 @@ const Payroll = () => {
     } catch (exportError) {
       console.error('Error exporting month payroll to PDF:', exportError);
       setError(exportError.response?.data?.message || 'Failed to export payroll PDF for this month.');
+    } finally {
+      setExportLoadingKey(null);
+    }
+  };
+
+  const exportManualSalarySheet = async (month, year, periodLabel) => {
+    const key = `manual-pdf-${month}-${year}`;
+    const monthNum = Number(month);
+    const yearNum = Number(year);
+    if (!monthNum || monthNum < 1 || monthNum > 12 || !yearNum) {
+      setError('Select a valid month and year to export.');
+      return;
+    }
+
+    try {
+      setExportLoadingKey(key);
+      setError(null);
+
+      const response = await api.get('/hr/reports/payroll/monthly', {
+        params: {
+          month: monthNum,
+          year: yearNum,
+          ...(monthlyFilters.department ? { department: monthlyFilters.department } : {}),
+          ...(monthlyFilters.project ? { project: monthlyFilters.project } : {}),
+          format: 'json'
+        },
+        timeout: 120000
+      });
+
+      const reportData = response.data?.data || response.data;
+      if (!reportData || !reportData.data || !reportData.data.length) {
+        setError('No payroll data to export for this period.');
+        return;
+      }
+
+      // Filter to only include manual payrolls
+      const manualPayrolls = reportData.data.filter(p => p.isManual === true);
+      
+      if (manualPayrolls.length === 0) {
+        setError(`No manual payrolls found for ${periodLabel}.`);
+        return;
+      }
+
+      const jsPDF = (await import('jspdf')).default;
+      const autoTable = (await import('jspdf-autotable')).default;
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      
+      // Header section
+      doc.setFillColor(180, 180, 180); // Gray background
+      doc.rect(0, 0, 300, 35, 'F');
+      
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SARDAR GROUP OF COMPANIES', 148.5, 10, { align: 'center' });
+      
+      doc.setFontSize(14);
+      doc.text('SGC - Head Office', 148.5, 20, { align: 'center' });
+      
+      doc.setFontSize(14);
+      doc.text(`Salary ${periodLabel.replace('-', ' ')}`, 148.5, 30, { align: 'center' });
+
+      const headers = [
+        'Sr. No', 'Emp ID', 'Name', 'Designation', 'Project', 'DOJ',
+        'Basic Salary', 'Food Allowance', `Gross Salary ${periodLabel.replace('-', ' ')}`, 'Income Tax', 'Net Payable', 'Remarks'
+      ];
+
+      let totalNetPayable = 0;
+
+      const rows = manualPayrolls.map((r, i) => {
+        const netPay = r.netPay || r.netPayable || 0;
+        totalNetPayable += netPay;
+        return [
+          i + 1,
+          r.employeeId || 'N/A',
+          r.employeeName || 'N/A',
+          r.designation || 'N/A',
+          r.project || 'SGC-Head Office',
+          r.doj ? new Date(r.doj).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-') : 'N/A',
+          Math.round(r.basicSalary || 0).toLocaleString('en-PK'),
+          Math.round(r.foodAllowance || 0).toLocaleString('en-PK'),
+          Math.round(r.grossSalary || 0).toLocaleString('en-PK'),
+          Math.round(r.incomeTax || 0).toLocaleString('en-PK'),
+          Math.round(netPay).toLocaleString('en-PK'),
+          r.bankAccount ? r.bankAccount : (r.remarks || '')
+        ];
+      });
+
+      // Add total row
+      rows.push([
+        '', '', '', '', '', 'Total',
+        '', '', '', '', Math.round(totalNetPayable).toLocaleString('en-PK'), ''
+      ]);
+
+      autoTable(doc, {
+        startY: 35,
+        head: [headers],
+        body: rows,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 2, textColor: [0, 0, 0], lineColor: [100, 100, 100], lineWidth: 0.1 },
+        headStyles: { fillColor: [180, 180, 180], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center', valign: 'middle' },
+        didParseCell: function(data) {
+          // Yellow highlight for specific columns (Basic, Food, Gross, Net)
+          if (data.section === 'head' && [6, 7, 8, 10].includes(data.column.index)) {
+            data.cell.styles.fillColor = [255, 255, 0]; // Yellow
+          }
+          if (data.section === 'body' && data.row.index === rows.length - 1) {
+            // Total row
+            data.cell.styles.fontStyle = 'bold';
+            if (![10].includes(data.column.index)) {
+              data.cell.styles.fillColor = [180, 180, 180];
+            } else {
+              data.cell.styles.fillColor = [255, 255, 0];
+            }
+          }
+        },
+        columnStyles: {
+          6: { halign: 'right' },
+          7: { halign: 'right' },
+          8: { halign: 'right' },
+          9: { halign: 'right' },
+          10: { halign: 'right', fillColor: [255, 255, 0] },
+          11: { halign: 'center' }
+        }
+      });
+
+      doc.save(`manual-salary-sheet-${periodLabel}.pdf`);
+    } catch (exportError) {
+      console.error('Error exporting manual salary sheet:', exportError);
+      setError(exportError.response?.data?.message || 'Failed to export manual salary sheet for this month.');
     } finally {
       setExportLoadingKey(null);
     }
@@ -1048,18 +1178,18 @@ const Payroll = () => {
   const handleBulkCreate = async () => {
     try {
       setBulkCreateLoading(true);
-      
+
       // Get month and year from form
       const month = parseInt(bulkCreateForm.month);
       const year = bulkCreateForm.year;
-      
+
       // Check if payrolls already exist for this month
       const existingPayrolls = payrolls.filter(
         p => p.month === month && p.year === year
       );
 
       let forceRegenerate = false;
-      
+
       if (existingPayrolls.length > 0) {
         const confirmMessage = `${existingPayrolls.length} payrolls already exist for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}. 
         
@@ -1067,16 +1197,16 @@ Do you want to:
 1. Regenerate all payrolls (overwrite existing)?
 2. Skip employees who already have payrolls?
 3. Cancel?`;
-        
-        const choice = window.confirm(confirmMessage) ? 
-          (window.confirm('Regenerate all payrolls? This will overwrite existing ones.') ? 'regenerate' : 'skip') : 
+
+        const choice = window.confirm(confirmMessage) ?
+          (window.confirm('Regenerate all payrolls? This will overwrite existing ones.') ? 'regenerate' : 'skip') :
           'cancel';
-        
+
         if (choice === 'cancel') {
           setBulkCreateLoading(false);
           return;
         }
-        
+
         forceRegenerate = (choice === 'regenerate');
       } else {
         // No existing payrolls, create for all active employees
@@ -1095,19 +1225,19 @@ Do you want to:
       }, {
         timeout: 600000
       });
-      
+
       setBulkCreateDialogOpen(false);
       setBulkCreateForm({
         month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
         year: new Date().getFullYear()
       });
-      
+
       // Refresh data
       fetchPayrolls();
       fetchStats();
-      
+
       setError(null);
-      
+
       // Show success message
       if (response.data.success) {
         const summary = response.data.data.summary;
@@ -1115,7 +1245,7 @@ Do you want to:
         const createdCount = summary.payrollsCreated ?? 0;
         const processedCount = summary.totalEmployees ?? createdCount;
         const errorCount = summary.errors ?? (response.data.data.errors?.length || 0);
-        
+
         let message = `✅ Successfully generated ${createdCount} payrolls for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}.\n\n`;
         message += `📊 Summary:\n`;
         message += `• Employees Processed: ${processedCount}\n`;
@@ -1123,19 +1253,19 @@ Do you want to:
         message += `• Total Gross Salary: Rs. ${summary.totalGrossSalary.toLocaleString()}\n`;
         message += `• Total Net Salary: Rs. ${summary.totalNetSalary.toLocaleString()}\n`;
         message += `• Total Tax: Rs. ${summary.totalTax.toLocaleString()}\n`;
-        
+
         if (summary.arrearsUpdated > 0) {
           message += `\n💰 Arrears Status Updated: ${summary.arrearsUpdated} employees marked as 'Paid'`;
         }
-        
+
         if (skippedCount > 0) {
           message += `\n⏭️  Skipped: ${skippedCount} employees (already had payrolls)`;
         }
-        
+
         if (errorCount > 0) {
           message += `\n⚠️  Errors: ${errorCount} (see console for details)`;
         }
-        
+
         alert(message);
       } else {
         alert('Payroll generation completed but with some issues. Please check the console for details.');
@@ -1360,7 +1490,7 @@ Do you want to:
               <Skeleton variant="text" width={150} height={28} />
               <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
             </Box>
-            
+
             <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
               <Table>
                 <TableHead>
@@ -1385,7 +1515,7 @@ Do you want to:
                 </TableBody>
               </Table>
             </TableContainer>
-            
+
             {/* Pagination Skeleton */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
               <Skeleton variant="text" width={120} height={20} />
@@ -1509,151 +1639,789 @@ Do you want to:
         >
           <Tab label="Monthly Payroll & Overview" />
           <Tab label="Salary Advances" />
+          <Tab label="Manual Salary Sheet" />
         </Tabs>
       </Paper>
 
-      {activeTab === 1 ? (
+      {activeTab === 2 ? (
+        <Box sx={{ mt: 3 }}>
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                <Typography variant="h6" color="primary.main" sx={{ fontWeight: 600 }}>
+                  Manual Salary Processing
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={<ReceiptIcon />}
+                    onClick={() => navigate('/hr/payroll/create')}
+                  >
+                    Create Manual Payroll
+                  </Button>
+                </Box>
+              </Box>
+
+              {monthlyPayrolls.length > 0 ? (
+                monthlyPayrolls.map(monthly => {
+                  const manualPayrolls = monthly.payrolls.filter(p => p.isManual);
+                  if (manualPayrolls.length === 0) return null;
+                  
+                  const m = String(monthly.month);
+                  const y = monthly.year;
+                  const periodLabel = `${monthly.monthName} ${y}`;
+
+                  return (
+                    <Box key={`${m}-${y}`} sx={{ mb: 4 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="subtitle1" fontWeight="bold">
+                          {periodLabel}
+                        </Typography>
+                        <Button
+                          variant="outlined"
+                          color="secondary"
+                          size="small"
+                          startIcon={
+                            exportLoadingKey === `manual-pdf-${m}-${y}` ? (
+                              <CircularProgress size={16} color="inherit" />
+                            ) : (
+                              <ReceiptIcon />
+                            )
+                          }
+                          disabled={!!exportLoadingKey}
+                          onClick={() => exportManualSalarySheet(m, y, periodLabel.replace(' ', '-'))}
+                        >
+                          Export Manual Salary Sheet
+                        </Button>
+                      </Box>
+                      
+                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                        <Table size="small">
+                          <TableHead sx={{ bgcolor: 'grey.100' }}>
+                            <TableRow>
+                              <TableCell>Employee</TableCell>
+                              <TableCell>Designation</TableCell>
+                              <TableCell align="right">Basic Salary</TableCell>
+                              <TableCell align="right">Gross Salary</TableCell>
+                              <TableCell align="right">Net Salary</TableCell>
+                              <TableCell align="center">Actions</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {manualPayrolls.map(payroll => (
+                              <TableRow key={payroll._id}>
+                                <TableCell>
+                                  <Typography variant="body2">{payroll.employee?.firstName} {payroll.employee?.lastName}</Typography>
+                                  <Typography variant="caption" color="textSecondary">{formatEmployeeId(payroll.employee?.employeeId)}</Typography>
+                                </TableCell>
+                                <TableCell>{payroll.employee?.position || 'N/A'}</TableCell>
+                                <TableCell align="right">{formatCurrency(payroll.basicSalary)}</TableCell>
+                                <TableCell align="right">{formatCurrency(payroll.grossSalary)}</TableCell>
+                                <TableCell align="right">{formatCurrency(payroll.netSalary)}</TableCell>
+                                <TableCell align="center">
+                                  <IconButton size="small" onClick={() => navigate(`/hr/payroll/view/${payroll._id}`)}>
+                                    <ViewIcon fontSize="small" />
+                                  </IconButton>
+                                  <IconButton size="small" color="primary" onClick={() => navigate(`/hr/payroll/${payroll._id}/edit`)}>
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                  <IconButton size="small" color="error" onClick={() => handleDelete(payroll._id)}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Box>
+                  );
+                })
+              ) : (
+                <Box sx={{ p: 4, textAlign: 'center' }}>
+                  <Typography variant="body1" color="textSecondary">
+                    No manual payrolls found.
+                  </Typography>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Box>
+      ) : activeTab === 1 ? (
         <SalaryAdvanceManagement employees={employees} />
       ) : (
         <>
           {/* General Payroll Overview Card */}
-      <Card sx={{ mb: 3, bgcolor: 'primary.50' }}>
-        <CardContent>
-          <Typography variant="h6" color="primary.main" sx={{ mb: 2, fontWeight: 600 }}>
-            📋 General Payroll
-            {hasGeneralFilters && (
-              <Chip
-                label="Filtered"
-                size="small"
-                color="primary"
-                variant="outlined"
-                sx={{ ml: 2, fontSize: '0.75rem' }}
-              />
-            )}
-          </Typography>
-
-          <Box
-            sx={{
-              mb: 2,
-              p: 2,
-              borderRadius: 2,
-              border: '1px solid',
-              borderColor: 'divider',
-              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.03)
-            }}
-          >
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={2}
-              alignItems={{ xs: 'stretch', md: 'flex-end' }}
-            >
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography
-                  variant="caption"
-                  fontWeight={700}
-                  color="text.secondary"
-                  sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
-                >
-                  FILTERS
-                </Typography>
-                <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-end">
-                  <TextField
+          <Card sx={{ mb: 3, bgcolor: 'primary.50' }}>
+            <CardContent>
+              <Typography variant="h6" color="primary.main" sx={{ mb: 2, fontWeight: 600 }}>
+                📋 General Payroll
+                {hasGeneralFilters && (
+                  <Chip
+                    label="Filtered"
                     size="small"
-                    label="Search employee"
-                    placeholder="Name or ID..."
-                    value={generalFilters.searchQuery}
-                    onChange={(e) => handleGeneralFilterChange('searchQuery', e.target.value)}
-                    sx={{ minWidth: { xs: '100%', sm: 200 }, flex: { sm: '1 1 200px' } }}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon fontSize="small" color="action" />
-                        </InputAdornment>
-                      )
-                    }}
-                  />
-                  <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px' } }}>
-                    <InputLabel>Department</InputLabel>
-                    <Select
-                      value={generalFilters.department}
-                      onChange={(e) => handleGeneralFilterChange('department', e.target.value)}
-                      label="Department"
-                    >
-                      <MenuItem value="">All Departments</MenuItem>
-                      {departmentOptions.map((dept) => (
-                        <MenuItem key={dept._id} value={dept._id}>
-                          {dept.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px' } }}>
-                    <InputLabel>Project</InputLabel>
-                    <Select
-                      value={generalFilters.project}
-                      onChange={(e) => handleGeneralFilterChange('project', e.target.value)}
-                      label="Project"
-                    >
-                      <MenuItem value="">All Projects</MenuItem>
-                      {projectOptions
-                        .slice()
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .map((project) => (
-                          <MenuItem key={project._id} value={project._id}>
-                            {project.name}
-                          </MenuItem>
-                        ))}
-                    </Select>
-                  </FormControl>
-                  <Button
+                    color="primary"
                     variant="outlined"
-                    color="inherit"
-                    size="small"
-                    startIcon={<ClearIcon />}
-                    onClick={clearGeneralFilters}
-                    disabled={!hasGeneralFilters}
-                    sx={{ height: 40, flexShrink: 0, px: 2 }}
-                  >
-                    Clear
-                  </Button>
+                    sx={{ ml: 2, fontSize: '0.75rem' }}
+                  />
+                )}
+              </Typography>
+
+              <Box
+                sx={{
+                  mb: 2,
+                  p: 2,
+                  borderRadius: 2,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  bgcolor: (theme) => alpha(theme.palette.primary.main, 0.03)
+                }}
+              >
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={2}
+                  alignItems={{ xs: 'stretch', md: 'flex-end' }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography
+                      variant="caption"
+                      fontWeight={700}
+                      color="text.secondary"
+                      sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
+                    >
+                      FILTERS
+                    </Typography>
+                    <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-end">
+                      <TextField
+                        size="small"
+                        label="Search employee"
+                        placeholder="Name or ID..."
+                        value={generalFilters.searchQuery}
+                        onChange={(e) => handleGeneralFilterChange('searchQuery', e.target.value)}
+                        sx={{ minWidth: { xs: '100%', sm: 200 }, flex: { sm: '1 1 200px' } }}
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <SearchIcon fontSize="small" color="action" />
+                            </InputAdornment>
+                          )
+                        }}
+                      />
+                      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px' } }}>
+                        <InputLabel>Department</InputLabel>
+                        <Select
+                          value={generalFilters.department}
+                          onChange={(e) => handleGeneralFilterChange('department', e.target.value)}
+                          label="Department"
+                        >
+                          <MenuItem value="">All Departments</MenuItem>
+                          {departmentOptions.map((dept) => (
+                            <MenuItem key={dept._id} value={dept._id}>
+                              {dept.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px' } }}>
+                        <InputLabel>Project</InputLabel>
+                        <Select
+                          value={generalFilters.project}
+                          onChange={(e) => handleGeneralFilterChange('project', e.target.value)}
+                          label="Project"
+                        >
+                          <MenuItem value="">All Projects</MenuItem>
+                          {projectOptions
+                            .slice()
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((project) => (
+                              <MenuItem key={project._id} value={project._id}>
+                                {project.name}
+                              </MenuItem>
+                            ))}
+                        </Select>
+                      </FormControl>
+                      <Button
+                        variant="outlined"
+                        color="inherit"
+                        size="small"
+                        startIcon={<ClearIcon />}
+                        onClick={clearGeneralFilters}
+                        disabled={!hasGeneralFilters}
+                        sx={{ height: 40, flexShrink: 0, px: 2 }}
+                      >
+                        Clear
+                      </Button>
+                    </Stack>
+                  </Box>
+
+                  <Divider orientation="horizontal" sx={{ display: { xs: 'block', md: 'none' } }} />
+                  <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' } }} />
+
+                  <Box sx={{ flexShrink: 0 }}>
+                    <Typography
+                      variant="caption"
+                      fontWeight={700}
+                      color="text.secondary"
+                      sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
+                    >
+                      EXPORT
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={
+                        exportLoadingKey === 'general-current' ? (
+                          <CircularProgress size={16} color="inherit" />
+                        ) : (
+                          <DownloadIcon />
+                        )
+                      }
+                      disabled={!!exportLoadingKey || !filteredGeneralEmployees.length}
+                      onClick={exportGeneralPayrollCsv}
+                      sx={{ height: 40, whiteSpace: 'nowrap' }}
+                    >
+                      Export current payroll
+                    </Button>
+                  </Box>
                 </Stack>
               </Box>
 
-              <Divider orientation="horizontal" sx={{ display: { xs: 'block', md: 'none' } }} />
-              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' } }} />
+              <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+                <TableContainer>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Pay Period</TableCell>
+                        <TableCell>Employees</TableCell>
+                        <TableCell>Total Basic Salary</TableCell>
+                        <TableCell>Total Gross Pay</TableCell>
+                        <TableCell>Total Net Pay</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell align="center">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow hover sx={{ bgcolor: 'background.paper' }}>
+                        <TableCell>
+                          <Box>
+                            <Typography variant="subtitle2">
+                              Current Payroll
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              General
+                              {currentOverview?.month && currentOverview?.year ? (
+                                <> · {months.find((m) => Number(m.value) === Number(currentOverview.month))?.label || currentOverview.month} {currentOverview.year}</>
+                              ) : null}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {currentOverviewLoading ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              `${generalPayrollSummary.totalEmployees} Employees`
+                            )}
+                            {hasGeneralFilters && !currentOverviewLoading && (
+                              <Typography variant="caption" color="primary.main" sx={{ display: 'block', mt: 0.5 }}>
+                                Filtered view
+                              </Typography>
+                            )}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          {currentOverviewLoading ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            formatCurrency(generalPayrollSummary.totalBasicSalary)
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {currentOverviewLoading ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            formatCurrency(generalPayrollSummary.totalGrossSalary)
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {currentOverviewLoading ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            formatCurrency(generalPayrollSummary.totalNetSalary)
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label="Active"
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                            <Tooltip title="Export current payroll (CSV)">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  disabled={exportLoadingKey === 'general-current' || !filteredGeneralEmployees.length}
+                                  onClick={exportGeneralPayrollCsv}
+                                >
+                                  {exportLoadingKey === 'general-current' ? (
+                                    <CircularProgress size={18} />
+                                  ) : (
+                                    <DownloadIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title={generalPayrollExpanded ? 'Hide Details' : 'View Details'}>
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={toggleGeneralPayrollExpansion}
+                              >
+                                {generalPayrollExpanded ? <ExpandMoreIcon /> : <ViewIcon />}
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Paper>
 
-              <Box sx={{ flexShrink: 0 }}>
-                <Typography
-                  variant="caption"
-                  fontWeight={700}
-                  color="text.secondary"
-                  sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
-                >
-                  EXPORT
-                </Typography>
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={
-                    exportLoadingKey === 'general-current' ? (
-                      <CircularProgress size={16} color="inherit" />
-                    ) : (
-                      <DownloadIcon />
-                    )
-                  }
-                  disabled={!!exportLoadingKey || !filteredGeneralEmployees.length}
-                  onClick={exportGeneralPayrollCsv}
-                  sx={{ height: 40, whiteSpace: 'nowrap' }}
-                >
-                  Export current payroll
-                </Button>
-              </Box>
-            </Stack>
-          </Box>
-          
+              {/* Expanded Employee Details for General Payroll */}
+              <Collapse in={generalPayrollExpanded} timeout="auto" unmountOnExit>
+                <Box sx={{ margin: 1 }}>
+                  <Typography variant="h6" gutterBottom component="div">
+                    Employee Details - Current Payroll
+                    <Chip
+                      label="↑ Sorted by Employee ID"
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
+                    />
+                  </Typography>
+
+                  {/* Employee Details Pagination Info */}
+                  {(() => {
+                    const paginationInfo = getPaginatedGeneralPayrollEmployees();
+                    return (
+                      <Box sx={{
+                        mb: 2,
+                        p: 2,
+                        bgcolor: 'grey.50',
+                        borderRadius: 2,
+                        border: '1px solid',
+                        borderColor: 'grey.200'
+                      }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                          <Box>
+                            <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
+                              👥 Employee List
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Showing {paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-{Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalEmployees)} of {paginationInfo.totalEmployees} employees
+                            </Typography>
+                            <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              📊 Sorted by Employee ID (1, 2, 3...)
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" color="textSecondary">
+                              Page {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
+                            </Typography>
+                            {paginationInfo.totalPages > 1 && (
+                              <Chip
+                                label={`${paginationInfo.totalPages} pages`}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                    );
+                  })()}
+
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Employee</TableCell>
+                        <TableCell>Basic Salary</TableCell>
+                        <TableCell>Gross Pay</TableCell>
+                        <TableCell>Net Pay</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell align="center">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(() => {
+                        const paginationInfo = getPaginatedGeneralPayrollEmployees();
+                        if (paginationInfo.paginatedEmployees.length === 0) {
+                          return (
+                            <TableRow>
+                              <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
+                                <Box sx={{ textAlign: 'center' }}>
+                                  <Typography variant="body2" color="textSecondary">
+                                    No active employees found
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        }
+
+                        return paginationInfo.paginatedEmployees.map((employee) => {
+                          return (
+                            <TableRow key={employee._id}>
+                              <TableCell>
+                                <Box>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                    <Typography variant="subtitle2">
+                                      {employee.firstName} {employee.lastName}
+                                    </Typography>
+                                    <PayrollProrationBadge payroll={{ proration: employee.proration }} />
+                                    {employee.isCashSalary && (
+                                      <Chip label="Cash" size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                    )}
+                                  </Box>
+                                  <Typography variant="caption" color="textSecondary">
+                                    {employee.employeeId}
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell>{formatCurrency(employee.basicSalary)}</TableCell>
+                              <TableCell>{formatCurrency(employee.totalEarnings)}</TableCell>
+                              <TableCell>{formatCurrency(employee.netSalary)}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  label="Active"
+                                  color="success"
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <Tooltip title="View Payroll Details">
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => navigate(`/hr/payroll/view/employee/${employee._id}`)}
+                                  >
+                                    <ViewIcon />
+                                  </IconButton>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        });
+                      })()}
+                    </TableBody>
+                  </Table>
+
+                  {/* General Payroll Employee Details Pagination Controls */}
+                  {(() => {
+                    const paginationInfo = getPaginatedGeneralPayrollEmployees();
+                    if (paginationInfo.totalPages <= 1) return null;
+
+                    return (
+                      <Box sx={{
+                        mt: 2,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 2
+                      }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <Typography variant="body2" color="textSecondary">
+                            Employees per page:
+                          </Typography>
+                          <FormControl size="small" sx={{ minWidth: 80 }}>
+                            <Select
+                              value={paginationInfo.currentRowsPerPage}
+                              onChange={(e) => handleGeneralPayrollRowsPerPageChange(e.target.value)}
+                              sx={{ height: 32 }}
+                            >
+                              <MenuItem value={5}>5</MenuItem>
+                              <MenuItem value={10}>10</MenuItem>
+                              <MenuItem value={25}>25</MenuItem>
+                              <MenuItem value={50}>50</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Box>
+
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Button
+                            size="small"
+                            onClick={() => handleGeneralPayrollPageChange(paginationInfo.currentPage - 1)}
+                            disabled={paginationInfo.currentPage === 0}
+                            variant="outlined"
+                          >
+                            Previous
+                          </Button>
+
+                          <Typography variant="body2" sx={{ px: 2 }}>
+                            {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
+                          </Typography>
+
+                          <Button
+                            size="small"
+                            onClick={() => handleGeneralPayrollPageChange(paginationInfo.currentPage + 1)}
+                            disabled={paginationInfo.currentPage === paginationInfo.totalPages - 1}
+                            variant="outlined"
+                          >
+                            Next
+                          </Button>
+                        </Box>
+                      </Box>
+                    );
+                  })()}
+                </Box>
+              </Collapse>
+            </CardContent>
+          </Card>
+
+          {/* Monthly Payroll Summary Table */}
           <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+            {/* Filters + export toolbar */}
+            <Box
+              sx={{
+                px: { xs: 2, sm: 2.5 },
+                py: 2,
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                bgcolor: (theme) => alpha(theme.palette.primary.main, 0.03)
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', lg: 'row' }}
+                spacing={2}
+                alignItems={{ xs: 'stretch', lg: 'flex-end' }}
+              >
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography
+                    variant="caption"
+                    fontWeight={700}
+                    color="text.secondary"
+                    sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
+                  >
+                    FILTERS
+                  </Typography>
+                  <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-end">
+                    <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px', md: '1 1 0' }, maxWidth: { md: 200 } }}>
+                      <InputLabel>Status</InputLabel>
+                      <Select
+                        value={monthlyFilters.status}
+                        onChange={(e) => handleMonthlyFilterChange('status', e.target.value)}
+                        label="Status"
+                      >
+                        <MenuItem value="">All Statuses</MenuItem>
+                        <MenuItem value="draft">Draft</MenuItem>
+                        <MenuItem value="approved">Approved</MenuItem>
+                        <MenuItem value="paid">Paid</MenuItem>
+                        <MenuItem value="cancelled">Cancelled</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px', md: '1 1 0' }, maxWidth: { md: 220 } }}>
+                      <InputLabel>Department</InputLabel>
+                      <Select
+                        value={monthlyFilters.department}
+                        onChange={(e) => handleMonthlyFilterChange('department', e.target.value)}
+                        label="Department"
+                      >
+                        <MenuItem value="">All Departments</MenuItem>
+                        {departmentOptions.map((dept) => (
+                          <MenuItem key={dept._id} value={dept._id}>
+                            {dept.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px', md: '1 1 0' }, maxWidth: { md: 220 } }}>
+                      <InputLabel>Project</InputLabel>
+                      <Select
+                        value={monthlyFilters.project}
+                        onChange={(e) => handleMonthlyFilterChange('project', e.target.value)}
+                        label="Project"
+                      >
+                        <MenuItem value="">All Projects</MenuItem>
+                        {projectOptions
+                          .slice()
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((project) => (
+                            <MenuItem key={project._id} value={project._id}>
+                              {project.name}
+                            </MenuItem>
+                          ))}
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="outlined"
+                      color="inherit"
+                      size="small"
+                      startIcon={<ClearIcon />}
+                      onClick={clearMonthlyFilters}
+                      disabled={!hasMonthlyFilters}
+                      sx={{ height: 40, flexShrink: 0, px: 2 }}
+                    >
+                      Clear
+                    </Button>
+                  </Stack>
+                </Box>
+
+                <Divider orientation="horizontal" sx={{ display: { xs: 'block', lg: 'none' } }} />
+                <Divider
+                  orientation="vertical"
+                  flexItem
+                  sx={{ display: { xs: 'none', lg: 'block' }, alignSelf: 'stretch' }}
+                />
+
+                <Box sx={{ flex: { lg: '0 0 auto' }, width: { lg: 'auto' }, minWidth: { lg: 480 } }}>
+                  <Typography
+                    variant="caption"
+                    fontWeight={700}
+                    color="text.secondary"
+                    sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
+                  >
+                    EXPORT
+                  </Typography>
+                  <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-end">
+                    <FormControl size="small" sx={{ minWidth: 120, width: { xs: 'calc(50% - 6px)', sm: 130 } }}>
+                      <InputLabel>Month</InputLabel>
+                      <Select
+                        value={exportMonth}
+                        onChange={(e) => setExportMonth(e.target.value)}
+                        label="Month"
+                      >
+                        {months.map((m) => (
+                          <MenuItem key={m.value} value={String(parseInt(m.value, 10))}>
+                            {m.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 96, width: { xs: 'calc(50% - 6px)', sm: 100 } }}>
+                      <InputLabel>Year</InputLabel>
+                      <Select
+                        value={exportYear}
+                        onChange={(e) => setExportYear(Number(e.target.value))}
+                        label="Year"
+                      >
+                        {exportYearOptions.map((y) => (
+                          <MenuItem key={y} value={y}>
+                            {y}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      useFlexGap
+                      sx={{
+                        height: 40,
+                        flex: { xs: '1 1 100%', sm: '0 0 auto' },
+                        alignItems: 'stretch',
+                        '& .MuiButton-root': { height: 40, whiteSpace: 'nowrap' }
+                      }}
+                    >
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={
+                          exportLoadingKey === `${exportMonth}-${exportYear}` ? (
+                            <CircularProgress size={16} color="inherit" />
+                          ) : (
+                            <DownloadIcon />
+                          )
+                        }
+                        disabled={!!exportLoadingKey}
+                        onClick={() => {
+                          const label = months.find((m) => String(parseInt(m.value, 10)) === String(exportMonth))?.label;
+                          exportMonthPayrollCsv(exportMonth, exportYear, `${label || exportMonth}-${exportYear}`);
+                        }}
+                      >
+                        Export month (CSV)
+                      </Button>
+                      <Button
+                        variant="contained"
+                        color="secondary"
+                        size="small"
+                        startIcon={
+                          exportLoadingKey === `pdf-${exportMonth}-${exportYear}` ? (
+                            <CircularProgress size={16} color="inherit" />
+                          ) : (
+                            <PictureAsPdfIcon />
+                          )
+                        }
+                        disabled={!!exportLoadingKey}
+                        onClick={() => {
+                          const label = months.find((m) => String(parseInt(m.value, 10)) === String(exportMonth))?.label;
+                          exportMonthPayrollPdf(exportMonth, exportYear, `${label || exportMonth}-${exportYear}`);
+                        }}
+                      >
+                        Export month (PDF)
+                      </Button>
+
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<DownloadIcon />}
+                        onClick={handleExportMonthlySummary}
+                        disabled={!!exportLoadingKey || !monthlyPayrolls.length}
+                      >
+                        Export all periods
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Box>
+              </Stack>
+            </Box>
+
+            {/* Pagination Info */}
+            <Box sx={{
+              p: 2,
+              bgcolor: 'grey.50',
+              borderBottom: '1px solid',
+              borderColor: 'grey.200',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 2
+            }}>
+              <Box>
+                <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
+                  📊 Monthly Payroll Summary
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Showing {page * rowsPerPage + 1}-{Math.min((page + 1) * rowsPerPage, totalItems)} of {totalItems} months
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" color="textSecondary">
+                  Page {page + 1} of {Math.ceil(totalItems / rowsPerPage)}
+                </Typography>
+                {totalItems > 0 && (
+                  <Chip
+                    label={`${Math.ceil(totalItems / rowsPerPage)} pages`}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
+                )}
+              </Box>
+            </Box>
+
             <TableContainer>
-              <Table>
+              <Table stickyHeader>
                 <TableHead>
                   <TableRow>
                     <TableCell>Pay Period</TableCell>
@@ -1666,1085 +2434,557 @@ Do you want to:
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  <TableRow hover sx={{ bgcolor: 'background.paper' }}>
-                    <TableCell>
-                      <Box>
-                        <Typography variant="subtitle2">
-                          Current Payroll
-                        </Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          General
-                          {currentOverview?.month && currentOverview?.year ? (
-                            <> · {months.find((m) => Number(m.value) === Number(currentOverview.month))?.label || currentOverview.month} {currentOverview.year}</>
-                          ) : null}
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                                              <TableCell>
-                            <Typography variant="body2">
-                              {currentOverviewLoading ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                `${generalPayrollSummary.totalEmployees} Employees`
-                              )}
-                              {hasGeneralFilters && !currentOverviewLoading && (
-                                <Typography variant="caption" color="primary.main" sx={{ display: 'block', mt: 0.5 }}>
-                                  Filtered view
+                  {paginationLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <CircularProgress size={24} sx={{ mb: 2 }} />
+                          <Typography variant="body2" color="textSecondary">
+                            Loading page {page + 1}...
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ) : paginatedMonthlyPayrolls.length > 0 ? (
+                    paginatedMonthlyPayrolls.map((monthly) => {
+                      const monthKey = `${monthly.month}-${monthly.year}`;
+                      const isExpanded = expandedMonths.has(monthKey);
+                      const draftCount = countDraftPayrolls(monthly.payrolls);
+                      const approvalDoc = monthlyApprovals[monthKey];
+                      const approvalLoading = monthlyApprovalLoadingKeys.has(monthKey);
+                      const canApproveDrafts = canApproveDraftsForMonth(monthly.month, monthly.year);
+                      // eslint-disable-next-line no-unused-vars
+                      const bulkApproveTooltip = (draftCount > 0 && !canApproveDrafts)
+                        ? 'Configure approval authorities and complete all sign-offs first'
+                        : `Approve all ${draftCount} draft payroll(s)`;
+
+                      return (
+                        <React.Fragment key={monthKey}>
+                          <TableRow hover>
+                            <TableCell>
+                              <Box>
+                                <Typography variant="subtitle2">
+                                  {monthly.monthName} {monthly.year}
                                 </Typography>
-                              )}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            {currentOverviewLoading ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              formatCurrency(generalPayrollSummary.totalBasicSalary)
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {currentOverviewLoading ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              formatCurrency(generalPayrollSummary.totalGrossSalary)
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {currentOverviewLoading ? (
-                              <CircularProgress size={16} />
-                            ) : (
-                              formatCurrency(generalPayrollSummary.totalNetSalary)
-                            )}
-                          </TableCell>
-                    <TableCell>
-                      <Chip 
-                        label="Active" 
-                        size="small" 
-                        color="success" 
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                        <Tooltip title="Export current payroll (CSV)">
-                          <span>
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              disabled={exportLoadingKey === 'general-current' || !filteredGeneralEmployees.length}
-                              onClick={exportGeneralPayrollCsv}
-                            >
-                              {exportLoadingKey === 'general-current' ? (
-                                <CircularProgress size={18} />
-                              ) : (
-                                <DownloadIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title={generalPayrollExpanded ? 'Hide Details' : 'View Details'}>
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={toggleGeneralPayrollExpansion}
-                          >
-                            {generalPayrollExpanded ? <ExpandMoreIcon /> : <ViewIcon />}
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
+                                <Typography variant="caption" color="textSecondary">
+                                  Payroll Period
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">
+                                {monthly.totalEmployees} Employees
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{formatCurrency(monthly.totalBasicSalary)}</TableCell>
+                            <TableCell>{formatCurrency(monthly.totalGrossSalary)}</TableCell>
+                            <TableCell>{formatCurrency(monthly.totalNetSalary)}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={getMonthStatusLabel(monthly.statuses)}
+                                color={getMonthStatusColor(monthly.statuses)}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell align="center">
+                              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                                <Tooltip title="Export this month's payroll (CSV)">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      disabled={exportLoadingKey === monthKey}
+                                      onClick={() => exportMonthPayrollCsv(monthly.month, monthly.year, `${monthly.monthName}-${monthly.year}`)}
+                                    >
+                                      {exportLoadingKey === monthKey ? (
+                                        <CircularProgress size={18} />
+                                      ) : (
+                                        <DownloadIcon fontSize="small" />
+                                      )}
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title="Monthly comparison report (vs last month)">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color="secondary"
+                                      disabled={comparisonLoadingKey === monthKey || !monthly.totalEmployees}
+                                      onClick={() => openMonthlyComparisonReport(
+                                        monthly.month,
+                                        monthly.year,
+                                        `${monthly.monthName} ${monthly.year}`,
+                                        draftCount
+                                      )}
+                                    >
+                                      {comparisonLoadingKey === monthKey ? (
+                                        <CircularProgress size={18} />
+                                      ) : (
+                                        <CompareArrowsIcon fontSize="small" />
+                                      )}
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title={isExpanded ? "Hide Details" : "View Details"}>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => toggleMonthExpansion(monthKey)}
+                                  >
+                                    {isExpanded ? <ExpandMoreIcon /> : <ViewIcon />}
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Delete Monthly Summary">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleDeleteMonthlySummary(monthly.month, monthly.year, monthly.monthName)}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+
+                          {/* Expanded Employee Details */}
+                          <TableRow>
+                            <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                              <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                                <Box sx={{ margin: 1 }}>
+                                  <MonthlyPayrollApprovalSection
+                                    month={monthly.month}
+                                    year={monthly.year}
+                                    periodLabel={`${monthly.monthName} ${monthly.year}`}
+                                    draftCount={draftCount}
+                                    approvalDoc={approvalDoc}
+                                    loading={approvalLoading}
+                                    onRefresh={async () => {
+                                      await fetchMonthlyApproval(monthly.month, monthly.year);
+                                      await fetchMonthlyPayrolls();
+                                    }}
+                                    onUpdated={(doc) => {
+                                      if (doc) {
+                                        setMonthlyApprovals((prev) => ({ ...prev, [monthKey]: doc }));
+                                      }
+                                    }}
+                                  />
+                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                                    <Typography variant="h6" component="div">
+                                      Employee Details - {monthly.monthName} {monthly.year}
+                                      <Chip
+                                        label="↑ Sorted by Employee ID"
+                                        size="small"
+                                        color="primary"
+                                        variant="outlined"
+                                        sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
+                                      />
+                                    </Typography>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        color="info"
+                                        label="Payrolls update when each authority approves"
+                                      />
+                                      <Button
+                                        size="small"
+                                        variant="outlined"
+                                        startIcon={exportLoadingKey === monthKey ? <CircularProgress size={14} /> : <DownloadIcon />}
+                                        disabled={exportLoadingKey === monthKey}
+                                        onClick={() => exportMonthPayrollCsv(monthly.month, monthly.year, `${monthly.monthName}-${monthly.year}`)}
+                                      >
+                                        Export {monthly.monthName} {monthly.year}
+                                      </Button>
+                                    </Stack>
+                                  </Box>
+
+                                  {/* Employee Details Pagination Info */}
+                                  {(() => {
+                                    const paginationInfo = getPaginatedEmployeeDetails(monthly);
+                                    return (
+                                      <Box sx={{
+                                        mb: 2,
+                                        p: 2,
+                                        bgcolor: 'grey.50',
+                                        borderRadius: 2,
+                                        border: '1px solid',
+                                        borderColor: 'grey.200'
+                                      }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                                          <Box>
+                                            <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
+                                              👥 Employee List
+                                            </Typography>
+                                            <Typography variant="body2" color="textSecondary">
+                                              Showing {paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-{Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalEmployees)} of {paginationInfo.totalEmployees} employees
+                                            </Typography>
+                                            <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                              📊 Sorted by Employee ID (1, 2, 3...)
+                                            </Typography>
+                                          </Box>
+                                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <Typography variant="body2" color="textSecondary">
+                                              Page {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
+                                            </Typography>
+                                            {paginationInfo.totalPages > 1 && (
+                                              <Chip
+                                                label={`${paginationInfo.totalPages} pages`}
+                                                size="small"
+                                                color="primary"
+                                                variant="outlined"
+                                              />
+                                            )}
+                                          </Box>
+                                        </Box>
+                                      </Box>
+                                    );
+                                  })()}
+
+                                  <Table size="small">
+                                    <TableHead>
+                                      <TableRow>
+                                        <TableCell>Employee</TableCell>
+                                        <TableCell>Basic Salary</TableCell>
+                                        <TableCell>Gross Pay</TableCell>
+                                        <TableCell>Net Pay</TableCell>
+                                        <TableCell>Status</TableCell>
+                                        <TableCell align="center">Actions</TableCell>
+                                      </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                      {(() => {
+                                        const paginationInfo = getPaginatedEmployeeDetails(monthly);
+                                        if (paginationInfo.paginatedEmployees.length === 0) {
+                                          return (
+                                            <TableRow>
+                                              <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
+                                                <Box sx={{ textAlign: 'center' }}>
+                                                  <Typography variant="body2" color="textSecondary">
+                                                    No employees found for this month
+                                                  </Typography>
+                                                </Box>
+                                              </TableCell>
+                                            </TableRow>
+                                          );
+                                        }
+
+                                        return paginationInfo.paginatedEmployees.map((payroll) => (
+                                          <TableRow key={payroll._id}>
+                                            <TableCell>
+                                              <Box>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                                  <Typography variant="subtitle2">
+                                                    {payroll.employee?.firstName} {payroll.employee?.lastName}
+                                                  </Typography>
+                                                  <PayrollProrationBadge payroll={payroll} />
+                                                  {payroll.isCashSalary && (
+                                                    <Chip label="Cash" size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                                  )}
+                                                  {payroll.isManual && (
+                                                    <Chip label="Manual" size="small" color="secondary" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                                                  )}
+                                                </Box>
+                                                <Typography variant="caption" color="textSecondary">
+                                                  {formatEmployeeId(payroll.employee?.employeeId)}
+                                                </Typography>
+                                              </Box>
+                                            </TableCell>
+                                            <TableCell>{formatCurrency(payroll.basicSalary)}</TableCell>
+                                            <TableCell>{formatCurrency(payroll.grossSalary)}</TableCell>
+                                            <TableCell>{formatCurrency(payroll.netSalary)}</TableCell>
+                                            <TableCell>
+                                              <Chip
+                                                label={getStatusLabel(payroll.status)}
+                                                color={getStatusColor(payroll.status)}
+                                                size="small"
+                                              />
+                                            </TableCell>
+                                            <TableCell align="center">
+                                              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                                                <Tooltip title="View Details">
+                                                  <IconButton
+                                                    size="small"
+                                                    onClick={() => navigate(`/hr/payroll/view/${payroll._id}`)}
+                                                  >
+                                                    <ViewIcon />
+                                                  </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="Edit Payroll">
+                                                  <IconButton
+                                                    size="small"
+                                                    onClick={() => navigate(`/hr/payroll/${payroll._id}/edit`)}
+                                                  >
+                                                    <EditIcon />
+                                                  </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="Delete Payroll">
+                                                  <IconButton
+                                                    size="small"
+                                                    color="error"
+                                                    onClick={() => handleDelete(payroll._id)}
+                                                  >
+                                                    <DeleteIcon />
+                                                  </IconButton>
+                                                </Tooltip>
+                                              </Box>
+                                            </TableCell>
+                                          </TableRow>
+                                        ));
+                                      })()}
+                                    </TableBody>
+                                  </Table>
+
+                                  {/* Employee Details Pagination Controls */}
+                                  {(() => {
+                                    const paginationInfo = getPaginatedEmployeeDetails(monthly);
+                                    if (paginationInfo.totalPages <= 1) return null;
+
+                                    return (
+                                      <Box sx={{
+                                        mt: 2,
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        flexWrap: 'wrap',
+                                        gap: 2
+                                      }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                          <Typography variant="body2" color="textSecondary">
+                                            Employees per page:
+                                          </Typography>
+                                          <FormControl size="small" sx={{ minWidth: 80 }}>
+                                            <Select
+                                              value={paginationInfo.currentRowsPerPage}
+                                              onChange={(e) => handleEmployeeDetailsRowsPerPageChange(`${monthly.month}-${monthly.year}`, e.target.value)}
+                                              sx={{ height: 32 }}
+                                            >
+                                              <MenuItem value={5}>5</MenuItem>
+                                              <MenuItem value={10}>10</MenuItem>
+                                              <MenuItem value={25}>25</MenuItem>
+                                              <MenuItem value={50}>50</MenuItem>
+                                            </Select>
+                                          </FormControl>
+                                        </Box>
+
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                          <Button
+                                            size="small"
+                                            onClick={() => handleEmployeeDetailsPageChange(`${monthly.month}-${monthly.year}`, paginationInfo.currentPage - 1)}
+                                            disabled={paginationInfo.currentPage === 0}
+                                            variant="outlined"
+                                          >
+                                            Previous
+                                          </Button>
+
+                                          <Typography variant="body2" sx={{ px: 2 }}>
+                                            {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
+                                          </Typography>
+
+                                          <Button
+                                            size="small"
+                                            onClick={() => handleEmployeeDetailsPageChange(`${monthly.month}-${monthly.year}`, paginationInfo.currentPage + 1)}
+                                            disabled={paginationInfo.currentPage === paginationInfo.totalPages - 1}
+                                            variant="outlined"
+                                          >
+                                            Next
+                                          </Button>
+                                        </Box>
+                                      </Box>
+                                    );
+                                  })()}
+                                </Box>
+                              </Collapse>
+                            </TableCell>
+                          </TableRow>
+                        </React.Fragment>
+                      );
+                    })
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="h6" color="textSecondary" gutterBottom>
+                            {(loading || dataLoading.employees || dataLoading.departments || dataLoading.positions) ? 'Loading payrolls...' : 'No payrolls found'}
+                          </Typography>
+                          <Typography variant="body2" color="textSecondary">
+                            {(loading || dataLoading.employees || dataLoading.departments || dataLoading.positions)
+                              ? 'Please wait while we fetch your payroll data...'
+                              : hasMonthlyFilters
+                                ? 'Try adjusting your monthly payroll filters'
+                                : 'Use Bulk Create Payroll to generate payrolls for a month'
+                            }
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </TableContainer>
+            <TablePagination
+              rowsPerPageOptions={[5, 10, 25, 50]}
+              component="div"
+              count={totalItems}
+              rowsPerPage={rowsPerPage}
+              page={page}
+              onPageChange={handleChangePage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              labelRowsPerPage="Months per page:"
+              labelDisplayedRows={({ from, to, count }) =>
+                `${from}-${to} of ${count !== -1 ? count : `more than ${to}`} months`
+              }
+              sx={{
+                bgcolor: 'background.paper',
+                borderTop: '1px solid',
+                borderColor: 'grey.200',
+                '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
+                  fontWeight: 500,
+                },
+                '& .MuiTablePagination-select': {
+                  borderRadius: 1,
+                }
+              }}
+            />
           </Paper>
-          
-          {/* Expanded Employee Details for General Payroll */}
-          <Collapse in={generalPayrollExpanded} timeout="auto" unmountOnExit>
-            <Box sx={{ margin: 1 }}>
-              <Typography variant="h6" gutterBottom component="div">
-                Employee Details - Current Payroll
-                <Chip 
-                  label="↑ Sorted by Employee ID" 
-                  size="small" 
-                  color="primary" 
-                  variant="outlined"
-                  sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
-                />
-              </Typography>
-              
-              {/* Employee Details Pagination Info */}
-              {(() => {
-                const paginationInfo = getPaginatedGeneralPayrollEmployees();
-                return (
-                  <Box sx={{ 
-                    mb: 2, 
-                    p: 2, 
-                    bgcolor: 'grey.50', 
-                    borderRadius: 2, 
-                    border: '1px solid',
-                    borderColor: 'grey.200'
-                  }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                      <Box>
-                        <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
-                          👥 Employee List
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          Showing {paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-{Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalEmployees)} of {paginationInfo.totalEmployees} employees
-                        </Typography>
-                        <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          📊 Sorted by Employee ID (1, 2, 3...)
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" color="textSecondary">
-                          Page {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
-                        </Typography>
-                        {paginationInfo.totalPages > 1 && (
-                          <Chip 
-                            label={`${paginationInfo.totalPages} pages`} 
-                            size="small" 
-                            color="primary" 
-                            variant="outlined"
-                          />
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
-                );
-              })()}
 
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Employee</TableCell>
-                    <TableCell>Basic Salary</TableCell>
-                    <TableCell>Gross Pay</TableCell>
-                    <TableCell>Net Pay</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell align="center">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {(() => {
-                    const paginationInfo = getPaginatedGeneralPayrollEmployees();
-                    if (paginationInfo.paginatedEmployees.length === 0) {
-                      return (
-                        <TableRow>
-                          <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                            <Box sx={{ textAlign: 'center' }}>
-                              <Typography variant="body2" color="textSecondary">
-                                No active employees found
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    }
-                    
-                    return paginationInfo.paginatedEmployees.map((employee) => {
-                      return (
-                        <TableRow key={employee._id}>
-                          <TableCell>
-                            <Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                                <Typography variant="subtitle2">
-                                  {employee.firstName} {employee.lastName}
-                                </Typography>
-                                <PayrollProrationBadge payroll={{ proration: employee.proration }} />
-                                {employee.isCashSalary && (
-                                  <Chip label="Cash" size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                )}
-                              </Box>
-                              <Typography variant="caption" color="textSecondary">
-                                {employee.employeeId}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>{formatCurrency(employee.basicSalary)}</TableCell>
-                          <TableCell>{formatCurrency(employee.totalEarnings)}</TableCell>
-                          <TableCell>{formatCurrency(employee.netSalary)}</TableCell>
-                          <TableCell>
-                            <Chip
-                              label="Active"
-                              color="success"
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell align="center">
-                            <Tooltip title="View Payroll Details">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={() => navigate(`/hr/payroll/view/employee/${employee._id}`)}
-                              >
-                                <ViewIcon />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    });
-                  })()}
-                </TableBody>
-              </Table>
-
-              {/* General Payroll Employee Details Pagination Controls */}
-              {(() => {
-                const paginationInfo = getPaginatedGeneralPayrollEmployees();
-                if (paginationInfo.totalPages <= 1) return null;
-                
-                return (
-                  <Box sx={{ 
-                    mt: 2, 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: 2
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Typography variant="body2" color="textSecondary">
-                        Employees per page:
-                      </Typography>
-                      <FormControl size="small" sx={{ minWidth: 80 }}>
-                        <Select
-                          value={paginationInfo.currentRowsPerPage}
-                          onChange={(e) => handleGeneralPayrollRowsPerPageChange(e.target.value)}
-                          sx={{ height: 32 }}
-                        >
-                          <MenuItem value={5}>5</MenuItem>
-                          <MenuItem value={10}>10</MenuItem>
-                          <MenuItem value={25}>25</MenuItem>
-                          <MenuItem value={50}>50</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Box>
-                    
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Button
-                        size="small"
-                        onClick={() => handleGeneralPayrollPageChange(paginationInfo.currentPage - 1)}
-                        disabled={paginationInfo.currentPage === 0}
-                        variant="outlined"
-                      >
-                        Previous
-                      </Button>
-                      
-                      <Typography variant="body2" sx={{ px: 2 }}>
-                        {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
-                      </Typography>
-                      
-                      <Button
-                        size="small"
-                        onClick={() => handleGeneralPayrollPageChange(paginationInfo.currentPage + 1)}
-                        disabled={paginationInfo.currentPage === paginationInfo.totalPages - 1}
-                        variant="outlined"
-                      >
-                        Next
-                      </Button>
-                    </Box>
-                  </Box>
-                );
-              })()}
-            </Box>
-          </Collapse>
-        </CardContent>
-      </Card>
-
-      {/* Monthly Payroll Summary Table */}
-      <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-        {/* Filters + export toolbar */}
-        <Box
-          sx={{
-            px: { xs: 2, sm: 2.5 },
-            py: 2,
-            borderBottom: '1px solid',
-            borderColor: 'divider',
-            bgcolor: (theme) => alpha(theme.palette.primary.main, 0.03)
-          }}
-        >
-          <Stack
-            direction={{ xs: 'column', lg: 'row' }}
-            spacing={2}
-            alignItems={{ xs: 'stretch', lg: 'flex-end' }}
-          >
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography
-                variant="caption"
-                fontWeight={700}
-                color="text.secondary"
-                sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
-              >
-                FILTERS
-              </Typography>
-              <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-end">
-                <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px', md: '1 1 0' }, maxWidth: { md: 200 } }}>
-                  <InputLabel>Status</InputLabel>
-                  <Select
-                    value={monthlyFilters.status}
-                    onChange={(e) => handleMonthlyFilterChange('status', e.target.value)}
-                    label="Status"
-                  >
-                    <MenuItem value="">All Statuses</MenuItem>
-                    <MenuItem value="draft">Draft</MenuItem>
-                    <MenuItem value="approved">Approved</MenuItem>
-                    <MenuItem value="paid">Paid</MenuItem>
-                    <MenuItem value="cancelled">Cancelled</MenuItem>
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px', md: '1 1 0' }, maxWidth: { md: 220 } }}>
-                  <InputLabel>Department</InputLabel>
-                  <Select
-                    value={monthlyFilters.department}
-                    onChange={(e) => handleMonthlyFilterChange('department', e.target.value)}
-                    label="Department"
-                  >
-                    <MenuItem value="">All Departments</MenuItem>
-                    {departmentOptions.map((dept) => (
-                      <MenuItem key={dept._id} value={dept._id}>
-                        {dept.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 }, flex: { sm: '1 1 150px', md: '1 1 0' }, maxWidth: { md: 220 } }}>
-                  <InputLabel>Project</InputLabel>
-                  <Select
-                    value={monthlyFilters.project}
-                    onChange={(e) => handleMonthlyFilterChange('project', e.target.value)}
-                    label="Project"
-                  >
-                    <MenuItem value="">All Projects</MenuItem>
-                    {projectOptions
-                      .slice()
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .map((project) => (
-                        <MenuItem key={project._id} value={project._id}>
-                          {project.name}
+          {/* Bulk Create Payroll Dialog */}
+          <Dialog open={bulkCreateDialogOpen} onClose={() => setBulkCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+            <DialogTitle>Bulk Create Payroll for All Employees</DialogTitle>
+            <DialogContent>
+              <Grid container spacing={2} sx={{ mt: 1 }}>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Month</InputLabel>
+                    <Select
+                      value={bulkCreateForm.month}
+                      onChange={(e) => setBulkCreateForm(prev => ({ ...prev, month: e.target.value }))}
+                      label="Month"
+                    >
+                      {months.map((month) => (
+                        <MenuItem key={month.value} value={month.value}>
+                          {month.label}
                         </MenuItem>
                       ))}
-                  </Select>
-                </FormControl>
-                <Button
-                  variant="outlined"
-                  color="inherit"
-                  size="small"
-                  startIcon={<ClearIcon />}
-                  onClick={clearMonthlyFilters}
-                  disabled={!hasMonthlyFilters}
-                  sx={{ height: 40, flexShrink: 0, px: 2 }}
-                >
-                  Clear
-                </Button>
-              </Stack>
-            </Box>
-
-            <Divider orientation="horizontal" sx={{ display: { xs: 'block', lg: 'none' } }} />
-            <Divider
-              orientation="vertical"
-              flexItem
-              sx={{ display: { xs: 'none', lg: 'block' }, alignSelf: 'stretch' }}
-            />
-
-            <Box sx={{ flex: { lg: '0 0 auto' }, width: { lg: 'auto' }, minWidth: { lg: 480 } }}>
-              <Typography
-                variant="caption"
-                fontWeight={700}
-                color="text.secondary"
-                sx={{ mb: 1.25, display: 'block', letterSpacing: '0.06em' }}
-              >
-                EXPORT
-              </Typography>
-              <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-end">
-                <FormControl size="small" sx={{ minWidth: 120, width: { xs: 'calc(50% - 6px)', sm: 130 } }}>
-                  <InputLabel>Month</InputLabel>
-                  <Select
-                    value={exportMonth}
-                    onChange={(e) => setExportMonth(e.target.value)}
-                    label="Month"
-                  >
-                    {months.map((m) => (
-                      <MenuItem key={m.value} value={String(parseInt(m.value, 10))}>
-                        {m.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 96, width: { xs: 'calc(50% - 6px)', sm: 100 } }}>
-                  <InputLabel>Year</InputLabel>
-                  <Select
-                    value={exportYear}
-                    onChange={(e) => setExportYear(Number(e.target.value))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
                     label="Year"
-                  >
-                    {exportYearOptions.map((y) => (
-                      <MenuItem key={y} value={y}>
-                        {y}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <Stack
-                  direction="row"
-                  spacing={1}
-                  useFlexGap
-                  sx={{
-                    height: 40,
-                    flex: { xs: '1 1 100%', sm: '0 0 auto' },
-                    alignItems: 'stretch',
-                    '& .MuiButton-root': { height: 40, whiteSpace: 'nowrap' }
-                  }}
-                >
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={
-                      exportLoadingKey === `${exportMonth}-${exportYear}` ? (
-                        <CircularProgress size={16} color="inherit" />
-                      ) : (
-                        <DownloadIcon />
-                      )
-                    }
-                    disabled={!!exportLoadingKey}
-                    onClick={() => {
-                      const label = months.find((m) => String(parseInt(m.value, 10)) === String(exportMonth))?.label;
-                      exportMonthPayrollCsv(exportMonth, exportYear, `${label || exportMonth}-${exportYear}`);
-                    }}
-                  >
-                    Export month (CSV)
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="secondary"
-                    size="small"
-                    startIcon={
-                      exportLoadingKey === `pdf-${exportMonth}-${exportYear}` ? (
-                        <CircularProgress size={16} color="inherit" />
-                      ) : (
-                        <PictureAsPdfIcon />
-                      )
-                    }
-                    disabled={!!exportLoadingKey}
-                    onClick={() => {
-                      const label = months.find((m) => String(parseInt(m.value, 10)) === String(exportMonth))?.label;
-                      exportMonthPayrollPdf(exportMonth, exportYear, `${label || exportMonth}-${exportYear}`);
-                    }}
-                  >
-                    Export month (PDF)
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<DownloadIcon />}
-                    onClick={handleExportMonthlySummary}
-                    disabled={!!exportLoadingKey || !monthlyPayrolls.length}
-                  >
-                    Export all periods
-                  </Button>
-                </Stack>
-              </Stack>
-            </Box>
-          </Stack>
-        </Box>
+                    value={bulkCreateForm.year}
+                    onChange={(e) => setBulkCreateForm(prev => ({ ...prev, year: parseInt(e.target.value) }))}
+                    inputProps={{ min: 2020, max: 2030 }}
+                  />
+                </Grid>
 
-        {/* Pagination Info */}
-        <Box sx={{ 
-          p: 2, 
-          bgcolor: 'grey.50', 
-          borderBottom: '1px solid',
-          borderColor: 'grey.200',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 2
-        }}>
-          <Box>
-            <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
-              📊 Monthly Payroll Summary
-            </Typography>
-            <Typography variant="body2" color="textSecondary">
-              Showing {page * rowsPerPage + 1}-{Math.min((page + 1) * rowsPerPage, totalItems)} of {totalItems} months
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2" color="textSecondary">
-              Page {page + 1} of {Math.ceil(totalItems / rowsPerPage)}
-            </Typography>
-            {totalItems > 0 && (
-              <Chip 
-                label={`${Math.ceil(totalItems / rowsPerPage)} pages`} 
-                size="small" 
-                color="primary" 
-                variant="outlined"
-              />
-            )}
-          </Box>
-        </Box>
-        
-        <TableContainer>
-          <Table stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell>Pay Period</TableCell>
-                <TableCell>Employees</TableCell>
-                <TableCell>Total Basic Salary</TableCell>
-                <TableCell>Total Gross Pay</TableCell>
-                <TableCell>Total Net Pay</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="center">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {paginationLoading ? (
-                <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <CircularProgress size={24} sx={{ mb: 2 }} />
-                      <Typography variant="body2" color="textSecondary">
-                        Loading page {page + 1}...
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ) : paginatedMonthlyPayrolls.length > 0 ? (
-                paginatedMonthlyPayrolls.map((monthly) => {
-                  const monthKey = `${monthly.month}-${monthly.year}`;
-                  const isExpanded = expandedMonths.has(monthKey);
-                  const draftCount = countDraftPayrolls(monthly.payrolls);
-                  const approvalDoc = monthlyApprovals[monthKey];
-                  const approvalLoading = monthlyApprovalLoadingKeys.has(monthKey);
-                  const canApproveDrafts = canApproveDraftsForMonth(monthly.month, monthly.year);
-                  // eslint-disable-next-line no-unused-vars
-                  const bulkApproveTooltip = (draftCount > 0 && !canApproveDrafts)
-                    ? 'Configure approval authorities and complete all sign-offs first'
-                    : `Approve all ${draftCount} draft payroll(s)`;
-                  
-                  return (
-                    <React.Fragment key={monthKey}>
-                      <TableRow hover>
-                        <TableCell>
-                          <Box>
-                            <Typography variant="subtitle2">
-                              {monthly.monthName} {monthly.year}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary">
-                              Payroll Period
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">
-                            {monthly.totalEmployees} Employees
-                          </Typography>
-                        </TableCell>
-                        <TableCell>{formatCurrency(monthly.totalBasicSalary)}</TableCell>
-                        <TableCell>{formatCurrency(monthly.totalGrossSalary)}</TableCell>
-                        <TableCell>{formatCurrency(monthly.totalNetSalary)}</TableCell>
-                        <TableCell>
-                          <Chip
-                            label={getMonthStatusLabel(monthly.statuses)}
-                            color={getMonthStatusColor(monthly.statuses)}
-                            size="small"
-                          />
-                        </TableCell>
-                        <TableCell align="center">
-                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                            <Tooltip title="Export this month's payroll (CSV)">
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  disabled={exportLoadingKey === monthKey}
-                                  onClick={() => exportMonthPayrollCsv(monthly.month, monthly.year, `${monthly.monthName}-${monthly.year}`)}
-                                >
-                                  {exportLoadingKey === monthKey ? (
-                                    <CircularProgress size={18} />
-                                  ) : (
-                                    <DownloadIcon fontSize="small" />
-                                  )}
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                            <Tooltip title="Monthly comparison report (vs last month)">
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  color="secondary"
-                                  disabled={comparisonLoadingKey === monthKey || !monthly.totalEmployees}
-                                  onClick={() => openMonthlyComparisonReport(
-                                    monthly.month,
-                                    monthly.year,
-                                    `${monthly.monthName} ${monthly.year}`,
-                                    draftCount
-                                  )}
-                                >
-                                  {comparisonLoadingKey === monthKey ? (
-                                    <CircularProgress size={18} />
-                                  ) : (
-                                    <CompareArrowsIcon fontSize="small" />
-                                  )}
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                            <Tooltip title={isExpanded ? "Hide Details" : "View Details"}>
-                              <IconButton
-                                size="small"
-                                onClick={() => toggleMonthExpansion(monthKey)}
-                              >
-                                {isExpanded ? <ExpandMoreIcon /> : <ViewIcon />}
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete Monthly Summary">
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => handleDeleteMonthlySummary(monthly.month, monthly.year, monthly.monthName)}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                      
-                      {/* Expanded Employee Details */}
-                      <TableRow>
-                        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
-                          <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                            <Box sx={{ margin: 1 }}>
-                              <MonthlyPayrollApprovalSection
-                                month={monthly.month}
-                                year={monthly.year}
-                                periodLabel={`${monthly.monthName} ${monthly.year}`}
-                                draftCount={draftCount}
-                                approvalDoc={approvalDoc}
-                                loading={approvalLoading}
-                                onRefresh={async () => {
-                                  await fetchMonthlyApproval(monthly.month, monthly.year);
-                                  await fetchMonthlyPayrolls();
-                                }}
-                                onUpdated={(doc) => {
-                                  if (doc) {
-                                    setMonthlyApprovals((prev) => ({ ...prev, [monthKey]: doc }));
-                                  }
-                                }}
-                              />
-                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
-                                <Typography variant="h6" component="div">
-                                  Employee Details - {monthly.monthName} {monthly.year}
-                                  <Chip 
-                                    label="↑ Sorted by Employee ID" 
-                                    size="small" 
-                                    color="primary" 
-                                    variant="outlined"
-                                    sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
-                                  />
-                                </Typography>
-                                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                                  <Chip
-                                    size="small"
-                                    variant="outlined"
-                                    color="info"
-                                    label="Payrolls update when each authority approves"
-                                  />
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    startIcon={exportLoadingKey === monthKey ? <CircularProgress size={14} /> : <DownloadIcon />}
-                                    disabled={exportLoadingKey === monthKey}
-                                    onClick={() => exportMonthPayrollCsv(monthly.month, monthly.year, `${monthly.monthName}-${monthly.year}`)}
-                                  >
-                                    Export {monthly.monthName} {monthly.year}
-                                  </Button>
-                                </Stack>
-                              </Box>
-                              
-                              {/* Employee Details Pagination Info */}
-                              {(() => {
-                                const paginationInfo = getPaginatedEmployeeDetails(monthly);
-                                return (
-                                  <Box sx={{ 
-                                    mb: 2, 
-                                    p: 2, 
-                                    bgcolor: 'grey.50', 
-                                    borderRadius: 2, 
-                                    border: '1px solid',
-                                    borderColor: 'grey.200'
-                                  }}>
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                                      <Box>
-                                        <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
-                                          👥 Employee List
-                                        </Typography>
-                                        <Typography variant="body2" color="textSecondary">
-                                          Showing {paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-{Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalEmployees)} of {paginationInfo.totalEmployees} employees
-                                        </Typography>
-                                        <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                          📊 Sorted by Employee ID (1, 2, 3...)
-                                        </Typography>
-                                      </Box>
-                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <Typography variant="body2" color="textSecondary">
-                                          Page {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
-                                        </Typography>
-                                        {paginationInfo.totalPages > 1 && (
-                                          <Chip 
-                                            label={`${paginationInfo.totalPages} pages`} 
-                                            size="small" 
-                                            color="primary" 
-                                            variant="outlined"
-                                          />
-                                        )}
-                                      </Box>
-                                    </Box>
-                                  </Box>
-                                );
-                              })()}
-                              
-                              <Table size="small">
-                                <TableHead>
-                                  <TableRow>
-                                    <TableCell>Employee</TableCell>
-                                    <TableCell>Basic Salary</TableCell>
-                                    <TableCell>Gross Pay</TableCell>
-                                    <TableCell>Net Pay</TableCell>
-                                    <TableCell>Status</TableCell>
-                                    <TableCell align="center">Actions</TableCell>
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {(() => {
-                                    const paginationInfo = getPaginatedEmployeeDetails(monthly);
-                                    if (paginationInfo.paginatedEmployees.length === 0) {
-                                      return (
-                                        <TableRow>
-                                          <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                                            <Box sx={{ textAlign: 'center' }}>
-                                              <Typography variant="body2" color="textSecondary">
-                                                No employees found for this month
-                                              </Typography>
-                                            </Box>
-                                          </TableCell>
-                                        </TableRow>
-                                      );
-                                    }
-                                    
-                                    return paginationInfo.paginatedEmployees.map((payroll) => (
-                                      <TableRow key={payroll._id}>
-                                        <TableCell>
-                                          <Box>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                                              <Typography variant="subtitle2">
-                                                {payroll.employee?.firstName} {payroll.employee?.lastName}
-                                              </Typography>
-                                              <PayrollProrationBadge payroll={payroll} />
-                                              {payroll.isCashSalary && (
-                                                <Chip label="Cash" size="small" color="warning" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                              )}
-                                            </Box>
-                                            <Typography variant="caption" color="textSecondary">
-                                              {formatEmployeeId(payroll.employee?.employeeId)}
-                                            </Typography>
-                                          </Box>
-                                        </TableCell>
-                                        <TableCell>{formatCurrency(payroll.basicSalary)}</TableCell>
-                                        <TableCell>{formatCurrency(payroll.grossSalary)}</TableCell>
-                                        <TableCell>{formatCurrency(payroll.netSalary)}</TableCell>
-                                        <TableCell>
-                                          <Chip
-                                            label={getStatusLabel(payroll.status)}
-                                            color={getStatusColor(payroll.status)}
-                                            size="small"
-                                          />
-                                        </TableCell>
-                                        <TableCell align="center">
-                                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                                            <Tooltip title="View Details">
-                                              <IconButton
-                                                size="small"
-                                                onClick={() => navigate(`/hr/payroll/view/${payroll._id}`)}
-                                              >
-                                                <ViewIcon />
-                                              </IconButton>
-                                            </Tooltip>
-                                            <Tooltip title="Edit Payroll">
-                                              <IconButton
-                                                size="small"
-                                                onClick={() => navigate(`/hr/payroll/${payroll._id}/edit`)}
-                                              >
-                                                <EditIcon />
-                                              </IconButton>
-                                            </Tooltip>
-                                            <Tooltip title="Delete Payroll">
-                                              <IconButton
-                                                size="small"
-                                                color="error"
-                                                onClick={() => handleDelete(payroll._id)}
-                                              >
-                                                <DeleteIcon />
-                                              </IconButton>
-                                            </Tooltip>
-                                          </Box>
-                                        </TableCell>
-                                      </TableRow>
-                                    ));
-                                  })()}
-                                </TableBody>
-                              </Table>
-                              
-                              {/* Employee Details Pagination Controls */}
-                              {(() => {
-                                const paginationInfo = getPaginatedEmployeeDetails(monthly);
-                                if (paginationInfo.totalPages <= 1) return null;
-                                
-                                return (
-                                  <Box sx={{ 
-                                    mt: 2, 
-                                    display: 'flex', 
-                                    justifyContent: 'space-between', 
-                                    alignItems: 'center',
-                                    flexWrap: 'wrap',
-                                    gap: 2
-                                  }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                      <Typography variant="body2" color="textSecondary">
-                                        Employees per page:
-                                      </Typography>
-                                      <FormControl size="small" sx={{ minWidth: 80 }}>
-                                        <Select
-                                          value={paginationInfo.currentRowsPerPage}
-                                          onChange={(e) => handleEmployeeDetailsRowsPerPageChange(`${monthly.month}-${monthly.year}`, e.target.value)}
-                                          sx={{ height: 32 }}
-                                        >
-                                          <MenuItem value={5}>5</MenuItem>
-                                          <MenuItem value={10}>10</MenuItem>
-                                          <MenuItem value={25}>25</MenuItem>
-                                          <MenuItem value={50}>50</MenuItem>
-                                        </Select>
-                                      </FormControl>
-                                    </Box>
-                                    
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                      <Button
-                                        size="small"
-                                        onClick={() => handleEmployeeDetailsPageChange(`${monthly.month}-${monthly.year}`, paginationInfo.currentPage - 1)}
-                                        disabled={paginationInfo.currentPage === 0}
-                                        variant="outlined"
-                                      >
-                                        Previous
-                                      </Button>
-                                      
-                                      <Typography variant="body2" sx={{ px: 2 }}>
-                                        {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
-                                      </Typography>
-                                      
-                                      <Button
-                                        size="small"
-                                        onClick={() => handleEmployeeDetailsPageChange(`${monthly.month}-${monthly.year}`, paginationInfo.currentPage + 1)}
-                                        disabled={paginationInfo.currentPage === paginationInfo.totalPages - 1}
-                                        variant="outlined"
-                                      >
-                                        Next
-                                      </Button>
-                                    </Box>
-                                  </Box>
-                                );
-                              })()}
-                            </Box>
-                          </Collapse>
-                        </TableCell>
-                      </TableRow>
-                    </React.Fragment>
-                  );
-                })
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="h6" color="textSecondary" gutterBottom>
-                        {(loading || dataLoading.employees || dataLoading.departments || dataLoading.positions) ? 'Loading payrolls...' : 'No payrolls found'}
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        {(loading || dataLoading.employees || dataLoading.departments || dataLoading.positions)
-                          ? 'Please wait while we fetch your payroll data...' 
-                          : hasMonthlyFilters
-                            ? 'Try adjusting your monthly payroll filters'
-                            : 'Use Bulk Create Payroll to generate payrolls for a month'
-                        }
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25, 50]}
-          component="div"
-          count={totalItems}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-          labelRowsPerPage="Months per page:"
-          labelDisplayedRows={({ from, to, count }) => 
-            `${from}-${to} of ${count !== -1 ? count : `more than ${to}`} months`
-          }
-          sx={{
-            bgcolor: 'background.paper',
-            borderTop: '1px solid',
-            borderColor: 'grey.200',
-            '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
-              fontWeight: 500,
-            },
-            '& .MuiTablePagination-select': {
-              borderRadius: 1,
+                {/* Employee Count Information */}
+                <Grid item xs={12}>
+                  <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.300' }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Employee Information
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Employees for payroll: <strong>{bulkPayrollEligibleCount}</strong>
+                      {currentOverviewLoading ? ' (loading…)' : ''}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
+                      Active employees with salary configured (same as General Payroll overview)
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                      Selected Period: <strong>{months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}</strong>
+                    </Typography>
+                  </Box>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Alert severity="info">
+                    This will create payroll records for <strong>ALL {bulkPayrollEligibleCount} payroll-eligible employees</strong> for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}.
+                    Each employee will have a draft payroll with their basic salary and default values.
+                  </Alert>
+                </Grid>
+
+                {/* Warning about existing payrolls */}
+                {(() => {
+                  const existingCount = payrolls.filter(
+                    p => p.month === parseInt(bulkCreateForm.month) && p.year === bulkCreateForm.year
+                  ).length;
+                  if (existingCount > 0) {
+                    const remainingCount = bulkPayrollEligibleCount - existingCount;
+
+                    return (
+                      <Grid item xs={12}>
+                        <Alert severity="warning">
+                          <strong>Existing Payrolls Found:</strong> {existingCount} payroll records already exist for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}.
+                          {remainingCount > 0 ? ` Only ${remainingCount} employees still need payrolls created.` : ' All active employees already have payrolls for this month.'}
+                        </Alert>
+                      </Grid>
+                    );
+                  }
+                  return null;
+                })()}
+              </Grid>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setBulkCreateDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={handleBulkCreate}
+                variant="contained"
+                disabled={bulkCreateLoading}
+                startIcon={bulkCreateLoading ? <CircularProgress size={20} /> : <GroupWorkIcon />}
+              >
+                {bulkCreateLoading ? `Creating... (${bulkPayrollEligibleCount} employees)` : `Create All Payrolls (${bulkPayrollEligibleCount} employees)`}
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <PayrollMonthlyComparisonDialog
+            open={comparisonDialogOpen}
+            onClose={() => {
+              setComparisonDialogOpen(false);
+              setComparisonReport(null);
+              setComparisonGeneratedAt(null);
+              setComparisonReportStatus('Draft');
+              setComparisonContext(null);
+            }}
+            report={comparisonReport}
+            generatedAt={comparisonGeneratedAt}
+            reportStatus={comparisonReportStatus}
+            loading={!!comparisonLoadingKey}
+            month={comparisonContext?.month}
+            year={comparisonContext?.year}
+            periodLabel={comparisonContext?.periodLabel}
+            draftCount={comparisonContext?.draftCount || 0}
+            approvalDoc={
+              comparisonContext
+                ? monthlyApprovals[`${comparisonContext.month}-${comparisonContext.year}`]
+                : null
             }
-          }}
-        />
-      </Paper>
-
-      {/* Bulk Create Payroll Dialog */}
-      <Dialog open={bulkCreateDialogOpen} onClose={() => setBulkCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Bulk Create Payroll for All Employees</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Month</InputLabel>
-                <Select
-                  value={bulkCreateForm.month}
-                  onChange={(e) => setBulkCreateForm(prev => ({ ...prev, month: e.target.value }))}
-                  label="Month"
-                >
-                  {months.map((month) => (
-                    <MenuItem key={month.value} value={month.value}>
-                      {month.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                type="number"
-                label="Year"
-                value={bulkCreateForm.year}
-                onChange={(e) => setBulkCreateForm(prev => ({ ...prev, year: parseInt(e.target.value) }))}
-                inputProps={{ min: 2020, max: 2030 }}
-              />
-            </Grid>
-            
-            {/* Employee Count Information */}
-            <Grid item xs={12}>
-              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.300' }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Employee Information
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Employees for payroll: <strong>{bulkPayrollEligibleCount}</strong>
-                  {currentOverviewLoading ? ' (loading…)' : ''}
-                </Typography>
-                <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
-                  Active employees with salary configured (same as General Payroll overview)
-                </Typography>
-                <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-                  Selected Period: <strong>{months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}</strong>
-                </Typography>
-              </Box>
-            </Grid>
-            
-            <Grid item xs={12}>
-              <Alert severity="info">
-                This will create payroll records for <strong>ALL {bulkPayrollEligibleCount} payroll-eligible employees</strong> for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}. 
-                Each employee will have a draft payroll with their basic salary and default values.
-              </Alert>
-            </Grid>
-            
-            {/* Warning about existing payrolls */}
-            {(() => {
-              const existingCount = payrolls.filter(
-                p => p.month === parseInt(bulkCreateForm.month) && p.year === bulkCreateForm.year
-              ).length;
-              if (existingCount > 0) {
-                const remainingCount = bulkPayrollEligibleCount - existingCount;
-                
-                return (
-                  <Grid item xs={12}>
-                    <Alert severity="warning">
-                      <strong>Existing Payrolls Found:</strong> {existingCount} payroll records already exist for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}. 
-                      {remainingCount > 0 ? ` Only ${remainingCount} employees still need payrolls created.` : ' All active employees already have payrolls for this month.'}
-                    </Alert>
-                  </Grid>
-                );
+            approvalLoading={
+              comparisonContext
+                ? monthlyApprovalLoadingKeys.has(`${comparisonContext.month}-${comparisonContext.year}`)
+                : false
+            }
+            onRefreshApproval={refreshComparisonDialogData}
+            onApprovalUpdated={async (doc) => {
+              if (!comparisonContext) return;
+              const key = `${comparisonContext.month}-${comparisonContext.year}`;
+              if (doc) {
+                setMonthlyApprovals((prev) => ({ ...prev, [key]: doc }));
               }
-              return null;
-            })()}
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setBulkCreateDialogOpen(false)}>Cancel</Button>
-          <Button 
-            onClick={handleBulkCreate} 
-            variant="contained" 
-            disabled={bulkCreateLoading}
-            startIcon={bulkCreateLoading ? <CircularProgress size={20} /> : <GroupWorkIcon />}
-          >
-            {bulkCreateLoading ? `Creating... (${bulkPayrollEligibleCount} employees)` : `Create All Payrolls (${bulkPayrollEligibleCount} employees)`}
-          </Button>
-        </DialogActions>
-      </Dialog>
+              await refreshComparisonDialogData();
+              await fetchMonthlyPayrolls();
+            }}
+          />
 
-      <PayrollMonthlyComparisonDialog
-        open={comparisonDialogOpen}
-        onClose={() => {
-          setComparisonDialogOpen(false);
-          setComparisonReport(null);
-          setComparisonGeneratedAt(null);
-          setComparisonReportStatus('Draft');
-          setComparisonContext(null);
-        }}
-        report={comparisonReport}
-        generatedAt={comparisonGeneratedAt}
-        reportStatus={comparisonReportStatus}
-        loading={!!comparisonLoadingKey}
-        month={comparisonContext?.month}
-        year={comparisonContext?.year}
-        periodLabel={comparisonContext?.periodLabel}
-        draftCount={comparisonContext?.draftCount || 0}
-        approvalDoc={
-          comparisonContext
-            ? monthlyApprovals[`${comparisonContext.month}-${comparisonContext.year}`]
-            : null
-        }
-        approvalLoading={
-          comparisonContext
-            ? monthlyApprovalLoadingKeys.has(`${comparisonContext.month}-${comparisonContext.year}`)
-            : false
-        }
-        onRefreshApproval={refreshComparisonDialogData}
-        onApprovalUpdated={async (doc) => {
-          if (!comparisonContext) return;
-          const key = `${comparisonContext.month}-${comparisonContext.year}`;
-          if (doc) {
-            setMonthlyApprovals((prev) => ({ ...prev, [key]: doc }));
-          }
-          await refreshComparisonDialogData();
-          await fetchMonthlyPayrolls();
-        }}
-      />
-
-      <ImportFuelAllowanceDialog
-        open={fuelDialogOpen}
-        onClose={() => setFuelDialogOpen(false)}
-        onImportSuccess={() => {
-          fetchMonthlyPayrolls();
-        }}
-      />
+          <ImportFuelAllowanceDialog
+            open={fuelDialogOpen}
+            onClose={() => setFuelDialogOpen(false)}
+            onImportSuccess={() => {
+              fetchMonthlyPayrolls();
+            }}
+          />
         </>
       )}
     </Box>

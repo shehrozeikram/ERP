@@ -88,6 +88,10 @@ const payrollSchema = new mongoose.Schema({
     required: [true, 'Year is required'],
     min: [2020, 'Year must be 2020 or later']
   },
+  isManual: {
+    type: Boolean,
+    default: false
+  },
   // Basic salary components
   basicSalary: {
     type: Number,
@@ -1232,7 +1236,7 @@ payrollSchema.methods.calculateAttendanceDeduction = function() {
 };
 
 // Index for efficient queries
-payrollSchema.index({ employee: 1, month: 1, year: 1 }, { unique: true });
+payrollSchema.index({ employee: 1, month: 1, year: 1, isManual: 1 }, { unique: true });
 payrollSchema.index({ status: 1 });
 payrollSchema.index({ month: 1, year: 1 });
 payrollSchema.index({ createdAt: -1 }); // For sorting by creation date

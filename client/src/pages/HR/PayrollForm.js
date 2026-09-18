@@ -46,7 +46,7 @@ const PayrollForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const [activeStep, setActiveStep] = useState(0);
-  
+
   // Months array for dropdown
   const months = [
     { value: '01', label: 'January' },
@@ -67,17 +67,17 @@ const PayrollForm = () => {
   const getMonthDates = (monthValue, year = new Date().getFullYear()) => {
     // monthValue is 1-indexed (01, 02, ..., 12)
     const month = parseInt(monthValue);
-    
+
     // Create dates using UTC to avoid timezone issues
     const startDate = new Date(Date.UTC(year, month - 1, 1));
     const endDate = new Date(Date.UTC(year, month, 0)); // Last day of the month
-    
+
     console.log('🐛 DEBUG: getMonthDates function:');
     console.log('🐛 DEBUG: Input monthValue:', monthValue, 'year:', year);
     console.log('🐛 DEBUG: Calculated month (0-indexed):', month - 1);
     console.log('🐛 DEBUG: UTC startDate:', startDate.toISOString());
     console.log('🐛 DEBUG: UTC endDate:', endDate.toISOString());
-    
+
     return {
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0]
@@ -163,6 +163,7 @@ const PayrollForm = () => {
 
   const formik = useFormik({
     initialValues: {
+      isManual: false,
       employee: '',
       payPeriod: {
         month: (new Date().getMonth() + 1).toString().padStart(2, '0'), // Current month as default
@@ -256,9 +257,9 @@ const PayrollForm = () => {
         console.log('🐛 DEBUG: values.payPeriod.year:', values.payPeriod.year);
         const { startDate, endDate } = getMonthDates(values.payPeriod.month, values.payPeriod.year);
         console.log('🐛 DEBUG: Calculated startDate:', startDate, 'endDate:', endDate);
-        
 
-        
+
+
         // Map allowances to backend format
         const mappedAllowances = {
           conveyance: {
@@ -290,7 +291,7 @@ const PayrollForm = () => {
             amount: values.allowances?.other?.isActive ? (values.allowances.other.amount || 0) : 0
           }
         };
-        
+
         // Create the payload with calculated dates and mapped allowances
         const payrollData = {
           ...values,
@@ -307,16 +308,24 @@ const PayrollForm = () => {
           }
         };
 
-        if (!id) {
-          setError('Payroll ID is required. Use Bulk Create Payroll on the Payroll Management page.');
-          setLoading(false);
-          return;
+        let currentId = id;
+        if (!currentId) {
+          console.log('🚀 CREATING NEW MANUAL PAYROLL');
+          const createRes = await api.post('/payroll/manual', {
+            employee: payrollData.employee,
+            month: payrollData.payPeriod.month,
+            year: payrollData.payPeriod.year,
+            basicSalary: payrollData.basicSalary,
+            grossSalary: payrollData.grossSalaryBase
+          });
+          currentId = createRes.data.data._id;
+          console.log('✅ Created draft payroll with ID:', currentId);
         }
 
         let savedPayroll;
-        console.log('🔄 UPDATING EXISTING PAYROLL:', id);
+        console.log('🔄 UPDATING PAYROLL:', currentId);
         console.log('📤 COMPLETE PAYLOAD BEING SENT TO BACKEND:');
-        console.log('   Payroll ID:', id);
+        console.log('   Payroll ID:', currentId);
         console.log('   Employee ID:', payrollData.employee);
         console.log('   Pay Period:', payrollData.payPeriod);
         console.log('   Basic Salary:', payrollData.basicSalary);
@@ -336,15 +345,15 @@ const PayrollForm = () => {
           `Active (Rs. ${payrollData.allowances.medical.amount})` : 'Inactive');
         console.log('   Total Allowances:', Object.values(payrollData.allowances || {}).reduce((sum, allowance) => 
           sum + (allowance.isActive ? allowance.amount : 0), 0));
-        console.log('🚀 SENDING PUT REQUEST TO:', `/api/payroll/${id}`);
-        savedPayroll = await api.put(`/payroll/${id}`, payrollData);
+        console.log('🚀 SENDING PUT REQUEST TO:', `/api/payroll/${currentId}`);
+        savedPayroll = await api.put(`/payroll/${currentId}`, payrollData);
 
         // Process loan payment if there's a loan deduction
         if (values.deductions.loan > 0 && employeeLoans.length > 0) {
-          const activeLoan = employeeLoans.find(loan => 
+          const activeLoan = employeeLoans.find(loan =>
             ['Active', 'Disbursed'].includes(loan.status) && loan.outstandingBalance > 0
           );
-          
+
           if (activeLoan) {
             try {
               await loanService.processPayment(activeLoan._id, {
@@ -352,7 +361,7 @@ const PayrollForm = () => {
                 paymentMethod: 'Salary Deduction'
               });
               console.log('Loan payment processed successfully');
-              
+
               // Refresh loan information to get updated outstanding balance
               await fetchEmployeeLoans(values.employee);
             } catch (loanError) {
@@ -376,7 +385,7 @@ const PayrollForm = () => {
             `Active (Rs. ${updatedPayroll.allowances.vehicle.amount})` : 'Inactive');
           console.log('   Fuel Allowance:', updatedPayroll.allowances?.fuel?.isActive ?
             `Active (Rs. ${updatedPayroll.allowances.fuel.amount})` : 'Inactive');
-          console.log('   Medical Allowance:', updatedPayroll.allowances?.medical?.isActive ? 
+          console.log('   Medical Allowance:', updatedPayroll.allowances?.medical?.isActive ?
             `Active (Rs. ${updatedPayroll.allowances.medical.amount})` : 'Inactive');
           console.log('   Income Tax:', updatedPayroll.incomeTax);
           console.log('   Total Deductions:', updatedPayroll.totalDeductions);
@@ -397,33 +406,33 @@ const PayrollForm = () => {
   });
 
   useEffect(() => {
-    if (!id) {
-      navigate('/hr/payroll', { replace: true });
-      return;
-    }
     fetchEmployees();
-    fetchPayroll();
+    if (id) {
+      fetchPayroll();
+    } else {
+      setLoading(false);
+    }
   }, [id, navigate]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   // Update loan deduction when employee loans change
   useEffect(() => {
     if (employeeLoans.length > 0 && selectedEmployee) {
-      const activeLoan = employeeLoans.find(loan => 
+      const activeLoan = employeeLoans.find(loan =>
         ['Active', 'Disbursed'].includes(loan.status) && loan.outstandingBalance > 0
       );
-      
+
       if (activeLoan) {
         // Recalculate loan deduction based on updated outstanding balance
         if (activeLoan.salaryDeduction?.enabled) {
           let loanDeduction = 0;
-          
+
           if (activeLoan.salaryDeduction.deductionType === 'Fixed Amount') {
             loanDeduction = parseFloat(activeLoan.salaryDeduction.fixedAmount) || 0;
           } else if (activeLoan.salaryDeduction.deductionType === 'Percentage') {
             const percentage = parseFloat(activeLoan.salaryDeduction.percentage) || 0;
             loanDeduction = (formik.values.basicSalary * percentage) / 100;
           }
-          
+
           // Ensure deduction doesn't exceed outstanding balance
           loanDeduction = Math.min(loanDeduction, activeLoan.outstandingBalance);
           formik.setFieldValue('deductions.loan', loanDeduction);
@@ -441,17 +450,17 @@ const PayrollForm = () => {
     const totalDays = formik.values.attendance?.totalDays || 26;
     const presentDays = formik.values.attendance?.presentDays || 0;
     const leaveDays = formik.values.leaveDeductions?.totalLeaveDays || 0;
-    
+
     // Calculate absent days: Total Days - Present Days - Leave Days
     const calculatedAbsentDays = Math.max(0, totalDays - presentDays - leaveDays);
-    
+
     // Update the absent days field with calculated value
     formik.setFieldValue('attendance.absentDays', calculatedAbsentDays);
-    
+
     console.log(`🧮 Frontend: Auto-calculated absent days: ${totalDays} - ${presentDays} - ${leaveDays} = ${calculatedAbsentDays}`);
   }, [
-    formik.values.attendance?.totalDays, 
-    formik.values.attendance?.presentDays, 
+    formik.values.attendance?.totalDays,
+    formik.values.attendance?.presentDays,
     formik.values.leaveDeductions?.totalLeaveDays
   ]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
@@ -481,12 +490,13 @@ const PayrollForm = () => {
       setLoading(true);
       const response = await api.get(`/payroll/${id}`);
       const payroll = response.data.data;
-      
+
       // Extract month and year from payroll data
       const monthValue = payroll.month.toString().padStart(2, '0');
-      
+
       formik.setValues({
         employee: payroll.employee._id,
+        isManual: Boolean(payroll.isManual),
         payPeriod: {
           month: monthValue,
           year: payroll.year,
@@ -542,8 +552,8 @@ const PayrollForm = () => {
           other: payroll.otherDeductions || 0
         },
         attendance: {
-                  totalDays: payroll.totalWorkingDays || 26,
-        presentDays: payroll.presentDays || 26,
+          totalDays: payroll.totalWorkingDays || 26,
+          presentDays: payroll.presentDays || 26,
           absentDays: payroll.absentDays || 0,
           lateDays: 0,
           halfDays: 0
@@ -563,7 +573,7 @@ const PayrollForm = () => {
         medicalAllowance: payroll.medicalAllowance || 0, // Set medicalAllowance
         autoCalculateSalary: true // Ensure auto-calculation is true on load
       });
-      
+
       setSelectedEmployee(payroll.employee);
     } catch (error) {
       console.error('Error fetching payroll:', error);
@@ -583,42 +593,42 @@ const PayrollForm = () => {
       const basicSalary = Math.round(grossSalary * 0.6666); // 66.66% of gross
       const medicalAllowance = Math.round(grossSalary * 0.1); // 10% of gross
       const houseRentAllowance = Math.round(grossSalary * 0.2334); // 23.34% of gross (remaining)
-      
+
       // Set calculated values
       formik.setFieldValue('basicSalary', basicSalary);
       formik.setFieldValue('grossSalaryBase', grossSalary); // Set grossSalaryBase
       formik.setFieldValue('houseRentAllowance', houseRentAllowance); // Set houseRentAllowance
       formik.setFieldValue('medicalAllowance', medicalAllowance); // Set medicalAllowance
-      
+
       // Set allowances from employee record (only if they are active)
       formik.setFieldValue('allowances.conveyance.isActive', employee.allowances?.conveyance?.isActive || false);
       formik.setFieldValue('allowances.conveyance.amount', employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0);
-      
+
       formik.setFieldValue('allowances.food.isActive', employee.allowances?.food?.isActive || false);
       formik.setFieldValue('allowances.food.amount', employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0);
-      
+
       const empAllowances = allowancesForForm(employee.allowances || {});
       formik.setFieldValue('allowances.vehicle.isActive', empAllowances.vehicle?.isActive || false);
       formik.setFieldValue('allowances.vehicle.amount', empAllowances.vehicle?.isActive ? empAllowances.vehicle.amount : 0);
       formik.setFieldValue('allowances.fuel.isActive', empAllowances.fuel?.isActive || false);
       formik.setFieldValue('allowances.fuel.amount', empAllowances.fuel?.isActive ? empAllowances.fuel.amount : 0);
-      
+
       formik.setFieldValue('allowances.medical.isActive', employee.allowances?.medical?.isActive || false);
       formik.setFieldValue('allowances.medical.amount', employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : medicalAllowance);
-      
+
       formik.setFieldValue('allowances.special.isActive', employee.allowances?.special?.isActive || false);
       formik.setFieldValue('allowances.special.amount', employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0);
-      
+
       formik.setFieldValue('allowances.other.isActive', employee.allowances?.other?.isActive || false);
       formik.setFieldValue('allowances.other.amount', employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
-      
+
       // Set EOBI if employee has it active
       if (employee.eobi?.isActive) {
         formik.setFieldValue('deductions.eobi', employee.eobi?.amount || 407);
       } else {
         formik.setFieldValue('deductions.eobi', 0);
       }
-      
+
       // Set Provident Fund if employee has it active (8.34% of basic salary)
       if (employee.providentFund?.isActive) {
         const providentFundAmount = Math.round((basicSalary * 8.34) / 100);
@@ -633,25 +643,25 @@ const PayrollForm = () => {
       } else {
         formik.setFieldValue('deductions.employeeSecurity', 0);
       }
-      
+
       // Fetch and set loan information
       const loans = await fetchEmployeeLoans(employeeId);
-      const activeLoan = loans.find(loan => 
+      const activeLoan = loans.find(loan =>
         ['Active', 'Disbursed'].includes(loan.status) && loan.outstandingBalance > 0
       );
-      
+
       if (activeLoan) {
         // Set loan deduction based on salary deduction settings
         if (activeLoan.salaryDeduction?.enabled) {
           let loanDeduction = 0;
-          
+
           if (activeLoan.salaryDeduction.deductionType === 'Fixed Amount') {
             loanDeduction = parseFloat(activeLoan.salaryDeduction.fixedAmount) || 0;
           } else if (activeLoan.salaryDeduction.deductionType === 'Percentage') {
             const percentage = parseFloat(activeLoan.salaryDeduction.percentage) || 0;
             loanDeduction = (basicSalary * percentage) / 100;
           }
-          
+
           // Ensure deduction doesn't exceed outstanding balance
           loanDeduction = Math.min(loanDeduction, activeLoan.outstandingBalance);
           formik.setFieldValue('deductions.loan', loanDeduction);
@@ -672,7 +682,7 @@ const PayrollForm = () => {
 
   const calculateTotals = () => {
     const values = formik.values;
-    
+
     // Ensure we have valid basic salary before calculating
     if (!values.basicSalary || values.basicSalary <= 0) {
       return {
@@ -689,30 +699,30 @@ const PayrollForm = () => {
         autoCalculatedTax: 0
       };
     }
-    
+
     // Calculate total allowances with safe defaults
-    const totalAllowances = 
-      (values.allowances?.conveyance?.isActive ? (values.allowances.conveyance.amount || 0) : 0) + 
-      (values.allowances?.food?.isActive ? (values.allowances.food.amount || 0) : 0) + 
-      vehicleAllowanceAmount(values.allowances) + 
+    const totalAllowances =
+      (values.allowances?.conveyance?.isActive ? (values.allowances.conveyance.amount || 0) : 0) +
+      (values.allowances?.food?.isActive ? (values.allowances.food.amount || 0) : 0) +
+      vehicleAllowanceAmount(values.allowances) +
       fuelAllowanceAmount(values.allowances) +
-      (values.allowances?.medical?.isActive ? (values.allowances.medical.amount || 0) : 0) + 
-      (values.allowances?.special?.isActive ? (values.allowances.special.amount || 0) : 0) + 
+      (values.allowances?.medical?.isActive ? (values.allowances.medical.amount || 0) : 0) +
+      (values.allowances?.special?.isActive ? (values.allowances.special.amount || 0) : 0) +
       (values.allowances?.other?.isActive ? (values.allowances.other.amount || 0) : 0);
 
     // Calculate overtime amount with safe defaults
     const overtimeAmount = (values.overtime?.hours || 0) * (values.overtime?.rate || 0);
 
     // Calculate total bonuses with safe defaults
-    const totalBonuses = 
-      (values.bonuses?.performance || 0) + 
-      (values.bonuses?.attendance || 0) + 
+    const totalBonuses =
+      (values.bonuses?.performance || 0) +
+      (values.bonuses?.attendance || 0) +
       (values.bonuses?.other || 0);
 
     // Calculate leave deductions with safe defaults
     const workingDaysPerMonth = 26; // Standard working days per month (excluding Sundays)
     const dailyRate = values.basicSalary / workingDaysPerMonth;
-    
+
     // Ensure leaveDeductions exists with default values
     const leaveDeductions = values.leaveDeductions || {
       unpaidLeave: 0,
@@ -721,35 +731,47 @@ const PayrollForm = () => {
       annualLeave: 0,
       otherLeave: 0
     };
-    
-    const leaveDeductionAmount = (leaveDeductions.unpaidLeave + leaveDeductions.otherLeave) * dailyRate;
-    const totalLeaveDays = leaveDeductions.unpaidLeave + leaveDeductions.sickLeave + 
-                           leaveDeductions.casualLeave + leaveDeductions.annualLeave + 
-                           leaveDeductions.otherLeave;
 
-    // Use tax info from state (calculated by useEffect)
-    const autoCalculatedTax = taxInfo ? (taxInfo.monthlyTax || 0) : 0;
+    const leaveDeductionAmount = (leaveDeductions.unpaidLeave + leaveDeductions.otherLeave) * dailyRate;
+    const totalLeaveDays = leaveDeductions.unpaidLeave + leaveDeductions.sickLeave +
+      leaveDeductions.casualLeave + leaveDeductions.annualLeave +
+      leaveDeductions.otherLeave;
+
+    // Use tax from form state (which can be user-edited)
+    const currentTax = Number(values.deductions?.incomeTax) || 0;
 
     // Calculate total deductions (excluding Provident Fund for now - Coming Soon)
-    const totalDeductions = 
-      autoCalculatedTax + // Use auto-calculated tax
-      (values.deductions?.insurance || 0) + 
-      (values.deductions?.pension || 0) + 
-      (values.deductions?.eobi || 0) + 
-      (values.deductions?.employeeSecurity || 0) + 
+    const totalDeductions =
+      currentTax + // Use current tax (either auto-calculated or manually edited)
+      (values.deductions?.insurance || 0) +
+      (values.deductions?.pension || 0) +
+      (values.deductions?.eobi || 0) +
+      (values.deductions?.employeeSecurity || 0) +
       // (values.deductions?.providentFund || 0) + // Excluded - Coming Soon
-      (values.deductions?.loan || 0) + 
-      (values.deductions?.other || 0) + 
+      (values.deductions?.loan || 0) +
+      (values.deductions?.other || 0) +
       leaveDeductionAmount;
 
-    // Calculate gross pay
-    const grossPay = values.basicSalary + totalAllowances + overtimeAmount + totalBonuses;
+    // Calculate additional allowances (excluding medical, which is part of gross base)
+    const additionalAllowances = 
+      (values.allowances?.conveyance?.isActive ? (values.allowances.conveyance.amount || 0) : 0) +
+      (values.allowances?.food?.isActive ? (values.allowances.food.amount || 0) : 0) +
+      vehicleAllowanceAmount(values.allowances) +
+      fuelAllowanceAmount(values.allowances) +
+      (values.allowances?.special?.isActive ? (values.allowances.special.amount || 0) : 0) +
+      (values.allowances?.other?.isActive ? (values.allowances.other.amount || 0) : 0);
 
-    // Calculate Total Earnings (same as September employees)
-    const totalEarnings = (values.grossSalaryBase || grossPay) + totalAllowances + overtimeAmount + totalBonuses;
+    // Calculate Gross Salary dynamically from its components
+    const currentGrossBase = (Number(values.basicSalary) || 0) + (Number(values.houseRentAllowance) || 0) + (Number(values.medicalAllowance) || 0);
+
+    // grossPay is the total sum of everything
+    const grossPay = currentGrossBase + additionalAllowances + overtimeAmount + totalBonuses;
+
+    // Calculate Total Earnings
+    const totalEarnings = grossPay;
 
     // Calculate net pay (after all deductions including tax)
-    const netPay = grossPay - totalDeductions;
+    const netPay = totalEarnings - totalDeductions;
 
     const totals = {
       totalAllowances: totalAllowances || 0,
@@ -762,7 +784,7 @@ const PayrollForm = () => {
       leaveDeductionAmount: leaveDeductionAmount || 0,
       totalLeaveDays: totalLeaveDays || 0,
       dailyRate: dailyRate || 0,
-      autoCalculatedTax: autoCalculatedTax || 0
+      autoCalculatedTax: currentTax || 0
     };
 
     return totals;
@@ -782,32 +804,32 @@ const PayrollForm = () => {
 
     // Calculate Total Earnings (same as September employees)
     const grossSalaryBase = formik.values.grossSalaryBase || 0;
-    const additionalAllowances = 
+    const additionalAllowances =
       (allowances?.conveyance?.isActive ? allowances.conveyance.amount : 0) +
       (allowances?.food?.isActive ? allowances.food.amount : 0) +
       vehicleAllowanceAmount(allowances) +
       fuelAllowanceAmount(allowances) +
       (allowances?.special?.isActive ? allowances.special.amount : 0) +
       (allowances?.other?.isActive ? allowances.other.amount : 0);
-    
+
     const totalEarnings = grossSalaryBase + additionalAllowances;
-    
+
     // Medical allowance is 10% of total earnings (tax-exempt)
     const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
-    
+
     // Taxable Income = Total Earnings - Medical Allowance
     const taxableIncome = totalEarnings - medicalAllowanceForTax;
-    
+
     const annualTaxableIncome = taxableIncome * 12;
-    
+
     try {
       // Use the new database-driven tax calculation
       const response = await api.post('/hr/fbr-tax-slabs/calculate', {
         annualIncome: annualTaxableIncome
       });
-      
+
       const result = response.data.data;
-      
+
       return {
         monthlyTax: result.monthlyTax,
         annualTaxableIncome: Math.round(annualTaxableIncome),
@@ -832,7 +854,7 @@ const PayrollForm = () => {
           formik.values.allowances
         );
         setTaxInfo(taxInfo);
-        
+
         // Auto-update income tax field
         if (taxInfo) {
           formik.setFieldValue('deductions.incomeTax', taxInfo.monthlyTax);
@@ -850,6 +872,25 @@ const PayrollForm = () => {
     }
     return value || 'N/A';
   };
+
+  const handleGrossSalaryChange = (e) => {
+    const value = e.target.value;
+    formik.setFieldValue('grossSalaryBase', value);
+    
+    // Auto-calculate components if manual override is not checked
+    if (formik.values.autoCalculateSalary !== false) {
+      const grossSalary = parseFloat(value) || 0;
+      const basicSalary = Math.round(grossSalary * 0.6666);
+      const medicalAllowance = Math.round(grossSalary * 0.1);
+      const houseRentAllowance = Math.round(grossSalary * 0.2334);
+      
+      formik.setFieldValue('basicSalary', basicSalary);
+      formik.setFieldValue('medicalAllowance', medicalAllowance);
+      formik.setFieldValue('houseRentAllowance', houseRentAllowance);
+    }
+  };
+
+  const isManualMode = !id || formik.values.isManual;
 
   const renderStepContent = (step) => {
     const totals = calculateTotals();
@@ -990,7 +1031,7 @@ const PayrollForm = () => {
                   <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
                     Based on employee's gross salary, automatically distributed as per company policy
                   </Typography>
-                  
+
                   <Grid container spacing={2}>
                     {/* Gross Salary (Base) - Read Only */}
                     <Grid item xs={12} md={6}>
@@ -999,16 +1040,17 @@ const PayrollForm = () => {
                         type="number"
                         name="grossSalaryBase"
                         label="Gross Salary (Base)"
-                        value={formik.values.grossSalaryBase || 0}
-                        InputProps={{ 
-                          readOnly: true,
+                        value={formik.values.grossSalaryBase || ''}
+                        onChange={handleGrossSalaryChange}
+                        InputProps={{
+                          readOnly: !isManualMode,
                           startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                         }}
                         helperText="Basic + Medical + House Rent (Auto-calculated)"
                         sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
                       />
                     </Grid>
-                    
+
                     {/* Basic Salary (66.66%) - Read Only */}
                     <Grid item xs={12} md={6}>
                       <TextField
@@ -1016,16 +1058,17 @@ const PayrollForm = () => {
                         type="number"
                         name="basicSalary"
                         label="Basic Salary (66.66%)"
-                        value={formik.values.basicSalary || 0}
-                        InputProps={{ 
-                          readOnly: true,
+                        value={formik.values.basicSalary || ''}
+                        onChange={formik.handleChange}
+                        InputProps={{
+                          readOnly: !isManualMode,
                           startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                         }}
                         helperText="66.66% of Gross Salary (Auto-calculated)"
                         sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
                       />
                     </Grid>
-                    
+
                     {/* House Rent Allowance (23.34%) - Read Only */}
                     <Grid item xs={12} md={6}>
                       <TextField
@@ -1033,16 +1076,17 @@ const PayrollForm = () => {
                         type="number"
                         name="houseRentAllowance"
                         label="House Rent Allowance (23.34%)"
-                        value={formik.values.houseRentAllowance || 0}
-                        InputProps={{ 
-                          readOnly: true,
+                        value={formik.values.houseRentAllowance || ''}
+                        onChange={formik.handleChange}
+                        InputProps={{
+                          readOnly: !isManualMode,
                           startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                         }}
                         helperText="23.34% of Gross Salary (Auto-calculated)"
                         sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
                       />
                     </Grid>
-                    
+
                     {/* Medical Allowance (10%) - Read Only */}
                     <Grid item xs={12} md={6}>
                       <TextField
@@ -1050,9 +1094,10 @@ const PayrollForm = () => {
                         type="number"
                         name="medicalAllowance"
                         label="Medical Allowance (10%)"
-                        value={formik.values.medicalAllowance || 0}
-                        InputProps={{ 
-                          readOnly: true,
+                        value={formik.values.medicalAllowance || ''}
+                        onChange={formik.handleChange}
+                        InputProps={{
+                          readOnly: !isManualMode,
                           startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                         }}
                         helperText="10% of Gross Salary (Auto-calculated)"
@@ -1060,7 +1105,7 @@ const PayrollForm = () => {
                       />
                     </Grid>
                   </Grid>
-                  
+
                   {/* Manual Override Option */}
                   <Box sx={{ mt: 2, p: 2, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffb74d' }}>
                     <Typography variant="body2" color="warning.dark" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1082,7 +1127,7 @@ const PayrollForm = () => {
                 </CardContent>
               </Card>
             </Grid>
-            
+
             {/* Additional Allowances Section */}
             <Grid item xs={12}>
               <Accordion>
@@ -1481,10 +1526,10 @@ const PayrollForm = () => {
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             Provident Fund
-                            <Chip 
-                              label="Coming Soon" 
-                              size="small" 
-                              color="warning" 
+                            <Chip
+                              label="Coming Soon"
+                              size="small"
+                              color="warning"
                               variant="outlined"
                               sx={{ fontSize: '0.7rem', height: 20 }}
                             />
@@ -1495,7 +1540,7 @@ const PayrollForm = () => {
                         InputProps={{
                           readOnly: true,
                           startAdornment: <span style={{ marginRight: 8 }}>PKR</span>,
-                          sx: { 
+                          sx: {
                             bgcolor: 'grey.100',
                             '& .MuiInputBase-input': { color: 'text.secondary' }
                           }
@@ -1533,16 +1578,16 @@ const PayrollForm = () => {
                         value={formik.values.deductions.loan}
                         onChange={formik.handleChange}
                         helperText={
-                          employeeLoans.length > 0 
+                          employeeLoans.length > 0
                             ? `Active Loan: ${employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.loanType || 'N/A'} | Outstanding: ${formatPKR(employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance || 0)}`
                             : 'No active loans'
                         }
                         disabled={employeeLoans.length === 0}
                         InputProps={{
                           endAdornment: employeeLoans.length > 0 && (
-                            <Chip 
-                              size="small" 
-                              label={employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance > 0 ? 'Active' : 'Paid'} 
+                            <Chip
+                              size="small"
+                              label={employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance > 0 ? 'Active' : 'Paid'}
                               color={employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance > 0 ? 'warning' : 'success'}
                             />
                           )
@@ -1700,11 +1745,11 @@ const PayrollForm = () => {
                       <TextField
                         fullWidth
                         label="Total Leave Days"
-                        value={(formik.values.leaveDeductions?.unpaidLeave || 0) + 
-                               (formik.values.leaveDeductions?.sickLeave || 0) + 
-                               (formik.values.leaveDeductions?.casualLeave || 0) + 
-                               (formik.values.leaveDeductions?.annualLeave || 0) + 
-                               (formik.values.leaveDeductions?.otherLeave || 0)}
+                        value={(formik.values.leaveDeductions?.unpaidLeave || 0) +
+                          (formik.values.leaveDeductions?.sickLeave || 0) +
+                          (formik.values.leaveDeductions?.casualLeave || 0) +
+                          (formik.values.leaveDeductions?.annualLeave || 0) +
+                          (formik.values.leaveDeductions?.otherLeave || 0)}
                         InputProps={{ readOnly: true }}
                         helperText="Auto-calculated"
                       />
@@ -1725,7 +1770,7 @@ const PayrollForm = () => {
                   <Typography variant="h6" gutterBottom>
                     Payroll Summary
                   </Typography>
-                  
+
                   {/* Pay Period Information */}
                   <Grid container spacing={2}>
                     <Grid item xs={12}>
@@ -1745,7 +1790,7 @@ const PayrollForm = () => {
                       </Box>
                     </Grid>
                   </Grid>
-                  
+
                   {/* Earnings Breakdown */}
                   <Grid container spacing={3} sx={{ mb: 3 }}>
                     <Grid item xs={12} md={6}>
@@ -1754,7 +1799,7 @@ const PayrollForm = () => {
                           <Typography variant="h6" color="primary" gutterBottom>
                             📈 Earnings Breakdown
                           </Typography>
-                          
+
                           {/* Gross Salary (Base) */}
                           <Box sx={{ mb: 2, p: 2, bgcolor: '#e3f2fd', borderRadius: 1 }}>
                             <Typography variant="subtitle2" color="primary" gutterBottom>
@@ -1767,24 +1812,24 @@ const PayrollForm = () => {
                               66.66% Basic + 10% Medical + 23.34% House Rent
                             </Typography>
                           </Box>
-                          
+
                           {/* Basic Salary */}
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Basic Salary (66.66%):</strong> {formatPKR(formik.values.basicSalary || 0)}
                           </Typography>
-                          
+
                           {/* House Rent Allowance */}
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>House Rent Allowance (23.34%):</strong> {formatPKR(formik.values.houseRentAllowance || 0)}
                           </Typography>
-                          
+
                           {/* Medical Allowance */}
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Medical Allowance (10%):</strong> {formatPKR(formik.values.medicalAllowance || 0)}
                           </Typography>
-                          
+
                           <Divider sx={{ my: 2 }} />
-                          
+
                           {/* Additional Allowances */}
                           <Typography variant="subtitle2" color="primary" gutterBottom>
                             Additional Allowances
@@ -1806,9 +1851,9 @@ const PayrollForm = () => {
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Other:</strong> {formatPKR(formik.values.allowances?.other?.isActive ? formik.values.allowances.other.amount : 0)}
                           </Typography>
-                          
+
                           <Divider sx={{ my: 2 }} />
-                          
+
                           {/* Other Earnings */}
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Overtime:</strong> {formatPKR(formik.values.overtime?.amount || 0)}
@@ -1819,9 +1864,9 @@ const PayrollForm = () => {
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Other Bonus:</strong> {formatPKR(formik.values.bonuses?.other || 0)}
                           </Typography>
-                          
+
                           <Divider sx={{ my: 2 }} />
-                          
+
                           {/* Total Earnings */}
                           <Box sx={{ p: 2, bgcolor: 'primary.main', color: 'white', borderRadius: 1 }}>
                             <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
@@ -1837,7 +1882,7 @@ const PayrollForm = () => {
                         </CardContent>
                       </Card>
                     </Grid>
-                    
+
                     {/* Deductions Breakdown */}
                     <Grid item xs={12} md={6}>
                       <Card variant="outlined" sx={{ height: '100%' }}>
@@ -1845,7 +1890,7 @@ const PayrollForm = () => {
                           <Typography variant="h6" color="error" gutterBottom>
                             💸 Deductions Breakdown
                           </Typography>
-                          
+
                           {/* Tax Calculation */}
                           <Box sx={{ mb: 2, p: 2, bgcolor: '#ffebee', borderRadius: 1 }}>
                             <Typography variant="subtitle2" color="error" gutterBottom>
@@ -1858,7 +1903,7 @@ const PayrollForm = () => {
                               Calculated on (Total Earnings - 10% Medical Allowance) per FBR 2026-2027
                             </Typography>
                           </Box>
-                          
+
                           {/* Other Deductions */}
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Health Insurance:</strong> {formatPKR(formik.values.deductions.insurance || 0)}
@@ -1872,7 +1917,7 @@ const PayrollForm = () => {
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Other Deductions:</strong> {formatPKR(formik.values.deductions.other || 0)}
                           </Typography>
-                          
+
                           {/* Provident Fund */}
                           <Box sx={{ mb: 2, p: 2, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffb74d' }}>
                             <Typography variant="subtitle2" color="warning.dark" gutterBottom>
@@ -1885,14 +1930,14 @@ const PayrollForm = () => {
                               8.34% of Basic Salary - Not included in total deductions (Coming Soon)
                             </Typography>
                           </Box>
-                          
+
                           {/* Leave Deductions */}
                           <Typography variant="body2" sx={{ mb: 1 }}>
                             <strong>Leave Deduction:</strong> {formatPKR(totals.leaveDeductionAmount || 0)}
                           </Typography>
-                          
+
                           <Divider sx={{ my: 2 }} />
-                          
+
                           {/* Total Deductions */}
                           <Box sx={{ p: 2, bgcolor: 'error.main', color: 'white', borderRadius: 1 }}>
                             <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
@@ -1909,13 +1954,13 @@ const PayrollForm = () => {
                       </Card>
                     </Grid>
                   </Grid>
-                  
+
                   {/* Net Salary Display */}
                   <Grid container spacing={3} sx={{ mb: 3 }}>
                     {/* Net Salary WITH Deductions */}
                     <Grid item xs={12} md={6}>
-                      <Card sx={{ 
-                        bgcolor: 'primary.main', 
+                      <Card sx={{
+                        bgcolor: 'primary.main',
                         color: 'white',
                         position: 'relative',
                         overflow: 'hidden',
@@ -1947,8 +1992,8 @@ const PayrollForm = () => {
 
                     {/* Net Salary WITHOUT PF & EOBI */}
                     <Grid item xs={12} md={6}>
-                      <Card sx={{ 
-                        bgcolor: 'success.main', 
+                      <Card sx={{
+                        bgcolor: 'success.main',
                         color: 'white',
                         position: 'relative',
                         overflow: 'hidden',
@@ -1978,7 +2023,7 @@ const PayrollForm = () => {
                       </Card>
                     </Grid>
                   </Grid>
-                  
+
                   {/* Tax Calculation Details */}
                   <Grid item xs={12}>
                     <Card variant="outlined" sx={{ bgcolor: '#f8f9fa' }}>
@@ -2107,7 +2152,7 @@ const PayrollForm = () => {
                 </Grid>
                 <Alert severity="info" sx={{ mt: 2 }}>
                   <Typography variant="body2">
-                                            <strong>Note:</strong> Tax is calculated on Total Gross Amount (Basic + All Allowances) minus 10% Medical Allowance (tax-exempt)
+                    <strong>Note:</strong> Tax is calculated on Total Gross Amount (Basic + All Allowances) minus 10% Medical Allowance (tax-exempt)
                   </Typography>
                 </Alert>
               </CardContent>

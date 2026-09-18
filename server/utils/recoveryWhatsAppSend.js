@@ -25,7 +25,10 @@ async function executeRecoveryWhatsAppSend(payload, user) {
     replyToText,
     replyToMessageId
   } = payload || {};
-  let phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
+  let phone = to ? String(to).replace(/\D/g, '') : '';
+  if (!phone) {
+    return { ok: false, message: 'Recipient phone number is missing or invalid', statusCode: 400 };
+  }
   if (phone.startsWith('0')) phone = phone.slice(1);
   if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
   else if (phone.length === 10) phone = '92' + phone;

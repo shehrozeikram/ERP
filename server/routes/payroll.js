@@ -329,112 +329,112 @@ async function generatePayslipPDF(payslip, res) {
     }
 
     doc.fontSize(20)
-       .font('Helvetica-Bold')
-       .fillColor('#2c3e50')
-       .text('SARDAR GROUP OF COMPANIES', 100, 25, { align: 'left' });
+      .font('Helvetica-Bold')
+      .fillColor('#2c3e50')
+      .text('SARDAR GROUP OF COMPANIES', 100, 25, { align: 'left' });
 
     doc.fontSize(16)
-       .font('Helvetica-Bold')
-       .fillColor('#34495e')
-       .text('PAY SLIP', 100, 50, { align: 'left' });
+      .font('Helvetica-Bold')
+      .fillColor('#34495e')
+      .text('PAY SLIP', 100, 50, { align: 'left' });
 
     doc.fontSize(12)
-       .font('Helvetica')
-       .fillColor('#7f8c8d')
-       .text(`For the month of ${formatDate(new Date(payslip.year, payslip.month - 1))}`, 100, 70, { align: 'left' });
+      .font('Helvetica')
+      .fillColor('#7f8c8d')
+      .text(`For the month of ${formatDate(new Date(payslip.year, payslip.month - 1))}`, 100, 70, { align: 'left' });
 
     // Right side - Payslip details in properly positioned box (moved further right to avoid overlap)
     const boxX = pageWidth - 130; // Moved further right to avoid overlap with company name
     const boxY = 20;
     const boxWidth = 120; // Increased width for better text spacing
     const boxHeight = 60;
-    
+
     doc.rect(boxX, boxY, boxWidth, boxHeight)
-       .fillColor('#f8f9fa')
-       .fill()
-       .stroke('#dee2e6');
+      .fillColor('#f8f9fa')
+      .fill()
+      .stroke('#dee2e6');
 
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Payslip No:', boxX + 8, boxY + 15)
-       .text('Issue Date:', boxX + 8, boxY + 30);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Payslip No:', boxX + 8, boxY + 15)
+      .text('Issue Date:', boxX + 8, boxY + 30);
 
     doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor('#6c757d')
-       .text(payslip.payslipNumber, boxX + 65, boxY + 15)
-       .text(formatDate(new Date()), boxX + 65, boxY + 30);
+      .font('Helvetica')
+      .fillColor('#6c757d')
+      .text(payslip.payslipNumber, boxX + 65, boxY + 15)
+      .text(formatDate(new Date()), boxX + 65, boxY + 30);
 
     // Employee Information - Clean layout with proper spacing
     let currentY = 100;
-    
+
     // Employee info with properly sized background (increased height)
     const empBoxHeight = 65;
     doc.rect(30, currentY, pageWidth - 30, empBoxHeight)
-       .fillColor('#f8f9fa')
-       .fill()
-       .stroke('#dee2e6');
+      .fillColor('#f8f9fa')
+      .fill()
+      .stroke('#dee2e6');
 
     doc.fontSize(14)
-       .font('Helvetica-Bold')
-       .fillColor('#2c3e50')
-       .text('Employee Information', 40, currentY + 10);
+      .font('Helvetica-Bold')
+      .fillColor('#2c3e50')
+      .text('Employee Information', 40, currentY + 10);
 
     currentY += 30;
-    
+
     // Employee details in two columns with proper alignment
     doc.fontSize(11)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Name:', 40, currentY)
-       .text('Employee ID:', 300, currentY);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Name:', 40, currentY)
+      .text('Employee ID:', 300, currentY);
 
     doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor('#2c3e50')
-       .text(payslip.employeeName, 80, currentY)
-       .text(payslip.employeeId, 380, currentY);
+      .font('Helvetica')
+      .fillColor('#2c3e50')
+      .text(payslip.employeeName, 80, currentY)
+      .text(payslip.employeeId, 380, currentY);
 
     currentY += 15;
-    
+
     doc.fontSize(11)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Department:', 40, currentY)
-       .text('Designation:', 300, currentY);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Department:', 40, currentY)
+      .text('Designation:', 300, currentY);
 
     doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor('#2c3e50')
-       .text(payslip.department, 110, currentY)
-       .text(payslip.designation, 380, currentY);
+      .font('Helvetica')
+      .fillColor('#2c3e50')
+      .text(payslip.department, 110, currentY)
+      .text(payslip.designation, 380, currentY);
 
     // Earnings and Deductions Table - Professional single-page layout
     currentY += 35;
-    
+
     // Table header with properly sized background
     const tableHeaderHeight = 25;
     doc.rect(30, currentY, pageWidth - 30, tableHeaderHeight)
-       .fillColor('#e9ecef')
-       .fill()
-       .stroke('#dee2e6');
+      .fillColor('#e9ecef')
+      .fill()
+      .stroke('#dee2e6');
 
     doc.fontSize(12)
-       .font('Helvetica-Bold')
-       .fillColor('#2c3e50')
-       .text('Earnings & Deductions', 40, currentY + 8);
+      .font('Helvetica-Bold')
+      .fillColor('#2c3e50')
+      .text('Earnings & Deductions', 40, currentY + 8);
 
     currentY += 35;
-    
+
     // Table headers with proper alignment (better column spacing)
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Earnings', 40, currentY)
-       .text('Amount', 170, currentY)
-       .text('Deductions', 290, currentY)
-       .text('Amount', 430, currentY);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Earnings', 40, currentY)
+      .text('Amount', 170, currentY)
+      .text('Deductions', 290, currentY)
+      .text('Amount', 430, currentY);
 
     // Draw properly positioned table lines (adjusted to match column positions)
     const tableHeight = 100;
@@ -446,13 +446,13 @@ async function generatePayslipPDF(payslip, res) {
     doc.moveTo(pageWidth - 10, currentY - 5).lineTo(pageWidth - 10, currentY + tableHeight).stroke('#dee2e6');
 
     currentY += 15;
-    
+
     // Optimized earnings and deductions rendering
     doc.fontSize(9).font('Helvetica').fillColor('#2c3e50');
-    
+
     // Dynamic earnings array - only include items with values > 0
     const earnings = [];
-    
+
     // Add basic salary components
     if (payslip.earnings.basicSalary > 0) {
       earnings.push(['Basic Salary', payslip.earnings.basicSalary]);
@@ -499,10 +499,10 @@ async function generatePayslipPDF(payslip, res) {
     if (payslip.earnings.otherEarnings > 0) {
       earnings.push(['Other Earnings', payslip.earnings.otherEarnings]);
     }
-    
+
     // Dynamic deductions array - only include items with values > 0
     const deductions = [];
-    
+
     if (payslip.deductions.eobi > 0) {
       deductions.push(['EOBI', payslip.deductions.eobi]);
     }
@@ -524,13 +524,13 @@ async function generatePayslipPDF(payslip, res) {
     if (payslip.deductions.otherDeductions > 0) {
       deductions.push(['Other Deductions', payslip.deductions.otherDeductions]);
     }
-    
+
     let earningsY = currentY;
     earnings.forEach(([label, amount]) => {
       doc.text(label, 40, earningsY).text(formatCurrency(amount), 170, earningsY);
       earningsY += 12;
     });
-    
+
     let deductionsY = currentY;
     deductions.forEach(([label, amount]) => {
       doc.text(label, 290, deductionsY).text(formatCurrency(amount), 430, deductionsY);
@@ -539,96 +539,96 @@ async function generatePayslipPDF(payslip, res) {
 
     // Summary section - Professional and clean with proper spacing
     currentY += 110;
-    
+
     // Summary background - properly sized
     const summaryHeight = 65;
     doc.rect(30, currentY, pageWidth - 30, summaryHeight)
-       .fillColor('#f8f9fa')
-       .fill()
-       .stroke('#dee2e6');
+      .fillColor('#f8f9fa')
+      .fill()
+      .stroke('#dee2e6');
 
     // Total Earnings (replaced Gross Salary)
     doc.fontSize(11)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Total Earnings:', 40, currentY + 10)
-       .text(formatCurrency(payslip.totalEarnings), 200, currentY + 10);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Total Earnings:', 40, currentY + 10)
+      .text(formatCurrency(payslip.totalEarnings), 200, currentY + 10);
 
     // Total Deductions
     doc.text('Total Deductions:', 40, currentY + 25)
-       .text(formatCurrency(payslip.totalDeductions), 200, currentY + 25);
+      .text(formatCurrency(payslip.totalDeductions), 200, currentY + 25);
 
     // Net Salary
     doc.text('Net Salary:', 40, currentY + 40)
-       .text(formatCurrency(payslip.netSalary), 200, currentY + 40);
+      .text(formatCurrency(payslip.netSalary), 200, currentY + 40);
 
     // Attendance section - Professional and clean
     currentY += 70;
-    
+
     // Attendance background - properly sized
     const attendanceHeight = 50;
     doc.rect(30, currentY, pageWidth - 30, attendanceHeight)
-       .fillColor('#f8f9fa')
-       .fill()
-       .stroke('#dee2e6');
+      .fillColor('#f8f9fa')
+      .fill()
+      .stroke('#dee2e6');
 
     // Attendance header
     doc.fontSize(11)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Attendance Summary', 40, currentY + 8);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Attendance Summary', 40, currentY + 8);
 
     // Attendance details in two columns
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Total Working Days:', 40, currentY + 25)
-       .text('Present Days:', 200, currentY + 25)
-       .text('Absent Days:', 360, currentY + 25);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Total Working Days:', 40, currentY + 25)
+      .text('Present Days:', 200, currentY + 25)
+      .text('Absent Days:', 360, currentY + 25);
 
     doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor('#2c3e50')
-       .text(payslip.totalDays || 0, 150, currentY + 25)
-       .text(payslip.presentDays || 0, 280, currentY + 25)
-       .text(payslip.absentDays || 0, 440, currentY + 25);
+      .font('Helvetica')
+      .fillColor('#2c3e50')
+      .text(payslip.totalDays || 0, 150, currentY + 25)
+      .text(payslip.presentDays || 0, 280, currentY + 25)
+      .text(payslip.absentDays || 0, 440, currentY + 25);
 
     // Amount in words - properly positioned
     currentY += 70;
     doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor('#6c757d')
-       .text(`Amount in words: ${numberToWords(Math.round(payslip.netSalary))} Only`, 40, currentY);
+      .font('Helvetica')
+      .fillColor('#6c757d')
+      .text(`Amount in words: ${numberToWords(Math.round(payslip.netSalary))} Only`, 40, currentY);
 
     // Notes section - only if exists, properly positioned
     if (payslip.remarks) {
       currentY += 20;
       doc.fontSize(10)
-         .font('Helvetica-Bold')
-         .fillColor('#495057')
-         .text('Notes:', 40, currentY)
-         .font('Helvetica')
-         .fillColor('#6c757d')
-         .text(payslip.remarks, 40, currentY + 12);
+        .font('Helvetica-Bold')
+        .fillColor('#495057')
+        .text('Notes:', 40, currentY)
+        .font('Helvetica')
+        .fillColor('#6c757d')
+        .text(payslip.remarks, 40, currentY + 12);
     }
 
     // Footer with signatures - compact and professional with proper positioning (added 10px margin bottom)
     const footerY = doc.page.height - 85;
-    
+
     // Signature section with properly sized background
     const footerHeight = 60;
     doc.rect(30, footerY, pageWidth - 30, footerHeight)
-       .fillColor('#f8f9fa')
-       .fill()
-       .stroke('#dee2e6');
+      .fillColor('#f8f9fa')
+      .fill()
+      .stroke('#dee2e6');
 
     // Signature labels with proper spacing
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .fillColor('#495057')
-       .text('Prepared By', 40, footerY + 8)
-       .text('Received By', 200, footerY + 8)
-       .text('Approved By', 360, footerY + 8);
+      .font('Helvetica-Bold')
+      .fillColor('#495057')
+      .text('Prepared By', 40, footerY + 8)
+      .text('Received By', 200, footerY + 8)
+      .text('Approved By', 360, footerY + 8);
 
     // Signature lines with proper positioning
     doc.moveTo(40, footerY + 20).lineTo(150, footerY + 20).stroke('#6c757d');
@@ -637,18 +637,18 @@ async function generatePayslipPDF(payslip, res) {
 
     // System information - minimal with proper spacing
     doc.fontSize(8)
-       .font('Helvetica')
-       .fillColor('#6c757d')
-       .text('Human Capital Management System', 40, footerY + 30)
-       .text(`Generated by: ${payslip.createdBy?.firstName || 'SYSTEM'}`, 40, footerY + 40)
-       .text(formatDate(new Date()), 40, footerY + 50);
+      .font('Helvetica')
+      .fillColor('#6c757d')
+      .text('Human Capital Management System', 40, footerY + 30)
+      .text(`Generated by: ${payslip.createdBy?.firstName || 'SYSTEM'}`, 40, footerY + 40)
+      .text(formatDate(new Date()), 40, footerY + 50);
 
     // Finalize PDF
     doc.end();
-    
+
   } catch (error) {
     console.error('❌ Error generating payslip PDF:', error);
-    
+
     // Check if headers have already been sent
     if (!res.headersSent) {
       res.status(500).json({
@@ -671,21 +671,21 @@ async function generatePayslipPDF(payslip, res) {
 const calculateWorkingDaysInMonth = (year, month) => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   let workingDays = 0;
-  
+
   for (let day = 1; day <= daysInMonth; day++) {
     const dayOfWeek = new Date(year, month, day).getDay();
     if (dayOfWeek !== 0) { // 0 = Sunday
       workingDays++;
     }
   }
-  
+
   return workingDays;
 };
 
 // @route   GET /api/payroll
 // @desc    Get all payrolls with filters
 // @access  Private (HR and Admin)
-router.get('/', 
+router.get('/',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const {
@@ -699,14 +699,14 @@ router.get('/',
     } = req.query;
 
     const matchStage = {};
-    
+
     if (status) matchStage.status = status;
     if (employeeId) matchStage.employee = employeeId;
-    
+
     if (startDate && endDate) {
       const startDateObj = new Date(startDate);
       const endDateObj = new Date(endDate);
-      
+
       // Match by month and year instead of payPeriod
       matchStage.$or = [
         {
@@ -728,12 +728,12 @@ router.get('/',
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName')
       .sort({ year: -1, month: -1, createdAt: -1 });
-    
+
     // Handle limit=0 case (get all records)
     if (limit > 0) {
       query = query.limit(limit * 1).skip((page - 1) * limit);
     }
-    
+
     const payrolls = await query.exec();
 
     const total = await Payroll.countDocuments(matchStage);
@@ -760,21 +760,21 @@ router.get('/monthly',
     const { status, employeeId, startDate, endDate, limit } = req.query;
 
     const matchStage = {};
-    
+
     if (status) matchStage.status = status;
     if (employeeId) matchStage.employee = employeeId;
-    
+
     // Apply date range filter if provided
     if (startDate && endDate) {
       const startDateObj = new Date(startDate);
       const endDateObj = new Date(endDate);
-      
+
       // Build date range query
       const startYear = startDateObj.getFullYear();
       const endYear = endDateObj.getFullYear();
       const startMonth = startDateObj.getMonth() + 1;
       const endMonth = endDateObj.getMonth() + 1;
-      
+
       if (startYear === endYear) {
         // Same year - filter by month range
         matchStage.year = startYear;
@@ -1123,7 +1123,7 @@ router.get('/stats',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate, status } = req.query;
-    
+
     const stats = await Payroll.getPayrollStats({
       startDate,
       endDate,
@@ -1659,7 +1659,7 @@ router.get('/:id',
     const pfEnabled = payroll.providentFundEnabled === true || isProvidentFundEnabledForEmployee(payroll.employee);
     payroll.providentFundEnabled = pfEnabled;
     payroll.providentFund = pfEnabled ? (payroll.providentFund || 0) : 0;
-    
+
     console.log(`📊 Payroll ${payroll._id} fetched with calculated attendance deduction: Rs. ${payroll.attendanceDeduction?.toFixed(2) || 0}`);
 
     res.json({
@@ -1711,7 +1711,7 @@ router.post('/', [
     console.log('🔍 Checking ZKBio Time server status before bulk payroll generation...');
     const serverStatus = await AttendanceIntegrationService.checkZKBioServerStatus();
     const zkbioServerOnline = serverStatus.isOnline;
-    
+
     if (zkbioServerOnline) {
       console.log('✅ ZKBio Time server is online - will fetch actual attendance records');
     } else {
@@ -1729,40 +1729,40 @@ router.post('/', [
     // 🚀 OPTIMIZED BULK PROCESSING - Process employees in parallel batches
     const BATCH_SIZE = 20; // Process 20 employees simultaneously for optimal performance
     const batches = [];
-    
+
     // Split employees into batches
     for (let i = 0; i < activeEmployees.length; i += BATCH_SIZE) {
       batches.push(activeEmployees.slice(i, i + BATCH_SIZE));
     }
-    
+
     console.log(`🚀 Processing ${activeEmployees.length} employees in ${batches.length} batches of ${BATCH_SIZE}`);
-    
+
     // 🔧 PRE-CALCULATE COMMON VALUES (Performance optimization)
     const workingDays = AttendanceIntegrationService.calculateWorkingDaysInMonth(year, month - 1);
-    
+
     // 🔧 BULK ATTENDANCE INTEGRATION (Major performance boost)
     console.log('🔧 Fetching bulk attendance data for all employees...');
     const employeeDataForAttendance = activeEmployees.map(emp => ({
       employeeId: emp.employeeId,
       grossSalary: emp.salary.gross
     }));
-    
+
     const bulkAttendanceData = await AttendanceIntegrationService.getBulkAttendanceIntegration(
       employeeDataForAttendance,
       month,
       year,
       zkbioServerOnline
     );
-    
+
     console.log(`✅ Bulk attendance data fetched for ${activeEmployees.length} employees`);
 
     const taxSettings = await loadPayrollTaxSettings();
-    
+
     // Process each batch in parallel
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
       console.log(`📊 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} employees)`);
-      
+
       // Process all employees in current batch in parallel
       const batchPromises = batch.map(async (employee) => {
         try {
@@ -1794,30 +1794,30 @@ router.post('/', [
           const basicSalary = Math.round(grossSalary * 0.6666);
           const medicalAllowance = Math.round(grossSalary * 0.10);
           const houseRentAllowance = Math.round(grossSalary * 0.2334);
-          
+
           // Calculate additional allowances from employee master data (prorated in join month)
           const additionalAllowances = additionalAllowancesTotal(effectiveAllowances);
-          
+
           // Get current month arrears from employee record
           let employeeArrears = 0;
           if (employee.arrears) {
             const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
-            
+
             for (const arrearsType of arrearsTypes) {
               const arrearsData = employee.arrears[arrearsType];
-              if (arrearsData && arrearsData.isActive && 
-                  arrearsData.month === month && 
-                  arrearsData.year === year && 
-                  arrearsData.status !== 'Paid' && 
-                  arrearsData.status !== 'Cancelled') {
+              if (arrearsData && arrearsData.isActive &&
+                arrearsData.month === month &&
+                arrearsData.year === year &&
+                arrearsData.status !== 'Paid' &&
+                arrearsData.status !== 'Cancelled') {
                 employeeArrears += arrearsData.amount || 0;
               }
             }
           }
-          
+
           // 🔧 TOTAL EARNINGS = Gross Salary + All Allowances + Overtime + Bonuses + Arrears
           const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
-          
+
           // 🔧 NEW SEPARATE TAX CALCULATION
           // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
           // Arrears: taxed at 100% (full amount)
@@ -1845,7 +1845,7 @@ router.post('/', [
             eobi = Math.round(eobi * proration.factor);
             employeeSecurity = Math.round(employeeSecurity * proration.factor);
           }
-          
+
           // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS (respects pauses & overrides)
           const loanModel = require('../models/hr/Loan');
           const activeLoans = await loanModel.find({
@@ -1867,7 +1867,7 @@ router.post('/', [
             status: 'Unadjusted'
           });
           const advanceSalary = unadjustedAdvances.reduce((sum, adv) => sum + (adv.amount || 0), 0);
-          
+
           // 🔧 USE PRE-FETCHED BULK ATTENDANCE DATA (Major performance boost)
           const rawAttendanceData = bulkAttendanceData[employee.employeeId] || {
             presentDays: workingDays,
@@ -1882,7 +1882,7 @@ router.post('/', [
             proration,
             grossSalary
           );
-          
+
           const {
             presentDays,
             absentDays,
@@ -1891,14 +1891,14 @@ router.post('/', [
             dailyRate,
             attendanceDeduction
           } = attendanceData;
-        
+
           // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
           const totalDeductions = monthlyTax + eobi + employeeSecurity + attendanceDeduction + loanDeductions + advanceSalary;
-          
+
           // Define healthInsurance and otherDeductions
           const healthInsurance = 0;
           const otherDeductions = 0;
-          
+
           // Net = Total Earnings − all deductions (Provident Fund is display-only, not deducted)
           const netSalary = totalEarnings - monthlyTax - eobi - employeeSecurity - healthInsurance - loanDeductions - advanceSalary - attendanceDeduction - otherDeductions;
 
@@ -1912,13 +1912,16 @@ router.post('/', [
               }
             };
           }
-          
+
           // Create payroll data
           const payrollData = {
             employee: employee._id,
+            employee,
             month,
             year,
-            basicSalary,
+            status: 'Draft',
+            isManual: true,
+            basicSalary: basicSalary || 0,
             houseRentAllowance,
             medicalAllowance,
             allowances: payrollAllowancesFromEmployee(effectiveAllowances),
@@ -2006,15 +2009,15 @@ router.post('/', [
           };
         }
       });
-      
+
       // Wait for all employees in current batch to complete
       const batchResults = await Promise.allSettled(batchPromises);
-      
+
       // Process batch results
       for (const result of batchResults) {
         if (result.status === 'fulfilled' && result.value.success) {
           const { payrollData, employee, totals } = result.value;
-          
+
           // Check for existing payroll and handle duplicates
           const existingPayroll = await Payroll.findOne({
             employee: employee._id,
@@ -2038,10 +2041,10 @@ router.post('/', [
               continue;
             }
           }
-          
+
           // Add to batch for bulk insert
           createdPayrolls.push(payrollData);
-          
+
           // Accumulate totals
           totalGrossSalary += totals.totalEarnings;
           totalNetSalary += totals.netSalary;
@@ -2068,10 +2071,10 @@ router.post('/', [
           });
         }
       }
-      
+
       console.log(`✅ Batch ${batchIndex + 1}/${batches.length} completed`);
     }
-    
+
     if (createdPayrolls.length === 0) {
       console.log('ℹ️ No new payroll records to create (all employees skipped or errored)');
       return res.status(200).json({
@@ -2104,11 +2107,11 @@ router.post('/', [
     console.log(`💾 Performing bulk insert of ${createdPayrolls.length} payroll records...`);
     const insertedPayrolls = await Payroll.insertMany(createdPayrolls, { ordered: false });
     console.log(`✅ Bulk insert completed: ${insertedPayrolls.length} payroll records created`);
-    
+
     // 🔧 UPDATE ARREARS STATUS TO 'PAID' FOR ALL CREATED PAYROLLS
     console.log('💰 Updating arrears status to "Paid" for created payrolls...');
     let arrearsUpdatedCount = 0;
-    
+
     for (const payroll of insertedPayrolls) {
       try {
         const updated = await markEmployeeArrearsPaidForPeriod(payroll.employee, month, year);
@@ -2119,17 +2122,17 @@ router.post('/', [
         console.error(`❌ Error updating arrears for employee ${payroll.employee}:`, error.message);
       }
     }
-    
+
     console.log(`💰 Arrears status update completed: ${arrearsUpdatedCount} employees updated`);
-    
+
     // 🚀 BULK POPULATE FOR RESPONSE (Performance optimization)
     console.log('🔧 Populating employee details for response...');
     const populatedPayrolls = await Payroll.find({
       _id: { $in: insertedPayrolls.map(p => p._id) }
     }).populate('employee', 'firstName lastName employeeId department position');
-    
+
     console.log(`✅ Employee details populated for ${populatedPayrolls.length} payroll records`);
-        
+
 
     // 🎯 FINAL SUMMARY AND RESPONSE
     console.log(`\n🎉 OPTIMIZED BULK PAYROLL GENERATION COMPLETED!`);
@@ -2187,6 +2190,62 @@ router.post('/', [
   }
 }));
 
+// @route   POST /api/payroll/manual
+// @desc    Create a draft payroll for a specific employee manually
+// @access  Private (HR and Admin)
+router.post('/manual', [
+  authorize('super_admin', 'admin', 'hr_manager'),
+  body('employee').isMongoId().withMessage('Employee is required'),
+  body('month').isInt({ min: 1, max: 12 }).withMessage('Month is required'),
+  body('year').isInt({ min: 2020 }).withMessage('Year is required')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+  }
+
+  const { employee, month, year, basicSalary, grossSalary } = req.body;
+  
+  // check if a MANUAL payroll already exists
+  const existing = await Payroll.findOne({ employee, month, year, isManual: true });
+  if (existing) {
+    return res.status(400).json({ success: false, message: 'A manual payroll already exists for this employee for this month and year' });
+  }
+
+  const payroll = new Payroll({
+    employee,
+    month,
+    year,
+    status: 'Draft',
+    isManual: true,
+    basicSalary: basicSalary || 0,
+    grossSalary: grossSalary || 0,
+    totalWorkingDays: 26,
+    presentDays: 26,
+    absentDays: 0,
+    leaveDays: 0,
+    allowances: {},
+    overtimeHours: 0,
+    overtimeRate: 0,
+    overtimeAmount: 0,
+    performanceBonus: 0,
+    otherBonus: 0,
+    arrears: 0,
+    incomeTax: 0,
+    providentFund: 0,
+    healthInsurance: 0,
+    eobi: 0,
+    employeeSecurity: 0,
+    otherDeductions: 0,
+    totalDeductions: 0,
+    totalEarnings: 0,
+    netSalary: 0
+  });
+
+  await payroll.save();
+  res.status(201).json({ success: true, data: payroll });
+}));
+
 // @route   PUT /api/payroll/:id
 // @desc    Update payroll with proper calculation logic including attendance deductions
 // @access  Private (HR and Admin)
@@ -2203,7 +2262,7 @@ router.put('/:id', [
   console.log('   Payroll ID:', req.params.id);
   console.log('   Request Body:', JSON.stringify(req.body, null, 2));
   console.log('   User:', req.user ? req.user.email : 'No user');
-  
+
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({
       success: false,
@@ -2237,7 +2296,7 @@ router.put('/:id', [
   }
 
   const updateData = { ...req.body };
-  
+
   // Convert dates if provided - extract month and year from payPeriod if provided
   if (req.body.payPeriod && req.body.payPeriod.startDate) {
     const startDate = new Date(req.body.payPeriod.startDate);
@@ -2252,12 +2311,12 @@ router.put('/:id', [
 
   // Map allowance fields if provided
   if (req.body.allowances) {
-    updateData.houseRentAllowance = parseFloat(req.body.allowances.housing) || 0;
-    updateData.medicalAllowance = parseFloat(req.body.allowances.medical) || 0;
-    updateData.conveyanceAllowance = parseFloat(req.body.allowances.transport) || 0;
+    updateData.houseRentAllowance = parseFloat(req.body.houseRentAllowance) || 0;
+    updateData.medicalAllowance = parseFloat(req.body.medicalAllowance) || 0;
+    updateData.conveyanceAllowance = parseFloat(req.body.allowances.conveyance?.amount) || parseFloat(req.body.allowances.transport) || 0;
     updateData.specialAllowance = parseFloat(req.body.allowances.meal) || 0;
     updateData.otherAllowance = parseFloat(req.body.allowances.other) || 0;
-    
+
     // Update the new allowances structure with frontend allowances
     updateData.allowances = buildAllowancesPayload(req.body.allowances);
   }
@@ -2289,17 +2348,17 @@ router.put('/:id', [
   if (req.body.attendance) {
     updateData.totalWorkingDays = parseInt(req.body.attendance.totalDays) || payroll.totalWorkingDays;
     updateData.presentDays = parseInt(req.body.attendance.presentDays) || payroll.presentDays;
-    
+
     // 🔧 AUTOMATIC ABSENT DAYS CALCULATION
     // If present days are provided, automatically calculate absent days
     if (req.body.attendance.presentDays !== undefined) {
       const totalWorkingDays = updateData.totalWorkingDays;
       const presentDays = updateData.presentDays;
       const leaveDays = parseInt(req.body.attendance.leaveDays) || payroll.leaveDays || 0;
-      
+
       // Calculate absent days automatically: Total Working Days - Present Days - Leave Days
       updateData.absentDays = Math.max(0, totalWorkingDays - presentDays - leaveDays);
-      
+
       console.log(`🧮 Automatic Absent Days Calculation:`);
       console.log(`   Total Working Days: ${totalWorkingDays}`);
       console.log(`   Present Days: ${presentDays}`);
@@ -2309,15 +2368,15 @@ router.put('/:id', [
       // If present days not provided, use the value from request or existing
       updateData.absentDays = parseInt(req.body.attendance.absentDays) || payroll.absentDays;
     }
-    
+
     updateData.leaveDays = parseInt(req.body.attendance.leaveDays) || payroll.leaveDays;
-    
+
     // Force recalculation of daily rate and attendance deduction
     updateData.dailyRate = undefined;
     updateData.attendanceDeduction = undefined;
-    
+
     console.log(`📊 Final Attendance Update: ${updateData.presentDays} present, ${updateData.absentDays} absent, ${updateData.totalWorkingDays} total working days`);
-    
+
     // Log attendance deduction calculation for debugging
     if (updateData.absentDays > 0 || updateData.leaveDays > 0) {
       const dailyRate = updateData.grossSalary / updateData.totalWorkingDays;
@@ -2341,10 +2400,10 @@ router.put('/:id', [
   }
 
   // Recalculate totals
-  updateData.grossSalary = (updateData.basicSalary || payroll.basicSalary) + 
-    (updateData.houseRentAllowance || payroll.houseRentAllowance) + 
+  updateData.grossSalary = (updateData.basicSalary || payroll.basicSalary) +
+    (updateData.houseRentAllowance || payroll.houseRentAllowance) +
     (updateData.medicalAllowance || payroll.medicalAllowance);
-  
+
   // 🔧 CRITICAL FIX: Update allowances structure on payroll object FIRST
   if (req.body.allowances) {
     console.log('🔧 Updating payroll.allowances with frontend data');
@@ -2358,7 +2417,7 @@ router.put('/:id', [
   // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses + Arrears)
   // Now use the updated payroll.allowances (which contains the frontend data)
   const additionalAllowances = additionalAllowancesTotal(payroll.allowances);
-  
+
   console.log('💰 Additional Allowances Calculation:');
   console.log('   Conveyance:', payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0);
   console.log('   Food:', payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0);
@@ -2367,23 +2426,23 @@ router.put('/:id', [
   console.log('   Special:', payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0);
   console.log('   Other:', payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
   console.log('   Total Additional Allowances:', additionalAllowances);
-  
+
   // Get current arrears amount from payroll
   const currentArrears = updateData.arrears !== undefined ? updateData.arrears : (payroll.arrears || 0);
-  
+
   // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses + Arrears
-  const totalEarnings = updateData.grossSalary + additionalAllowances + 
-    (updateData.overtimeAmount || payroll.overtimeAmount) + 
-    (updateData.performanceBonus || payroll.performanceBonus) + 
+  const totalEarnings = updateData.grossSalary + additionalAllowances +
+    (updateData.overtimeAmount || payroll.overtimeAmount) +
+    (updateData.performanceBonus || payroll.performanceBonus) +
     (updateData.otherBonus || payroll.otherBonus) +
     currentArrears;
-  
+
   // Store total earnings for reference
   updateData.totalEarnings = totalEarnings;
-  
+
   // 🔧 CRITICAL FIX: Update payroll.totalEarnings with calculated value
   payroll.totalEarnings = totalEarnings;
-  
+
   console.log('💰 Total Earnings Calculation:');
   console.log('   Gross Salary (Base):', updateData.grossSalary);
   console.log('   Additional Allowances:', additionalAllowances);
@@ -2392,7 +2451,7 @@ router.put('/:id', [
   console.log('   Other Bonus:', updateData.otherBonus || payroll.otherBonus);
   console.log('   Arrears:', currentArrears);
   console.log('   Total Earnings:', totalEarnings);
-  
+
   // 🔧 NEW SEPARATE TAX CALCULATION
   // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
   // Arrears: taxed at 100% (full amount)
@@ -2400,8 +2459,8 @@ router.put('/:id', [
     updateData.grossSalary ||
     payroll.grossSalary ||
     (payroll.basicSalary || 0) +
-      (payroll.houseRentAllowance || 0) +
-      (payroll.medicalAllowance || 0);
+    (payroll.houseRentAllowance || 0) +
+    (payroll.medicalAllowance || 0);
   const taxSettings = await loadPayrollTaxSettings();
   const taxCalculation = calculatePayrollTaxWithSettings({
     grossSalary: grossForTax,
@@ -2416,13 +2475,17 @@ router.put('/:id', [
 
   // Auto-calculate tax when allowances change (always recalculate for accuracy)
   try {
-    updateData.incomeTax = resolvedPayrollTax;
-    
+    if (payroll.isManual && req.body.deductions && req.body.deductions.tax !== undefined) {
+      updateData.incomeTax = parseFloat(req.body.deductions.tax) || 0;
+    } else {
+      updateData.incomeTax = resolvedPayrollTax;
+    }
+
     // 🔧 CRITICAL FIX: Update payroll.incomeTax with calculated value
     payroll.incomeTax = updateData.incomeTax;
-    
+
     console.log(`💰 Tax Calculation for Employee Update: Main Salary: ${mainSalary}, Arrears: ${currentArrears}, Main Tax: ${taxCalculation.mainTax}, Arrears Tax: ${taxCalculation.arrearsTax}, Total Tax: ${updateData.incomeTax}`);
-    
+
   } catch (error) {
     console.error('Error calculating tax:', error);
     // Fallback to old calculation
@@ -2442,15 +2505,15 @@ router.put('/:id', [
   // 🔧 UPDATE TOTAL DEDUCTIONS WITH CORRECT FORMULA
   // Total Deductions = Income Tax + EOBI + Employee Security + Health Insurance + Attendance Deduction + Other Deductions
   // Note: Provident Fund is NOT included in total deductions (as per business requirement)
-  updateData.totalDeductions = (updateData.incomeTax || payroll.incomeTax || 0) + 
-    (updateData.eobi || payroll.eobi || 0) + 
-    (updateData.employeeSecurity !== undefined ? updateData.employeeSecurity : (payroll.employeeSecurity || 0)) + 
-    (updateData.healthInsurance || payroll.healthInsurance || 0) + 
-    Math.round(attendanceDeduction) + 
+  updateData.totalDeductions = (updateData.incomeTax || payroll.incomeTax || 0) +
+    (updateData.eobi || payroll.eobi || 0) +
+    (updateData.employeeSecurity !== undefined ? updateData.employeeSecurity : (payroll.employeeSecurity || 0)) +
+    (updateData.healthInsurance || payroll.healthInsurance || 0) +
+    Math.round(attendanceDeduction) +
     (updateData.otherDeductions || payroll.otherDeductions || 0);
 
   updateData.netSalary = updateData.grossSalary - updateData.totalDeductions;
-  
+
   // 🔧 CRITICAL FIX: Update payroll.totalDeductions and payroll.netSalary with calculated values
   payroll.totalDeductions = updateData.totalDeductions;
   payroll.netSalary = updateData.netSalary;
@@ -2463,66 +2526,66 @@ router.put('/:id', [
   if (req.body.basicSalary !== undefined) {
     payroll.basicSalary = parseFloat(req.body.basicSalary);
   }
-  
+
   if (req.body.medicalAllowance !== undefined) {
     payroll.medicalAllowance = parseFloat(req.body.medicalAllowance);
   }
-  
+
   if (req.body.houseRentAllowance !== undefined) {
     payroll.houseRentAllowance = parseFloat(req.body.houseRentAllowance);
   }
-  
+
   if (req.body.grossSalary !== undefined) {
     payroll.grossSalary = parseFloat(req.body.grossSalary);
   }
-  
+
   if (req.body.overtimeHours !== undefined) {
     payroll.overtimeHours = parseFloat(req.body.overtimeHours);
   }
-  
+
   if (req.body.overtimeRate !== undefined) {
     payroll.overtimeRate = parseFloat(req.body.overtimeRate);
   }
-  
+
   if (req.body.performanceBonus !== undefined) {
     payroll.performanceBonus = parseFloat(req.body.performanceBonus);
   }
-  
+
   if (req.body.otherBonus !== undefined) {
     payroll.otherBonus = parseFloat(req.body.otherBonus);
   }
-  
+
   if (req.body.arrears !== undefined) {
     payroll.arrears = parseFloat(req.body.arrears);
   }
-  
+
   if (req.body.providentFund !== undefined) {
     payroll.providentFund = parseFloat(req.body.providentFund);
   }
-  
+
   if (req.body.healthInsurance !== undefined) {
     payroll.healthInsurance = parseFloat(req.body.healthInsurance);
   }
-  
+
   if (req.body.loanDeductions !== undefined) {
     payroll.loanDeductions = parseFloat(req.body.loanDeductions);
   }
-  
+
   if (req.body.otherDeductions !== undefined) {
     payroll.otherDeductions = parseFloat(req.body.otherDeductions);
   }
-  
+
   // Handle attendance fields (support both direct and nested structures)
   if (req.body.totalWorkingDays !== undefined) {
     payroll.totalWorkingDays = parseInt(req.body.totalWorkingDays);
   }
-  
+
   if (req.body.presentDays !== undefined) {
     payroll.presentDays = parseInt(req.body.presentDays);
     // Auto-calculate absent days
     payroll.absentDays = Math.max(0, payroll.totalWorkingDays - payroll.presentDays - payroll.leaveDays);
   }
-  
+
   if (req.body.leaveDays !== undefined) {
     payroll.leaveDays = parseInt(req.body.leaveDays);
     // Recalculate absent days if present days are set
@@ -2530,19 +2593,19 @@ router.put('/:id', [
       payroll.absentDays = Math.max(0, payroll.totalWorkingDays - payroll.presentDays - payroll.leaveDays);
     }
   }
-  
+
   // Also handle nested attendance structure (req.body.attendance.*)
   if (req.body.attendance) {
     if (req.body.attendance.totalDays !== undefined) {
       payroll.totalWorkingDays = parseInt(req.body.attendance.totalDays);
     }
-    
+
     if (req.body.attendance.presentDays !== undefined) {
       payroll.presentDays = parseInt(req.body.attendance.presentDays);
       // Auto-calculate absent days
       payroll.absentDays = Math.max(0, payroll.totalWorkingDays - payroll.presentDays - payroll.leaveDays);
     }
-    
+
     if (req.body.attendance.leaveDays !== undefined) {
       payroll.leaveDays = parseInt(req.body.attendance.leaveDays);
       // Recalculate absent days if present days are set
@@ -2550,9 +2613,9 @@ router.put('/:id', [
         payroll.absentDays = Math.max(0, payroll.totalWorkingDays - payroll.presentDays - payroll.leaveDays);
       }
     }
-    
+
     console.log(`📊 Attendance Update Applied: ${payroll.presentDays} present, ${payroll.absentDays} absent, ${payroll.totalWorkingDays} total working days`);
-    
+
     // Log attendance deduction preview for direct updates
     if (payroll.absentDays > 0 || payroll.leaveDays > 0) {
       const dailyRate = payroll.grossSalary / payroll.totalWorkingDays;
@@ -2561,7 +2624,7 @@ router.put('/:id', [
     }
 
   }
-  
+
   if (req.body.remarks !== undefined) {
     payroll.remarks = req.body.remarks;
   }
@@ -2569,7 +2632,7 @@ router.put('/:id', [
   // 🔧 HANDLE LEAVE DEDUCTIONS - Same pattern as attendance updates
   if (req.body.leaveDeductions) {
     console.log(`📊 Leave Deductions Update:`, req.body.leaveDeductions);
-    
+
     // Map leave deduction fields directly to payroll object
     payroll.leaveDeductions = {
       unpaidLeave: parseInt(req.body.leaveDeductions.unpaidLeave) || 0,
@@ -2580,25 +2643,25 @@ router.put('/:id', [
       totalLeaveDays: 0, // Will be calculated
       leaveDeductionAmount: 0 // Will be calculated
     };
-    
+
     // Calculate total leave days
-    payroll.leaveDeductions.totalLeaveDays = 
-      payroll.leaveDeductions.unpaidLeave + 
-      payroll.leaveDeductions.sickLeave + 
-      payroll.leaveDeductions.casualLeave + 
-      payroll.leaveDeductions.annualLeave + 
+    payroll.leaveDeductions.totalLeaveDays =
+      payroll.leaveDeductions.unpaidLeave +
+      payroll.leaveDeductions.sickLeave +
+      payroll.leaveDeductions.casualLeave +
+      payroll.leaveDeductions.annualLeave +
       payroll.leaveDeductions.otherLeave;
-    
+
     // 🔧 UPDATE LEAVE DAYS FIELD - This will trigger present days recalculation
     payroll.leaveDays = payroll.leaveDeductions.totalLeaveDays;
-    
+
     // 🔧 AUTO-RECALCULATE PRESENT DAYS when leave days change
     if (payroll.totalWorkingDays && payroll.leaveDays !== undefined) {
       const newPresentDays = Math.max(0, payroll.totalWorkingDays - (payroll.absentDays || 0) - payroll.leaveDays);
       console.log(`🧮 Auto-recalculating present days: ${payroll.totalWorkingDays} - ${payroll.absentDays || 0} - ${payroll.leaveDays} = ${newPresentDays}`);
       payroll.presentDays = newPresentDays;
     }
-    
+
     console.log(`📊 Leave Deductions Summary:`);
     console.log(`   Unpaid Leave: ${payroll.leaveDeductions.unpaidLeave}`);
     console.log(`   Sick Leave: ${payroll.leaveDeductions.sickLeave}`);
@@ -2623,11 +2686,11 @@ router.put('/:id', [
     // Calculate daily rate based on gross salary and total working days
     const dailyRate = payroll.grossSalary / payroll.totalWorkingDays;
     payroll.dailyRate = dailyRate;
-    
+
     // Calculate attendance deduction: (absent days + leave days) * daily rate
     const attendanceDeduction = (payroll.absentDays + payroll.leaveDays) * dailyRate;
     payroll.attendanceDeduction = Math.round(attendanceDeduction);
-    
+
     console.log(`💰 Attendance Deduction Calculation:`);
     console.log(`   Daily Rate: Rs. ${dailyRate.toFixed(2)}`);
     console.log(`   Absent Days: ${payroll.absentDays}`);
@@ -2641,13 +2704,13 @@ router.put('/:id', [
   // 🔧 UPDATE TOTAL DEDUCTIONS WITH CORRECT FORMULA
   // Total Deductions = Income Tax + EOBI + Employee Security + Health Insurance + Loan Deductions + Attendance Deduction + Other Deductions
   // Note: Provident Fund is NOT included in total deductions (as per business requirement)
-  payroll.totalDeductions = (payroll.incomeTax || 0) + 
-    (payroll.eobi || 0) + 
-    (payroll.employeeSecurity || 0) + 
-    (payroll.healthInsurance || 0) + 
-    (payroll.loanDeductions || 0) + 
-    (payroll.attendanceDeduction || 0) + 
-    (payroll.leaveDeduction || 0) + 
+  payroll.totalDeductions = (payroll.incomeTax || 0) +
+    (payroll.eobi || 0) +
+    (payroll.employeeSecurity || 0) +
+    (payroll.healthInsurance || 0) +
+    (payroll.loanDeductions || 0) +
+    (payroll.attendanceDeduction || 0) +
+    (payroll.leaveDeduction || 0) +
     (payroll.otherDeductions || 0);
 
   // 🔧 RECALCULATE NET SALARY WITH UPDATED TOTAL DEDUCTIONS
@@ -2921,16 +2984,16 @@ router.get('/demo-attendance-integration',
   asyncHandler(async (req, res) => {
     try {
       const { demonstrateAttendanceIntegration } = require('../utils/attendanceIntegrationDemo');
-      
+
       // Run the demonstration
       const demo = demonstrateAttendanceIntegration();
-      
+
       res.json({
         success: true,
         message: 'Attendance integration demonstration',
         data: demo
       });
-      
+
     } catch (error) {
       console.error('❌ Error in attendance integration demo:', error);
       res.status(500).json({
@@ -2945,18 +3008,18 @@ router.get('/demo-attendance-integration',
 // @route   GET /api/payroll/:id/download
 // @desc    Download payroll as PDF
 // @access  Private (HR and Admin)
-router.get('/:id/download', 
-  authorize('super_admin', 'admin', 'hr_manager'), 
+router.get('/:id/download',
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const payroll = await Payroll.findById(req.params.id)
       .populate({
-      path: 'employee',
-      select: 'employeeId firstName lastName email phone department position placementProject',
-      populate: {
-        path: 'placementProject',
-        select: 'name'
-      }
-    })
+        path: 'employee',
+        select: 'employeeId firstName lastName email phone department position placementProject',
+        populate: {
+          path: 'placementProject',
+          select: 'name'
+        }
+      })
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
 
@@ -3004,7 +3067,7 @@ router.get('/:id/download',
       const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
       const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
       const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-      
+
       if (num === 0) return 'Zero';
       if (num < 10) return ones[num];
       if (num < 20) return teens[num - 10];
@@ -3017,184 +3080,184 @@ router.get('/:id/download',
 
     // Header
     doc.fontSize(20)
-       .font('Helvetica-Bold')
-       .text('PAYROLL STATEMENT', { align: 'center' })
-       .moveDown(0.5);
+      .font('Helvetica-Bold')
+      .text('PAYROLL STATEMENT', { align: 'center' })
+      .moveDown(0.5);
 
     doc.fontSize(12)
-       .font('Helvetica')
-       .text(`Period: ${payroll.month}/${payroll.year}`, { align: 'center' })
-       .moveDown(2);
+      .font('Helvetica')
+      .text(`Period: ${payroll.month}/${payroll.year}`, { align: 'center' })
+      .moveDown(2);
 
     // Employee Information
     const employeeY = doc.y;
     doc.fontSize(12)
-       .font('Helvetica-Bold')
-       .text('Employee Information:', 50, employeeY)
-       .moveDown(0.5);
+      .font('Helvetica-Bold')
+      .text('Employee Information:', 50, employeeY)
+      .moveDown(0.5);
 
     doc.fontSize(10)
-       .font('Helvetica')
-       .text('Employee ID:', 50, employeeY + 30)
-       .text('Name:', 50, employeeY + 50)
-       .text('Department:', 50, employeeY + 70)
-       .text('Position:', 50, employeeY + 90)
-       .text('Pay Period:', 50, employeeY + 110)
-       .text('Generated Date:', 50, employeeY + 130);
+      .font('Helvetica')
+      .text('Employee ID:', 50, employeeY + 30)
+      .text('Name:', 50, employeeY + 50)
+      .text('Department:', 50, employeeY + 70)
+      .text('Position:', 50, employeeY + 90)
+      .text('Pay Period:', 50, employeeY + 110)
+      .text('Generated Date:', 50, employeeY + 130);
 
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .text(payroll.employee?.employeeId || 'N/A', 200, employeeY + 30)
-       .text(`${payroll.employee?.firstName || ''} ${payroll.employee?.lastName || ''}`, 200, employeeY + 50)
-       .text(payroll.employee?.department || 'N/A', 200, employeeY + 70)
-       .text(payroll.employee?.position || 'N/A', 200, employeeY + 90)
-       .text(`${payroll.month}/${payroll.year}`, 200, employeeY + 110)
-       .text(formatDate(payroll.createdAt), 200, employeeY + 130);
+      .font('Helvetica-Bold')
+      .text(payroll.employee?.employeeId || 'N/A', 200, employeeY + 30)
+      .text(`${payroll.employee?.firstName || ''} ${payroll.employee?.lastName || ''}`, 200, employeeY + 50)
+      .text(payroll.employee?.department || 'N/A', 200, employeeY + 70)
+      .text(payroll.employee?.position || 'N/A', 200, employeeY + 90)
+      .text(`${payroll.month}/${payroll.year}`, 200, employeeY + 110)
+      .text(formatDate(payroll.createdAt), 200, employeeY + 130);
 
     doc.moveDown(3);
 
     // Earnings and Deductions Table
     doc.fontSize(12)
-       .font('Helvetica-Bold')
-       .text('Earnings and Deductions', { align: 'center' })
-       .moveDown(0.5);
+      .font('Helvetica-Bold')
+      .text('Earnings and Deductions', { align: 'center' })
+      .moveDown(0.5);
 
     // Table headers
     const tableY = doc.y;
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .text('Earnings', 50, tableY)
-       .text('Amount', 200, tableY)
-       .text('Deductions', 350, tableY)
-       .text('Amount', 500, tableY);
+      .font('Helvetica-Bold')
+      .text('Earnings', 50, tableY)
+      .text('Amount', 200, tableY)
+      .text('Deductions', 350, tableY)
+      .text('Amount', 500, tableY);
 
     // Draw table lines
     doc.moveTo(50, tableY - 5)
-       .lineTo(550, tableY - 5)
-       .stroke();
+      .lineTo(550, tableY - 5)
+      .stroke();
 
     doc.moveTo(50, tableY + 15)
-       .lineTo(550, tableY + 15)
-       .stroke();
+      .lineTo(550, tableY + 15)
+      .stroke();
 
     // Earnings rows
     let currentTableY = tableY + 25;
     doc.fontSize(10)
-       .font('Helvetica')
-       .text('Basic Salary', 50, currentTableY)
-       .text(formatCurrency(payroll.basicSalary), 200, currentTableY);
+      .font('Helvetica')
+      .text('Basic Salary', 50, currentTableY)
+      .text(formatCurrency(payroll.basicSalary), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('House Rent Allowance', 50, currentTableY)
-       .text(formatCurrency(payroll.houseRentAllowance), 200, currentTableY);
+      .text(formatCurrency(payroll.houseRentAllowance), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Medical Allowance', 50, currentTableY)
-       .text(formatCurrency(payroll.medicalAllowance), 200, currentTableY);
+      .text(formatCurrency(payroll.medicalAllowance), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Conveyance Allowance', 50, currentTableY)
-       .text(formatCurrency(payroll.conveyanceAllowance), 200, currentTableY);
+      .text(formatCurrency(payroll.conveyanceAllowance), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Special Allowance', 50, currentTableY)
-       .text(formatCurrency(payroll.specialAllowance), 200, currentTableY);
+      .text(formatCurrency(payroll.specialAllowance), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Other Allowance', 50, currentTableY)
-       .text(formatCurrency(payroll.otherAllowance), 200, currentTableY);
+      .text(formatCurrency(payroll.otherAllowance), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Overtime Amount', 50, currentTableY)
-       .text(formatCurrency(payroll.overtimeAmount), 200, currentTableY);
+      .text(formatCurrency(payroll.overtimeAmount), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Performance Bonus', 50, currentTableY)
-       .text(formatCurrency(payroll.performanceBonus), 200, currentTableY);
+      .text(formatCurrency(payroll.performanceBonus), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Other Bonus', 50, currentTableY)
-       .text(formatCurrency(payroll.otherBonus), 200, currentTableY);
+      .text(formatCurrency(payroll.otherBonus), 200, currentTableY);
 
     // Deductions rows
     currentTableY = tableY + 25;
     doc.text('Provident Fund', 350, currentTableY)
-       .text(formatCurrency(payroll.providentFund), 500, currentTableY);
+      .text(formatCurrency(payroll.providentFund), 500, currentTableY);
 
     currentTableY += 25;
     doc.text('Income Tax', 350, currentTableY)
-       .text(formatCurrency(payroll.incomeTax), 500, currentTableY);
+      .text(formatCurrency(payroll.incomeTax), 500, currentTableY);
 
     currentTableY += 25;
     doc.text('Health Insurance', 350, currentTableY)
-       .text(formatCurrency(payroll.healthInsurance), 500, currentTableY);
+      .text(formatCurrency(payroll.healthInsurance), 500, currentTableY);
 
     currentTableY += 25;
     doc.text('EOBI', 350, currentTableY)
-       .text(formatCurrency(payroll.eobi), 500, currentTableY);
+      .text(formatCurrency(payroll.eobi), 500, currentTableY);
 
     if (payroll.employeeSecurity > 0) {
       currentTableY += 25;
       doc.text('Employee Security', 350, currentTableY)
-         .text(formatCurrency(payroll.employeeSecurity), 500, currentTableY);
+        .text(formatCurrency(payroll.employeeSecurity), 500, currentTableY);
     }
 
     currentTableY += 25;
     doc.text('Other Deductions', 350, currentTableY)
-       .text(formatCurrency(payroll.otherDeductions), 500, currentTableY);
+      .text(formatCurrency(payroll.otherDeductions), 500, currentTableY);
 
     // Summary rows
     currentTableY += 30;
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .text('Gross Salary', 50, currentTableY)
-       .text(formatCurrency(payroll.grossSalary), 200, currentTableY);
+      .font('Helvetica-Bold')
+      .text('Gross Salary', 50, currentTableY)
+      .text(formatCurrency(payroll.grossSalary), 200, currentTableY);
 
     currentTableY += 25;
     doc.text('Total Deductions', 350, currentTableY)
-       .text(formatCurrency(payroll.totalDeductions), 500, currentTableY);
+      .text(formatCurrency(payroll.totalDeductions), 500, currentTableY);
 
     currentTableY += 25;
     doc.fontSize(12)
-       .font('Helvetica-Bold')
-       .text('Net Salary', 50, currentTableY)
-       .text(formatCurrency(payroll.netSalary), 200, currentTableY);
+      .font('Helvetica-Bold')
+      .text('Net Salary', 50, currentTableY)
+      .text(formatCurrency(payroll.netSalary), 200, currentTableY);
 
     // Amount in words
     currentTableY += 30;
     doc.fontSize(10)
-       .font('Helvetica')
-       .text(`[${numberToWords(Math.round(payroll.netSalary))} Only]`, 50, currentTableY);
+      .font('Helvetica')
+      .text(`[${numberToWords(Math.round(payroll.netSalary))} Only]`, 50, currentTableY);
 
     doc.moveDown(3);
 
     // Notes
     if (payroll.remarks) {
       doc.fontSize(10)
-         .font('Helvetica')
-         .fillColor('#000')
-         .text('Notes:', { underline: true })
-         .moveDown(0.5)
-         .text(payroll.remarks);
+        .font('Helvetica')
+        .fillColor('#000')
+        .text('Notes:', { underline: true })
+        .moveDown(0.5)
+        .text(payroll.remarks);
     }
 
     // Footer with signatures and system info
     const footerY = doc.page.height - 100;
-    
+
     // Signature labels
     doc.fontSize(10)
-       .font('Helvetica-Bold')
-       .text('Prepared By', 50, footerY)
-       .text('Received By', 200, footerY)
-       .text('Approved By', 350, footerY);
+      .font('Helvetica-Bold')
+      .text('Prepared By', 50, footerY)
+      .text('Received By', 200, footerY)
+      .text('Approved By', 350, footerY);
 
     // System information
     doc.fontSize(8)
-       .font('Helvetica')
-       .fillColor('#666')
-       .text('Human Resource Management', 50, footerY + 30)
-       .text(`Generated by: ${payroll.createdBy?.firstName || 'SYSTEM'}`, 50, footerY + 45)
-       .text(formatDate(new Date()), 50, footerY + 60);
+      .font('Helvetica')
+      .fillColor('#666')
+      .text('Human Resource Management', 50, footerY + 30)
+      .text(`Generated by: ${payroll.createdBy?.firstName || 'SYSTEM'}`, 50, footerY + 45)
+      .text(formatDate(new Date()), 50, footerY + 60);
 
     // Finalize PDF
     doc.end();
@@ -3208,7 +3271,7 @@ router.delete('/month/:year/:month',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { year, month } = req.params;
-    
+
     // Check if any payroll in this month is already paid
     const paidCount = await Payroll.countDocuments({ month, year, status: 'Paid' });
     if (paidCount > 0) {
@@ -3220,7 +3283,7 @@ router.delete('/month/:year/:month',
 
     // Delete all payrolls for this month
     await Payroll.deleteMany({ month, year });
-    
+
     // Delete the approval document
     await PayrollMonthlyApproval.deleteMany({ month, year });
 
@@ -3239,7 +3302,7 @@ router.delete('/delete-all',
   asyncHandler(async (req, res) => {
     // Get count before deletion
     const totalPayrolls = await Payroll.countDocuments({});
-    
+
     if (totalPayrolls === 0) {
       return res.status(404).json({
         success: false,
@@ -3249,7 +3312,7 @@ router.delete('/delete-all',
 
     // Delete all payrolls
     const result = await Payroll.deleteMany({});
-    
+
     res.json({
       success: true,
       message: `Successfully deleted ${result.deletedCount} payroll records`,
@@ -3276,7 +3339,7 @@ router.post('/:id/calculate-tax',
 
     try {
       const tax = await Payroll.calculateTaxForPayroll(req.params.id);
-      
+
       res.json({
         success: true,
         message: 'Tax calculated and updated successfully',
@@ -3313,7 +3376,7 @@ router.post('/calculate-tax-month',
     try {
       const { month, year } = req.body;
       const results = await Payroll.calculateTaxForMonth(month, year);
-      
+
       res.json({
         success: true,
         message: `Tax calculated for ${results.length} payrolls in ${month}/${year}`,
@@ -3335,38 +3398,38 @@ router.post('/monthly-tax-update',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { month, year, forceUpdate = false } = req.body;
-    
+
     if (!month || !year) {
       return res.status(400).json({
         success: false,
         message: 'Month and year are required'
       });
     }
-    
+
     if (month < 1 || month > 12) {
       return res.status(400).json({
         success: false,
         message: 'Month must be between 1 and 12'
       });
     }
-    
+
     if (year < 2020 || year > 2030) {
       return res.status(400).json({
         success: false,
         message: 'Year must be between 2020 and 2030'
       });
     }
-    
+
     try {
       const MonthlyTaxUpdateService = require('../services/monthlyTaxUpdateService');
       const result = await MonthlyTaxUpdateService.updateMonthlyTaxes(month, year, forceUpdate);
-      
+
       res.json({
         success: true,
         message: `Monthly tax update completed for ${month}/${year}`,
         data: result
       });
-      
+
     } catch (error) {
       console.error('Error in monthly tax update route:', error);
       res.status(500).json({
@@ -3387,13 +3450,13 @@ router.post('/current-month-tax-update',
     try {
       const MonthlyTaxUpdateService = require('../services/monthlyTaxUpdateService');
       const result = await MonthlyTaxUpdateService.updateCurrentMonthTaxes();
-      
+
       res.json({
         success: true,
         message: 'Current month tax update completed',
         data: result
       });
-      
+
     } catch (error) {
       console.error('Error in current month tax update route:', error);
       res.status(500).json({
@@ -3414,13 +3477,13 @@ router.post('/previous-month-tax-update',
     try {
       const MonthlyTaxUpdateService = require('../services/monthlyTaxUpdateService');
       const result = await MonthlyTaxUpdateService.updatePreviousMonthTaxes();
-      
+
       res.json({
         success: true,
         message: 'Previous month tax update completed',
         data: result
       });
-      
+
     } catch (error) {
       console.error('Error in previous month tax update route:', error);
       res.status(500).json({
@@ -3439,31 +3502,31 @@ router.get('/monthly-tax-summary/:month/:year',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { month, year } = req.params;
-    
+
     if (month < 1 || month > 12) {
       return res.status(400).json({
         success: false,
         message: 'Month must be between 1 and 12'
       });
     }
-    
+
     if (year < 2020 || year > 2030) {
       return res.status(400).json({
         success: false,
         message: 'Year must be between 2020 and 2030'
       });
     }
-    
+
     try {
       const MonthlyTaxUpdateService = require('../services/monthlyTaxUpdateService');
       const summary = await MonthlyTaxUpdateService.getMonthlyTaxSummary(parseInt(month), parseInt(year));
-      
+
       res.json({
         success: true,
         message: `Tax summary for ${month}/${year}`,
         data: summary
       });
-      
+
     } catch (error) {
       console.error('Error getting monthly tax summary:', error);
       res.status(500).json({
@@ -3483,16 +3546,16 @@ router.get('/demo-attendance-integration',
   asyncHandler(async (req, res) => {
     try {
       const { demonstrateAttendanceIntegration } = require('../utils/attendanceIntegrationDemo');
-      
+
       // Run the demonstration
       const demo = demonstrateAttendanceIntegration();
-      
+
       res.json({
         success: true,
         message: 'Attendance integration demonstration',
         data: demo
       });
-      
+
     } catch (error) {
       console.error('❌ Error in attendance integration demo:', error);
       res.status(500).json({
@@ -3542,13 +3605,13 @@ router.post('/preview-payslip',
 // @route   POST /api/payroll/:id/generate-payslip
 // @desc    Generate and download payslip PDF from existing payroll data (no database record)
 // @access  Private (HR and Admin)
-router.post('/:id/generate-payslip', 
+router.post('/:id/generate-payslip',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       const payrollId = req.params.id;
       console.log(`🔧 Generating payslip PDF for payroll ID: ${payrollId}`);
-      
+
       // Validate payroll ID
       if (!mongoose.Types.ObjectId.isValid(payrollId)) {
         console.log(`❌ Invalid payroll ID: ${payrollId}`);
@@ -3557,7 +3620,7 @@ router.post('/:id/generate-payslip',
           message: 'Invalid payroll ID format'
         });
       }
-      
+
       // Get the payroll data with optimized population
       const payroll = await Payroll.findById(payrollId)
         .populate({
@@ -3568,18 +3631,18 @@ router.post('/:id/generate-payslip',
             { path: 'placementDesignation', select: 'title' }
           ]
         });
-      
+
       if (!payroll) {
         return res.status(404).json({
           success: false,
           message: 'Payroll not found'
         });
       }
-      
+
       // Extract department and position names efficiently
       const departmentName = payroll.employee?.department?.name || 'Not Specified';
       const positionName = payroll.employee?.placementDesignation?.title || payroll.employee?.position || 'Not Specified';
-      
+
       // Debug logging for designation
       console.log(`📋 Payslip Designation Debug:`);
       console.log(`   Employee: ${payroll.employee?.firstName} ${payroll.employee?.lastName}`);
@@ -3587,7 +3650,7 @@ router.post('/:id/generate-payslip',
       console.log(`   Placement Designation Title: ${payroll.employee?.placementDesignation?.title}`);
       console.log(`   Position Field: ${payroll.employee?.position}`);
       console.log(`   Final Designation: ${positionName}`);
-      
+
       // Validate employee data
       if (!payroll.employee?.employeeId) {
         return res.status(400).json({
@@ -3595,10 +3658,10 @@ router.post('/:id/generate-payslip',
           message: 'Employee data not found for this payroll'
         });
       }
-      
+
       // Generate payslip number for PDF (no database record)
       const payslipNumber = `PS${payroll.year}${payroll.month.toString().padStart(2, '0')}${payroll.employee.employeeId}`;
-      
+
       const pfEnabled = payroll.providentFundEnabled === true || isProvidentFundEnabledForEmployee(payroll.employee);
       const calculatedPf = calculateProvidentFundForEmployee(payroll.employee, payroll.basicSalary || 0);
       const providentFundForPayslip = pfEnabled ? (payroll.providentFund || calculatedPf || 0) : 0;
@@ -3612,7 +3675,7 @@ router.post('/:id/generate-payslip',
         designation: positionName,
         month: payroll.month,
         year: payroll.year,
-        
+
         // Salary structure from payroll
         basicSalary: payroll.basicSalary || 0,
         houseRent: payroll.houseRentAllowance || 0,
@@ -3624,7 +3687,7 @@ router.post('/:id/generate-payslip',
         foodAllowance: payroll.allowances?.food?.amount || 0,
         specialAllowance: payroll.allowances?.special?.amount || 0,
         otherAllowances: payroll.allowances?.other?.amount || 0,
-        
+
         // Earnings from payroll
         earnings: {
           basicSalary: payroll.basicSalary || 0,
@@ -3643,7 +3706,7 @@ router.post('/:id/generate-payslip',
           arrears: payroll.arrears || 0,
           otherEarnings: 0
         },
-        
+
         // Deductions from payroll
         deductions: {
           providentFund: providentFundForPayslip,
@@ -3656,35 +3719,35 @@ router.post('/:id/generate-payslip',
           absentDeduction: payroll.attendanceDeduction || 0,
           otherDeductions: payroll.otherDeductions || 0
         },
-        
+
         // Attendance from payroll
         totalDays: payroll.totalWorkingDays || 0,
         presentDays: payroll.presentDays || 0,
         absentDays: payroll.absentDays || 0,
         lateDays: 0, // Not tracked in payroll
         overtimeHours: payroll.overtimeHours || 0,
-        
+
         // Calculations from payroll
         grossSalary: payroll.grossSalary || 0,
         totalEarnings: payroll.totalEarnings || 0,
         totalDeductions: payroll.totalDeductions || 0,
         netSalary: payroll.netSalary || 0,
-        
+
         // Notes
         remarks: payroll.remarks || `Monthly payslip for ${payroll.month}/${payroll.year}`,
-        
+
         // User info for PDF
         createdBy: {
           firstName: req.user.firstName || 'System'
         }
       };
-      
+
       // Generate PDF and return it (no database record created)
       await generatePayslipPDF(payslipData, res);
-      
+
     } catch (error) {
       console.error('❌ Error generating payslip from payroll:', error);
-      
+
       // Check if headers have already been sent (PDF generation might have started)
       if (!res.headersSent) {
         res.status(500).json({
