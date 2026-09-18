@@ -1230,19 +1230,13 @@ router.put('/purchase-orders/:id', [
   purchaseOrder.updatedBy = req.user.id;
   
   if (isResubmissionFromReject) {
-    purchaseOrder.status = 'Pending Approval';
-    // Clear only the rejecting reviewer's approval so it routes specifically back to them
-    if (purchaseOrder.auditRejectedBy && Array.isArray(purchaseOrder.authorityApprovals)) {
-      purchaseOrder.authorityApprovals = purchaseOrder.authorityApprovals.filter(
-        (entry) => String(entry?.approver || '') !== String(purchaseOrder.auditRejectedBy)
-      );
-    }
+    purchaseOrder.status = 'Pending Audit';
     pushPOWorkflowHistory(
       purchaseOrder,
       'Rejected',
-      'Pending Approval',
+      'Pending Audit',
       req.user.id,
-      'Edited and resubmitted by creator for reviewer re-approval',
+      'Edited and resubmitted by creator directly to Pre-Audit',
       'Procurement'
     );
   }
