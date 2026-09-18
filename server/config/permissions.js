@@ -432,6 +432,11 @@ const PERMISSION_MAPPINGS = {
   'admin.suppliers.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.suppliers.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
+  'supplier_create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PROCUREMENT_MANAGER, 'general', 'centralized_store'],
+  'supplier_read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PROCUREMENT_MANAGER, 'general', 'centralized_store'],
+  'supplier_update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PROCUREMENT_MANAGER, 'general', 'centralized_store'],
+  'supplier_delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  
   'admin.petty_cash.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.petty_cash.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.petty_cash.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],

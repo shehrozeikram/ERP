@@ -235,7 +235,7 @@ router.put(
 // Categories
 router.post(
   '/categories',
-  permissions.checkSubRolePermission('general', 'centralized_store', 'create'),
+  authorize('admin'),
   async (req, res) => {
     try {
       const { name, description, sortOrder, parentCategory, chartOfAccount, company } = req.body;
@@ -275,7 +275,7 @@ router.post(
 
 router.put(
   '/categories/:id',
-  permissions.checkSubRolePermission('general', 'centralized_store', 'update'),
+  authorize('admin'),
   async (req, res) => {
     try {
       let cat = await UtilityStoreCategory.findById(req.params.id);
@@ -311,7 +311,7 @@ router.put(
 
 router.delete(
   '/categories/:id',
-  permissions.checkSubRolePermission('general', 'centralized_store', 'delete'),
+  authorize('admin'),
   async (req, res) => {
     try {
       async function getDescendantCategoryIds(id) {
