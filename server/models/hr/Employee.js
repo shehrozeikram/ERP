@@ -404,9 +404,7 @@ const employeeSchema = new mongoose.Schema({
   },
   spouseName: {
     type: String,
-    required: function () {
-      return this.maritalStatus === 'Married';
-    },
+    required: false,
     trim: true
   },
   appointmentDate: {
