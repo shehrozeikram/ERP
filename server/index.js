@@ -28,6 +28,7 @@ connectDB();
 // Import routes
 const authRoutes = require('./routes/auth');
 const hrRoutes = require('./routes/hr');
+const manualSalaryRoutes = require('./routes/manualSalary');
 const payrollRoutes = require('./routes/payroll');
 const salaryAdvancesRoutes = require('./routes/salaryAdvances');
 const payrollTaxSettingsRoutes = require('./routes/payrollTaxSettings');
@@ -581,6 +582,7 @@ app.get('/api/hr/image/:filename(*)', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hr', authMiddleware, activityLogger, hrRoutes);
+app.use('/api/hr/manual-salary', authMiddleware, activityLogger, manualSalaryRoutes);
 app.use('/api/hr/non-employees', authMiddleware, activityLogger, nonEmployeeRoutes);
 app.use('/api/payroll', authMiddleware, activityLogger, payrollRoutes);
 app.use('/api/hr/salary-advances', authMiddleware, activityLogger, salaryAdvancesRoutes);

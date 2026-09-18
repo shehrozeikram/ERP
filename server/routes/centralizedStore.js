@@ -167,7 +167,7 @@ router.get(
 
 router.post(
   '/site-options',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'update'),
   async (req, res) => {
     try {
       const name = String(req.body.name || '').trim();
@@ -192,7 +192,7 @@ router.post(
 
 router.post(
   '/utility-types',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'update'),
   async (req, res) => {
     try {
       const name = String(req.body.name || '').trim();
@@ -217,7 +217,7 @@ router.post(
 
 router.put(
   '/',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'update'),
   async (req, res) => {
     try {
       const store = await UtilityCentralStore.getOrCreate(getActorId(req));
@@ -235,7 +235,7 @@ router.put(
 // Categories
 router.post(
   '/categories',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'create'),
   async (req, res) => {
     try {
       const { name, description, sortOrder, parentCategory, chartOfAccount, company } = req.body;
@@ -275,7 +275,7 @@ router.post(
 
 router.put(
   '/categories/:id',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'update'),
   async (req, res) => {
     try {
       let cat = await UtilityStoreCategory.findById(req.params.id);
@@ -311,7 +311,7 @@ router.put(
 
 router.delete(
   '/categories/:id',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'delete'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'delete'),
   async (req, res) => {
     try {
       async function getDescendantCategoryIds(id) {
@@ -341,7 +341,7 @@ router.delete(
 // Items
 router.post(
   '/items',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'create'),
   async (req, res) => {
     try {
       const {
@@ -397,7 +397,7 @@ router.post(
 
 router.put(
   '/items/:id',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'update'),
   async (req, res) => {
     try {
       const item = await UtilityStoreItem.findById(req.params.id);
@@ -425,7 +425,7 @@ router.put(
 
 router.delete(
   '/items/:id',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'delete'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'delete'),
   async (req, res) => {
     try {
       await UtilityStoreItem.findByIdAndDelete(req.params.id);
@@ -439,7 +439,7 @@ router.delete(
 /** Import IESCO, SNGPL, PTCL-Nayatel, CDA Water from bundled 2026 utility bills data */
 router.post(
   '/import-utility-2026',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'create'),
   async (req, res) => {
     try {
       const replace = Boolean(req.body?.replace);
@@ -462,7 +462,7 @@ router.post(
 /** Seed categories (Electricity, Gas, …) each with Meter 1, Meter 2, Meter 3 items */
 router.post(
   '/seed-defaults',
-  permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'),
+  permissions.checkSubRolePermission('general', 'centralized_store', 'create'),
   async (req, res) => {
     try {
       const actorId = getActorId(req);

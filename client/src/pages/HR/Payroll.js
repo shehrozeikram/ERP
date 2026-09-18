@@ -63,6 +63,7 @@ import ImportFuelAllowanceDialog from '../../components/HR/ImportFuelAllowanceDi
 import { getPayrollStatusColor, getPayrollStatusLabel } from '../../utils/payrollStatusHelpers';
 import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
 import SalaryAdvanceManagement from '../../components/HR/SalaryAdvanceManagement';
+import ManualSalarySheet from '../../components/HR/ManualSalarySheet';
 import { Tabs, Tab } from '@mui/material';
 
 // Months array moved outside component to prevent recreation on every render
@@ -88,6 +89,8 @@ const Payroll = () => {
   const [payrolls, setPayrolls] = useState([]);
   const [monthlyPayrolls, setMonthlyPayrolls] = useState([]);
   const [paginatedMonthlyPayrolls, setPaginatedMonthlyPayrolls] = useState([]);
+  const [manualSalaries, setManualSalaries] = useState([]);
+  const [manualSalariesLoading, setManualSalariesLoading] = useState(false);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(false);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -223,6 +226,18 @@ const Payroll = () => {
     }
   }, [monthlyFilters.status]);
 
+  const fetchManualSalaries = useCallback(async () => {
+    try {
+      setManualSalariesLoading(true);
+      const res = await api.get('/hr/manual-salary');
+      setManualSalaries(res.data.data || []);
+    } catch (error) {
+      console.error('Error fetching manual salaries:', error);
+    } finally {
+      setManualSalariesLoading(false);
+    }
+  }, []);
+
   const fetchCurrentOverview = useCallback(async () => {
     try {
       setCurrentOverviewLoading(true);
@@ -287,7 +302,8 @@ const Payroll = () => {
   useEffect(() => {
     fetchMonthlyPayrolls();
     fetchStats();
-  }, [fetchMonthlyPayrolls, fetchStats]); // Include dependencies
+    fetchManualSalaries();
+  }, [fetchMonthlyPayrolls, fetchStats, fetchManualSalaries]); // Include dependencies
 
   // Fetch current overview when component mounts and when general payroll is expanded
   useEffect(() => {
@@ -1644,110 +1660,11 @@ Do you want to:
       </Paper>
 
       {activeTab === 2 ? (
-        <Box sx={{ mt: 3 }}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-                <Typography variant="h6" color="primary.main" sx={{ fontWeight: 600 }}>
-                  Manual Salary Processing
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    startIcon={<ReceiptIcon />}
-                    onClick={() => navigate('/hr/payroll/create')}
-                  >
-                    Create Manual Payroll
-                  </Button>
-                </Box>
-              </Box>
-
-              {monthlyPayrolls.length > 0 ? (
-                monthlyPayrolls.map(monthly => {
-                  const manualPayrolls = monthly.payrolls.filter(p => p.isManual);
-                  if (manualPayrolls.length === 0) return null;
-                  
-                  const m = String(monthly.month);
-                  const y = monthly.year;
-                  const periodLabel = `${monthly.monthName} ${y}`;
-
-                  return (
-                    <Box key={`${m}-${y}`} sx={{ mb: 4 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                        <Typography variant="subtitle1" fontWeight="bold">
-                          {periodLabel}
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          color="secondary"
-                          size="small"
-                          startIcon={
-                            exportLoadingKey === `manual-pdf-${m}-${y}` ? (
-                              <CircularProgress size={16} color="inherit" />
-                            ) : (
-                              <ReceiptIcon />
-                            )
-                          }
-                          disabled={!!exportLoadingKey}
-                          onClick={() => exportManualSalarySheet(m, y, periodLabel.replace(' ', '-'))}
-                        >
-                          Export Manual Salary Sheet
-                        </Button>
-                      </Box>
-                      
-                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-                        <Table size="small">
-                          <TableHead sx={{ bgcolor: 'grey.100' }}>
-                            <TableRow>
-                              <TableCell>Employee</TableCell>
-                              <TableCell>Designation</TableCell>
-                              <TableCell align="right">Basic Salary</TableCell>
-                              <TableCell align="right">Gross Salary</TableCell>
-                              <TableCell align="right">Net Salary</TableCell>
-                              <TableCell align="center">Actions</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {manualPayrolls.map(payroll => (
-                              <TableRow key={payroll._id}>
-                                <TableCell>
-                                  <Typography variant="body2">{payroll.employee?.firstName} {payroll.employee?.lastName}</Typography>
-                                  <Typography variant="caption" color="textSecondary">{formatEmployeeId(payroll.employee?.employeeId)}</Typography>
-                                </TableCell>
-                                <TableCell>{payroll.employee?.position || 'N/A'}</TableCell>
-                                <TableCell align="right">{formatCurrency(payroll.basicSalary)}</TableCell>
-                                <TableCell align="right">{formatCurrency(payroll.grossSalary)}</TableCell>
-                                <TableCell align="right">{formatCurrency(payroll.netSalary)}</TableCell>
-                                <TableCell align="center">
-                                  <IconButton size="small" onClick={() => navigate(`/hr/payroll/view/${payroll._id}`)}>
-                                    <ViewIcon fontSize="small" />
-                                  </IconButton>
-                                  <IconButton size="small" color="primary" onClick={() => navigate(`/hr/payroll/${payroll._id}/edit`)}>
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                  <IconButton size="small" color="error" onClick={() => handleDelete(payroll._id)}>
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </Box>
-                  );
-                })
-              ) : (
-                <Box sx={{ p: 4, textAlign: 'center' }}>
-                  <Typography variant="body1" color="textSecondary">
-                    No manual payrolls found.
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Box>
+        <ManualSalarySheet 
+          manualSalaries={manualSalaries} 
+          loading={manualSalariesLoading} 
+          onRefresh={fetchManualSalaries} 
+        />
       ) : activeTab === 1 ? (
         <SalaryAdvanceManagement employees={employees} />
       ) : (
