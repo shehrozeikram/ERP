@@ -51,6 +51,27 @@ const clearedAtToYmd = (raw) => {
   return d.toISOString().split('T')[0];
 };
 
+/** Stable string key per unpresented row (Dr/Cr on same voucher must differ). */
+const rowKey = (txn) => String(txn?._id ?? '');
+
+const buildReconcilePayload = (txn, clearanceStatus, clearedAt) => {
+  const type = txn?.type || (Number(txn?.credit) > 0 ? 'Cr' : 'Dr');
+  const amount = Number(txn?.amount) || 0;
+  const debit = Number(txn?.debit) > 0 ? Number(txn.debit) : (type === 'Dr' ? amount : 0);
+  const credit = Number(txn?.credit) > 0 ? Number(txn.credit) : (type === 'Cr' ? amount : 0);
+  return {
+    transactionIds: [rowKey(txn)],
+    clearanceStatus,
+    clearedAt,
+    debit,
+    credit,
+    amount: amount || debit || credit,
+    type,
+    journalEntryId: txn?.journalEntryId ? String(txn.journalEntryId) : undefined,
+    accountId: txn?.accountId ? String(txn.accountId) : undefined
+  };
+};
+
 export default function BankReconciliation() {
   const { selectedCompanyId, companies } = useFinanceCompany();
   const [data, setData]       = useState(null);
@@ -324,7 +345,6 @@ export default function BankReconciliation() {
   const saveClearance = async () => {
     if (!clearanceDialog.transaction?._id) return;
     const txn = clearanceDialog.transaction;
-    const rawId = String(txn._id);
     const nextStatus = clearanceDialog.status || 'pending';
     let clearedAt = null;
 
@@ -338,12 +358,7 @@ export default function BankReconciliation() {
     }
 
     try {
-      // Reconcile specifically this individual transaction row
-      await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: [rawId],
-        clearanceStatus: nextStatus,
-        clearedAt
-      });
+      await api.post('/finance/reports/bank-reconciliation/reconcile', buildReconcilePayload(txn, nextStatus, clearedAt));
 
       setSuccess('Clearance status updated successfully');
       closeClearanceDialog();
@@ -355,9 +370,8 @@ export default function BankReconciliation() {
 
   const handleDirectClear = async (txn) => {
     if (!txn?._id) return;
-    const rawId = String(txn._id);
-    const targetJeId = txn.journalEntryId || rawId.split('-')[0];
-    const selectedDate = rowClearDates[txn._id] ?? (txn.clearingDate ? clearedAtToYmd(txn.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
+    const key = rowKey(txn);
+    const selectedDate = rowClearDates[key] ?? (txn.clearingDate ? clearedAtToYmd(txn.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
 
     if (!selectedDate) {
       setError('Please provide a valid clearing date.');
@@ -365,52 +379,49 @@ export default function BankReconciliation() {
     }
 
     const clearedAt = new Date(`${selectedDate}T12:00:00.000Z`).toISOString();
-    setClearingLoading((prev) => ({ ...prev, [txn._id]: true }));
+    setClearingLoading((prev) => ({ ...prev, [key]: true }));
     setError('');
 
     try {
-      // Only send the specific GL entry ID - NOT the parent journalEntryId
-      // This ensures only this one row is cleared, not all lines of the voucher
-      await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: [rawId],
-        clearanceStatus: 'cleared',
-        clearedAt
-      });
-      setRowClearDates((prev) => ({ ...prev, [txn._id]: selectedDate }));
-      setSuccess(`Voucher ${txn.vrNo || ''} marked as cleared and removed from unpresented cheques.`);
+      await api.post(
+        '/finance/reports/bank-reconciliation/reconcile',
+        buildReconcilePayload(txn, 'cleared', clearedAt)
+      );
+      setRowClearDates((prev) => ({ ...prev, [key]: selectedDate }));
+      setSuccess(`Entry ${txn.vrNo || ''} (${txn.type || ''}) cleared.`);
       await load();
     } catch (err) {
       setError(err.response?.data?.message || 'Could not clear transaction');
     } finally {
-      setClearingLoading((prev) => ({ ...prev, [txn._id]: false }));
+      setClearingLoading((prev) => ({ ...prev, [key]: false }));
     }
   };
 
   const handleDirectUnclear = async (txn) => {
     if (!txn?._id) return;
-    const rawId = String(txn._id);
-    const targetJeId = txn.journalEntryId || rawId.split('-')[0];
-    const existingDate = txn.clearingDate ? clearedAtToYmd(txn.clearingDate) : (rowClearDates[txn._id] || null);
-    setClearingLoading((prev) => ({ ...prev, [txn._id]: true }));
+    const key = rowKey(txn);
+    const existingDate = txn.clearingDate ? clearedAtToYmd(txn.clearingDate) : (rowClearDates[key] || null);
+    setClearingLoading((prev) => ({ ...prev, [key]: true }));
     setError('');
 
     try {
-      // Only send the specific GL entry ID - NOT the parent journalEntryId
-      // This ensures only this one row is reverted, not all lines of the voucher
-      await api.post('/finance/reports/bank-reconciliation/reconcile', {
-        transactionIds: [rawId],
-        clearanceStatus: 'pending',
-        clearedAt: existingDate ? new Date(`${existingDate}T12:00:00.000Z`).toISOString() : null
-      });
+      await api.post(
+        '/finance/reports/bank-reconciliation/reconcile',
+        buildReconcilePayload(
+          txn,
+          'pending',
+          existingDate ? new Date(`${existingDate}T12:00:00.000Z`).toISOString() : null
+        )
+      );
       if (existingDate) {
-        setRowClearDates((prev) => ({ ...prev, [txn._id]: existingDate }));
+        setRowClearDates((prev) => ({ ...prev, [key]: existingDate }));
       }
-      setSuccess(`Voucher ${txn.vrNo || ''} moved back to unpresented cheques.`);
+      setSuccess(`Entry ${txn.vrNo || ''} (${txn.type || ''}) moved back to unpresented.`);
       await load();
     } catch (err) {
       setError(err.response?.data?.message || 'Could not revert clearance');
     } finally {
-      setClearingLoading((prev) => ({ ...prev, [txn._id]: false }));
+      setClearingLoading((prev) => ({ ...prev, [key]: false }));
     }
   };
 
@@ -635,11 +646,12 @@ export default function BankReconciliation() {
                     {(data.unpresentedTransactions || [])
                       .slice(unpresentedPage * unpresentedRowsPerPage, unpresentedPage * unpresentedRowsPerPage + unpresentedRowsPerPage)
                       .map((t, idx) => {
+                      const key = rowKey(t) || `row-${idx}`;
                       const hasAttachment = (t.attachments || []).length > 0;
                       const isSigned = t.signedDocumentStatus === 'signed';
-                      const defaultClearDate = rowClearDates[t._id] ?? (t.clearingDate ? clearedAtToYmd(t.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
+                      const defaultClearDate = rowClearDates[key] ?? (t.clearingDate ? clearedAtToYmd(t.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
                       return (
-                        <TableRow key={t._id || idx} hover>
+                        <TableRow key={key} hover>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                           <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
                           <TableCell>{t.narration}</TableCell>
@@ -728,7 +740,7 @@ export default function BankReconciliation() {
                               value={defaultClearDate}
                               onChange={(e) => {
                                 const val = e.target.value;
-                                setRowClearDates((prev) => ({ ...prev, [t._id]: val }));
+                                setRowClearDates((prev) => ({ ...prev, [key]: val }));
                               }}
                               InputLabelProps={{ shrink: true }}
                               inputProps={{ style: { fontSize: '0.85rem', padding: '6px 8px' } }}
@@ -742,7 +754,7 @@ export default function BankReconciliation() {
                                   <IconButton
                                     size="small"
                                     color="success"
-                                    disabled={Boolean(clearingLoading[t._id])}
+                                    disabled={Boolean(clearingLoading[key])}
                                     onClick={() => handleDirectClear(t)}
                                     sx={{
                                       bgcolor: 'rgba(46, 125, 50, 0.1)',
@@ -750,7 +762,7 @@ export default function BankReconciliation() {
                                       '&:hover': { bgcolor: 'success.main', color: '#fff' }
                                     }}
                                   >
-                                    {clearingLoading[t._id] ? (
+                                    {clearingLoading[key] ? (
                                       <CircularProgress size={16} color="inherit" />
                                     ) : (
                                       <ReconcileIcon fontSize="small" />

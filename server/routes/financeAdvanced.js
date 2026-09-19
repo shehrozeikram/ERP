@@ -5718,33 +5718,47 @@ router.get('/reports/bank-reconciliation',
       return r;
     };
 
-    // Map all unique transactions (prioritize GL, fallback to JE lines)
-    const seenJeIds = new Set();
+    // Map all unique transactions (prioritize GL, then fill missing JE bank lines)
+    // Track covered fingerprints so clearing Dr of CV-002 does not hide its Cr
+    // when Cr still has no GL row.
+    const coveredBankLineKeys = new Set();
     const allBankTxns = [];
+    const moneyKey = (n) => String(Math.round((Number(n) || 0) * 100));
+    const bankLineFingerprint = (jeId, accId, debit, credit) =>
+      `${String(jeId)}|${String(accId)}|${moneyKey(debit)}|${moneyKey(credit)}`;
 
     postedGlEntries.forEach((gle) => {
       const je = gle.journalEntry || {};
-      if (je._id) seenJeIds.add(String(je._id));
-      const isCredit = (Number(gle.credit) || 0) > 0;
-      const amt = isCredit ? Number(gle.credit) : Number(gle.debit);
-      const isCleared = Boolean(gle.clearanceStatus === 'cleared' || je.clearanceStatus === 'cleared' || gle.isReconciled || je.isReconciled);
-      const clearDate = gle.clearedAt || je.clearedAt || gle.reconciledAt || je.reconciledAt || null;
+      const jeId = je._id ? String(je._id) : '';
+      const accId = gle.account?._id ? String(gle.account._id) : String(gle.account || '');
+      const debit = Number(gle.debit) || 0;
+      const credit = Number(gle.credit) || 0;
+      if (jeId && accId) {
+        coveredBankLineKeys.add(bankLineFingerprint(jeId, accId, debit, credit));
+      }
+      const isCredit = credit > 0;
+      const amt = isCredit ? credit : debit;
+      // Per-GL clearance only — never inherit parent JE status (one bank hit can have
+      // multiple book lines; clearing one must not hide/clear siblings).
+      const isCleared = Boolean(gle.clearanceStatus === 'cleared' || gle.isReconciled);
+      const clearDate = gle.clearedAt || gle.reconciledAt || null;
 
       const vrNo = gle.entryNumber || je.entryNumber || '—';
 
       allBankTxns.push({
-        _id: gle._id,
-        journalEntryId: je._id || null,
+        _id: String(gle._id),
+        journalEntryId: jeId || null,
+        accountId: accId,
         date: gle.date,
         vrNo: vrNo,
         narration: gle.description || je.description || gle.account?.name || 'Bank Transaction',
         reference: cleanReference(gle.reference || je.reference, vrNo),
-        debit: Number(gle.debit) || 0,
-        credit: Number(gle.credit) || 0,
+        debit,
+        credit,
         amount: amt,
         type: isCredit ? 'Cr' : 'Dr',
         isCleared,
-        clearanceStatus: isCleared ? 'cleared' : (gle.clearanceStatus || je.clearanceStatus || 'pending'),
+        clearanceStatus: isCleared ? 'cleared' : (gle.clearanceStatus || 'pending'),
         clearingDate: clearDate,
         attachments: je.attachments || [],
         signedDocumentStatus: je.signedDocumentStatus || 'not_signed',
@@ -5758,61 +5772,68 @@ router.get('/reports/bank-reconciliation',
 
     const targetAccountIdsStr = new Set(targetAccountIds.map((id) => String(id)));
 
-    // Add journal entries lines not present in GL
+    // Add JE bank lines that still have no matching GL (e.g. CV-002 Cr after only Dr was cleared)
     journalEntries.forEach((je) => {
-      if (seenJeIds.has(String(je._id))) return;
-      (je.lines || []).forEach((line) => {
+      const jeId = String(je._id);
+      (je.lines || []).forEach((line, lineIndex) => {
         const accId = String(line.account?._id || line.account || '');
-        if (targetAccountIdsStr.has(accId)) {
-          const isCredit = (Number(line.credit) || 0) > 0;
-          const amt = isCredit ? Number(line.credit) : Number(line.debit);
-          const isCleared = Boolean(je.clearanceStatus === 'cleared' || je.isReconciled);
-          const clearDate = je.clearedAt || je.reconciledAt || null;
+        if (!targetAccountIdsStr.has(accId)) return;
 
-          const vrNo = je.entryNumber || je.reference || '—';
+        const debit = Number(line.debit) || 0;
+        const credit = Number(line.credit) || 0;
+        const fp = bankLineFingerprint(jeId, accId, debit, credit);
+        if (coveredBankLineKeys.has(fp)) return;
+        coveredBankLineKeys.add(fp);
 
-          allBankTxns.push({
-            _id: `${je._id}-${accId}`,
-            journalEntryId: je._id,
-            date: je.date,
-            vrNo: vrNo,
-            narration: line.description || je.description || line.account?.name || 'Bank Transaction',
-            reference: cleanReference(je.reference || je.entryNumber, vrNo),
-            debit: Number(line.debit) || 0,
-            credit: Number(line.credit) || 0,
-            amount: amt,
-            type: isCredit ? 'Cr' : 'Dr',
-            isCleared,
-            clearanceStatus: isCleared ? 'cleared' : (je.clearanceStatus || 'pending'),
-            clearingDate: clearDate,
-            attachments: je.attachments || [],
-            signedDocumentStatus: je.signedDocumentStatus || 'not_signed',
-            signedDocumentAt: je.signedDocumentAt || null,
-            signedBySignatory: je.signedBySignatory || null,
-            status: je.status || 'posted',
-            accountName: line.account?.name || 'Bank Account',
-            accountNumber: line.account?.accountNumber || ''
-          });
-        }
+        const isCredit = credit > 0;
+        const amt = isCredit ? credit : debit;
+        const vrNo = je.entryNumber || je.reference || '—';
+        const lineKey = `${jeId}-${accId}-${lineIndex}-${isCredit ? 'Cr' : 'Dr'}-${amt}`;
+
+        allBankTxns.push({
+          _id: lineKey,
+          journalEntryId: jeId,
+          accountId: accId,
+          lineIndex,
+          date: je.date,
+          vrNo: vrNo,
+          narration: line.description || je.description || line.account?.name || 'Bank Transaction',
+          reference: cleanReference(je.reference || je.entryNumber, vrNo),
+          debit,
+          credit,
+          amount: amt,
+          type: isCredit ? 'Cr' : 'Dr',
+          isCleared: false,
+          clearanceStatus: 'pending',
+          clearingDate: null,
+          attachments: je.attachments || [],
+          signedDocumentStatus: je.signedDocumentStatus || 'not_signed',
+          signedDocumentAt: je.signedDocumentAt || null,
+          signedBySignatory: je.signedBySignatory || null,
+          status: je.status || 'posted',
+          accountName: line.account?.name || 'Bank Account',
+          accountNumber: line.account?.accountNumber || ''
+        });
       });
     });
 
     // Filter transactions up to asOf date for Section 1
     const glTxnsUpToAsOf = allBankTxns.filter((txn) => new Date(txn.date) <= asOf);
-    const netGlBalance = glTxnsUpToAsOf.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
+    // Book balance from real GL rows only (do not invent JE-only lines into ledger balance)
+    const netGlBalance = postedGlEntries
+      .filter((gle) => new Date(gle.date) <= asOf)
+      .reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
 
-    // 3. Unpresented / Uncleared Transactions up to asOf date
+    // 3. Unpresented / Uncleared — cleared rows leave this list immediately (per GL line)
     const unpresentedTxns = [];
     let unpresentedTotal = 0;
 
     glTxnsUpToAsOf.forEach((txn) => {
-      const clearedBeforeAsOf = txn.isCleared && txn.clearingDate && new Date(txn.clearingDate) <= asOf;
+      if (txn.isCleared) return;
 
-      if (!clearedBeforeAsOf) {
-        const signedAmt = txn.type === 'Cr' ? -txn.amount : txn.amount;
-        unpresentedTotal += signedAmt;
-        unpresentedTxns.push(txn);
-      }
+      const signedAmt = txn.type === 'Cr' ? -txn.amount : txn.amount;
+      unpresentedTotal += signedAmt;
+      unpresentedTxns.push(txn);
     });
 
     const getClearingSortTime = (t) => {
@@ -5899,139 +5920,361 @@ router.get('/reports/bank-reconciliation',
   })
 );
 
-// Mark transaction as reconciled
+// Mark transaction as reconciled — per GL row only (never whole voucher).
 router.post('/reports/bank-reconciliation/reconcile',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { transactionIds, clearanceStatus, clearedAt } = req.body;
+    const {
+      transactionIds,
+      clearanceStatus,
+      clearedAt,
+      debit,
+      credit,
+      amount,
+      type,
+      journalEntryId,
+      accountId
+    } = req.body;
     const isCleared = clearanceStatus === 'cleared' || !clearanceStatus;
     const hasValidDate = clearedAt && !Number.isNaN(new Date(clearedAt).getTime());
     const clearDate = hasValidDate ? new Date(clearedAt) : new Date();
+    const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
+    const mongoose = require('mongoose');
 
-    if (Array.isArray(transactionIds) && transactionIds.length > 0) {
-      const validObjIds = transactionIds
-        .map(id => String(id).split('-')[0])
-        .filter(id => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id));
+    if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'transactionIds required' });
+    }
 
-      if (validObjIds.length > 0) {
-        const bankingUpdate = {
-          'transactions.$[elem].isReconciled': isCleared,
-          'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
-          'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending')
-        };
-        if (isCleared || hasValidDate) {
-          bankingUpdate['transactions.$[elem].clearedAt'] = clearDate;
+    const GeneralLedger = require('../models/finance/GeneralLedger');
+    const JournalEntry = require('../models/finance/JournalEntry');
+
+    const moneyEq = (a, b) => Math.abs(Number(a || 0) - Number(b || 0)) < 0.02;
+    const wantDebit = Number(debit) || 0;
+    const wantCredit = Number(credit) || 0;
+    const wantAmt = Number(amount) || 0;
+    const wantType = String(type || '').trim();
+
+    const glUpdate = {
+      isReconciled: isCleared,
+      reconciledAt: isCleared ? clearDate : null,
+      clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+      clearedAt: isCleared || hasValidDate ? clearDate : null
+    };
+    if (!isCleared) {
+      glUpdate.clearedAt = null;
+      glUpdate.reconciledAt = null;
+    }
+
+    const pickGlAmong = (candidates = []) => {
+      if (!candidates.length) return null;
+      // Never pick the only GL without matching Dr/Cr — after Dr is cleared, only Dr GL
+      // exists; clearing Cr must create/update the Cr line, not reuse Dr.
+      const matched = candidates.filter((g) => {
+        const gDebit = Number(g.debit) || 0;
+        const gCredit = Number(g.credit) || 0;
+        if (wantDebit > 0 || wantCredit > 0) {
+          return moneyEq(gDebit, wantDebit) && moneyEq(gCredit, wantCredit);
+        }
+        if (wantType === 'Cr') return gCredit > 0 && (!wantAmt || moneyEq(gCredit, wantAmt));
+        if (wantType === 'Dr') return gDebit > 0 && (!wantAmt || moneyEq(gDebit, wantAmt));
+        return false;
+      });
+      return matched.length === 1 ? matched[0] : null;
+    };
+
+    const resolveOneId = async (rawId) => {
+      const id = String(rawId || '').trim();
+      if (!id) return null;
+
+      // 1) Plain GL ObjectId — update directly (do not require a prior find)
+      if (OBJECT_ID_RE.test(id)) {
+        const direct = await GeneralLedger.updateOne({ _id: id }, { $set: glUpdate });
+        if ((direct.matchedCount || direct.n) > 0) return id;
+
+        // 2) Fallback: same voucher + amount (account optional)
+        const jeId = journalEntryId && OBJECT_ID_RE.test(String(journalEntryId)) ? String(journalEntryId) : null;
+        if (jeId) {
+          const q = { journalEntry: jeId };
+          if (accountId && OBJECT_ID_RE.test(String(accountId))) q.account = String(accountId);
+          let candidates = await GeneralLedger.find(q).select('_id debit credit').lean();
+          let chosen = pickGlAmong(candidates);
+          if (!chosen) {
+            candidates = await GeneralLedger.find({ journalEntry: jeId }).select('_id debit credit').lean();
+            chosen = pickGlAmong(candidates);
+          }
+          if (chosen) {
+            await GeneralLedger.updateOne({ _id: chosen._id }, { $set: glUpdate });
+            return String(chosen._id);
+          }
+        }
+        return null;
+      }
+
+      // 3) Rich composite: jeId-accountId-lineIndex-Dr|Cr-amount
+      const rich = id.match(/^([0-9a-fA-F]{24})-([0-9a-fA-F]{24})-(\d+)-(Dr|Cr)-([0-9.]+)$/);
+      const legacy = !rich && id.match(/^([0-9a-fA-F]{24})-([0-9a-fA-F]{24})$/);
+      if (rich || legacy) {
+        const jeId = rich ? rich[1] : legacy[1];
+        const accId = rich ? rich[2] : legacy[2];
+        let candidates = await GeneralLedger.find({
+          journalEntry: jeId,
+          account: accId
+        }).select('_id debit credit').lean();
+
+        let chosen = null;
+        if (rich) {
+          const lineType = rich[4];
+          const lineAmt = Number(rich[5]);
+          const typed = candidates.filter((g) =>
+            lineType === 'Cr'
+              ? moneyEq(g.credit, lineAmt)
+              : moneyEq(g.debit, lineAmt)
+          );
+          // Only accept an exact Dr/Cr match — never fall back to an unrelated lone GL
+          chosen = typed.length === 1 ? typed[0] : null;
+        } else {
+          chosen = pickGlAmong(candidates);
         }
 
-        await Banking.updateMany(
-          { 'transactions._id': { $in: validObjIds } },
-          { $set: bankingUpdate },
-          { arrayFilters: [{ 'elem._id': { $in: validObjIds } }] }
-        );
-
-        const bankingDocUpdate = {
-          isReconciled: isCleared,
-          reconciledAt: isCleared ? clearDate : null,
-          reconciledBy: req.user.id,
-          clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
-        };
-        if (isCleared || hasValidDate) {
-          bankingDocUpdate.clearedAt = clearDate;
+        if (!chosen) {
+          candidates = await GeneralLedger.find({ journalEntry: jeId }).select('_id debit credit').lean();
+          if (rich) {
+            const lineType = rich[4];
+            const lineAmt = Number(rich[5]);
+            const typed = candidates.filter((g) =>
+              lineType === 'Cr'
+                ? moneyEq(g.credit, lineAmt)
+                : moneyEq(g.debit, lineAmt)
+            );
+            chosen = typed.length === 1 ? typed[0] : null;
+          } else {
+            chosen = pickGlAmong(candidates);
+          }
         }
 
-        await Banking.updateMany(
-          { _id: { $in: validObjIds } },
-          { $set: bankingDocUpdate }
-        );
-
-        // Update GeneralLedger and JournalEntry documents
-        const GeneralLedger = require('../models/finance/GeneralLedger');
-        const JournalEntry = require('../models/finance/JournalEntry');
-
-        const glUpdate = {
-          isReconciled: isCleared,
-          reconciledAt: isCleared ? clearDate : null,
-          clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending')
-        };
-        if (isCleared || hasValidDate) {
-          glUpdate.clearedAt = clearDate;
+        if (chosen) {
+          await GeneralLedger.updateOne({ _id: chosen._id }, { $set: glUpdate });
+          return String(chosen._id);
         }
 
-        // 1. Update ONLY the specific GL docs matching _id
-        await GeneralLedger.updateMany(
-          { _id: { $in: validObjIds } },
-          { $set: glUpdate }
-        );
-
-        // 2. Direct update for parent JournalEntry documents matching validObjIds
-        await JournalEntry.updateMany(
-          { _id: { $in: validObjIds } },
-          {
-            $set: {
-              isReconciled: isCleared,
-              reconciledAt: isCleared ? clearDate : null,
-              clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-              clearedAt: isCleared || hasValidDate ? clearDate : null
+        // 4) No GL yet — create one from the journal line so this row can clear independently
+        const je = await JournalEntry.findById(jeId);
+        if (je) {
+          const lines = Array.isArray(je.lines) ? je.lines : [];
+          let line = null;
+          if (rich) {
+            const idx = Number(rich[3]);
+            const lineType = rich[4];
+            const lineAmt = Number(rich[5]);
+            line = lines[idx] || null;
+            if (line) {
+              const accMatch = String(line.account?._id || line.account) === accId;
+              const amtMatch = lineType === 'Cr'
+                ? moneyEq(line.credit, lineAmt)
+                : moneyEq(line.debit, lineAmt);
+              if (!accMatch || !amtMatch) line = null;
             }
           }
-        );
-
-        // 3. Find parent journal entries for the updated GL rows
-        const targetGls = await GeneralLedger.find({
-          _id: { $in: validObjIds }
-        }).select('journalEntry').lean();
-        const parentJeIds = Array.from(new Set(targetGls.map(g => String(g.journalEntry || '')).filter(Boolean)));
-
-        // 4. For each parent JE, check if ALL its GL entries are now cleared
-        for (const parentJeId of parentJeIds) {
-          const totalGLCount = await GeneralLedger.countDocuments({ journalEntry: parentJeId });
-          const clearedGLCount = await GeneralLedger.countDocuments({
-            journalEntry: parentJeId,
-            clearanceStatus: 'cleared'
-          });
-
-          if (isCleared && totalGLCount > 0 && clearedGLCount === totalGLCount) {
-            // ALL GL entries for this JE are cleared → mark JE as cleared
-            await JournalEntry.updateOne(
-              { _id: parentJeId },
-              {
-                $set: {
-                  isReconciled: true,
-                  reconciledAt: clearDate,
-                  clearanceStatus: 'cleared',
-                  clearedAt: clearDate
-                }
+          if (!line) {
+            line = lines.find((l) => {
+              const accMatch = String(l.account?._id || l.account) === accId;
+              if (!accMatch) return false;
+              if (wantDebit > 0 || wantCredit > 0) {
+                return moneyEq(l.debit, wantDebit) && moneyEq(l.credit, wantCredit);
               }
-            );
-          } else if (!isCleared) {
-            // At least one GL entry is being reverted → mark JE as pending
-            await JournalEntry.updateOne(
-              { _id: parentJeId },
-              {
-                $set: {
-                  isReconciled: false,
-                  clearanceStatus: 'pending',
-                  reconciledAt: null
-                }
+              if (wantType === 'Cr') return moneyEq(l.credit, wantAmt || l.credit);
+              if (wantType === 'Dr') return moneyEq(l.debit, wantAmt || l.debit);
+              return false;
+            }) || null;
+          }
+          if (line) {
+            try {
+              const userId = req.user?.id || req.user?._id;
+              if (!userId) {
+                console.error('Bank recon: missing req.user for GL create');
+                return null;
               }
-            );
-          } else {
-            // Some cleared, some not → JE stays pending (partial clearance)
-            await JournalEntry.updateOne(
-              { _id: parentJeId },
-              {
-                $set: {
-                  isReconciled: false,
-                  clearanceStatus: 'pending'
-                }
-              }
-            );
+              const created = await GeneralLedger.create({
+                companyId: je.companyId || null,
+                journalEntry: je._id,
+                account: line.account,
+                date: je.date || new Date(),
+                entryNumber: je.entryNumber || je.reference || 'N/A',
+                reference: je.reference || '',
+                description: line.description || je.description || 'Bank transaction',
+                debit: Number(line.debit) || 0,
+                credit: Number(line.credit) || 0,
+                department: 'Finance',
+                module: je.module || 'finance',
+                referenceType: je.referenceType || 'manual',
+                createdBy: userId,
+                status: 'posted',
+                clearanceStatus: glUpdate.clearanceStatus,
+                clearedAt: glUpdate.clearedAt,
+                isReconciled: glUpdate.isReconciled,
+                reconciledAt: glUpdate.reconciledAt
+              });
+              return String(created._id);
+            } catch (createErr) {
+              console.error('Bank recon: failed to create GL for clearance', createErr.message);
+            }
           }
         }
       }
 
+      return null;
+    };
+
+    const updatedGlIds = [];
+    for (const raw of transactionIds) {
+      const resolved = await resolveOneId(raw);
+      if (resolved) updatedGlIds.push(resolved);
     }
-    res.json({ success: true, message: `${transactionIds?.length || 0} transactions updated` });
+
+    // Last resort: ignore row id, match voucher + Dr/Cr amounts from the request body
+    if (updatedGlIds.length === 0 && journalEntryId && OBJECT_ID_RE.test(String(journalEntryId))) {
+      const jeId = String(journalEntryId);
+      let candidates = await GeneralLedger.find({ journalEntry: jeId }).select('_id debit credit').lean();
+      if (accountId && OBJECT_ID_RE.test(String(accountId))) {
+        const scoped = await GeneralLedger.find({
+          journalEntry: jeId,
+          account: String(accountId)
+        }).select('_id debit credit').lean();
+        if (scoped.length) candidates = scoped;
+      }
+      let chosen = pickGlAmong(candidates);
+      if (chosen) {
+        await GeneralLedger.updateOne({ _id: chosen._id }, { $set: glUpdate });
+        updatedGlIds.push(String(chosen._id));
+      } else {
+        // Create missing GL from JE line (common for local imported CVs)
+        const je = await JournalEntry.findById(jeId);
+        const userId = req.user?.id || req.user?._id;
+        if (je && userId) {
+          const lines = Array.isArray(je.lines) ? je.lines : [];
+          const line = lines.find((l) => {
+            if (accountId && String(l.account?._id || l.account) !== String(accountId)) return false;
+            if (wantDebit > 0 || wantCredit > 0) {
+              return moneyEq(l.debit, wantDebit) && moneyEq(l.credit, wantCredit);
+            }
+            if (wantType === 'Cr') return Number(l.credit) > 0 && (!wantAmt || moneyEq(l.credit, wantAmt));
+            if (wantType === 'Dr') return Number(l.debit) > 0 && (!wantAmt || moneyEq(l.debit, wantAmt));
+            return false;
+          });
+          if (line) {
+            try {
+              const created = await GeneralLedger.create({
+                companyId: je.companyId || null,
+                journalEntry: je._id,
+                account: line.account,
+                date: je.date || new Date(),
+                entryNumber: je.entryNumber || je.reference || 'N/A',
+                reference: je.reference || '',
+                description: line.description || je.description || 'Bank transaction',
+                debit: Number(line.debit) || 0,
+                credit: Number(line.credit) || 0,
+                department: 'Finance',
+                module: je.module || 'finance',
+                referenceType: je.referenceType || 'manual',
+                createdBy: userId,
+                status: 'posted',
+                clearanceStatus: glUpdate.clearanceStatus,
+                clearedAt: glUpdate.clearedAt,
+                isReconciled: glUpdate.isReconciled,
+                reconciledAt: glUpdate.reconciledAt
+              });
+              updatedGlIds.push(String(created._id));
+            } catch (createErr) {
+              console.error('Bank recon last-resort GL create failed:', createErr.message);
+            }
+          }
+        }
+      }
+    }
+
+    // Optional: banking embedded txs (legacy)
+    const bankingIds = transactionIds
+      .map((id) => String(id || '').trim())
+      .filter((id) => OBJECT_ID_RE.test(id));
+    if (bankingIds.length > 0) {
+      const bankingUpdate = {
+        'transactions.$[elem].isReconciled': isCleared,
+        'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
+        'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+        'transactions.$[elem].clearedAt': isCleared || hasValidDate ? clearDate : null
+      };
+      await Banking.updateMany(
+        { 'transactions._id': { $in: bankingIds } },
+        { $set: bankingUpdate },
+        { arrayFilters: [{ 'elem._id': { $in: bankingIds } }] }
+      );
+      await Banking.updateMany(
+        { _id: { $in: bankingIds } },
+        {
+          $set: {
+            isReconciled: isCleared,
+            reconciledAt: isCleared ? clearDate : null,
+            reconciledBy: req.user.id,
+            clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
+            clearedAt: isCleared || hasValidDate ? clearDate : null
+          }
+        }
+      );
+    }
+
+    if (updatedGlIds.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Could not find that ledger line to clear. Refresh and try the specific Dr/Cr row again.'
+      });
+    }
+
+    // Parent JE summary only — cleared when every GL line on voucher is cleared
+    const targetGls = await GeneralLedger.find({
+      _id: { $in: updatedGlIds }
+    }).select('journalEntry').lean();
+    const parentJeIds = Array.from(
+      new Set(targetGls.map((g) => String(g.journalEntry || '')).filter(Boolean))
+    );
+
+    for (const parentJeId of parentJeIds) {
+      const totalGLCount = await GeneralLedger.countDocuments({ journalEntry: parentJeId });
+      const clearedGLCount = await GeneralLedger.countDocuments({
+        journalEntry: parentJeId,
+        $or: [{ clearanceStatus: 'cleared' }, { isReconciled: true }]
+      });
+
+      if (isCleared && totalGLCount > 0 && clearedGLCount === totalGLCount) {
+        await JournalEntry.updateOne(
+          { _id: parentJeId },
+          {
+            $set: {
+              isReconciled: true,
+              reconciledAt: clearDate,
+              clearanceStatus: 'cleared',
+              clearedAt: clearDate
+            }
+          }
+        );
+      } else {
+        await JournalEntry.updateOne(
+          { _id: parentJeId },
+          {
+            $set: {
+              isReconciled: false,
+              clearanceStatus: 'pending',
+              ...(isCleared ? {} : { reconciledAt: null, clearedAt: null })
+            }
+          }
+        );
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${updatedGlIds.length} transaction(s) updated`,
+      data: { updatedGlIds }
+    });
   })
 );
 
