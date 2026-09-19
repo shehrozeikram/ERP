@@ -413,12 +413,17 @@ const Sidebar = () => {
     
     const modulePermission = rolePermissions.find(p => p.module === moduleName);
     if (!modulePermission) return false;
+
+    const namesToMatch =
+      moduleName === 'general' && submoduleName === 'centralized_store'
+        ? ['centralized_store', 'indents']
+        : [submoduleName];
     
     // Check if submodule has permissions (actions array)
     if (modulePermission.submodules && Array.isArray(modulePermission.submodules)) {
       const submodule = modulePermission.submodules.find(sm => {
         const smName = typeof sm === 'object' ? sm.submodule : sm;
-        return smName === submoduleName;
+        return namesToMatch.includes(smName);
       });
       
       if (submodule) {

@@ -90,6 +90,24 @@ const applyBillLinesToPayload = async (billData) => {
   billData.grandTotal = billData.amount;
   billData.balanceAmount = Math.max(billData.amount - (Number(billData.lastMonthAmount) || 0), 0);
 
+  // Ensure header due date exists (required on UtilityBill)
+  const hasHeaderDue = billData.dueDate && !Number.isNaN(new Date(billData.dueDate).getTime());
+  if (!hasHeaderDue) {
+    const lineDues = normalized
+      .map((l) => (l.dueDate ? new Date(l.dueDate) : null))
+      .filter((d) => d && !Number.isNaN(d.getTime()));
+    if (lineDues.length) {
+      billData.dueDate = new Date(Math.max(...lineDues.map((d) => d.getTime())));
+    } else {
+      const due = new Date();
+      due.setDate(due.getDate() + 30);
+      billData.dueDate = due;
+    }
+  }
+  if (!billData.billDate || Number.isNaN(new Date(billData.billDate).getTime())) {
+    billData.billDate = new Date();
+  }
+
   const explicitProvider = String(billData.provider || '').trim();
 
   if (billData.payeeEmployee) {

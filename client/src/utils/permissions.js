@@ -1401,6 +1401,10 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/general/indents/dashboard': 'indents',
       '/general/indents/create': 'indents',
       '/general/cost-centers': 'indents',
+      '/general/centralized-store': 'centralized_store',
+      '/general/centralized-store/bills': 'centralized_store',
+      '/general/centralized-store/bill/new': 'centralized_store',
+      '/general/centralized-store/bill': 'centralized_store',
       '/general/cash-approvals': 'general_cash_approvals',
       '/general/cash-approvals/create': 'general_cash_approvals',
       '/general/user-tracking': 'user_tracking',
@@ -1650,9 +1654,13 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
     
     // Check submodule-level permissions
     if (modulePermission.submodules && Array.isArray(modulePermission.submodules) && modulePermission.submodules.length > 0) {
+      const namesToMatch =
+        moduleName === 'general' && submoduleName === 'centralized_store'
+          ? ['centralized_store', 'indents']
+          : [submoduleName];
       const submodule = modulePermission.submodules.find(sm => {
         const smName = typeof sm === 'object' ? sm.submodule : sm;
-        return smName === submoduleName;
+        return namesToMatch.includes(smName);
       });
       
       if (submodule) {

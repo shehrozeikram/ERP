@@ -268,8 +268,10 @@ const canAccessUtilityBillAction = async (req, action = 'read') => {
 
   const hasAdmin = await checkSubRoleAccess(actorId, 'admin', 'utility_bills_management', action);
   const hasFinance = await checkSubRoleAccess(actorId, 'finance', 'accounts_payable', action);
-  const hasGeneral = await checkSubRoleAccess(actorId, 'general', 'centralized_store', action);
-  return hasAdmin || hasFinance || hasGeneral;
+  const hasGeneralStore = await checkSubRoleAccess(actorId, 'general', 'centralized_store', action);
+  // General Indent role holders also create/manage centralized store bills under General module
+  const hasGeneralIndents = await checkSubRoleAccess(actorId, 'general', 'indents', action);
+  return hasAdmin || hasFinance || hasGeneralStore || hasGeneralIndents;
 };
 
 const requireBillPermission = (action = 'read') => async (req, res, next) => {
@@ -698,6 +700,21 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
     delete billData.isConsolidated;
     delete billData.consolidatedFrom;
     delete billData.consolidatedIntoBillId;
+    // Drop multipart helper fields that must not land on the document
+    Object.keys(billData).forEach((key) => {
+      if (key.startsWith('existingLineAttachments_') || key.startsWith('lineAttachment_')) {
+        delete billData[key];
+      }
+    });
+
+    const emptyToNull = (v) => (v === '' || v === undefined ? null : v);
+    billData.vendorId = emptyToNull(billData.vendorId);
+    billData.payeeEmployee = emptyToNull(billData.payeeEmployee);
+    billData.createdBy = emptyToNull(billData.createdBy) || getActorId(req);
+    if (!billData.createdBy || !mongoose.Types.ObjectId.isValid(String(billData.createdBy))) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
     billData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
     if (billData.draftApproverIds.length) {
       const useAllUsersApprovers =
@@ -740,11 +757,45 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
 
     await applyBillLinesToPayload(billData);
     mergeLineUploadsIntoBillLines(req.files, billData);
+
+    // Strip leftover multipart keys after merge
+    Object.keys(billData).forEach((key) => {
+      if (key.startsWith('existingLineAttachments_') || key.startsWith('lineAttachment_')) {
+        delete billData[key];
+      }
+    });
+
     if (billData.useCentralizedStore && !billData.vendorId && !billData.payeeEmployee) {
       return res.status(400).json({ success: false, message: 'Select a supplier / vendor or an employee' });
     }
     if (!billData.provider?.trim()) {
       return res.status(400).json({ success: false, message: 'Supplier / vendor or employee is required' });
+    }
+    if (!billData.dueDate || Number.isNaN(new Date(billData.dueDate).getTime())) {
+      return res.status(400).json({ success: false, message: 'Due date is required' });
+    }
+
+    const ALLOWED_UTILITY_TYPES = [
+      'Electricity', 'Water', 'Gas', 'Internet', 'Phone',
+      'Maintenance', 'Security', 'Cleaning', 'Rent', 'Other'
+    ];
+    if (!ALLOWED_UTILITY_TYPES.includes(String(billData.utilityType || ''))) {
+      billData.utilityType = 'Other';
+    }
+    if (Array.isArray(billData.billLines)) {
+      billData.billLines = billData.billLines.map((line) => {
+        const next = { ...line };
+        if (!ALLOWED_UTILITY_TYPES.includes(String(next.utilityType || ''))) {
+          next.utilityType = 'Other';
+        }
+        if (next.expenseAccount === '' || next.expenseAccount == null) {
+          next.expenseAccount = undefined;
+        }
+        if (next.storeItem === '' || next.storeItem == null) {
+          next.storeItem = undefined;
+        }
+        return next;
+      });
     }
 
     const bill = new UtilityBill(billData);
@@ -753,7 +804,11 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
     }
     await bill.save();
 
-    await populateUtilityBillDocument(bill);
+    try {
+      await populateUtilityBillDocument(bill);
+    } catch (popErr) {
+      console.warn('[UtilityBill] populate after create failed:', popErr.message);
+    }
 
     res.status(201).json({ success: true, data: bill });
   } catch (error) {
@@ -764,7 +819,14 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
       });
     }
     console.error('Error creating utility bill:', error);
-    res.status(500).json({ success: false, message: 'Failed to create utility bill' });
+    const message =
+      error?.name === 'ValidationError'
+        ? Object.values(error.errors || {}).map((e) => e.message).filter(Boolean).join('; ') || error.message
+        : (error?.message || 'Failed to create utility bill');
+    res.status(500).json({
+      success: false,
+      message: message || 'Failed to create utility bill'
+    });
   }
 });
 

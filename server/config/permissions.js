@@ -642,6 +642,11 @@ const getUserAllowedSubmodules = async (userId, module) => {
       if (module === MODULES.ADMIN) allowedSubmodules.add('utility_bills_management');
       if (module === 'general') allowedSubmodules.add('centralized_store');
     }
+
+    // General Indent access also unlocks Centralized Store bills under General
+    if (module === 'general' && allowedSubmodules.has('indents')) {
+      allowedSubmodules.add('centralized_store');
+    }
     
     return Array.from(allowedSubmodules);
   }
@@ -670,6 +675,35 @@ const getUserAllowedSubmodules = async (userId, module) => {
   }
   
   return [];
+};
+
+const submoduleMatches = (sm, submodule) => {
+  if (typeof sm === 'string') return sm === submodule;
+  if (sm && typeof sm === 'object') return sm.submodule === submodule;
+  return false;
+};
+
+const modulePermissionAllowsAction = (modulePermission, submodule, action) => {
+  if (!modulePermission) return false;
+  if (submodule && modulePermission.submodules && modulePermission.submodules.length > 0) {
+    const candidates = [submodule];
+    // General Indent role covers Centralized Store bill workflows
+    if (modulePermission.module === 'general' && submodule === 'centralized_store') {
+      candidates.push('indents');
+    }
+    for (const candidate of candidates) {
+      const submoduleEntry = modulePermission.submodules.find((sm) => submoduleMatches(sm, candidate));
+      if (!submoduleEntry) continue;
+      if (typeof submoduleEntry === 'object' && Array.isArray(submoduleEntry.actions)) {
+        if (submoduleEntry.actions.includes(action)) return true;
+      }
+      if (typeof submoduleEntry === 'string' && Array.isArray(modulePermission.actions) && modulePermission.actions.includes(action)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return Array.isArray(modulePermission.actions) && modulePermission.actions.includes(action);
 };
 
 const checkSubRoleAccess = async (userId, module, submodule, action) => {
@@ -714,34 +748,8 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
       const role = await Role.findById(roleRef._id || roleRef);
       if (role && role.isActive) {
         const modulePermission = role.permissions.find(p => p.module === module);
-        if (modulePermission) {
-          // If submodule is specified, check per-submodule actions
-          if (submodule && modulePermission.submodules && modulePermission.submodules.length > 0) {
-            // Find the submodule entry (support both string and object formats)
-            const submoduleEntry = modulePermission.submodules.find(sm => {
-              if (typeof sm === 'string') return sm === submodule;
-              if (sm && typeof sm === 'object') return sm.submodule === submodule;
-              return false;
-            });
-            
-            if (submoduleEntry) {
-              // If it's an object with actions array, check those actions
-              if (submoduleEntry && typeof submoduleEntry === 'object' && Array.isArray(submoduleEntry.actions)) {
-                if (submoduleEntry.actions.includes(action)) {
-                  return true;
-                }
-              }
-              // If it's a string (legacy format), check module-level actions
-              if (typeof submoduleEntry === 'string' && modulePermission.actions.includes(action)) {
-                return true;
-              }
-            }
-          } else {
-            // If no submodule specified or submodules array is empty, check module-level actions
-            if (modulePermission.actions.includes(action)) {
-              return true;
-            }
-          }
+        if (modulePermissionAllowsAction(modulePermission, submodule, action)) {
+          return true;
         }
       }
     }
@@ -752,34 +760,8 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
     const role = await Role.findById(user.roleRef._id || user.roleRef);
     if (role && role.isActive) {
       const modulePermission = role.permissions.find(p => p.module === module);
-      if (modulePermission) {
-        // If submodule is specified, check per-submodule actions
-        if (submodule && modulePermission.submodules && modulePermission.submodules.length > 0) {
-          // Find the submodule entry (support both string and object formats)
-          const submoduleEntry = modulePermission.submodules.find(sm => {
-            if (typeof sm === 'string') return sm === submodule;
-            if (sm && typeof sm === 'object') return sm.submodule === submodule;
-            return false;
-          });
-          
-          if (submoduleEntry) {
-            // If it's an object with actions array, check those actions
-            if (submoduleEntry && typeof submoduleEntry === 'object' && Array.isArray(submoduleEntry.actions)) {
-              if (submoduleEntry.actions.includes(action)) {
-                return true;
-              }
-            }
-            // If it's a string (legacy format), check module-level actions
-            if (typeof submoduleEntry === 'string' && modulePermission.actions.includes(action)) {
-              return true;
-            }
-          }
-        } else {
-          // If no submodule specified or submodules array is empty, check module-level actions
-          if (modulePermission.actions.includes(action)) {
-            return true;
-          }
-        }
+      if (modulePermissionAllowsAction(modulePermission, submodule, action)) {
+        return true;
       }
     }
   }
@@ -789,7 +771,12 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
   
   // If user has sub-roles, check specific sub-role permissions
   if (userSubRoles && userSubRoles.length > 0) {
-    return await hasSubRolePermission(userId, module, submodule, action);
+    const direct = await hasSubRolePermission(userId, module, submodule, action);
+    if (direct) return true;
+    if (module === 'general' && submodule === 'centralized_store') {
+      return await hasSubRolePermission(userId, 'general', 'indents', action);
+    }
+    return false;
   }
   
   // If user has NO sub-roles, check if they have module access
