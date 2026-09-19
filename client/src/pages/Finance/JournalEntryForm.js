@@ -436,12 +436,12 @@ const JournalEntryForm = () => {
         {/* Lines */}
         <Card variant="outlined">
           <CardContent sx={{ p: 0 }}>
-            <TableContainer>
-              <Table size="small">
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 900 }}>
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'grey.50' }}>
-                    <TableCell><b>#</b></TableCell>
-                    <TableCell><b>Account</b></TableCell>
+                    <TableCell sx={{ width: 36 }}><b>#</b></TableCell>
+                    <TableCell sx={{ minWidth: 360 }}><b>Account</b></TableCell>
                     <TableCell><b>Reference</b></TableCell>
                     <TableCell><b>Description</b></TableCell>
                     <TableCell align="right"><b>Debit (PKR)</b></TableCell>
@@ -460,8 +460,10 @@ const JournalEntryForm = () => {
                     return (
                       <TableRow key={idx} sx={{ bgcolor: dr > 0 ? 'success.50' : cr > 0 ? 'primary.50' : undefined }}>
                         <TableCell sx={{ color: 'text.secondary', width: 36 }}>{idx + 1}</TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>{accLabel}</Typography>
+                        <TableCell sx={{ minWidth: 360 }}>
+                          <Typography variant="body2" fontWeight={600} sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                            {accLabel}
+                          </Typography>
                         </TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>{line.reference || '—'}</TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>{line.description}</TableCell>
@@ -655,25 +657,25 @@ const JournalEntryForm = () => {
               </Grid>
 
               <Grid item xs={12}>
-                <TableContainer component={Paper} variant="outlined">
-                  <Table>
+                <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+                  <Table sx={{ minWidth: 1280 }}>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ minWidth: 200 }}>Account*</TableCell>
-                        <TableCell sx={{ minWidth: 150 }}>Reference</TableCell>
-                        <TableCell sx={{ minWidth: 180 }}>Description</TableCell>
-                        <TableCell sx={{ minWidth: 140 }}>Department</TableCell>
+                        <TableCell sx={{ minWidth: 420, width: '28%' }}>Account*</TableCell>
+                        <TableCell sx={{ minWidth: 140 }}>Reference</TableCell>
+                        <TableCell sx={{ minWidth: 160 }}>Description</TableCell>
+                        <TableCell sx={{ minWidth: 130 }}>Department</TableCell>
                         <TableCell sx={{ minWidth: 120 }}>Party Type</TableCell>
-                        <TableCell sx={{ minWidth: 180 }}>Name / Party</TableCell>
-                        <TableCell sx={{ minWidth: 130, textAlign: 'right' }}>Debit (PKR)</TableCell>
-                        <TableCell sx={{ minWidth: 130, textAlign: 'right' }}>Credit (PKR)</TableCell>
+                        <TableCell sx={{ minWidth: 160 }}>Name / Party</TableCell>
+                        <TableCell sx={{ minWidth: 120, textAlign: 'right' }}>Debit (PKR)</TableCell>
+                        <TableCell sx={{ minWidth: 120, textAlign: 'right' }}>Credit (PKR)</TableCell>
                         <TableCell width={50}></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {formData.lines.map((line, index) => (
                         <TableRow key={index}>
-                          <TableCell>
+                          <TableCell sx={{ minWidth: 420, verticalAlign: 'top' }}>
                             <Autocomplete
                               size="small"
                               options={accounts}
@@ -683,7 +685,48 @@ const JournalEntryForm = () => {
                                 handleLineChangeValue(index, 'account', newValue ? newValue._id : '');
                               }}
                               isOptionEqualToValue={(option, val) => option?._id === val?._id}
-                              renderInput={(params) => <TextField {...params} label="Select Account" variant="outlined" required size="small" />}
+                              ListboxProps={{ style: { maxHeight: 320 } }}
+                              componentsProps={{
+                                paper: {
+                                  sx: { minWidth: 480, maxWidth: 640 }
+                                }
+                              }}
+                              sx={{
+                                minWidth: 400,
+                                '& .MuiInputBase-root': { minHeight: 40 },
+                                '& .MuiAutocomplete-input': {
+                                  minWidth: '0 !important',
+                                  width: '100% !important'
+                                }
+                              }}
+                              renderOption={(props, option) => (
+                                <li {...props} key={option._id}>
+                                  <Box sx={{ py: 0.25 }}>
+                                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                                      {option.accountNumber}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'normal' }}>
+                                      {option.name}
+                                    </Typography>
+                                  </Box>
+                                </li>
+                              )}
+                              renderInput={(params) => (
+                                <TextField
+                                  {...params}
+                                  label="Select Account"
+                                  variant="outlined"
+                                  required
+                                  size="small"
+                                  inputProps={{
+                                    ...params.inputProps,
+                                    style: {
+                                      ...(params.inputProps?.style || {}),
+                                      textOverflow: 'clip'
+                                    }
+                                  }}
+                                />
+                              )}
                               fullWidth
                             />
                           </TableCell>
