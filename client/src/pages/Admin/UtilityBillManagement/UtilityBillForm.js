@@ -498,11 +498,6 @@ const UtilityBillForm = () => {
 
   const billLinesTotal = billLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
 
-  const addedStoreItemIds = useMemo(
-    () => new Set(billLines.map((l) => String(l.storeItem || '')).filter(Boolean)),
-    [billLines]
-  );
-
   const itemsInSelectedCategory = useMemo(() => {
     const finalCat = selectedBillSubCategory || selectedBillCategory;
     if (!finalCat?._id) return [];
@@ -520,11 +515,6 @@ const UtilityBillForm = () => {
 
   const addBillLineFromItem = (storeItem) => {
     if (!storeItem) return;
-    const storeItemId = String(storeItem._id);
-    if (addedStoreItemIds.has(storeItemId)) {
-      setError('This item is already on the bill. Remove it first to add again.');
-      return;
-    }
     setError(null);
     const finalCat = selectedBillSubCategory || selectedBillCategory;
     const categoryName = storeItem.category?.name || finalCat?.name || '';
@@ -1413,12 +1403,10 @@ const UtilityBillForm = () => {
                       getOptionLabel={(o) => o?.name || ''}
                       value={pendingStoreItem}
                       isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
-                      getOptionDisabled={(o) => addedStoreItemIds.has(String(o._id))}
                       onChange={(_, item) => setPendingStoreItem(item)}
                       renderOption={(props, option) => (
                         <li {...props} key={option._id}>
                           {option.name}
-                          {addedStoreItemIds.has(String(option._id)) ? ' (already added)' : ''}
                         </li>
                       )}
                       renderInput={(params) => (
@@ -1429,7 +1417,7 @@ const UtilityBillForm = () => {
                           placeholder={selectedBillCategory ? 'e.g. Meter 1' : 'Select category first'}
                           helperText={
                             billLines.length
-                              ? 'Optional — only needed when adding another line'
+                              ? 'You can add the same item again as another line'
                               : 'Select category, then pick an item to add'
                           }
                         />

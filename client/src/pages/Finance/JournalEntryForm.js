@@ -214,6 +214,8 @@ const JournalEntryForm = () => {
           reference: line.reference || '',
           department: line.department?._id || line.department || '',
           costCenter: line.costCenter?._id || line.costCenter || '',
+          partyType: line.partyType || '',
+          party: line.party?._id || line.party || '',
           _accountObj: line.account // preserve full object for display
         }));
         setFormData({ 
@@ -241,6 +243,42 @@ const JournalEntryForm = () => {
     }));
   };
 
+  const getAccountById = (accountId) =>
+    accounts.find((a) => String(a._id) === String(accountId)) || null;
+
+  const isAccountsPayableAccount = (account) => {
+    if (!account) return false;
+    const num = String(account.accountNumber || '');
+    const name = String(account.name || '').toLowerCase();
+    const detail = String(account.detailType || '').toLowerCase();
+    return (
+      num === '2100' ||
+      num === '2001' ||
+      name.includes('accounts payable') ||
+      detail.includes('accounts payable')
+    );
+  };
+
+  const isAccountsReceivableAccount = (account) => {
+    if (!account) return false;
+    const num = String(account.accountNumber || '');
+    const name = String(account.name || '').toLowerCase();
+    const detail = String(account.detailType || '').toLowerCase();
+    return (
+      num === '1100' ||
+      num === '1200' ||
+      name.includes('accounts receivable') ||
+      detail.includes('accounts receivable')
+    );
+  };
+
+  const getAllowedPartyTypes = (accountId) => {
+    const account = getAccountById(accountId);
+    if (isAccountsPayableAccount(account)) return ['Vendor', 'Employee'];
+    if (isAccountsReceivableAccount(account)) return ['Customer'];
+    return ['Vendor', 'Customer', 'Employee'];
+  };
+
   const handleLineChange = (index, field, directValue) => {
     if (directValue !== undefined) {
       setFormData(prev => ({
@@ -263,11 +301,28 @@ const JournalEntryForm = () => {
   };
 
   const handleLineChangeValue = (index, field, value) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      lines: prev.lines.map((line, i) => 
-        i === index ? { ...line, [field]: value } : line
-      )
+      lines: prev.lines.map((line, i) => {
+        if (i !== index) return line;
+        if (field === 'account') {
+          const allowed = (() => {
+            const account = accounts.find((a) => String(a._id) === String(value)) || null;
+            if (isAccountsPayableAccount(account)) return ['Vendor', 'Employee'];
+            if (isAccountsReceivableAccount(account)) return ['Customer'];
+            return ['Vendor', 'Customer', 'Employee'];
+          })();
+          const partyTypeStillValid = !line.partyType || allowed.includes(line.partyType);
+          return {
+            ...line,
+            account: value,
+            ...(partyTypeStillValid
+              ? {}
+              : { partyType: '', party: '' })
+          };
+        }
+        return { ...line, [field]: value };
+      })
     }));
   };
 
@@ -775,9 +830,9 @@ const JournalEntryForm = () => {
                                 displayEmpty
                               >
                                 <MenuItem value="">None</MenuItem>
-                                <MenuItem value="Vendor">Vendor</MenuItem>
-                                <MenuItem value="Customer">Customer</MenuItem>
-                                <MenuItem value="Employee">Employee</MenuItem>
+                                {getAllowedPartyTypes(line.account).map((pt) => (
+                                  <MenuItem key={pt} value={pt}>{pt}</MenuItem>
+                                ))}
                               </Select>
                             </FormControl>
                           </TableCell>
@@ -791,12 +846,26 @@ const JournalEntryForm = () => {
                                 if (line.partyType === 'Employee') return `${option.firstName || ''} ${option.lastName || ''} - ${option.employeeId || ''}`;
                                 return option.name || option.vendorName || option.customerName || option.companyName || '';
                               }}
-                              value={(line.partyType === 'Vendor' ? vendors : line.partyType === 'Customer' ? customers : line.partyType === 'Employee' ? employees : []).find(p => p._id === line.party) || null}
+                              value={(line.partyType === 'Vendor' ? vendors : line.partyType === 'Customer' ? customers : line.partyType === 'Employee' ? employees : []).find(p => String(p._id) === String(line.party)) || null}
                               onChange={(_, newValue) => {
                                 handleLineChangeValue(index, 'party', newValue ? newValue._id : '');
                               }}
-                              isOptionEqualToValue={(option, val) => option?._id === val?._id}
-                              renderInput={(params) => <TextField {...params} label="Select Party" variant="outlined" size="small" />}
+                              isOptionEqualToValue={(option, val) => String(option?._id) === String(val?._id)}
+                              renderInput={(params) => (
+                                <TextField
+                                  {...params}
+                                  label={
+                                    getAllowedPartyTypes(line.account).length === 1
+                                      ? 'Select Customer'
+                                      : getAllowedPartyTypes(line.account).includes('Customer') &&
+                                          getAllowedPartyTypes(line.account).length === 3
+                                        ? 'Select Party'
+                                        : 'Select Vendor / Employee'
+                                  }
+                                  variant="outlined"
+                                  size="small"
+                                />
+                              )}
                               fullWidth
                             />
                           </TableCell>

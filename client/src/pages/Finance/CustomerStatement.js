@@ -190,7 +190,7 @@ export default function CustomerStatement() {
           </Grid>
 
           {/* Transactions table */}
-          <TableContainer component={Paper} variant="outlined">
+          <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
@@ -240,6 +240,55 @@ export default function CustomerStatement() {
                   </TableCell>
                   <TableCell />
                 </TableRow>
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Party-tagged journal entries */}
+          <Typography variant="subtitle1" fontWeight={700} mb={1}>Journal Entries</Typography>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.50' }}>
+                  <TableCell><b>Entry #</b></TableCell>
+                  <TableCell><b>Date</b></TableCell>
+                  <TableCell><b>Description</b></TableCell>
+                  <TableCell><b>Reference</b></TableCell>
+                  <TableCell align="right"><b>Debit</b></TableCell>
+                  <TableCell align="right"><b>Credit</b></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(statement.journalEntries || []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                      No party-tagged journal entries for this customer.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {(statement.journalEntries || []).map((je) => (
+                  <TableRow key={je._id} hover>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{je.entryNumber || '—'}</TableCell>
+                    <TableCell sx={{ color: 'text.secondary', fontSize: 12 }}>
+                      {je.date ? new Date(je.date).toLocaleDateString() : '—'}
+                    </TableCell>
+                    <TableCell>{je.description || '—'}</TableCell>
+                    <TableCell>{je.reference || '—'}</TableCell>
+                    <TableCell align="right">{fmt(je.debit)}</TableCell>
+                    <TableCell align="right">{fmt(je.credit)}</TableCell>
+                  </TableRow>
+                ))}
+                {(statement.journalEntries || []).length > 0 && (
+                  <TableRow sx={{ bgcolor: 'grey.50' }}>
+                    <TableCell colSpan={4} align="right"><b>Party JE totals</b></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>
+                      PKR {fmt(statement.summary?.partyJournalDebits)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>
+                      PKR {fmt(statement.summary?.partyJournalCredits)}
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </TableContainer>

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -86,6 +86,11 @@ export default function VendorTrialBalancePanel({ supplierId, supplierName }) {
     setVoucher(null);
   }, { skipInitial: true });
 
+  // Auto-generate when vendor / dates / company context is ready
+  useEffect(() => {
+    if (supplierId) load();
+  }, [supplierId, load]);
+
   const loadLedger = useCallback(async (account) => {
     setLedgerLoading(true);
     setLedgerError('');
@@ -167,7 +172,8 @@ export default function VendorTrialBalancePanel({ supplierId, supplierName }) {
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Trial balance for <strong>{supplierName}</strong> — accounts from posted vouchers linked to this vendor
-        (AP bills, advances, utility bills, PO/GRN).
+        (AP bills, advances, utility bills, PO/GRN, and party-tagged journal entries).
+        {typeof data?.journalEntryCount === 'number' ? ` · ${data.journalEntryCount} linked voucher(s)` : ''}
       </Typography>
 
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}

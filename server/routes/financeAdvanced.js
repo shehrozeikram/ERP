@@ -1340,9 +1340,17 @@ router.post('/journal-entries',
     }
     if (entryData.lines) {
       entryData.lines = entryData.lines.map(line => {
-        const newLine = { ...line };
-        if (newLine.department === '') newLine.department = null;
-        if (newLine.costCenter === '') newLine.costCenter = null;
+        const newLine = {
+          account: line.account?._id || line.account || null,
+          reference: line.reference || '',
+          description: line.description || '',
+          debit: Number(line.debit) || 0,
+          credit: Number(line.credit) || 0,
+          department: line.department === '' ? null : (line.department?._id || line.department || null),
+          costCenter: line.costCenter === '' ? null : (line.costCenter?._id || line.costCenter || null),
+          partyType: line.partyType === '' || line.partyType == null ? undefined : line.partyType,
+          party: line.party === '' || line.party == null ? undefined : (line.party?._id || line.party)
+        };
         return newLine;
       });
     }
@@ -1562,9 +1570,17 @@ router.put('/journal-entries/:id',
     }
     if (req.body.lines) {
       entry.lines = req.body.lines.map((line) => {
-        const newLine = { ...line };
-        if (newLine.department === '') newLine.department = null;
-        if (newLine.costCenter === '') newLine.costCenter = null;
+        const newLine = {
+          account: line.account?._id || line.account || null,
+          reference: line.reference || '',
+          description: line.description || '',
+          debit: Number(line.debit) || 0,
+          credit: Number(line.credit) || 0,
+          department: line.department === '' ? null : (line.department?._id || line.department || null),
+          costCenter: line.costCenter === '' ? null : (line.costCenter?._id || line.costCenter || null),
+          partyType: line.partyType === '' || line.partyType == null ? undefined : line.partyType,
+          party: line.party === '' || line.party == null ? undefined : (line.party?._id || line.party)
+        };
         return newLine;
       });
     }
@@ -4705,13 +4721,17 @@ const collectVendorJournalEntryIds = async (vendorObjectId, companyId) => {
   const PurchaseOrder = require('../models/procurement/PurchaseOrder');
   const GoodsReceive = require('../models/procurement/GoodsReceive');
   const coFilter = companyId ? { companyId } : {};
+  const vendorOid = mongoose.Types.ObjectId.isValid(String(vendorObjectId))
+    ? new mongoose.Types.ObjectId(vendorObjectId)
+    : null;
+  if (!vendorOid) return [];
 
   const [apIds, advanceIds, utilityBills, poIds, grnIds] = await Promise.all([
-    AccountsPayable.find({ 'vendor.vendorId': vendorObjectId, ...coFilter }).distinct('_id'),
-    VendorAdvance.find({ 'vendor.vendorId': vendorObjectId, ...coFilter }).distinct('_id'),
-    UtilityBill.find({ vendorId: vendorObjectId }).select('_id financeApBillId').lean(),
-    PurchaseOrder.find({ vendor: vendorObjectId }).distinct('_id'),
-    GoodsReceive.find({ supplier: vendorObjectId }).distinct('_id')
+    AccountsPayable.find({ 'vendor.vendorId': vendorOid, ...coFilter }).distinct('_id'),
+    VendorAdvance.find({ 'vendor.vendorId': vendorOid, ...coFilter }).distinct('_id'),
+    UtilityBill.find({ vendorId: vendorOid }).select('_id financeApBillId').lean(),
+    PurchaseOrder.find({ vendor: vendorOid }).distinct('_id'),
+    GoodsReceive.find({ supplier: vendorOid }).distinct('_id')
   ]);
 
   const referenceIdSet = new Set();
@@ -4731,13 +4751,48 @@ const collectVendorJournalEntryIds = async (vendorObjectId, companyId) => {
     .filter((id) => mongoose.Types.ObjectId.isValid(id))
     .map((id) => new mongoose.Types.ObjectId(id));
 
-  if (!referenceIds.length) return [];
+  const jeIdSet = new Set();
+  const jeBase = { status: 'posted', ...coFilter };
 
-  return JournalEntry.find({
-    status: 'posted',
-    referenceId: { $in: referenceIds },
-    ...coFilter
+  if (referenceIds.length) {
+    const fromRefs = await JournalEntry.find({
+      ...jeBase,
+      referenceId: { $in: referenceIds }
+    }).distinct('_id');
+    fromRefs.forEach((id) => jeIdSet.add(String(id)));
+  }
+
+  // Manual journal lines tagged to this vendor (Accounts Payable party)
+  const fromParty = await JournalEntry.find({
+    ...jeBase,
+    lines: {
+      $elemMatch: {
+        partyType: 'Vendor',
+        party: vendorOid
+      }
+    }
   }).distinct('_id');
+  fromParty.forEach((id) => jeIdSet.add(String(id)));
+
+  // GL rows tagged to this vendor (posted JE sync)
+  try {
+    const GeneralLedger = require('../models/finance/GeneralLedger');
+    const fromGl = await GeneralLedger.find({
+      partyType: 'Vendor',
+      party: vendorOid,
+      status: 'posted',
+      ...(companyId ? { companyId } : {})
+    }).distinct('journalEntry');
+    fromGl.forEach((id) => {
+      if (id) jeIdSet.add(String(id));
+    });
+  } catch (_) {
+    /* ignore */
+  }
+
+  return [...jeIdSet]
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
 };
 
 const buildVendorTrialBalanceRows = async ({ vendorJeIds, from, asOf, companyId }) => {
@@ -4911,6 +4966,7 @@ router.get('/vendors',
 router.get('/vendors/:supplierId/trial-balance',
   authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
     const mongoose = require('mongoose');
     const { supplierId } = req.params;
     const { asOfDate, fromDate } = req.query;
@@ -5035,6 +5091,7 @@ router.get('/vendors/:supplierId/trial-balance/voucher/:journalEntryId',
 router.get('/vendors/:supplierId',
   authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
     const mongoose = require('mongoose');
     const { supplierId } = req.params;
     if (!mongoose.Types.ObjectId.isValid(supplierId)) {
@@ -5047,8 +5104,8 @@ router.get('/vendors/:supplierId',
     }
 
     const vendorObjectId = new mongoose.Types.ObjectId(supplierId);
-    const { q } = await financeScope(req);
-    const [bills, advances] = await Promise.all([
+    const { q, companyId } = await financeScope(req);
+    const [bills, advances, vendorJeIds] = await Promise.all([
       AccountsPayable.find(q({ 'vendor.vendorId': vendorObjectId }))
         .sort({ billDate: -1 })
         .limit(200)
@@ -5056,8 +5113,17 @@ router.get('/vendors/:supplierId',
       VendorAdvance.find(q({ 'vendor.vendorId': vendorObjectId }))
         .sort({ paymentDate: -1 })
         .limit(50)
-        .lean()
+        .lean(),
+      collectVendorJournalEntryIds(vendorObjectId, companyId)
     ]);
+
+    const journalEntries = vendorJeIds.length
+      ? await JournalEntry.find({ _id: { $in: vendorJeIds }, status: 'posted' })
+          .select('entryNumber date description reference totalDebits totalCredits lines.partyType lines.party lines.debit lines.credit lines.account')
+          .sort({ date: -1 })
+          .limit(100)
+          .lean()
+      : [];
 
     const totalBilled = bills.reduce((s, b) => s + (b.totalAmount || 0), 0);
     const totalPaid = bills.reduce((s, b) => s + (b.amountPaid || 0), 0);
@@ -5077,7 +5143,8 @@ router.get('/vendors/:supplierId',
           totalAdvanceApplied: Math.round(totalAdvanceApplied * 100) / 100,
           outstanding: Math.round((totalBilled - totalPaid - totalAdvanceApplied) * 100) / 100,
           advanceBalance: Math.round(advanceBalance * 100) / 100,
-          billCount: bills.length
+          billCount: bills.length,
+          journalEntryCount: journalEntries.length
         },
         bills: bills.map((b) => ({
           _id: b._id,
@@ -5100,6 +5167,18 @@ router.get('/vendors/:supplierId',
           paymentDate: a.paymentDate,
           reference: a.reference,
           status: a.status
+        })),
+        journalEntries: journalEntries.map((je) => ({
+          _id: je._id,
+          entryNumber: je.entryNumber,
+          date: je.date,
+          description: je.description,
+          reference: je.reference,
+          totalDebits: je.totalDebits,
+          totalCredits: je.totalCredits,
+          partyTagged: (je.lines || []).some(
+            (l) => String(l.partyType) === 'Vendor' && String(l.party) === String(vendorObjectId)
+          )
         }))
       }
     });
@@ -5109,7 +5188,12 @@ router.get('/vendors/:supplierId',
 const collectEmployeeJournalEntryIds = async (employeeObjectId, advanceAccountId, companyId) => {
   const mongoose = require('mongoose');
   const idSet = new Set();
-  const caFilter = { advanceToEmployee: employeeObjectId };
+  const employeeOid = mongoose.Types.ObjectId.isValid(String(employeeObjectId))
+    ? new mongoose.Types.ObjectId(employeeObjectId)
+    : null;
+  if (!employeeOid) return [];
+
+  const caFilter = { advanceToEmployee: employeeOid };
   if (companyId) caFilter.companyId = companyId;
 
   const cas = await CashApproval.find(caFilter)
@@ -5146,6 +5230,35 @@ const collectEmployeeJournalEntryIds = async (employeeObjectId, advanceAccountId
       .distinct('_id')
       .lean();
     fromAccount.forEach((id) => jeIds.add(String(id)));
+  }
+
+  // Manual journal lines tagged to this employee (Accounts Payable / advances party)
+  const fromParty = await JournalEntry.find({
+    ...jeFilter,
+    lines: {
+      $elemMatch: {
+        partyType: 'Employee',
+        party: employeeOid
+      }
+    }
+  })
+    .distinct('_id')
+    .lean();
+  fromParty.forEach((id) => jeIds.add(String(id)));
+
+  try {
+    const GeneralLedger = require('../models/finance/GeneralLedger');
+    const fromGl = await GeneralLedger.find({
+      partyType: 'Employee',
+      party: employeeOid,
+      status: 'posted',
+      ...(companyId ? { companyId } : {})
+    }).distinct('journalEntry');
+    fromGl.forEach((id) => {
+      if (id) jeIds.add(String(id));
+    });
+  } catch (_) {
+    /* ignore */
   }
 
   return [...jeIds].map((id) => new mongoose.Types.ObjectId(id));
@@ -5408,6 +5521,7 @@ router.get('/employees/:employeeId/trial-balance/voucher/:journalEntryId',
 router.get('/employees/:employeeId',
   authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
     const mongoose = require('mongoose');
     const { employeeId } = req.params;
     if (!mongoose.Types.ObjectId.isValid(employeeId)) {
@@ -5424,15 +5538,26 @@ router.get('/employees/:employeeId',
 
     const employeeObjectId = new mongoose.Types.ObjectId(employeeId);
     const employeeFilter = await buildCashApprovalEmployeeFilter(employee);
-    const { q } = await financeScope(req);
+    const { q, companyId } = await financeScope(req);
     const baseFilter = employeeFilter || { advanceToEmployee: employeeObjectId };
-    const cashApprovals = await CashApproval.find(q(baseFilter))
-      .sort({ approvalDate: -1, createdAt: -1 })
-      .limit(200)
-      .select(
-        'caNumber status totalAmount advanceAmount actualAmountSpent apAdvanceApplied advanceIssuedAt settlementDate approvalDate purpose originatingModule voucherEntryId advanceGlAccountNumber'
-      )
-      .lean();
+    const [cashApprovals, employeeJeIds] = await Promise.all([
+      CashApproval.find(q(baseFilter))
+        .sort({ approvalDate: -1, createdAt: -1 })
+        .limit(200)
+        .select(
+          'caNumber status totalAmount advanceAmount actualAmountSpent apAdvanceApplied advanceIssuedAt settlementDate approvalDate purpose originatingModule voucherEntryId advanceGlAccountNumber'
+        )
+        .lean(),
+      collectEmployeeJournalEntryIds(employeeObjectId, employee.employeeAdvanceAccount, companyId)
+    ]);
+
+    const journalEntries = employeeJeIds.length
+      ? await JournalEntry.find({ _id: { $in: employeeJeIds }, status: 'posted' })
+          .select('entryNumber date description reference totalDebits totalCredits lines.partyType lines.party lines.debit lines.credit')
+          .sort({ date: -1 })
+          .limit(100)
+          .lean()
+      : [];
 
     let totalAdvanced = 0;
     let totalSettled = 0;
@@ -5455,7 +5580,8 @@ router.get('/employees/:employeeId',
           totalAdvanced: roundFinance2(totalAdvanced),
           totalSettled: roundFinance2(totalSettled),
           outstanding: roundFinance2(Math.max(0, totalAdvanced - totalSettled)),
-          caCount: cashApprovals.length
+          caCount: cashApprovals.length,
+          journalEntryCount: journalEntries.length
         },
         cashApprovals: cashApprovals.map((ca) => {
           const advanceAmount = Math.round((Number(ca.advanceAmount) || Number(ca.totalAmount) || 0) * 100) / 100;
@@ -5478,7 +5604,19 @@ router.get('/employees/:employeeId',
             applied: issued ? apApplied : null,
             open: issued ? Math.max(0, Math.round((advanceAmount - apApplied) * 100) / 100) : null
           };
-        })
+        }),
+        journalEntries: journalEntries.map((je) => ({
+          _id: je._id,
+          entryNumber: je.entryNumber,
+          date: je.date,
+          description: je.description,
+          reference: je.reference,
+          totalDebits: je.totalDebits,
+          totalCredits: je.totalCredits,
+          partyTagged: (je.lines || []).some(
+            (l) => String(l.partyType) === 'Employee' && String(l.party) === String(employeeObjectId)
+          )
+        }))
       }
     });
   })
@@ -5577,6 +5715,59 @@ router.get('/reports/customer-statement',
       { $match: { _id: { $ne: null } } },
       { $sort: { _id: 1 } }
     ]);
+
+    // Include customers who only appear via party-tagged journal entries
+    try {
+      const SalesCustomer = require('../models/sales/SalesCustomer');
+      const partyAgg = await JournalEntry.aggregate([
+        { $match: q({ status: 'posted', 'lines.partyType': 'Customer' }) },
+        { $unwind: '$lines' },
+        { $match: { 'lines.partyType': 'Customer', 'lines.party': { $ne: null } } },
+        {
+          $group: {
+            _id: '$lines.party',
+            partyDebits: { $sum: { $ifNull: ['$lines.debit', 0] } },
+            partyCredits: { $sum: { $ifNull: ['$lines.credit', 0] } },
+            lastActivity: { $max: '$date' }
+          }
+        }
+      ]);
+      if (partyAgg.length) {
+        const byName = new Map(summary.map((row) => [String(row._id).toLowerCase(), row]));
+        const customers = await SalesCustomer.find({
+          _id: { $in: partyAgg.map((r) => r._id) }
+        })
+          .select('_id name email')
+          .lean();
+        const customerById = new Map(customers.map((c) => [String(c._id), c]));
+        partyAgg.forEach((row) => {
+          const cust = customerById.get(String(row._id));
+          if (!cust?.name) return;
+          const key = String(cust.name).toLowerCase();
+          const existing = byName.get(key);
+          if (existing) {
+            if (row.lastActivity && (!existing.lastActivity || row.lastActivity > existing.lastActivity)) {
+              existing.lastActivity = row.lastActivity;
+            }
+          } else {
+            const added = {
+              _id: cust.name,
+              customerEmail: cust.email || '',
+              totalInvoiced: 0,
+              totalReceived: 0,
+              totalBalance: Math.round(((row.partyDebits || 0) - (row.partyCredits || 0)) * 100) / 100,
+              lastActivity: row.lastActivity || null
+            };
+            summary.push(added);
+            byName.set(key, added);
+          }
+        });
+        summary.sort((a, b) => String(a._id).localeCompare(String(b._id)));
+      }
+    } catch (err) {
+      console.warn('Customer statement party list merge skipped:', err.message);
+    }
+
     res.json({ success: true, data: summary });
   })
 );
@@ -5598,19 +5789,89 @@ router.get('/reports/customer-statement/:customerName',
 
     const invoices = await AccountsReceivable.find(matchFilter).sort({ createdAt: 1 });
 
+    // Manual JE lines tagged to this customer (Accounts Receivable party)
+    let partyJournalEntries = [];
+    let customerIds = [];
+    try {
+      const SalesCustomer = require('../models/sales/SalesCustomer');
+      const customerDocs = await SalesCustomer.find({
+        name: new RegExp(`^${customerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+      })
+        .select('_id email')
+        .lean();
+      customerIds = customerDocs.map((c) => c._id);
+      if (customerIds.length) {
+        const jeMatch = {
+          status: 'posted',
+          lines: {
+            $elemMatch: {
+              partyType: 'Customer',
+              party: { $in: customerIds }
+            }
+          }
+        };
+        const scoped = q(jeMatch);
+        if (fromDate || toDate) {
+          scoped.date = {};
+          if (fromDate) scoped.date.$gte = new Date(fromDate);
+          if (toDate) scoped.date.$lte = new Date(toDate);
+        }
+        partyJournalEntries = await JournalEntry.find(scoped)
+          .select('entryNumber date description reference lines status totalDebits totalCredits')
+          .sort({ date: 1 })
+          .lean();
+      }
+    } catch (err) {
+      console.warn('Customer statement party JE lookup skipped:', err.message);
+    }
+
     const totalInvoiced = invoices.reduce((s, i) => s + (i.totalAmount || i.amount || 0), 0);
     const totalReceived = invoices.reduce((s, i) => s + (i.paidAmount || 0), 0);
     const totalBalance = invoices.reduce((s, i) => s + ((i.totalAmount || i.amount || 0) - (i.paidAmount || 0)), 0);
 
+    const customerIdSet = new Set(customerIds.map((id) => String(id)));
+    let partyDebits = 0;
+    let partyCredits = 0;
+    partyJournalEntries.forEach((je) => {
+      (je.lines || []).forEach((line) => {
+        if (String(line.partyType) !== 'Customer') return;
+        if (!customerIdSet.has(String(line.party))) return;
+        partyDebits += Number(line.debit) || 0;
+        partyCredits += Number(line.credit) || 0;
+      });
+    });
+
     res.json({
       success: true,
       data: {
-        customer: { name: customerName, email: invoices[0]?.customer?.email || '' },
+        customer: {
+          name: customerName,
+          email: invoices[0]?.customer?.email || ''
+        },
         invoices,
+        journalEntries: partyJournalEntries.map((je) => ({
+          _id: je._id,
+          entryNumber: je.entryNumber,
+          date: je.date,
+          description: je.description,
+          reference: je.reference,
+          totalDebits: je.totalDebits,
+          totalCredits: je.totalCredits,
+          debit: (je.lines || []).reduce((s, l) => {
+            if (String(l.partyType) !== 'Customer' || !customerIdSet.has(String(l.party))) return s;
+            return s + (Number(l.debit) || 0);
+          }, 0),
+          credit: (je.lines || []).reduce((s, l) => {
+            if (String(l.partyType) !== 'Customer' || !customerIdSet.has(String(l.party))) return s;
+            return s + (Number(l.credit) || 0);
+          }, 0)
+        })),
         summary: {
           totalInvoiced: Math.round(totalInvoiced * 100) / 100,
           totalReceived: Math.round(totalReceived * 100) / 100,
-          totalBalance: Math.round(totalBalance * 100) / 100
+          totalBalance: Math.round(totalBalance * 100) / 100,
+          partyJournalDebits: Math.round(partyDebits * 100) / 100,
+          partyJournalCredits: Math.round(partyCredits * 100) / 100
         }
       }
     });

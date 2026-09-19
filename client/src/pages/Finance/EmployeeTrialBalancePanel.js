@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -86,6 +86,10 @@ export default function EmployeeTrialBalancePanel({ employeeId, employeeName }) 
     setVoucher(null);
   }, { skipInitial: true });
 
+  useEffect(() => {
+    if (employeeId) load();
+  }, [employeeId, load]);
+
   const loadLedger = useCallback(async (account) => {
     setLedgerLoading(true);
     setLedgerError('');
@@ -166,7 +170,8 @@ export default function EmployeeTrialBalancePanel({ employeeId, employeeName }) 
       </Stack>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Trial balance for <strong>{employeeName}</strong> — accounts from cash advances and linked vouchers
+        Trial balance for <strong>{employeeName}</strong> — accounts from cash advances, linked vouchers,
+        and party-tagged journal entries.
         (employee advance GL under 1120).
       </Typography>
 

@@ -130,8 +130,16 @@ export default function FinanceVendorsList() {
     setDetailTab(0);
     setDetailLoading(true);
     try {
-      const res = await api.get(`/finance/vendors/${vendor._id}`);
-      setDetail(res.data?.data || null);
+      const res = await api.get(`/finance/vendors/${vendor._id}`, {
+        headers: { 'Cache-Control': 'no-cache' },
+        params: { _: Date.now() }
+      });
+      const data = res.data?.data || null;
+      setDetail(data);
+      // Prefer Journal Entries when party-tagged vouchers exist
+      if ((data?.journalEntries || []).some((je) => je.partyTagged)) {
+        setDetailTab(2);
+      }
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load vendor finance details');
     } finally {
@@ -145,8 +153,15 @@ export default function FinanceVendorsList() {
     setEmployeeDetailTab(0);
     setEmployeeDetailLoading(true);
     try {
-      const res = await api.get(`/finance/employees/${employee._id}`);
-      setEmployeeDetail(res.data?.data || null);
+      const res = await api.get(`/finance/employees/${employee._id}`, {
+        headers: { 'Cache-Control': 'no-cache' },
+        params: { _: Date.now() }
+      });
+      const data = res.data?.data || null;
+      setEmployeeDetail(data);
+      if ((data?.journalEntries || []).some((je) => je.partyTagged)) {
+        setEmployeeDetailTab(1);
+      }
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load employee finance details');
     } finally {
@@ -217,6 +232,7 @@ export default function FinanceVendorsList() {
             <Paper variant="outlined" sx={{ mb: 2, px: 2 }}>
               <Tabs value={employeeDetailTab} onChange={(_, v) => setEmployeeDetailTab(v)}>
                 <Tab label={`Cash Approvals (${employeeDetail?.cashApprovals?.length || 0})`} />
+                <Tab label={`Journal Entries (${employeeDetail?.journalEntries?.length || 0})`} />
                 <Tab label="Trial Balance" />
                 <Tab label="Profile" />
               </Tabs>
@@ -265,10 +281,50 @@ export default function FinanceVendorsList() {
             )}
 
             {employeeDetailTab === 1 && (
-              <EmployeeTrialBalancePanel employeeId={emp._id} employeeName={displayName} />
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell><b>Entry #</b></TableCell>
+                      <TableCell><b>Date</b></TableCell>
+                      <TableCell><b>Description</b></TableCell>
+                      <TableCell><b>Reference</b></TableCell>
+                      <TableCell align="right"><b>Debits</b></TableCell>
+                      <TableCell align="right"><b>Credits</b></TableCell>
+                      <TableCell><b>Tag</b></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(employeeDetail?.journalEntries || []).map((je) => (
+                      <TableRow key={je._id} hover>
+                        <TableCell sx={{ fontFamily: 'monospace' }}>{je.entryNumber || '—'}</TableCell>
+                        <TableCell>{je.date ? new Date(je.date).toLocaleDateString() : '—'}</TableCell>
+                        <TableCell>{je.description || '—'}</TableCell>
+                        <TableCell>{je.reference || '—'}</TableCell>
+                        <TableCell align="right">{fmt(je.totalDebits)}</TableCell>
+                        <TableCell align="right">{fmt(je.totalCredits)}</TableCell>
+                        <TableCell>
+                          {je.partyTagged ? <Chip label="Party" size="small" color="secondary" /> : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {(employeeDetail?.journalEntries || []).length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                          No journal entries linked to this employee yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             )}
 
             {employeeDetailTab === 2 && (
+              <EmployeeTrialBalancePanel employeeId={emp._id} employeeName={displayName} />
+            )}
+
+            {employeeDetailTab === 3 && (
               <Card variant="outlined">
                 <CardContent>
                   <Grid container spacing={2}>
@@ -352,6 +408,7 @@ export default function FinanceVendorsList() {
               <Tabs value={detailTab} onChange={(_, v) => setDetailTab(v)}>
                 <Tab label={`AP Bills (${detail?.bills?.length || 0})`} />
                 <Tab label={`Vendor Advances (${detail?.advances?.length || 0})`} />
+                <Tab label={`Journal Entries (${detail?.journalEntries?.length || 0})`} />
                 <Tab label="Trial Balance" />
                 <Tab label="Profile" />
               </Tabs>
@@ -434,13 +491,53 @@ export default function FinanceVendorsList() {
             )}
 
             {detailTab === 2 && (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell><b>Entry #</b></TableCell>
+                      <TableCell><b>Date</b></TableCell>
+                      <TableCell><b>Description</b></TableCell>
+                      <TableCell><b>Reference</b></TableCell>
+                      <TableCell align="right"><b>Debits</b></TableCell>
+                      <TableCell align="right"><b>Credits</b></TableCell>
+                      <TableCell><b>Tag</b></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(detail?.journalEntries || []).map((je) => (
+                      <TableRow key={je._id} hover>
+                        <TableCell sx={{ fontFamily: 'monospace' }}>{je.entryNumber || '—'}</TableCell>
+                        <TableCell>{je.date ? new Date(je.date).toLocaleDateString() : '—'}</TableCell>
+                        <TableCell>{je.description || '—'}</TableCell>
+                        <TableCell>{je.reference || '—'}</TableCell>
+                        <TableCell align="right">{fmt(je.totalDebits)}</TableCell>
+                        <TableCell align="right">{fmt(je.totalCredits)}</TableCell>
+                        <TableCell>
+                          {je.partyTagged ? <Chip label="Party" size="small" color="secondary" /> : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {(detail?.journalEntries || []).length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                          No journal entries linked to this vendor yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+
+            {detailTab === 3 && (
               <VendorTrialBalancePanel
                 supplierId={supplier._id}
                 supplierName={supplier.name}
               />
             )}
 
-            {detailTab === 3 && (
+            {detailTab === 4 && (
               <Card variant="outlined">
                 <CardContent>
                   <Grid container spacing={2}>
