@@ -150,7 +150,7 @@ const StandardCustomerInvoiceForm = () => {
           api.get('/finance/companies').catch(() => ({ data: { data: [] } })),
           api.get('/indents/departments').catch(() => ({ data: { data: [] } })),
           api.get('/finance/cost-centers').catch(() => ({ data: { data: [] } })),
-          api.get('/sales/customers', { params: { limit: 5000 } }).catch(() => ({ data: { data: { customers: [] } } }))
+          api.get('/finance/customers', { params: { limit: 5000, status: 'active' } }).catch(() => ({ data: { data: { customers: [] } } }))
         ]);
 
         const aList = accRes.data?.data?.accounts || accRes.data?.accounts || accRes.data?.data || [];
@@ -286,7 +286,7 @@ const StandardCustomerInvoiceForm = () => {
         type: 'corporate',
         status: 'active'
       };
-      const res = await api.post('/sales/customers', payload);
+      const res = await api.post('/finance/customers', payload);
       if (res.data?.success || res.status === 201 || res.status === 200) {
         const created = res.data?.data || res.data;
         toast.success(`Customer "${created.name}" created!`);
@@ -313,6 +313,7 @@ const StandardCustomerInvoiceForm = () => {
       setCustomerPhone(val.phone || '');
       setCustomerAddress(val.address?.street || '');
     } else {
+      setSelectedCustomer(null);
       setCustomerName('');
       setCustomerEmail('');
       setCustomerPhone('');
@@ -325,6 +326,10 @@ const StandardCustomerInvoiceForm = () => {
     setError('');
     if (!customerName.trim()) {
       setError('Customer name is required');
+      return;
+    }
+    if (!selectedCustomer?._id) {
+      setError('Please select a customer from the list (or create one) so the invoice links to Customer List');
       return;
     }
     if (!invoiceNumber.trim()) {
@@ -346,6 +351,7 @@ const StandardCustomerInvoiceForm = () => {
       setSubmitting(true);
       const payload = {
         customer: {
+          customerId: selectedCustomer?._id || undefined,
           name: customerName.trim(),
           email: customerEmail.trim() || undefined,
           phone: customerPhone.trim() || undefined,

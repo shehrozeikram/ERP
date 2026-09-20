@@ -612,13 +612,11 @@ export const MODULES = {
       // ── CUSTOMERS (AR) ──────────────────────────────────────────────────────
       {
         name: 'Customers',
-        path: '/finance/accounts-receivable',
+        path: '/finance/customers',
         subItems: [
           { name: 'Customer List',        path: '/finance/customers'           },
           { name: 'AR Invoices',          path: '/finance/accounts-receivable' },
           { name: 'Credit Notes',         path: '/finance/credit-notes'        },
-          { name: 'Customer Payments',    path: '/finance/customer-payments'   },
-          { name: 'Customer Statements',  path: '/finance/customer-statement'  },
           { name: 'Aged Receivables',     path: '/finance/aged-receivables'    },
         ]
       },

@@ -344,7 +344,10 @@ class FinanceIntegrationService {
             account: arAccount._id,
             description: `Payment applied to invoice ${invoice.invoiceNumber}`,
             credit: amount,
-            department: invoice.department
+            department: invoice.department,
+            ...(invoice.customer?.customerId
+              ? { partyType: 'Customer', party: invoice.customer.customerId }
+              : {})
           }
         ],
         createdBy,

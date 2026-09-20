@@ -1085,35 +1085,133 @@ router.delete('/journal-entries/:id',
     }
 
 
-    // Check if voucher is linked to an Accounts Receivable receipt
-    if (entry.referenceType === 'receipt' && entry.referenceId) {
+    // Reverse Accounts Receivable receipt + linked installment schedule
+    {
       const AccountsReceivable = require('../models/finance/AccountsReceivable');
-      const invoice = await AccountsReceivable.findById(entry.referenceId);
-      
-      if (invoice && Array.isArray(invoice.payments)) {
-        // Find the amount from the bank line of the voucher
-        // or just match based on date and reference if available.
-        // Actually, since this is a receipt voucher, the total bank debit is the payment amount.
-        const bankLine = entry.lines.find(l => l.debit > 0 && l.account);
-        const amountToRemove = bankLine ? bankLine.debit : 0;
-        
-        if (amountToRemove > 0) {
-          // Remove from payments array (using amount and reference match if reference was saved, otherwise just amount)
-          const paymentIndex = invoice.payments.findIndex(p => p.amount === amountToRemove);
-          if (paymentIndex > -1) {
-            invoice.payments.splice(paymentIndex, 1);
+      const FinanceHelper = require('../utils/financeHelper');
+      const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+      const isReceiptType = ['receipt', 'payment'].includes(String(entry.referenceType || ''));
+
+      let invoice = null;
+      if (entry.referenceId && isReceiptType) {
+        invoice = await AccountsReceivable.findById(entry.referenceId);
+      }
+      if (!invoice) {
+        invoice = await AccountsReceivable.findOne({ 'payments.journalEntry': entry._id });
+      }
+      if (!invoice) {
+        invoice = await AccountsReceivable.findOne({ 'installments.lastJournalEntry': entry._id });
+      }
+
+      if (invoice) {
+        if (!Array.isArray(invoice.payments)) invoice.payments = [];
+        if (!Array.isArray(invoice.installments)) invoice.installments = [];
+
+        let paymentIndex = invoice.payments.findIndex(
+          (p) => p.journalEntry && String(p.journalEntry) === String(entry._id)
+        );
+
+        // Fallback: match by amount from bank debit line + optional reference
+        if (paymentIndex < 0 && isReceiptType) {
+          const bankLine = (entry.lines || []).find((l) => Number(l.debit) > 0);
+          const amountToMatch = bankLine ? round2(bankLine.debit) : 0;
+          if (amountToMatch > 0) {
+            paymentIndex = invoice.payments.findIndex((p) => {
+              const amtOk = round2(p.amount) === amountToMatch;
+              if (!amtOk) return false;
+              if (entry.reference && p.reference) return String(p.reference) === String(entry.reference);
+              return !p.journalEntry; // prefer unmatched payment rows
+            });
           }
-          
-          invoice.amountPaid = Math.round((Number(invoice.amountPaid || 0) - amountToRemove) * 100) / 100;
-          if (invoice.amountPaid < 0) invoice.amountPaid = 0;
-          
-          const FinanceHelper = require('../utils/financeHelper');
+        }
+
+        let amountToRemove = 0;
+        let installmentId = null;
+        let touched = false;
+
+        if (paymentIndex > -1) {
+          const pay = invoice.payments[paymentIndex];
+          amountToRemove = round2(pay.amount);
+          installmentId = pay.installmentId || null;
+          invoice.payments.splice(paymentIndex, 1);
+          touched = true;
+        } else {
+          const bankLine = (entry.lines || []).find((l) => Number(l.debit) > 0);
+          amountToRemove = bankLine ? round2(bankLine.debit) : 0;
+        }
+
+        const reverseInstallment = (inst, { clearVoucher = true } = {}) => {
+          if (!inst) return false;
+          if (amountToRemove > 0) {
+            inst.paidAmount = round2(Math.max(0, Number(inst.paidAmount || 0) - amountToRemove));
+          } else if (clearVoucher && String(inst.lastJournalEntry || '') === String(entry._id)) {
+            // No amount on voucher lines — still wipe voucher link and treat as unpaid if it was fully tied to this JE
+            inst.paidAmount = 0;
+          }
+          if (clearVoucher) {
+            inst.lastJournalEntry = null;
+            inst.lastPaymentDate = null;
+          }
+          if (inst.paidAmount <= 0.01) {
+            inst.paidAmount = 0;
+            const due = inst.dueDate ? new Date(inst.dueDate) : null;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            inst.status = due && due < today ? 'overdue' : 'pending';
+          } else {
+            inst.status = 'partial';
+          }
+          return true;
+        };
+
+        const reversedIds = new Set();
+
+        if (installmentId) {
+          const inst = invoice.installments.id
+            ? invoice.installments.id(installmentId)
+            : (invoice.installments || []).find((i) => String(i._id) === String(installmentId));
+          if (reverseInstallment(inst, { clearVoucher: true })) {
+            reversedIds.add(String(inst._id));
+            touched = true;
+          }
+        }
+
+        // Clear every installment still pointing at this voucher
+        (invoice.installments || []).forEach((inst) => {
+          if (reversedIds.has(String(inst._id))) return;
+          if (String(inst.lastJournalEntry || '') === String(entry._id)) {
+            if (reverseInstallment(inst, { clearVoucher: true })) {
+              reversedIds.add(String(inst._id));
+              touched = true;
+            }
+          }
+        });
+
+        // Also match by description hint "Installment #N" if still not reversed
+        if (reversedIds.size === 0 && amountToRemove > 0) {
+          const desc = `${entry.description || ''} ${(entry.lines || []).map((l) => l.description || '').join(' ')}`;
+          const m = desc.match(/Installment\s*#\s*(\d+)/i);
+          if (m) {
+            const seq = Number(m[1]);
+            const inst = (invoice.installments || []).find((i) => Number(i.sequence) === seq);
+            if (inst && reverseInstallment(inst, { clearVoucher: true })) {
+              reversedIds.add(String(inst._id));
+              touched = true;
+            }
+          }
+        }
+
+        if (touched || reversedIds.size > 0) {
+          if (amountToRemove > 0) {
+            invoice.amountPaid = round2(Math.max(0, Number(invoice.amountPaid || 0) - amountToRemove));
+          }
           FinanceHelper._updateDocumentStatus(invoice);
+          invoice.markModified('payments');
+          invoice.markModified('installments');
           await invoice.save();
         }
       }
     }
-
 
     // Delete associated General Ledger entries
     await GeneralLedger.deleteMany({ journalEntry: entry._id });
@@ -2100,6 +2198,54 @@ router.get('/accounts-receivable/:id',
   })
 );
 
+// @route   DELETE /api/finance/accounts-receivable/:id
+// @desc    Delete an AR invoice (blocked if any receipts recorded)
+// @access  Private (Finance and Admin)
+router.delete('/accounts-receivable/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { doc: invoice } = await loadScopedDoc(AccountsReceivable, req, { _id: req.params.id }, 'Invoice');
+
+    const paid = Number(invoice.amountPaid || invoice.paidAmount || 0);
+    const hasPayments = Array.isArray(invoice.payments) && invoice.payments.length > 0;
+    const hasInstallmentPaid = (invoice.installments || []).some((i) => Number(i.paidAmount || 0) > 0 || i.status === 'paid');
+
+    if (paid > 0 || hasPayments || hasInstallmentPaid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete an invoice that has recorded payments or paid installments. Remove/delete receipt vouchers first.'
+      });
+    }
+
+    // Clean up invoice journal entries + GL (AR posting on create)
+    try {
+      const jeQuery = {
+        $or: [
+          { referenceId: invoice._id },
+          { reference: invoice.invoiceNumber },
+          { description: { $regex: String(invoice.invoiceNumber || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }
+        ]
+      };
+      const jes = await JournalEntry.find(jeQuery).select('_id').lean();
+      const jeIds = jes.map((j) => j._id);
+      if (jeIds.length) {
+        await GeneralLedger.deleteMany({ journalEntry: { $in: jeIds } });
+        await JournalEntry.deleteMany({ _id: { $in: jeIds } });
+      }
+    } catch (jErr) {
+      console.warn('Could not clean up journal entries for deleted AR invoice', jErr.message);
+    }
+
+    const invoiceNumber = invoice.invoiceNumber;
+    await AccountsReceivable.findByIdAndDelete(invoice._id);
+
+    res.json({
+      success: true,
+      message: `Invoice ${invoiceNumber} deleted successfully`
+    });
+  })
+);
+
 // @route   POST /api/finance/accounts-receivable/:id/payment
 // @desc    Record receipt for invoice (with optional specific bank account)
 // @access  Private (Finance and Admin)
@@ -2123,6 +2269,7 @@ router.post('/accounts-receivable/:id/payment',
         date: req.body.paymentDate,
         bankAccountId: req.body.bankAccountId || null,
         financeApprovalAuthorities: req.body.financeApprovalAuthorities || null,
+        installmentId: req.body.installmentId || null,
         createdBy: req.user._id
       });
 
@@ -2130,6 +2277,95 @@ router.post('/accounts-receivable/:id/payment',
     } catch (error) {
       res.status(500).json({ success: false, message: error.message || 'Failed to record payment' });
     }
+  })
+);
+
+// @route   PUT /api/finance/accounts-receivable/:id/installments
+// @desc    Set / replace installment schedule for an invoice (no journal entry)
+// @access  Private (Finance and Admin)
+router.put('/accounts-receivable/:id/installments',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { doc: invoice } = await loadScopedDoc(AccountsReceivable, req, { _id: req.params.id }, 'Invoice');
+    if (invoice.status === 'cancelled') {
+      return res.status(400).json({ success: false, message: 'Cannot set installments on a cancelled invoice' });
+    }
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ success: false, message: 'Invoice is already fully paid' });
+    }
+
+    const rows = Array.isArray(req.body.installments) ? req.body.installments : [];
+    if (rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'Add at least one installment' });
+    }
+
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+    const outstanding = round2((invoice.totalAmount || 0) - (invoice.amountPaid || invoice.paidAmount || 0));
+    if (outstanding <= 0) {
+      return res.status(400).json({ success: false, message: 'No outstanding balance to schedule' });
+    }
+
+    // Keep installments that already have receipts; only replace unpaid schedule rows
+    const keptPaid = (invoice.installments || []).filter(
+      (i) => i.status === 'paid' || (Number(i.paidAmount) || 0) > 0
+    );
+    const lockedRemaining = round2(
+      keptPaid.reduce((s, i) => s + Math.max(0, (Number(i.amount) || 0) - (Number(i.paidAmount) || 0)), 0)
+    );
+    const needFromNew = round2(Math.max(0, outstanding - lockedRemaining));
+
+    const newRows = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row._id && keptPaid.some((k) => String(k._id) === String(row._id))) continue;
+      if (row.status === 'paid' || (Number(row.paidAmount) || 0) > 0) continue;
+
+      const amount = round2(row.amount);
+      if (amount <= 0) {
+        return res.status(400).json({ success: false, message: `Installment ${i + 1}: amount must be greater than zero` });
+      }
+      if (!row.dueDate) {
+        return res.status(400).json({ success: false, message: `Installment ${i + 1}: due date is required` });
+      }
+      newRows.push({
+        sequence: keptPaid.length + newRows.length + 1,
+        amount,
+        dueDate: new Date(row.dueDate),
+        status: 'pending',
+        paidAmount: 0,
+        notes: row.notes || ''
+      });
+    }
+
+    if (needFromNew > 0.01 && newRows.length === 0) {
+      return res.status(400).json({ success: false, message: 'Add installment row(s) covering the outstanding balance' });
+    }
+
+    const newTotal = round2(newRows.reduce((s, r) => s + r.amount, 0));
+    if (Math.abs(newTotal - needFromNew) > 0.05) {
+      return res.status(400).json({
+        success: false,
+        message: `New installment total PKR ${newTotal.toFixed(2)} must equal remaining to schedule PKR ${needFromNew.toFixed(2)}`
+      });
+    }
+
+    const merged = [
+      ...keptPaid.map((k, idx) => {
+        const obj = k.toObject ? k.toObject() : { ...k };
+        obj.sequence = idx + 1;
+        return obj;
+      }),
+      ...newRows.map((r, idx) => ({ ...r, sequence: keptPaid.length + idx + 1 }))
+    ];
+
+    invoice.installments = merged;
+    await invoice.save();
+
+    res.json({
+      success: true,
+      message: 'Installment schedule saved (no voucher created — vouchers post when each receipt is recorded)',
+      data: invoice
+    });
   })
 );
 
@@ -5704,6 +5940,299 @@ router.get('/reports/vendor-statement',
       { $sort: { supplierName: 1 } }
     ]);
     res.json({ success: true, data: summary });
+  })
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE CUSTOMERS (unified list + detail like vendors)
+// ─────────────────────────────────────────────────────────────────────────────
+const SalesCustomer = require('../models/sales/SalesCustomer');
+
+const collectCustomerJournalEntryIds = async (customerObjectId, companyId) => {
+  const mongoose = require('mongoose');
+  const customerOid = mongoose.Types.ObjectId.isValid(String(customerObjectId))
+    ? new mongoose.Types.ObjectId(customerObjectId)
+    : null;
+  if (!customerOid) return [];
+
+  const jeIdSet = new Set();
+  const jeBase = { status: 'posted', ...(companyId ? { companyId } : {}) };
+
+  const fromParty = await JournalEntry.find({
+    ...jeBase,
+    lines: {
+      $elemMatch: {
+        partyType: 'Customer',
+        party: customerOid
+      }
+    }
+  }).distinct('_id');
+  fromParty.forEach((id) => jeIdSet.add(String(id)));
+
+  try {
+    const fromGl = await GeneralLedger.find({
+      partyType: 'Customer',
+      party: customerOid,
+      status: 'posted',
+      ...(companyId ? { companyId } : {})
+    }).distinct('journalEntry');
+    fromGl.forEach((id) => {
+      if (id) jeIdSet.add(String(id));
+    });
+  } catch (_) {
+    /* ignore */
+  }
+
+  // Also pick up AR invoice-linked journal entries
+  try {
+    const arIds = await AccountsReceivable.find({
+      'customer.customerId': customerOid,
+      ...(companyId ? { companyId } : {})
+    }).distinct('_id');
+    if (arIds.length) {
+      const fromAr = await JournalEntry.find({
+        ...jeBase,
+        referenceId: { $in: arIds }
+      }).distinct('_id');
+      fromAr.forEach((id) => jeIdSet.add(String(id)));
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  return [...jeIdSet]
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+};
+
+const customerArMatch = (customer, companyQ) => {
+  const name = String(customer.name || '').trim();
+  const or = [{ 'customer.customerId': customer._id }];
+  if (name) {
+    or.push({
+      'customer.name': new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+    });
+  }
+  return companyQ({ $or: or });
+};
+
+router.get('/customers',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { search, status, page = 1, limit = 100 } = req.query;
+    const customerQuery = {};
+    if (status) customerQuery.status = status;
+    const trimmed = search != null ? String(search).trim() : '';
+    if (trimmed) {
+      const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      customerQuery.$or = [
+        { name: { $regex: escaped, $options: 'i' } },
+        { company: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } }
+      ];
+    }
+
+    const skip = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const [customers, total] = await Promise.all([
+      SalesCustomer.find(customerQuery).sort({ name: 1 }).skip(skip).limit(parseInt(limit, 10)).lean(),
+      SalesCustomer.countDocuments(customerQuery)
+    ]);
+
+    const { q } = await financeScope(req);
+    const customerIds = customers.map((c) => c._id);
+    const names = customers.map((c) => c.name).filter(Boolean);
+
+    const financeAgg = customerIds.length
+      ? await AccountsReceivable.aggregate([
+        {
+          $match: q({
+            $or: [
+              { 'customer.customerId': { $in: customerIds } },
+              ...(names.length ? [{ 'customer.name': { $in: names } }] : [])
+            ]
+          })
+        },
+        {
+          $group: {
+            _id: {
+              $cond: [
+                { $ifNull: ['$customer.customerId', false] },
+                { $toString: '$customer.customerId' },
+                { $toLower: { $ifNull: ['$customer.name', ''] } }
+              ]
+            },
+            customerName: { $first: '$customer.name' },
+            totalInvoiced: { $sum: { $ifNull: ['$totalAmount', 0] } },
+            totalReceived: { $sum: { $ifNull: ['$paidAmount', 0] } },
+            invoiceCount: { $sum: 1 },
+            lastActivity: { $max: '$updatedAt' }
+          }
+        }
+      ])
+      : [];
+
+    const byId = new Map();
+    const byName = new Map();
+    const idSet = new Set(customerIds.map((id) => String(id)));
+    financeAgg.forEach((row) => {
+      const key = String(row._id || '');
+      if (idSet.has(key)) byId.set(key, row);
+      else byName.set(key.toLowerCase(), row);
+    });
+
+    const rows = customers.map((c) => {
+      const fin = byId.get(String(c._id)) || byName.get(String(c.name || '').toLowerCase());
+      const totalInvoiced = fin?.totalInvoiced || 0;
+      const totalReceived = fin?.totalReceived || 0;
+      const outstanding = Math.round((totalInvoiced - totalReceived) * 100) / 100;
+      return {
+        ...c,
+        finance: {
+          totalInvoiced: Math.round(totalInvoiced * 100) / 100,
+          totalReceived: Math.round(totalReceived * 100) / 100,
+          outstanding,
+          invoiceCount: fin?.invoiceCount || 0,
+          lastActivity: fin?.lastActivity || null
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        customers: rows,
+        pagination: {
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total,
+          pages: Math.ceil(total / parseInt(limit, 10))
+        }
+      }
+    });
+  })
+);
+
+router.post('/customers',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('name').notEmpty().withMessage('Customer name is required'),
+    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Email must be valid')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: errors.array()[0]?.msg || 'Validation failed',
+        errors: errors.array()
+      });
+    }
+    const payload = { ...req.body };
+    if (payload.email === '') delete payload.email;
+    const customer = await SalesCustomer.create({
+      ...payload,
+      owner: req.user?._id
+    });
+    res.status(201).json({
+      success: true,
+      message: 'Customer created successfully',
+      data: customer
+    });
+  })
+);
+
+router.get('/customers/:customerId',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const mongoose = require('mongoose');
+    const { customerId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      return res.status(400).json({ success: false, message: 'Invalid customer ID' });
+    }
+
+    const customer = await SalesCustomer.findById(customerId).lean();
+    if (!customer) {
+      return res.status(404).json({ success: false, message: 'Customer not found' });
+    }
+
+    const { q, companyId } = await financeScope(req);
+    const arFilter = customerArMatch(customer, q);
+
+    const [invoices, customerJeIds] = await Promise.all([
+      AccountsReceivable.find(arFilter)
+        .sort({ invoiceDate: -1, createdAt: -1 })
+        .limit(200)
+        .lean(),
+      collectCustomerJournalEntryIds(customer._id, companyId)
+    ]);
+
+    const journalEntries = customerJeIds.length
+      ? await JournalEntry.find({ _id: { $in: customerJeIds }, status: 'posted' })
+          .select('entryNumber date description reference totalDebits totalCredits lines.partyType lines.party lines.debit lines.credit')
+          .sort({ date: -1 })
+          .limit(100)
+          .lean()
+      : [];
+
+    const payments = [];
+    invoices.forEach((inv) => {
+      (inv.payments || []).forEach((p) => {
+        payments.push({
+          _id: p._id,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceId: inv._id,
+          paymentDate: p.paymentDate,
+          amount: p.amount,
+          paymentMethod: p.paymentMethod,
+          reference: p.reference
+        });
+      });
+    });
+    payments.sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0));
+
+    const totalInvoiced = invoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
+    const totalReceived = invoices.reduce((s, i) => s + (i.paidAmount || 0), 0);
+    const totalPayments = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        customer,
+        summary: {
+          totalInvoiced: Math.round(totalInvoiced * 100) / 100,
+          totalReceived: Math.round(totalReceived * 100) / 100,
+          outstanding: Math.round((totalInvoiced - totalReceived) * 100) / 100,
+          invoiceCount: invoices.length,
+          paymentCount: payments.length,
+          paymentTotal: Math.round(totalPayments * 100) / 100,
+          journalEntryCount: journalEntries.length
+        },
+        invoices: invoices.map((inv) => ({
+          _id: inv._id,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceDate: inv.invoiceDate || inv.createdAt,
+          dueDate: inv.dueDate,
+          totalAmount: inv.totalAmount,
+          paidAmount: inv.paidAmount || 0,
+          balance: Math.round(((inv.totalAmount || 0) - (inv.paidAmount || 0)) * 100) / 100,
+          status: inv.status
+        })),
+        payments: payments.slice(0, 200),
+        journalEntries: journalEntries.map((je) => ({
+          _id: je._id,
+          entryNumber: je.entryNumber,
+          date: je.date,
+          description: je.description,
+          reference: je.reference,
+          totalDebits: je.totalDebits,
+          totalCredits: je.totalCredits,
+          partyTagged: (je.lines || []).some(
+            (l) => String(l.partyType) === 'Customer' && String(l.party) === String(customer._id)
+          )
+        }))
+      }
+    });
   })
 );
 

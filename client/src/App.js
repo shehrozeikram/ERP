@@ -67,6 +67,7 @@ import BulkLabelPrintPage from './pages/AssetTagging/BulkLabelPrintPage';
 import BankReconciliation from './pages/Finance/BankReconciliation';
 import VendorStatement from './pages/Finance/VendorStatement';
 import FinanceVendorsList from './pages/Finance/FinanceVendorsList';
+import FinanceCustomersList from './pages/Finance/FinanceCustomersList';
 import FinancePayroll from './pages/Finance/FinancePayroll';
 import BudgetVsActual from './pages/Finance/BudgetVsActual';
 import AgedPayables from './pages/Finance/AgedPayables';
@@ -1160,7 +1161,7 @@ function App() {
                     />
                     <Route
                       path="/finance/customers"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><SalesCustomers /></ProtectedRoute>}
+                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinanceCustomersList /></ProtectedRoute>}
                     />
                     <Route
                       path="/finance/accounts-receivable"

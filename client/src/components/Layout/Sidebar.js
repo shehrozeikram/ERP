@@ -228,6 +228,7 @@ const Sidebar = () => {
       '/finance/general-ledger': 'general_ledger',
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-receivable/new': 'accounts_receivable',
+      '/finance/customers': 'customers',
       '/finance/vendors': 'accounts_payable',
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/accounts-payable/new': 'accounts_payable',

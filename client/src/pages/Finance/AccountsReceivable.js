@@ -49,7 +49,9 @@ import {
   Close as CloseIcon,
   History as HistoryIcon,
   Print as PrintIcon,
-  Email as EmailIcon
+  Email as EmailIcon,
+  Delete as DeleteIcon,
+  EventNote as InstallmentIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import QuickbooksReceivePaymentModal from '../../components/Finance/QuickbooksReceivePaymentModal';
@@ -90,6 +92,9 @@ const AccountsReceivable = () => {
   });
   const [processingPayment, setProcessingPayment] = useState(false);
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState(null);
+  const [deletingInvoice, setDeletingInvoice] = useState(false);
 
   const [filters, setFilters] = useState({
     status: '',
@@ -178,6 +183,7 @@ const AccountsReceivable = () => {
       const response = await api.get(`/finance/accounts-receivable/${invoice._id}`);
       if (response.data.success) {
         setSelectedInvoice(response.data.data);
+        syncInstallmentDraft(response.data.data);
         setViewDialogOpen(true);
       }
     } catch (error) {
@@ -190,10 +196,78 @@ const AccountsReceivable = () => {
 
   
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [preselectedInstallmentId, setPreselectedInstallmentId] = useState(null);
+  const [installmentDraft, setInstallmentDraft] = useState([]);
+  const [savingInstallments, setSavingInstallments] = useState(false);
 
-  const handleOpenPayment = (invoice) => {
+  const handleOpenPayment = (invoice, installmentId = null) => {
     setSelectedInvoice(invoice);
+    setPreselectedInstallmentId(installmentId);
     setPaymentModalOpen(true);
+  };
+
+  const syncInstallmentDraft = (invoice) => {
+    const outstanding = Math.round(((invoice.totalAmount || 0) - (invoice.paidAmount || invoice.amountPaid || 0)) * 100) / 100;
+    const existing = (invoice.installments || []).map((i) => ({
+      _id: i._id,
+      sequence: i.sequence,
+      amount: Number(i.amount) || 0,
+      dueDate: i.dueDate ? new Date(i.dueDate).toISOString().split('T')[0] : '',
+      status: i.status || 'pending',
+      paidAmount: Number(i.paidAmount) || 0,
+      notes: i.notes || '',
+      lastJournalEntry: (() => {
+        const id = i.lastJournalEntry?._id || i.lastJournalEntry || null;
+        return /^[a-fA-F0-9]{24}$/.test(String(id || '')) ? String(id) : null;
+      })(),
+      locked: i.status === 'paid' || (Number(i.paidAmount) || 0) > 0
+    }));
+    if (existing.length) {
+      setInstallmentDraft(existing);
+      return;
+    }
+    if (outstanding > 0) {
+      const half = Math.round((outstanding / 2) * 100) / 100;
+      const rest = Math.round((outstanding - half) * 100) / 100;
+      const d1 = new Date();
+      const d2 = new Date();
+      d2.setDate(d2.getDate() + 30);
+      setInstallmentDraft([
+        { amount: half, dueDate: d1.toISOString().split('T')[0], status: 'pending', paidAmount: 0, locked: false },
+        { amount: rest, dueDate: d2.toISOString().split('T')[0], status: 'pending', paidAmount: 0, locked: false }
+      ]);
+    } else {
+      setInstallmentDraft([]);
+    }
+  };
+
+  const getInstallmentCapInfo = (invoice, draft) => {
+    const outstanding = Math.round(((invoice?.totalAmount || 0) - (invoice?.paidAmount || invoice?.amountPaid || 0)) * 100) / 100;
+    const lockedRemaining = Math.round(
+      (draft || [])
+        .filter((r) => r.locked)
+        .reduce((s, r) => s + Math.max(0, (Number(r.amount) || 0) - (Number(r.paidAmount) || 0)), 0) * 100
+    ) / 100;
+    const needFromNew = Math.round(Math.max(0, outstanding - lockedRemaining) * 100) / 100;
+    const unlockedSum = Math.round(
+      (draft || []).filter((r) => !r.locked).reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100
+    ) / 100;
+    const planTotal = Math.round((draft || []).reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100;
+    return { outstanding, needFromNew, unlockedSum, planTotal, overBy: Math.round((unlockedSum - needFromNew) * 100) / 100 };
+  };
+
+  const handleInstallmentAmountChange = (idx, raw) => {
+    const num = Math.max(0, Number(raw) || 0);
+    setInstallmentDraft((prev) => {
+      const info = getInstallmentCapInfo(selectedInvoice, prev);
+      const others = prev.reduce((s, r, i) => (i === idx || r.locked ? s : s + (Number(r.amount) || 0)), 0);
+      const maxThis = Math.max(0, Math.round((info.needFromNew - others) * 100) / 100);
+      const capped = Math.min(num, maxThis);
+      if (num > maxThis + 0.001) {
+        toast.error(`Cannot exceed outstanding. Max for this part: PKR ${maxThis.toLocaleString('en-PK', { minimumFractionDigits: 2 })}`);
+      }
+      return prev.map((r, i) => (i === idx ? { ...r, amount: capped } : r));
+    });
   };
 
   
@@ -206,6 +280,98 @@ const AccountsReceivable = () => {
       dueDate: new Date(invoice.dueDate).toISOString().split('T')[0]
     });
     setEditDialogOpen(true);
+  };
+
+  const canDeleteInvoice = (invoice) => {
+    const paid = Number(invoice.paidAmount ?? invoice.amountPaid ?? 0);
+    const hasPayments = Array.isArray(invoice.payments) && invoice.payments.length > 0;
+    const hasInstallmentPaid = (invoice.installments || []).some(
+      (i) => Number(i.paidAmount || 0) > 0 || i.status === 'paid'
+    );
+    return paid <= 0 && !hasPayments && !hasInstallmentPaid;
+  };
+
+  const handleOpenDelete = (invoice) => {
+    setInvoiceToDelete(invoice);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!invoiceToDelete) return;
+    try {
+      setDeletingInvoice(true);
+      const res = await api.delete(`/finance/accounts-receivable/${invoiceToDelete._id}`);
+      if (res.data?.success || res.status === 200) {
+        toast.success(res.data?.message || `Invoice ${invoiceToDelete.invoiceNumber} deleted`);
+        setDeleteDialogOpen(false);
+        setInvoiceToDelete(null);
+        if (selectedInvoice && String(selectedInvoice._id) === String(invoiceToDelete._id)) {
+          setViewDialogOpen(false);
+          setSelectedInvoice(null);
+        }
+        fetchAccountsReceivable();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete invoice');
+    } finally {
+      setDeletingInvoice(false);
+    }
+  };
+
+  const handleSaveInstallments = async () => {
+    if (!selectedInvoice?._id) return;
+    const editable = installmentDraft.filter((r) => !r.locked);
+    if (editable.some((r) => !r.dueDate || !(Number(r.amount) > 0))) {
+      toast.error('Each installment needs amount and due date');
+      return;
+    }
+    const cap = getInstallmentCapInfo(selectedInvoice, installmentDraft);
+    if (cap.overBy > 0.05) {
+      toast.error(`Installments exceed outstanding by PKR ${cap.overBy.toFixed(2)}`);
+      return;
+    }
+    if (Math.abs(cap.unlockedSum - cap.needFromNew) > 0.05) {
+      toast.error(`Unpaid parts must total PKR ${cap.needFromNew.toFixed(2)} (currently ${cap.unlockedSum.toFixed(2)})`);
+      return;
+    }
+    try {
+      setSavingInstallments(true);
+      const res = await api.put(`/finance/accounts-receivable/${selectedInvoice._id}/installments`, {
+        installments: installmentDraft.map((r) => ({
+          _id: r._id,
+          amount: Number(r.amount),
+          dueDate: r.dueDate,
+          status: r.status,
+          paidAmount: r.paidAmount,
+          notes: r.notes || ''
+        }))
+      });
+      if (res.data?.success) {
+        toast.success(res.data.message || 'Installment schedule saved');
+        setSelectedInvoice(res.data.data);
+        syncInstallmentDraft(res.data.data);
+        fetchAccountsReceivable();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save installments');
+    } finally {
+      setSavingInstallments(false);
+    }
+  };
+
+  const addInstallmentRow = () => {
+    const cap = getInstallmentCapInfo(selectedInvoice, installmentDraft);
+    const room = Math.round((cap.needFromNew - cap.unlockedSum) * 100) / 100;
+    if (room <= 0) {
+      toast.error('No remaining amount — installments already cover the outstanding balance');
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    setInstallmentDraft((prev) => [...prev, { amount: room, dueDate: today, status: 'pending', paidAmount: 0, locked: false }]);
+  };
+
+  const removeInstallmentRow = (idx) => {
+    setInstallmentDraft((prev) => prev.filter((r, i) => i !== idx || r.locked));
   };
 
   const handleUpdateInvoice = async () => {
@@ -258,6 +424,29 @@ const AccountsReceivable = () => {
     return 'error';
   };
 
+  const getInvoiceOutstanding = (invoice) =>
+    Math.round(((invoice.totalAmount || 0) - (invoice.paidAmount ?? invoice.amountPaid ?? 0)) * 100) / 100;
+
+  const isValidVoucherId = (id) => /^[a-fA-F0-9]{24}$/.test(String(id || '').trim());
+
+  /** Only real receipt vouchers — never show chip without a linked journal entry id */
+  const getLatestReceiptVoucherId = (invoice) => {
+    const paid = Number(invoice.paidAmount ?? invoice.amountPaid ?? 0);
+    if (paid <= 0 && !(invoice.payments || []).length) return null;
+
+    const payments = [...(invoice.payments || [])].reverse();
+    for (const p of payments) {
+      const id = p.journalEntry?._id || p.journalEntry;
+      if (isValidVoucherId(id)) return String(id);
+    }
+    const installments = [...(invoice.installments || [])].reverse();
+    for (const i of installments) {
+      const id = i.lastJournalEntry?._id || i.lastJournalEntry;
+      if (isValidVoucherId(id)) return String(id);
+    }
+    return null;
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 3 }}>
@@ -296,8 +485,8 @@ const AccountsReceivable = () => {
               Payments
             </Button>
             <Button variant="outlined" size="small"
-              onClick={() => navigate('/finance/customer-statement')} sx={{ fontSize: 12 }}>
-              Statements
+              onClick={() => navigate('/finance/customers')} sx={{ fontSize: 12 }}>
+              Customers
             </Button>
             <Button
               variant="outlined"
@@ -512,7 +701,9 @@ const AccountsReceivable = () => {
               <TableBody>
                 {invoices.map((invoice) => {
                   const days = calculateAge(invoice.invoiceDate);
-                  const outstanding = invoice.totalAmount - (invoice.paidAmount || 0);
+                  const outstanding = getInvoiceOutstanding(invoice);
+                  const voucherId = getLatestReceiptVoucherId(invoice);
+                  const canMakePayment = outstanding > 0.01 && invoice.status !== 'paid' && invoice.status !== 'cancelled';
                   return (
                     <TableRow key={invoice._id} hover>
                       <TableCell>
@@ -547,7 +738,7 @@ const AccountsReceivable = () => {
                       </TableCell>
                       <TableCell align="right">
                         <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                          {formatPKR(invoice.paidAmount || 0)}
+                          {formatPKR(invoice.paidAmount ?? invoice.amountPaid ?? 0)}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
@@ -577,7 +768,7 @@ const AccountsReceivable = () => {
                         />
                       </TableCell>
                       <TableCell>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                           <Tooltip title="View Details">
                             <IconButton 
                               size="small"
@@ -586,16 +777,29 @@ const AccountsReceivable = () => {
                               <ViewIcon />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Record Payment">
-                            <IconButton 
-                              size="small" 
-                              color="success"
-                              onClick={() => handleOpenPayment(invoice)}
-                              disabled={invoice.status === 'paid'}
-                            >
-                              <PaymentIcon />
-                            </IconButton>
-                          </Tooltip>
+                          {isValidVoucherId(voucherId) && (
+                            <Tooltip title="View receipt voucher">
+                              <Chip
+                                onClick={() => navigate(`/finance/vouchers/${voucherId}`)}
+                                label="VOUCHER CREATED"
+                                size="small"
+                                color="success"
+                                variant="filled"
+                                sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem', cursor: 'pointer' }}
+                              />
+                            </Tooltip>
+                          )}
+                          {canMakePayment && (
+                            <Tooltip title="Make Payment">
+                              <IconButton 
+                                size="small" 
+                                color="success"
+                                onClick={() => handleOpenPayment(invoice)}
+                              >
+                                <PaymentIcon />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                           <Tooltip title="Edit Invoice">
                             <IconButton 
                               size="small"
@@ -604,7 +808,19 @@ const AccountsReceivable = () => {
                               <EditIcon />
                             </IconButton>
                           </Tooltip>
-                          {invoice.status !== 'paid' && !invoice.invoiceNumber?.startsWith('CN-') && (
+                          <Tooltip title={canDeleteInvoice(invoice) ? 'Delete Invoice' : 'Cannot delete invoice with recorded payments'}>
+                            <span>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleOpenDelete(invoice)}
+                                disabled={!canDeleteInvoice(invoice)}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                          {canMakePayment && !invoice.invoiceNumber?.startsWith('CN-') && (
                             <Tooltip title="Issue Credit Note">
                               <IconButton size="small" color="warning"
                                 onClick={() => setCreditNoteDialog({ open: true, invoice, amount: invoice.totalAmount, reason: '' })}>
@@ -709,6 +925,140 @@ const AccountsReceivable = () => {
 
               <Grid item xs={12}>
                 <Divider sx={{ my: 1 }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <InstallmentIcon /> Installment Schedule
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button size="small" startIcon={<AddIcon />} onClick={addInstallmentRow} disabled={selectedInvoice.status === 'paid'}>
+                      Add part
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={handleSaveInstallments}
+                      disabled={
+                        savingInstallments ||
+                        selectedInvoice.status === 'paid' ||
+                        getInstallmentCapInfo(selectedInvoice, installmentDraft).overBy > 0.05
+                      }
+                    >
+                      {savingInstallments ? 'Saving…' : 'Save schedule'}
+                    </Button>
+                  </Box>
+                </Box>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                  Schedule only — no voucher until you record a receipt. Parts cannot exceed outstanding.
+                  You can still use <strong>Record Full / Custom Payment</strong> anytime.
+                </Typography>
+                {(() => {
+                  const cap = getInstallmentCapInfo(selectedInvoice, installmentDraft);
+                  const ok = Math.abs(cap.unlockedSum - cap.needFromNew) <= 0.05;
+                  return (
+                    <Alert severity={ok ? 'success' : 'warning'} sx={{ mb: 1 }}>
+                      Outstanding: <strong>{formatPKR(cap.outstanding)}</strong>
+                      {' · '}Unpaid parts total: <strong>{formatPKR(cap.unlockedSum)}</strong>
+                      {' · '}Must equal: <strong>{formatPKR(cap.needFromNew)}</strong>
+                      {cap.overBy > 0.05 ? ` — over by ${formatPKR(cap.overBy)}` : ''}
+                    </Alert>
+                  );
+                })()}
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>#</TableCell>
+                      <TableCell>Amount</TableCell>
+                      <TableCell>Due Date</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="right">Paid</TableCell>
+                      <TableCell align="center">Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {installmentDraft.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} align="center" sx={{ color: 'text.secondary', py: 2 }}>
+                          No installments — click Add part, or use full receipt via Record Payment.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      installmentDraft.map((row, idx) => (
+                        <TableRow key={row._id || idx}>
+                          <TableCell>{row.sequence || idx + 1}</TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={row.amount}
+                              disabled={row.locked}
+                              onChange={(e) => handleInstallmentAmountChange(idx, e.target.value)}
+                              inputProps={{ min: 0, step: 0.01 }}
+                              sx={{ width: 120 }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small"
+                              type="date"
+                              value={row.dueDate}
+                              disabled={row.locked}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setInstallmentDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, dueDate: val } : r)));
+                              }}
+                              InputLabelProps={{ shrink: true }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                              <Chip
+                                size="small"
+                                label={row.status || 'pending'}
+                                color={row.status === 'paid' ? 'success' : row.status === 'partial' ? 'info' : 'default'}
+                              />
+                              {isValidVoucherId(row.lastJournalEntry) && (
+                                <Tooltip title="View receipt voucher">
+                                  <Chip
+                                    onClick={() => navigate(`/finance/vouchers/${row.lastJournalEntry}`)}
+                                    label="VOUCHER CREATED"
+                                    size="small"
+                                    color="success"
+                                    variant="filled"
+                                    sx={{ height: 22, fontWeight: 'bold', fontSize: '0.65rem', cursor: 'pointer' }}
+                                  />
+                                </Tooltip>
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">{formatPKR(row.paidAmount || 0)}</TableCell>
+                          <TableCell align="center">
+                            {!row.locked && (
+                              <IconButton size="small" onClick={() => removeInstallmentRow(idx)} title="Remove">
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                            {row._id && row.status !== 'paid' && (Number(row.amount) - Number(row.paidAmount || 0)) > 0 && (
+                              <Button
+                                size="small"
+                                color="success"
+                                onClick={() => {
+                                  setViewDialogOpen(false);
+                                  handleOpenPayment(selectedInvoice, row._id);
+                                }}
+                              >
+                                Receive
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }} />
                 <Typography variant="subtitle1" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <HistoryIcon /> Payment History
                 </Typography>
@@ -720,17 +1070,38 @@ const AccountsReceivable = () => {
                         <TableCell>Method</TableCell>
                         <TableCell>Reference</TableCell>
                         <TableCell align="right">Amount</TableCell>
+                        <TableCell>Voucher</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {selectedInvoice.payments.map((payment, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{formatDate(payment.paymentDate)}</TableCell>
-                          <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
-                          <TableCell>{payment.reference || '-'}</TableCell>
-                          <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
-                        </TableRow>
-                      ))}
+                      {selectedInvoice.payments.map((payment, index) => {
+                        const jeId = payment.journalEntry?._id || payment.journalEntry || null;
+                        const hasVoucher = isValidVoucherId(jeId);
+                        return (
+                          <TableRow key={index}>
+                            <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                            <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
+                            <TableCell>{payment.reference || '-'}</TableCell>
+                            <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
+                            <TableCell>
+                              {hasVoucher ? (
+                                <Tooltip title="View receipt voucher">
+                                  <Chip
+                                    onClick={() => navigate(`/finance/vouchers/${jeId}`)}
+                                    label="VOUCHER CREATED"
+                                    size="small"
+                                    color="success"
+                                    variant="filled"
+                                    sx={{ height: 22, fontWeight: 'bold', fontSize: '0.65rem', cursor: 'pointer' }}
+                                  />
+                                </Tooltip>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 ) : (
@@ -742,16 +1113,28 @@ const AccountsReceivable = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+          {selectedInvoice && canDeleteInvoice(selectedInvoice) && (
+            <Button
+              color="error"
+              startIcon={<DeleteIcon />}
+              onClick={() => {
+                setViewDialogOpen(false);
+                handleOpenDelete(selectedInvoice);
+              }}
+            >
+              Delete
+            </Button>
+          )}
           <Button 
             variant="contained" 
             color="success" 
             onClick={() => {
               setViewDialogOpen(false);
-              handleOpenPayment(selectedInvoice);
+              handleOpenPayment(selectedInvoice, null);
             }}
-            disabled={selectedInvoice?.status === 'paid'}
+            disabled={!selectedInvoice || getInvoiceOutstanding(selectedInvoice) <= 0.01 || selectedInvoice.status === 'paid'}
           >
-            Record Payment
+            Record Full / Custom Payment
           </Button>
         </DialogActions>
       </Dialog>
@@ -759,12 +1142,16 @@ const AccountsReceivable = () => {
       
       <QuickbooksReceivePaymentModal
         open={paymentModalOpen}
-        onClose={() => setPaymentModalOpen(false)}
+        onClose={() => {
+          setPaymentModalOpen(false);
+          setPreselectedInstallmentId(null);
+        }}
         onSuccess={fetchAccountsReceivable}
         selectedCompanyId={selectedCompanyId}
-        preselectedCustomerId={selectedInvoice?.customer?._id || selectedInvoice?.customerId || selectedInvoice?.customer?.name || selectedInvoice?.customerName}
+        preselectedCustomerId={selectedInvoice?.customer?.customerId || selectedInvoice?.customer?._id || selectedInvoice?.customerId || ''}
         preselectedCustomerName={selectedInvoice?.customer?.name || selectedInvoice?.customerName}
         preselectedInvoiceId={selectedInvoice?._id}
+        preselectedInstallmentId={preselectedInstallmentId}
       />
 
 
@@ -923,6 +1310,42 @@ const AccountsReceivable = () => {
             }}
           >
             {emailSending ? 'Sending…' : 'Send Email'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Invoice Confirm */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => !deletingInvoice && setDeleteDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DeleteIcon color="error" /> Delete Invoice
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Are you sure you want to delete invoice{' '}
+            <strong>{invoiceToDelete?.invoiceNumber}</strong>
+            {invoiceToDelete?.customer?.name || invoiceToDelete?.customerName
+              ? <> for <strong>{invoiceToDelete?.customer?.name || invoiceToDelete?.customerName}</strong></>
+              : null}
+            {' '}({formatPKR(invoiceToDelete?.totalAmount || 0)})?
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            Linked invoice journal entries will also be removed. Invoices with payments cannot be deleted.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deletingInvoice}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleConfirmDelete}
+            disabled={deletingInvoice}
+          >
+            {deletingInvoice ? 'Deleting…' : 'Delete Invoice'}
           </Button>
         </DialogActions>
       </Dialog>

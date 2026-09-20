@@ -567,7 +567,16 @@ const FinanceHelper = {
       if (arAccount) {
         const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
         const amountRounded = round2(amount);
-        const lines = [{ account: arAccount._id, description: `Receivable from ${customerName}`, debit: amountRounded, department }];
+        const customerParty = customerId
+          ? { partyType: 'Customer', party: customerId }
+          : {};
+        const lines = [{
+          account: arAccount._id,
+          description: `Receivable from ${customerName}`,
+          debit: amountRounded,
+          department,
+          ...customerParty
+        }];
 
         if (charges && charges.length > 0) {
           const fallbackRev = (await A.resolve('4001')) || (await A.resolve(FinanceHelper.ACCOUNTS.REVENUE_CAM)) || (await A.resolve('4000'));
@@ -846,22 +855,68 @@ const FinanceHelper = {
 
   /**
    * Record payment for an AR Invoice
+   * Optional installmentId links the receipt to a scheduled installment (still one voucher per receipt).
    */
   recordARPayment: async (invoiceId, paymentData) => {
     try {
       const invoice = await AccountsReceivable.findById(invoiceId);
       if (!invoice) throw new Error('Invoice not found');
 
-      const { amount, paymentMethod, reference, date, createdBy, bankAccountId, payingCompanyId: optsPayingCompanyId = null } = paymentData;
+      const {
+        amount,
+        paymentMethod,
+        reference,
+        date,
+        createdBy,
+        bankAccountId,
+        payingCompanyId: optsPayingCompanyId = null,
+        installmentId = null
+      } = paymentData;
+
+      const amountRounded = Math.round((Number(amount) || 0) * 100) / 100;
+      if (amountRounded <= 0) throw new Error('Receipt amount must be greater than zero');
 
       const balance = Math.round((invoice.totalAmount - invoice.amountPaid) * 100) / 100;
-      if (amount > balance + 0.01) {
-        throw new Error(`Receipt amount PKR ${amount} exceeds outstanding balance PKR ${balance}`);
+      if (amountRounded > balance + 0.01) {
+        throw new Error(`Receipt amount PKR ${amountRounded} exceeds outstanding balance PKR ${balance}`);
       }
 
-      invoice.payments.push({ amount, paymentDate: date || new Date(), paymentMethod, reference, createdBy });
-      invoice.amountPaid = Math.round((invoice.amountPaid + amount) * 100) / 100;
+      let installment = null;
+      if (installmentId) {
+        installment = invoice.installments?.id?.(installmentId)
+          || (invoice.installments || []).find((i) => String(i._id) === String(installmentId));
+        if (!installment) throw new Error('Installment not found on this invoice');
+        if (installment.status === 'paid' || installment.status === 'cancelled') {
+          throw new Error('This installment is already paid or cancelled');
+        }
+        const instBalance = Math.round(((installment.amount || 0) - (installment.paidAmount || 0)) * 100) / 100;
+        if (amountRounded > instBalance + 0.01) {
+          throw new Error(`Receipt amount PKR ${amountRounded} exceeds installment balance PKR ${instBalance}`);
+        }
+      }
+
+      invoice.payments.push({
+        amount: amountRounded,
+        paymentDate: date || new Date(),
+        paymentMethod,
+        reference,
+        createdBy,
+        installmentId: installmentId || null
+      });
+      invoice.amountPaid = Math.round((invoice.amountPaid + amountRounded) * 100) / 100;
       FinanceHelper._updateDocumentStatus(invoice);
+
+      if (installment) {
+        installment.paidAmount = Math.round(((installment.paidAmount || 0) + amountRounded) * 100) / 100;
+        installment.lastPaymentDate = date || new Date();
+        if (installment.paidAmount >= (installment.amount || 0) - 0.01) {
+          installment.status = 'paid';
+          installment.paidAmount = installment.amount;
+        } else {
+          installment.status = 'partial';
+        }
+      }
+
       await invoice.save();
 
       const companyId = co(invoice);
@@ -881,6 +936,12 @@ const FinanceHelper = {
 
       if (arAccount && bankAccount) {
         const lines = [];
+        const customerParty = invoice.customer?.customerId
+          ? { partyType: 'Customer', party: invoice.customer.customerId }
+          : {};
+        const instLabel = installment
+          ? ` (Installment #${installment.sequence || ''})`
+          : '';
 
         if (isIntercompany) {
           const { resolveIntercompanyAccounts } = require('./financePosting');
@@ -890,22 +951,33 @@ const FinanceHelper = {
             createdBy
           });
 
-          // Clear AR on Target company & Debit Intercompany Receivable
-          lines.push({ account: icTargetAcc._id, description: `Intercompany Receipt via receiving bank account`, debit: amount, department: invoice.department });
-          lines.push({ account: arAccount._id, description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department });
+          lines.push({ account: icTargetAcc._id, description: `Intercompany Receipt via receiving bank account`, debit: amountRounded, department: invoice.department });
+          lines.push({
+            account: arAccount._id,
+            description: `Clear AR – ${invoice.invoiceNumber}${instLabel}`,
+            credit: amountRounded,
+            department: invoice.department,
+            ...customerParty
+          });
 
-          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit: amount, department: invoice.department });
-          lines.push({ account: icReceivingAcc._id, description: `Intercompany Payable for receipt collected on behalf of subsidiary`, credit: amount, department: invoice.department });
+          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}${instLabel}`, debit: amountRounded, department: invoice.department });
+          lines.push({ account: icReceivingAcc._id, description: `Intercompany Payable for receipt collected on behalf of subsidiary`, credit: amountRounded, department: invoice.department });
         } else {
-          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit: amount, department: invoice.department });
-          lines.push({ account: arAccount._id, description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department });
+          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}${instLabel}`, debit: amountRounded, department: invoice.department });
+          lines.push({
+            account: arAccount._id,
+            description: `Clear AR – ${invoice.invoiceNumber}${instLabel}`,
+            credit: amountRounded,
+            department: invoice.department,
+            ...customerParty
+          });
         }
 
-        await FinanceHelper.createAndPostJournalEntry(
+        const je = await FinanceHelper.createAndPostJournalEntry(
           withVoucherNarration(withCompany({
             date: date || new Date(),
             reference: reference || '',
-            description: `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
+            description: `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${instLabel}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
             department: invoice.department,
             costCenter: invoice.costCenter?._id || invoice.costCenter || paymentData.costCenter || null,
             vendorOrEmployeeName: invoice.customer?.name || invoice.customerName || 'Customer',
@@ -917,6 +989,17 @@ const FinanceHelper = {
             lines
           }, companyId), getArInvoiceNarration(invoice))
         );
+
+        if (je?._id) {
+          const lastPay = invoice.payments[invoice.payments.length - 1];
+          if (lastPay) lastPay.journalEntry = je._id;
+          if (installment) {
+            const liveInst = invoice.installments.id(installment._id)
+              || (invoice.installments || []).find((i) => String(i._id) === String(installment._id));
+            if (liveInst) liveInst.lastJournalEntry = je._id;
+          }
+          await invoice.save();
+        }
       }
 
       return invoice;

@@ -140,7 +140,7 @@ const JournalEntryForm = () => {
 
   const fetchCustomers = async () => {
     try {
-      const res = await api.get('/sales/customers', { params: { limit: 1000 } });
+      const res = await api.get('/finance/customers', { params: { limit: 1000, status: 'active' } });
       if (res.data.success) {
         setCustomers(res.data.data.customers || []);
       }

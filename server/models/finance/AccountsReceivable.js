@@ -212,6 +212,10 @@ const accountsReceivableSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
+    installmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null
+    },
     journalEntry: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'JournalEntry'
@@ -220,6 +224,38 @@ const accountsReceivableSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: [true, 'Created by user is required']
+    }
+  }],
+  // Installment schedule (planning only — no JE until a receipt is recorded)
+  installments: [{
+    sequence: { type: Number, default: 1 },
+    amount: {
+      type: Number,
+      required: true,
+      min: [0.01, 'Installment amount must be positive'],
+      get: function(val) { return Math.round((val || 0) * 100) / 100; },
+      set: function(val) { return Math.round((Number(val) || 0) * 100) / 100; }
+    },
+    dueDate: {
+      type: Date,
+      required: [true, 'Installment due date is required']
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'partial', 'paid', 'overdue', 'cancelled'],
+      default: 'pending'
+    },
+    paidAmount: {
+      type: Number,
+      default: 0,
+      get: function(val) { return Math.round((val || 0) * 100) / 100; },
+      set: function(val) { return Math.round((Number(val) || 0) * 100) / 100; }
+    },
+    notes: { type: String, trim: true },
+    lastPaymentDate: { type: Date },
+    lastJournalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'JournalEntry'
     }
   }],
   // Aging information
@@ -416,6 +452,10 @@ accountsReceivableSchema.methods.recordPayment = async function(paymentData) {
     throw new Error('Required accounts not found');
   }
 
+  const customerParty = this.customer?.customerId
+    ? { partyType: 'Customer', party: this.customer.customerId }
+    : {};
+
   const journalEntry = new JournalEntry({
     date: paymentData.paymentDate || new Date(),
     reference: `PAY-${this.invoiceNumber}`,
@@ -435,7 +475,8 @@ accountsReceivableSchema.methods.recordPayment = async function(paymentData) {
         account: arAccount._id,
         description: `Payment applied to invoice ${this.invoiceNumber}`,
         credit: paymentData.amount,
-        department: this.department
+        department: this.department,
+        ...customerParty
       }
     ],
     createdBy: paymentData.createdBy

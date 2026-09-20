@@ -17,6 +17,7 @@ import {
   Close as CloseIcon
 } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import FinanceApprovalAuthorityPicker from './FinanceApprovalAuthorityPicker';
 import {
@@ -44,6 +45,8 @@ const formatDate = (date) => {
 
 const round2 = (val) => Math.round((Number(val) || 0) * 100) / 100;
 
+const isValidVoucherId = (id) => /^[a-fA-F0-9]{24}$/.test(String(id || '').trim());
+
 export default function QuickbooksReceivePaymentModal({
   open,
   onClose,
@@ -51,8 +54,10 @@ export default function QuickbooksReceivePaymentModal({
   selectedCompanyId = null,
   preselectedCustomerId = null,
   preselectedCustomerName = '',
-  preselectedInvoiceId = null
+  preselectedInvoiceId = null,
+  preselectedInstallmentId = null
 }) {
+  const navigate = useNavigate();
   const { companies } = useFinanceCompany();
   const [customers, setCustomers] = useState([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(preselectedCustomerId || '');
@@ -103,16 +108,16 @@ export default function QuickbooksReceivePaymentModal({
   }, [open]);
 
 
-  // Load Customers (combines procurement customers and active AP customers)
+  // Load Customers from finance customer master (same source as Customer List / JE form)
   useEffect(() => {
     if (!open) return;
     Promise.allSettled([
-      api.get('/procurement/customers', { params: { limit: 1000 } }),
+      api.get('/finance/customers', { params: { limit: 1000, status: 'active' } }),
       api.get('/finance/accounts-receivable', { params: { limit: 1000 } })
-    ]).then(([procRes, apRes]) => {
+    ]).then(([custRes, arRes]) => {
       const vMap = new Map();
-      if (procRes.status === 'fulfilled' && procRes.value.data?.data?.customers) {
-        procRes.value.data.data.customers.forEach((v) => {
+      if (custRes.status === 'fulfilled' && custRes.value.data?.data?.customers) {
+        custRes.value.data.data.customers.forEach((v) => {
           vMap.set(String(v._id), {
             customerId: String(v._id),
             customerName: v.name,
@@ -121,8 +126,9 @@ export default function QuickbooksReceivePaymentModal({
           });
         });
       }
-      if (apRes.status === 'fulfilled' && apRes.value.data?.data?.invoices) {
-        apRes.value.data.data.invoices.forEach((b) => {
+      // Include any AR-only customers (name match legacy invoices without customerId)
+      if (arRes.status === 'fulfilled' && arRes.value.data?.data?.invoices) {
+        arRes.value.data.data.invoices.forEach((b) => {
           const vId = String(b.customer?.customerId || b.customer?._id || '');
           const vName = b.customer?.name || b.customerName || '';
           if (vName) {
@@ -172,10 +178,15 @@ export default function QuickbooksReceivePaymentModal({
       setLoadingAdvances(true);
 
       const cleanCustomerName = String(customerName || '').trim();
+      const isObjectId = /^[a-fA-F0-9]{24}$/.test(String(customerId || ''));
+      const invoiceParams = { limit: 1000 };
+      if (isObjectId) {
+        invoiceParams.customerId = customerId;
+      } else if (cleanCustomerName) {
+        invoiceParams.search = cleanCustomerName;
+      }
       const [invoicesRes] = await Promise.allSettled([
-        api.get('/finance/accounts-receivable', {
-          params: { limit: 1000, search: cleanCustomerName || '' }
-        })
+        api.get('/finance/accounts-receivable', { params: invoiceParams })
       ]);
 
       if (invoicesRes.status === 'fulfilled' && invoicesRes.value.data?.success) {
@@ -184,6 +195,11 @@ export default function QuickbooksReceivePaymentModal({
         let filtered = rawInvoices.filter((b) => {
           if (b.status === 'cancelled') return false;
           const matchId = customerId && String(b.customer?.customerId || b.customer?._id || '') === String(customerId);
+          if (isObjectId) {
+            // Prefer id match; also keep name-only legacy invoices for this customer
+            const bName = String(b.customer?.name || b.customerName || '').toLowerCase().trim();
+            return matchId || (normName && bName === normName && !b.customer?.customerId);
+          }
           const bName = String(b.customer?.name || b.customerName || '').toLowerCase().trim();
           const matchName = normName && bName.includes(normName);
           return matchId || matchName;
@@ -204,27 +220,120 @@ export default function QuickbooksReceivePaymentModal({
           }
         }
 
-        const rows = filtered.map((b) => {
+        const rows = [];
+        filtered.forEach((b) => {
           const total = Number(b.totalAmount || 0);
           const paid = Number(b.paidAmount ?? b.amountPaid ?? 0);
           const advance = Number(b.advanceApplied || 0);
           const pending = Number(b.paymentPending || 0) + Number(b.advancePending || 0);
           const openBal = Math.max(0, round2(total - paid - advance - pending));
-          const isTargetBill = preselectedInvoiceId && String(b._id) === String(preselectedInvoiceId);
+          if (openBal <= 0 && !(b.installments || []).length) return;
 
-          return {
-            billId: String(b._id),
-            billNumber: b.invoiceNumber,
-            billDate: b.invoiceDate,
-            dueDate: b.dueDate,
-            totalAmount: total,
-            amountPaid: paid,
-            advanceApplied: advance,
-            openBalance: openBal,
-            selected: isTargetBill ? true : false,
-            payAmount: isTargetBill ? openBal : 0
-          };
-        }).filter((r) => r.openBalance > 0);
+          const isTargetBill = preselectedInvoiceId && String(b._id) === String(preselectedInvoiceId);
+          const allInstallments = (b.installments || []).map((inst) => {
+            const amount = Number(inst.amount) || 0;
+            const paidAmount = Number(inst.paidAmount) || 0;
+            let status = inst.status || 'pending';
+            if (paidAmount >= amount - 0.01 && amount > 0) status = 'paid';
+            else if (paidAmount > 0) status = 'partial';
+            else if (inst.dueDate && new Date(inst.dueDate) < new Date(new Date().toDateString()) && status === 'pending') {
+              status = 'overdue';
+            }
+            // Prefer installment.lastJournalEntry; fallback to matching payment.journalEntry
+            let journalEntryId = inst.lastJournalEntry?._id || inst.lastJournalEntry || null;
+            if (!journalEntryId && Array.isArray(b.payments)) {
+              const linkedPay = [...b.payments].reverse().find(
+                (p) => p.installmentId && String(p.installmentId) === String(inst._id) && (p.journalEntry || p.journalEntryId)
+              );
+              journalEntryId = linkedPay?.journalEntry?._id || linkedPay?.journalEntry || linkedPay?.journalEntryId || null;
+            }
+            return {
+              _id: String(inst._id),
+              sequence: inst.sequence,
+              amount,
+              paidAmount,
+              dueDate: inst.dueDate,
+              status,
+              balance: Math.max(0, round2(amount - paidAmount)),
+              journalEntryId: isValidVoucherId(journalEntryId) ? String(journalEntryId) : null
+            };
+          });
+
+          if (allInstallments.length > 0) {
+            // Show each installment as its own row (including paid — status visible, not selectable)
+            allInstallments.forEach((inst) => {
+              const isPaid = inst.status === 'paid' || inst.balance <= 0;
+              const preselect =
+                isTargetBill &&
+                preselectedInstallmentId &&
+                String(inst._id) === String(preselectedInstallmentId) &&
+                !isPaid;
+              rows.push({
+                rowKey: `${b._id}-inst-${inst._id}`,
+                rowType: 'installment',
+                billId: String(b._id),
+                billNumber: b.invoiceNumber,
+                billDate: b.invoiceDate,
+                dueDate: inst.dueDate,
+                totalAmount: total,
+                billOpenBalance: openBal,
+                installmentId: inst._id,
+                installmentSequence: inst.sequence,
+                installmentAmount: inst.amount,
+                installmentPaid: inst.paidAmount,
+                journalEntryId: inst.journalEntryId,
+                status: inst.status,
+                openBalance: inst.balance,
+                disabled: isPaid,
+                selected: !!preselect,
+                payAmount: preselect ? inst.balance : 0
+              });
+            });
+            // Extra row: full / custom receipt against invoice (no installment link)
+            if (openBal > 0) {
+              const preselectFull = isTargetBill && !preselectedInstallmentId;
+              rows.push({
+                rowKey: `${b._id}-full`,
+                rowType: 'full',
+                billId: String(b._id),
+                billNumber: b.invoiceNumber,
+                billDate: b.invoiceDate,
+                dueDate: b.dueDate,
+                totalAmount: total,
+                billOpenBalance: openBal,
+                installmentId: '',
+                installmentSequence: null,
+                installmentAmount: null,
+                installmentPaid: null,
+                status: 'full_receipt',
+                openBalance: openBal,
+                disabled: false,
+                selected: !!preselectFull,
+                payAmount: preselectFull ? openBal : 0
+              });
+            }
+          } else if (openBal > 0) {
+            rows.push({
+              rowKey: String(b._id),
+              rowType: 'bill',
+              billId: String(b._id),
+              billNumber: b.invoiceNumber,
+              billDate: b.invoiceDate,
+              dueDate: b.dueDate,
+              totalAmount: total,
+              billOpenBalance: openBal,
+              installmentId: '',
+              installmentSequence: null,
+              installmentAmount: null,
+              installmentPaid: null,
+              status: 'open',
+              openBalance: openBal,
+              disabled: false,
+              selected: !!isTargetBill,
+              payAmount: isTargetBill ? openBal : 0
+            });
+          }
+        });
 
         setOpenInvoices(rows);
       } else {
@@ -239,7 +348,7 @@ export default function QuickbooksReceivePaymentModal({
       setLoadingInvoices(false);
       setLoadingAdvances(false);
     }
-  }, [preselectedInvoiceId]);
+  }, [preselectedInvoiceId, preselectedInstallmentId]);
 
   useEffect(() => {
     if (open && (selectedCustomerId || selectedCustomerName)) {
@@ -264,6 +373,7 @@ export default function QuickbooksReceivePaymentModal({
     setOpenInvoices((prev) => {
       const next = [...prev];
       const row = { ...next[index] };
+      if (row.disabled) return prev;
       row.selected = !row.selected;
       row.payAmount = row.selected ? row.openBalance : 0;
       next[index] = row;
@@ -273,7 +383,9 @@ export default function QuickbooksReceivePaymentModal({
 
   // Change specific Pay Amount
   const handlePayAmountChange = (index, value) => {
-    const num = Math.max(0, Math.min(Number(value) || 0, openInvoices[index].openBalance));
+    const row = openInvoices[index];
+    if (row.disabled) return;
+    const num = Math.max(0, Math.min(Number(value) || 0, row.openBalance));
     setOpenInvoices((prev) => {
       const next = [...prev];
       next[index] = {
@@ -285,14 +397,21 @@ export default function QuickbooksReceivePaymentModal({
     });
   };
 
-  // Select All Bills
+  // Select All Bills — only unpaid / full rows
   const handleSelectAll = () => {
     setOpenInvoices((prev) =>
-      prev.map((r) => ({
-        ...r,
-        selected: true,
-        payAmount: r.openBalance
-      }))
+      prev.map((r) => {
+        if (r.disabled || r.rowType === 'full') {
+          // Don't auto-select full receipt when selecting installments; select unpaid installments + plain bills
+          if (r.rowType === 'full') return { ...r, selected: false, payAmount: 0 };
+          return r;
+        }
+        return {
+          ...r,
+          selected: true,
+          payAmount: r.openBalance
+        };
+      })
     );
   };
 
@@ -309,15 +428,26 @@ export default function QuickbooksReceivePaymentModal({
 
   // Calculations
   const totalOpenBalance = useMemo(() => {
-    return round2(openInvoices.reduce((s, r) => s + (Number(r.openBalance) || 0), 0));
+    const byBill = new Map();
+    openInvoices.forEach((r) => {
+      if (!byBill.has(r.billId)) {
+        byBill.set(r.billId, Number(r.billOpenBalance ?? r.openBalance) || 0);
+      }
+    });
+    return round2([...byBill.values()].reduce((s, v) => s + v, 0));
   }, [openInvoices]);
 
   const totalOpenAdvances = useMemo(() => {
     return round2(customerAdvances.reduce((s, r) => s + (Number(r.open) || 0), 0));
   }, [customerAdvances]);
 
+  const selectableRows = useMemo(
+    () => openInvoices.filter((r) => !r.disabled),
+    [openInvoices]
+  );
+
   const selectedBills = useMemo(() => {
-    return openInvoices.filter((r) => r.selected && Number(r.payAmount) > 0);
+    return openInvoices.filter((r) => !r.disabled && r.selected && Number(r.payAmount) > 0);
   }, [openInvoices]);
 
   const totalSelectedPayAmount = useMemo(() => {
@@ -356,6 +486,7 @@ export default function QuickbooksReceivePaymentModal({
           bankAccountId: paymentForm.bankAccountId || null,
           paymentDate: paymentForm.paymentDate,
           reference: paymentForm.reference,
+          ...(b.installmentId ? { installmentId: b.installmentId } : {})
         };
         return api.post(`/finance/accounts-receivable/${b.billId}/payment`, payload);
       });
@@ -380,7 +511,7 @@ export default function QuickbooksReceivePaymentModal({
           <Box display="flex" alignItems="center" gap={1.5}>
             <PaymentIcon fontSize="medium" />
             <Typography variant="h6" fontWeight={700}>
-              Receive Payment — Multi-Invoice Settlement
+              Receive Payment — Full Receipt or Installment
             </Typography>
           </Box>
           <IconButton onClick={onClose} size="small" sx={{ color: 'white' }}>
@@ -437,15 +568,20 @@ export default function QuickbooksReceivePaymentModal({
           </Alert>
         )}
 
+        <Alert severity="info" sx={{ mb: 2 }}>
+          If a bill has an installment plan, each part is listed with its <strong>status</strong> (pending / partial / paid / overdue).
+          Select unpaid parts to receive, or use the <strong>Full / custom receipt</strong> row. Paid parts are shown but cannot be selected.
+        </Alert>
+
         {/* Bills Selection Table */}
         <Paper variant="outlined" sx={{ mb: 2.5 }}>
           <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'grey.100' }}>
             <Typography variant="subtitle2" fontWeight={700}>
-              Open Bills for {selectedCustomerName || 'Selected Customer'} ({openInvoices.length})
+              Open Bills / Installments for {selectedCustomerName || 'Selected Customer'} ({openInvoices.length} rows)
             </Typography>
             <Stack direction="row" spacing={1}>
-              <Button size="small" variant="outlined" startIcon={<SelectAllIcon />} onClick={handleSelectAll} disabled={!openInvoices.length}>
-                Select All
+              <Button size="small" variant="outlined" startIcon={<SelectAllIcon />} onClick={handleSelectAll} disabled={!selectableRows.length}>
+                Select unpaid installments
               </Button>
               <Button size="small" variant="outlined" color="inherit" startIcon={<ClearIcon />} onClick={handleClearAll} disabled={!openInvoices.length}>
                 Clear
@@ -453,70 +589,151 @@ export default function QuickbooksReceivePaymentModal({
             </Stack>
           </Box>
 
-          <TableContainer sx={{ maxHeight: 300 }}>
+          <TableContainer sx={{ maxHeight: 380 }}>
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
                   <TableCell padding="checkbox">
                     <Checkbox
                       size="small"
-                      indeterminate={selectedBills.length > 0 && selectedBills.length < openInvoices.length}
-                      checked={openInvoices.length > 0 && selectedBills.length === openInvoices.length}
-                      onChange={(e) => e.target.checked ? handleSelectAll() : handleClearAll()}
-                      disabled={!openInvoices.length}
+                      indeterminate={selectedBills.length > 0 && selectedBills.length < selectableRows.filter((r) => r.rowType !== 'full').length}
+                      checked={
+                        selectableRows.filter((r) => r.rowType !== 'full').length > 0 &&
+                        selectedBills.filter((r) => r.rowType !== 'full').length ===
+                          selectableRows.filter((r) => r.rowType !== 'full').length
+                      }
+                      onChange={(e) => (e.target.checked ? handleSelectAll() : handleClearAll())}
+                      disabled={!selectableRows.length}
                     />
                   </TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Bill #</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Bill Date</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Part</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Due Date</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700 }}>Total Amount</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700 }}>Open Balance</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700, width: 170 }}>Amount to Pay (PKR)</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Part Amount</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Paid</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Balance</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, width: 140 }}>Amount to Pay</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {loadingInvoices ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                       <CircularProgress size={24} />
                     </TableCell>
                   </TableRow>
                 ) : openInvoices.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                       {selectedCustomerId ? 'No open invoices found for this customer.' : 'Please select a customer above to view open invoices.'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  openInvoices.map((row, index) => (
-                    <TableRow key={row.billId} hover selected={row.selected}>
-                      <TableCell padding="checkbox">
-                        <Checkbox
-                          size="small"
-                          checked={row.selected}
-                          onChange={() => handleToggleBill(index)}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>{row.billNumber}</TableCell>
-                      <TableCell>{formatDate(row.billDate)}</TableCell>
-                      <TableCell>{formatDate(row.dueDate)}</TableCell>
-                      <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 600, color: 'error.main' }}>
-                        {formatPKR(row.openBalance)}
-                      </TableCell>
-                      <TableCell align="right">
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={row.payAmount || ''}
-                          inputProps={{ min: 0, max: row.openBalance, step: 0.01 }}
-                          onChange={(e) => handlePayAmountChange(index, e.target.value)}
-                          placeholder="0.00"
-                          sx={{ width: 150 }}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  openInvoices.map((row, index) => {
+                    const statusColor =
+                      row.status === 'paid'
+                        ? 'success'
+                        : row.status === 'partial'
+                          ? 'info'
+                          : row.status === 'overdue'
+                            ? 'error'
+                            : row.status === 'full_receipt'
+                              ? 'secondary'
+                              : 'default';
+                    const partLabel =
+                      row.rowType === 'installment'
+                        ? `Installment #${row.installmentSequence || '—'}`
+                        : row.rowType === 'full'
+                          ? 'Full / custom receipt'
+                          : 'Full invoice';
+                    return (
+                      <TableRow
+                        key={row.rowKey || row.billId}
+                        hover={!row.disabled}
+                        selected={row.selected}
+                        sx={row.disabled ? { opacity: 0.65, bgcolor: 'action.hover' } : undefined}
+                      >
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            checked={!!row.selected}
+                            disabled={!!row.disabled}
+                            onChange={() => handleToggleBill(index)}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>{row.billNumber}</TableCell>
+                        <TableCell>{partLabel}</TableCell>
+                        <TableCell>{formatDate(row.dueDate)}</TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                            <Chip
+                              size="small"
+                              label={
+                                row.status === 'full_receipt'
+                                  ? 'full / custom'
+                                  : row.status === 'open'
+                                    ? 'open'
+                                    : row.status
+                              }
+                              color={statusColor}
+                            />
+                            {isValidVoucherId(row.journalEntryId) && (
+                              <Tooltip title="View receipt voucher">
+                                <Chip
+                                  onClick={() => navigate(`/finance/vouchers/${row.journalEntryId}`)}
+                                  label="VOUCHER CREATED"
+                                  size="small"
+                                  color="success"
+                                  variant="filled"
+                                  sx={{ height: 22, fontWeight: 'bold', fontSize: '0.65rem', cursor: 'pointer' }}
+                                />
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell align="right">
+                          {row.rowType === 'installment' ? formatPKR(row.installmentAmount) : formatPKR(row.openBalance)}
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: 'success.main' }}>
+                          {row.rowType === 'installment' ? formatPKR(row.installmentPaid) : '—'}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, color: row.disabled ? 'success.main' : 'error.main' }}>
+                          {formatPKR(row.openBalance)}
+                        </TableCell>
+                        <TableCell align="right">
+                          {row.disabled ? (
+                            <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                              {isValidVoucherId(row.journalEntryId) ? (
+                                <Tooltip title="View receipt voucher">
+                                  <Chip
+                                    onClick={() => navigate(`/finance/vouchers/${row.journalEntryId}`)}
+                                    label="VOUCHER CREATED"
+                                    size="small"
+                                    color="success"
+                                    variant="filled"
+                                    sx={{ height: 22, fontWeight: 'bold', fontSize: '0.65rem', cursor: 'pointer' }}
+                                  />
+                                </Tooltip>
+                              ) : (
+                                <Typography variant="caption" color="success.main">Paid</Typography>
+                              )}
+                            </Stack>
+                          ) : (
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={row.payAmount || ''}
+                              inputProps={{ min: 0, max: row.openBalance, step: 0.01 }}
+                              onChange={(e) => handlePayAmountChange(index, e.target.value)}
+                              placeholder="0.00"
+                              sx={{ width: 130 }}
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
