@@ -2990,8 +2990,8 @@ router.get('/accounts-payable/:id/pending-voucher',
 router.get('/accounts-payable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { q, companyId } = await financeScope(req);
-    const bill = await AccountsPayable.findOne(q({ _id: req.params.id }))
+    const { q, companyId, company } = await financeScope(req);
+    let bill = await AccountsPayable.findOne(q({ _id: req.params.id }))
       .populate('createdBy', 'firstName lastName email digitalSignature')
       .populate('payeeEmployee', 'firstName lastName employeeId')
       .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
@@ -2999,6 +2999,20 @@ router.get('/accounts-payable/:id',
       .populate('lineItems.account')
       .lean();
     if (!bill) {
+      // Helpful message when the bill exists but finance company selector on this browser doesn't match
+      const anyBill = await AccountsPayable.findById(req.params.id)
+        .select('billNumber companyId company')
+        .lean();
+      if (anyBill) {
+        return res.status(403).json({
+          success: false,
+          message:
+            `Bill ${anyBill.billNumber || ''} belongs to another finance company. ` +
+            'Change the company selector at the top of the page to that company (or All Companies), then open the bill again.',
+          billCompanyId: anyBill.companyId || null,
+          selectedCompanyId: company?.isAll ? 'all' : (companyId || null)
+        });
+      }
       return res.status(404).json({
         success: false,
         message: 'Bill not found'

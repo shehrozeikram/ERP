@@ -30,13 +30,21 @@ export const FinanceCompanyProvider = ({ children }) => {
       const historical = list.find(
         (row) => String(row.name || '').trim().toUpperCase() === HISTORICAL_COMPANY_NAME.toUpperCase()
       );
-      const fallbackId = storedExists
-        ? storedId
-        : (storedId === 'all' ? 'all' : String(historical?._id || list[0]?._id || 'all'));
+      // Prefer a real company id; do not keep a stale "all" unless explicitly still desired
+      let fallbackId;
+      if (storedExists) {
+        fallbackId = storedId;
+      } else if (storedId === 'all') {
+        fallbackId = String(historical?._id || list[0]?._id || 'all');
+      } else {
+        fallbackId = String(historical?._id || list[0]?._id || 'all');
+      }
 
       setSelectedCompanyIdState(fallbackId);
       if (fallbackId && fallbackId !== 'all') {
         localStorage.setItem(STORAGE_KEY, fallbackId);
+      } else if (fallbackId === 'all') {
+        localStorage.setItem(STORAGE_KEY, 'all');
       }
     } catch {
       setCompanies([]);

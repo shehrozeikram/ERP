@@ -773,15 +773,40 @@ const AccountsPayable = () => {
       }).catch(e => console.error(e));
       setLoading(true);
       setBillViewTab(0);
-      const response = await api.get(`/finance/accounts-payable/${bill._id}`);
+      const billCompanyId =
+        (bill?.companyId && typeof bill.companyId === 'object'
+          ? bill.companyId._id
+          : bill?.companyId) || selectedCompanyId || undefined;
+      const response = await api.get(`/finance/accounts-payable/${bill._id}`, {
+        params: billCompanyId && billCompanyId !== 'all' ? { companyId: billCompanyId } : undefined,
+        headers: {
+          'Cache-Control': 'no-cache',
+          ...(billCompanyId && billCompanyId !== 'all'
+            ? { 'x-finance-company-id': String(billCompanyId) }
+            : {})
+        }
+      });
       if (response.data.success) {
         const b = response.data.data;
         setSelectedBill(b);
         setViewDialogOpen(true);
+      } else {
+        toast.error(response.data?.message || 'Failed to fetch bill details');
       }
     } catch (error) {
       console.error('Error fetching bill details:', error);
-      toast.error('Failed to fetch bill details');
+      const status = error.response?.status;
+      const apiMsg = error.response?.data?.message;
+      if (status === 403 || /another finance company/i.test(String(apiMsg || ''))) {
+        toast.error(
+          apiMsg ||
+            'This bill belongs to another finance company. Switch the company selector (top of page) to the bill’s company and try again.'
+        );
+      } else if (status === 404) {
+        toast.error(apiMsg || 'Bill not found for the selected finance company. Check the company selector.');
+      } else {
+        toast.error(apiMsg || error.message || 'Failed to fetch bill details');
+      }
     } finally {
       setLoading(false);
     }

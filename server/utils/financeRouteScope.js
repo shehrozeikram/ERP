@@ -4,12 +4,12 @@ const { withCompany } = require('./financePosting');
 /** Resolve company + reusable query helpers for /finance routes. */
 async function financeScope(req) {
   const company = await resolveCompanyForFinanceRoute(req);
-  const companyId = company._id;
+  const companyId = company?.isAll ? null : company._id;
   return {
     company,
     companyId,
     q: (filters = {}) => companyQuery(filters, company),
-    jeMatch: (extra = {}) => ({ ...extra, companyId }),
+    jeMatch: (extra = {}) => (companyId ? { ...extra, companyId } : { ...extra }),
     withCo: (payload) => withCompany(payload, companyId)
   };
 }
@@ -17,6 +17,8 @@ async function financeScope(req) {
 /** Block cross-company access on detail routes. */
 function assertDocCompany(doc, companyId, label = 'Record') {
   if (!doc || !companyId) return;
+  // "All Companies" selection uses _id === 'all' — never treat that as a real company mismatch
+  if (String(companyId) === 'all') return;
   const docCid = normalizeCompanyId(doc.companyId);
   if (docCid && String(docCid) !== String(companyId)) {
     const err = new Error(`${label} belongs to another finance company`);
