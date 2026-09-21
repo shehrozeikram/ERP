@@ -5,53 +5,63 @@
 const { vehicleFuelTotal } = require('./allowanceHelpers');
 
 /**
- * Get the number of months remaining in the FBR Financial Year from the employee's hire date.
+ * Get how many months to project for FBR tax annualization in the current FY.
  * FBR Financial Year: July 1 → June 30.
- * This is used to compute the projected annual income for slab determination.
  *
- * Examples:
- *   Hired July 1, 2025  → 12 months in FY 2025-26
- *   Hired June 1, 2026  →  1 month  in FY 2025-26
- *   Hired January 1, 2026 → 6 months in FY 2025-26
+ * - Hired before this FY → 12 (full-year rules unchanged)
+ * - Hired during this FY → months from max(hire month, payroll month) through June
+ *
+ * Example: hired 31 Aug 2026, September 2026 payroll → Jul–Aug already past → ×10
  *
  * @param {Date|string} hireDate - Employee hire date
  * @param {number} payrollMonth  - Current payroll month (1-12)
  * @param {number} payrollYear   - Current payroll year
- * @returns {number} Remaining months in FY (1-12)
+ * @returns {number} Projection months (1-12)
  */
 function getRemainingFYMonths(hireDate, payrollMonth, payrollYear) {
-  if (!hireDate) return 12; // fallback: no hire date → assume full year
+  if (!hireDate || !payrollMonth || !payrollYear) return 12;
 
   const hire = new Date(hireDate);
   if (isNaN(hire.getTime())) return 12;
 
-  // Determine the FY that contains the payroll month/year
-  // FY start: July 1 of fyStartYear
-  const fyStartYear = payrollMonth >= 7 ? payrollYear : payrollYear - 1;
-  const fyStartMonth = 7; // July is month 7
+  const pm = Number(payrollMonth);
+  const py = Number(payrollYear);
+  if (!pm || !py || pm < 1 || pm > 12) return 12;
 
-  // The month in which the employee STARTS earning in this FY
-  // = max(hireDate month, FY start month in FY start year)
-  const hireYear  = hire.getFullYear();
-  const hireMonth = hire.getMonth() + 1; // 1-indexed
+  const fyStartYear = pm >= 7 ? py : py - 1;
+  const fyStart = new Date(fyStartYear, 6, 1); // 1 July
+  const fyEnd = new Date(fyStartYear + 1, 5, 30); // 30 June
 
-  // If hired before this FY, count full 12 months
-  if (hireYear < fyStartYear || (hireYear === fyStartYear && hireMonth <= fyStartMonth)) {
-    return 12;
-  }
+  // Hired before current FY → full 12 months
+  if (hire < fyStart) return 12;
 
-  // If hired after this FY ends (shouldn't happen for current payroll, but guard)
-  if (hireYear > payrollYear || (hireYear === payrollYear && hireMonth > 6 && payrollMonth <= 6)) {
-    return 1;
-  }
+  // Hired after this FY ends
+  if (hire > fyEnd) return 1;
 
-  // Months from hire month to end of FY (June = month 6 of fyStartYear+1)
-  const fyEndYear  = fyStartYear + 1;
-  const fyEndMonth = 6; // June
+  const hireAbs = hire.getFullYear() * 12 + hire.getMonth();
+  const payrollAbs = py * 12 + (pm - 1);
+  const startAbs = Math.max(hireAbs, payrollAbs);
+  const endAbs = (fyStartYear + 1) * 12 + 5; // June
 
-  // Total months from hireMonth/hireYear to fyEndMonth/fyEndYear (inclusive)
-  const months = (fyEndYear - hireYear) * 12 + (fyEndMonth - hireMonth) + 1;
+  const months = endAbs - startAbs + 1;
   return Math.min(12, Math.max(1, months));
+}
+
+/**
+ * Shared FBR 2026-2027 progressive annual tax on annual taxable income.
+ */
+function calculateAnnualTaxFromSlabs(annualTaxableIncome) {
+  const income = Number(annualTaxableIncome) || 0;
+  if (income <= 0) return 0;
+
+  if (income <= 600000) return 0;
+  if (income <= 1200000) return (income - 600000) * 0.01;
+  if (income <= 2200000) return 6000 + (income - 1200000) * 0.11;
+  if (income <= 3200000) return 116000 + (income - 2200000) * 0.20;
+  if (income <= 4100000) return 316000 + (income - 3200000) * 0.25;
+  if (income <= 5600000) return 541000 + (income - 4100000) * 0.29;
+  if (income <= 7000000) return 976000 + (income - 5600000) * 0.32;
+  return 1424000 + (income - 7000000) * 0.35;
 }
 
 /**
@@ -64,43 +74,9 @@ function calculateMonthlyTax(monthlySalary) {
     return 0;
   }
 
-  // Calculate annual taxable income (12 months)
   const annualTaxableIncome = monthlySalary * 12;
-  
-  // FBR 2026-2027 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
-  // Source: Federal Board of Revenue Pakistan
-  let annualTax = 0;
-  
-  if (annualTaxableIncome <= 600000) {
-    // No tax for income up to 600,000
-    annualTax = 0;
-  } else if (annualTaxableIncome <= 1200000) {
-    // 1% on income from 600,001 to 1,200,000
-    annualTax = (annualTaxableIncome - 600000) * 0.01;
-  } else if (annualTaxableIncome <= 2200000) {
-    // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
-    annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-  } else if (annualTaxableIncome <= 3200000) {
-    // Rs. 116,000 + 20% on income from 2,200,001 to 3,200,000
-    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
-  } else if (annualTaxableIncome <= 4100000) {
-    // Rs. 316,000 + 25% on income from 3,200,001 to 4,100,000
-    annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
-  } else if (annualTaxableIncome <= 5600000) {
-    // Rs. 541,000 + 29% on income from 4,100,001 to 5,600,000
-    annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
-  } else if (annualTaxableIncome <= 7000000) {
-    // Rs. 976,000 + 32% on income from 5,600,001 to 7,000,000
-    annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
-  } else {
-    // Rs. 1,424,000 + 35% on income above 7,000,000
-    annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
-  }
-  
-  // Convert to monthly tax
-  const monthlyTax = annualTax / 12;
-  
-  return Math.round(monthlyTax);
+  const annualTax = calculateAnnualTaxFromSlabs(annualTaxableIncome);
+  return Math.round(annualTax / 12);
 }
 
 /**
@@ -327,10 +303,9 @@ async function getTaxSlabInfo(annualIncome) {
 }
 
 /**
- * FY-aware version of calculateMonthlyTax.
- * Uses the employee's hire date to determine how many months they have in the
- * current FBR Financial Year, then projects their annual income accordingly.
- * This ensures newly joined employees are placed in the correct (lower) tax slab.
+ * FY-aware version of calculateMonthlyTax for mid-year joiners in the current FY.
+ * Projects annual income as monthly × remaining FY months, then monthly tax = annual ÷ remaining months.
+ * Employees hired before the current FY keep the normal ×12 / ÷12 path.
  *
  * @param {number}       monthlySalary  - Monthly taxable income (after medical exempt deduction)
  * @param {Date|string}  hireDate       - Employee's hire/joining date
@@ -342,30 +317,15 @@ function calculateMonthlyTaxFYAware(monthlySalary, hireDate, payrollMonth, payro
   if (!monthlySalary || monthlySalary <= 0) return 0;
 
   const fyMonths = getRemainingFYMonths(hireDate, payrollMonth, payrollYear);
-  const annualTaxableIncome = monthlySalary * fyMonths;
-
-  let annualTax = 0;
-
-  if (annualTaxableIncome <= 600000) {
-    annualTax = 0;
-  } else if (annualTaxableIncome <= 1200000) {
-    annualTax = (annualTaxableIncome - 600000) * 0.01;
-  } else if (annualTaxableIncome <= 2200000) {
-    annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-  } else if (annualTaxableIncome <= 3200000) {
-    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.20;
-  } else if (annualTaxableIncome <= 4100000) {
-    annualTax = 316000 + (annualTaxableIncome - 3200000) * 0.25;
-  } else if (annualTaxableIncome <= 5600000) {
-    annualTax = 541000 + (annualTaxableIncome - 4100000) * 0.29;
-  } else if (annualTaxableIncome <= 7000000) {
-    annualTax = 976000 + (annualTaxableIncome - 5600000) * 0.32;
-  } else {
-    annualTax = 1424000 + (annualTaxableIncome - 7000000) * 0.35;
+  // Full-year employees (or missing hire/payroll context) keep existing ×12 / ÷12 behaviour
+  if (fyMonths >= 12) {
+    return calculateMonthlyTax(monthlySalary);
   }
 
-  // Monthly tax = annual tax ÷ 12 (always divide by 12 — it's a monthly deduction)
-  return Math.round(annualTax / 12);
+  const annualTaxableIncome = monthlySalary * fyMonths;
+  const annualTax = calculateAnnualTaxFromSlabs(annualTaxableIncome);
+  // Recover projected annual tax over the remaining months in the FY
+  return Math.round(annualTax / fyMonths);
 }
 
 module.exports = {

@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize, authMiddleware } = require('../middleware/auth');
+const { checkSubRoleAccess } = require('../config/permissions');
 const dayjs = require('dayjs');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const Supplier = require('../models/hr/Supplier');
@@ -100,6 +101,54 @@ const hasCeoSecretariatAccess = (user) => {
   if (hasModuleAccess(user.roleRef, 'hr') || hasModuleAccess(user.roleRef, 'general')) return true;
   if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'hr') || hasModuleAccess(roleDoc, 'general'))) return true;
   return false;
+};
+
+/** Quick vendor create from Centralized Store / General bills — not only procurement roles. */
+const canQuickCreateVendor = async (user) => {
+  if (!user) return false;
+  const role = normalizeRoleLabel(user.role);
+  if (
+    [
+      'super_admin',
+      'admin',
+      'developer',
+      'higher_management',
+      'procurement_manager',
+      'finance_manager',
+      'hr_manager'
+    ].includes(role)
+  ) {
+    return true;
+  }
+  if (hasProcurementAccess(user) || hasFinanceAccess(user)) return true;
+  if (hasModuleAccess(user.roleRef, 'hr')) return true;
+  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'hr'))) {
+    return true;
+  }
+
+  const uid = user._id || user.id;
+  if (!uid) return false;
+  if (await checkSubRoleAccess(uid, 'general', 'centralized_store', 'create')) return true;
+  if (await checkSubRoleAccess(uid, 'general', 'centralized_store', 'update')) return true;
+  // General Indent holders also create centralized store bills under General module
+  if (await checkSubRoleAccess(uid, 'general', 'indents', 'create')) return true;
+  return false;
+};
+
+const requireVendorQuickCreateAccess = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+    if (await canQuickCreateVendor(req.user)) return next();
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Insufficient permissions.'
+    });
+  } catch (err) {
+    console.error('requireVendorQuickCreateAccess error:', err);
+    return res.status(500).json({ success: false, message: 'Error checking permissions' });
+  }
 };
 
 const isAssignedComparativeAuthorityUser = async (indentId, userId) => {
@@ -3177,7 +3226,7 @@ router.get('/vendors/:id',
 // @access  Private
 router.post('/vendors/quick', [
   body('name').trim().notEmpty().withMessage('Vendor name is required')
-], authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'hr_manager'), asyncHandler(async (req, res) => {
+], requireVendorQuickCreateAccess, asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ success: false, message: errors.array()[0]?.msg || 'Validation failed', errors: errors.array() });

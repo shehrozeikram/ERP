@@ -142,13 +142,12 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
     arrears: employeeArrears,
     employeeId: employee._id,
     settings: taxSettings,
-    hireDate: employee.hireDate,
+    hireDate: employee.hireDate || employee.appointmentDate,
     payrollMonth: payrollMonth,
     payrollYear: payrollYear
   });
   // Tax is calculated on already-prorated gross/allowances — no second multiply needed.
-  // calculateMonthlyTax annualises its input, so passing prorated income gives correct tax
-  // for the partial month. Multiplying again by factor would double-prorate.
+  // Mid-year joiners in the current FY use remaining months for annualization; others stay ×12.
   let { tax: resolvedTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
   // EOBI is a flat monthly amount — prorate it for the partial first month.
   let eobiDeduction = getEmployeeEobiDeduction(employee);
@@ -1827,12 +1826,12 @@ router.post('/', [
             arrears: employeeArrears,
             employeeId: employee._id,
             settings: taxSettings,
-            hireDate: employee.hireDate,
+            hireDate: employee.hireDate || employee.appointmentDate,
             payrollMonth: month,
             payrollYear: year
           });
           // Tax is calculated on already-prorated gross/allowances — do NOT multiply by factor again.
-          // calculateMonthlyTax annualises its input, so prorated income already gives correct slab tax.
+          // Mid-year joiners in the current FY use remaining months; others stay ×12 / ÷12.
           let { tax: monthlyTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
 
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
@@ -2462,15 +2461,20 @@ router.put('/:id', [
     (payroll.houseRentAllowance || 0) +
     (payroll.medicalAllowance || 0);
   const taxSettings = await loadPayrollTaxSettings();
+  const employeeForTax = await Employee.findById(payroll.employee)
+    .select('manualTax eobi hireDate appointmentDate')
+    .lean();
   const taxCalculation = calculatePayrollTaxWithSettings({
     grossSalary: grossForTax,
     allowances: payroll.allowances,
     arrears: currentArrears,
     employeeId: payroll.employee,
-    settings: taxSettings
+    settings: taxSettings,
+    hireDate: employeeForTax?.hireDate || employeeForTax?.appointmentDate,
+    payrollMonth: payroll.month,
+    payrollYear: payroll.year
   });
 
-  const employeeForTax = await Employee.findById(payroll.employee).select('manualTax eobi').lean();
   const { tax: resolvedPayrollTax } = resolveEmployeeIncomeTax(employeeForTax, taxCalculation.totalTax);
 
   // Auto-calculate tax when allowances change (always recalculate for accuracy)

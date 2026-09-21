@@ -70,14 +70,19 @@ const taxableAndExemptPartsForAllowance = (amount, policy) => {
  * Allowances are bundled into mainSalary in this path.
  */
 const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMonth = null, payrollYear = null) => {
+  const taxFor = (amount) =>
+    hireDate && payrollMonth && payrollYear
+      ? calculateMonthlyTaxFYAware(amount, hireDate, payrollMonth, payrollYear)
+      : calculateMonthlyTax(amount);
+
   // Base salary tax
   const salaryMedicalExempt = Math.round(mainSalary * 0.1);
   const mainTaxableIncome = mainSalary - salaryMedicalExempt;
-  const mainTax = calculateMonthlyTax(mainTaxableIncome);
+  const mainTax = taxFor(mainTaxableIncome);
 
   // Arrears tax (taxed separately)
   const arrearsTaxableIncome = arrears;
-  const arrearsTax = calculateMonthlyTax(arrearsTaxableIncome);
+  const arrearsTax = taxFor(arrearsTaxableIncome);
 
   const totalTax = mainTax + arrearsTax;
   const totalIncome = mainSalary + arrears;
@@ -157,11 +162,17 @@ const calculatePayrollTaxWithSettings = ({
   const salaryBase = gross + allowanceTaxable;
   const salaryExempt = Math.round((salaryBase * salaryExemptPercent) / 100);
   const mainTaxableIncome = salaryBase - salaryExempt;
-  const mainTax = calculateMonthlyTax(mainTaxableIncome);
+
+  const taxFor = (amount) =>
+    hireDate && payrollMonth && payrollYear
+      ? calculateMonthlyTaxFYAware(amount, hireDate, payrollMonth, payrollYear)
+      : calculateMonthlyTax(amount);
+
+  const mainTax = taxFor(mainTaxableIncome);
 
   // Step 4: Arrears tax (separate; no medical exempt)
   const arrearsTaxableIncome = arrearsAmt;
-  const arrearsTax = calculateMonthlyTax(arrearsTaxableIncome);
+  const arrearsTax = taxFor(arrearsTaxableIncome);
 
   const totalTax = mainTax + arrearsTax;
   const mainSalary = gross + totalAllowances;
