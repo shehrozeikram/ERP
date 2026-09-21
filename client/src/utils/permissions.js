@@ -259,7 +259,14 @@ export const SUBMODULES = {
     'inventory_categories',
     'inventory_valuation',
     'general_ledger',
+    // Customers (AR)
+    'customers',
     'accounts_receivable',
+    'credit_notes',
+    'customer_payments',
+    'customer_statement',
+    'aged_receivables',
+    // Vendors (AP)
     'accounts_payable',
     'banking',
     'financial_reports',
@@ -274,8 +281,8 @@ export const SUBMODULES = {
     'financial_statements',
     'tax_summary',
     'year_end_closing',
-    'customer_statement',
-    'aged_receivables',
+    'payroll_management',
+    'company_profile',
     'taj_utilities_charges',
     'taj_cam_charges',
     'taj_water_bills',
@@ -1122,6 +1129,98 @@ export const MODULES = {
   }
 };
 
+/**
+ * Paths where the last URL segment is NOT the permission submodule key.
+ * Used by getCatalogSubmodules so Role/User Management stays in sync with the menu.
+ */
+const CATALOG_PATH_OVERRIDES = {
+  '/finance': 'finance_dashboard',
+  '/finance/accounts': 'chart_of_accounts',
+  '/finance/companies': 'finance_companies',
+  '/finance/company-profile': 'company_profile',
+  '/finance/vendors': 'accounts_payable',
+  '/finance/vendor-advance': 'accounts_payable',
+  '/finance/cash-approvals': 'accounts_payable',
+  '/finance/utility-bills': 'accounts_payable',
+  '/finance/batch-payment': 'accounts_payable',
+  '/finance/vendor-payments': 'accounts_payable',
+  '/finance/vendor-refunds': 'accounts_payable',
+  '/finance/bill-to-receive': 'accounts_payable',
+  '/finance/billed-not-received': 'accounts_payable',
+  '/finance/payroll-queue': 'payroll_management',
+  '/finance/recurring-journals': 'journal_entries',
+  '/finance/deferred-entries': 'journal_entries',
+  '/finance/bank-statement-import': 'banking',
+  '/finance/balance-sheet': 'financial_statements',
+  '/finance/profit-loss': 'financial_statements',
+  '/finance/trial-balance': 'financial_statements',
+  '/finance/cash-flow': 'financial_statements',
+  '/finance/reports': 'financial_reports',
+  '/admin/roles': 'sub_roles',
+  '/settings': 'admin_settings',
+  '/documents-tracking': 'document_tracking',
+  '/general/cost-centers': 'indents',
+  '/hr/companies': 'employee_management',
+  '/hr/departments': 'employee_management',
+  '/hr/increments': 'employee_management',
+  '/hr/biometric': 'attendance_management',
+  '/hr/attendance-record': 'attendance_management',
+  '/asset-tagging': 'asset_tagging_dashboard',
+  '/asset-tagging/register': 'asset_tagging_assets'
+};
+
+/** Last path segment → snake_case submodule key (e.g. /finance/credit-notes → credit_notes). */
+export const pathToSubmoduleKey = (path) => {
+  if (!path || typeof path !== 'string') return null;
+  const normalized = path.split('?')[0].replace(/\/+$/, '');
+  if (!normalized) return null;
+  if (CATALOG_PATH_OVERRIDES[normalized]) return CATALOG_PATH_OVERRIDES[normalized];
+
+  // Longest-prefix override (nested routes)
+  let best = null;
+  let bestLen = 0;
+  for (const [mapped, key] of Object.entries(CATALOG_PATH_OVERRIDES)) {
+    if (
+      (normalized === mapped || normalized.startsWith(mapped + '/')) &&
+      mapped.length > bestLen
+    ) {
+      best = key;
+      bestLen = mapped.length;
+    }
+  }
+  if (best) return best;
+
+  const seg = normalized.split('/').filter(Boolean).pop();
+  return seg ? seg.replace(/-/g, '_') : null;
+};
+
+/**
+ * Catalog of assignable submodules for Role Management.
+ * Merges static SUBMODULES with keys derived from MODULES menu paths,
+ * so newly added menu tabs appear automatically for permission assignment.
+ */
+export const getCatalogSubmodules = (moduleKey) => {
+  const ordered = [];
+  const seen = new Set();
+  const add = (key) => {
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    ordered.push(key);
+  };
+
+  (SUBMODULES[moduleKey] || []).forEach(add);
+
+  const walk = (items) => {
+    (items || []).forEach((item) => {
+      if (item.path) add(pathToSubmoduleKey(item.path));
+      if (item.subItems) walk(item.subItems);
+    });
+  };
+  walk(MODULES[moduleKey]?.subItems);
+
+  return ordered;
+};
+
 // Utility functions for permission checking
 export const hasPermission = (userRole, moduleName) => {
   if (!userRole || !moduleName) return false;
@@ -1436,6 +1535,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/customers': 'customers',
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-receivable/new': 'accounts_receivable',
+      '/finance/credit-notes': 'credit_notes',
+      '/finance/customer-payments': 'customer_payments',
       '/finance/vendors': 'accounts_payable',
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/accounts-payable/new': 'accounts_payable',
@@ -1583,8 +1684,9 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
         return submodule;
       }
     }
-    
-    return null;
+
+    // Auto: new menu paths map to last-segment snake_case (e.g. /finance/foo-bar → foo_bar)
+    return pathToSubmoduleKey(path);
   };
   
   // NEW: Check roleRef/roles permissions first (RBAC system)

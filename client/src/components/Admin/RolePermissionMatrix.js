@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -10,10 +10,12 @@ import {
   Button,
   Chip,
   Divider,
-  Collapse
+  Collapse,
+  Alert,
+  Stack
 } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
-import { MODULES, SUBMODULES } from '../../utils/permissions';
+import { MODULES, getCatalogSubmodules } from '../../utils/permissions';
 
 const PERMISSION_ACTIONS = [
   { value: 'read', label: 'Read' },
@@ -23,42 +25,58 @@ const PERMISSION_ACTIONS = [
   { value: 'approve', label: 'Approve' }
 ];
 
+const parsePermissions = (permissions) => {
+  const initial = {};
+  if (!permissions || !Array.isArray(permissions)) return initial;
+
+  permissions.forEach((perm) => {
+    if (!perm.module) return;
+    const submoduleMap = {};
+    if (perm.submodules && Array.isArray(perm.submodules)) {
+      perm.submodules.forEach((submodule) => {
+        if (typeof submodule === 'string') {
+          submoduleMap[submodule] = perm.actions || [];
+        } else if (submodule?.submodule) {
+          submoduleMap[submodule.submodule] = submodule.actions || [];
+        }
+      });
+    }
+    initial[perm.module] = {
+      submodules: submoduleMap,
+      actions: perm.actions || []
+    };
+  });
+  return initial;
+};
+
+/** Merge saved role grants with current catalog so new submodules always appear. */
+const mergeWithCatalog = (parsed) => {
+  const merged = { ...parsed };
+  Object.keys(merged).forEach((module) => {
+    const catalog = getCatalogSubmodules(module);
+    const existing = merged[module].submodules || {};
+    const submoduleMap = { ...existing };
+    catalog.forEach((key) => {
+      if (!(key in submoduleMap)) submoduleMap[key] = [];
+    });
+    merged[module] = {
+      ...merged[module],
+      submodules: submoduleMap
+    };
+  });
+  return merged;
+};
+
 const RolePermissionMatrix = ({ permissions = [], onChange }) => {
   const [modulePermissions, setModulePermissions] = useState({});
   const [expandedModules, setExpandedModules] = useState({});
 
   useEffect(() => {
-    // Initialize from existing permissions
-    const initial = {};
-    if (permissions && Array.isArray(permissions)) {
-      permissions.forEach(perm => {
-        if (perm.module) {
-          // Convert submodules array to object format: { submodule: [actions] }
-          const submoduleMap = {};
-          if (perm.submodules && Array.isArray(perm.submodules)) {
-            // If submodules is an array of strings (legacy format), convert to object
-            perm.submodules.forEach(submodule => {
-              if (typeof submodule === 'string') {
-                submoduleMap[submodule] = perm.actions || [];
-              } else if (submodule.submodule) {
-                submoduleMap[submodule.submodule] = submodule.actions || [];
-              }
-            });
-          }
-          
-          initial[perm.module] = {
-            submodules: submoduleMap,
-            // Keep actions for backward compatibility (module-level actions)
-            actions: perm.actions || []
-          };
-        }
-      });
-    }
+    const initial = mergeWithCatalog(parsePermissions(permissions));
     setModulePermissions(initial);
-    
-    // Auto-expand modules that have permissions
+
     const expanded = {};
-    Object.keys(initial).forEach(module => {
+    Object.keys(initial).forEach((module) => {
       if (Object.keys(initial[module].submodules || {}).length > 0) {
         expanded[module] = true;
       }
@@ -66,33 +84,72 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
     setExpandedModules(expanded);
   }, [permissions]);
 
+  const savedSubmoduleKeys = useMemo(() => {
+    const map = {};
+    (permissions || []).forEach((perm) => {
+      if (!perm.module) return;
+      const set = new Set();
+      (perm.submodules || []).forEach((sm) => {
+        if (typeof sm === 'string') set.add(sm);
+        else if (sm?.submodule) set.add(sm.submodule);
+      });
+      map[perm.module] = set;
+    });
+    return map;
+  }, [permissions]);
+
+  const notifyChange = (perms) => {
+    const formattedPermissions = Object.keys(perms).map((module) => {
+      const modulePerms = perms[module];
+      const catalog = getCatalogSubmodules(module);
+      const catalogSet = new Set(catalog);
+      const submoduleKeys = new Set([
+        ...catalog,
+        ...Object.keys(modulePerms.submodules || {})
+      ]);
+      const submodulesArray = [...submoduleKeys].map((submodule) => ({
+        submodule,
+        actions: modulePerms.submodules[submodule] || []
+      }));
+      // Prefer catalog order, then any legacy-only keys
+      submodulesArray.sort((a, b) => {
+        const ai = catalog.indexOf(a.submodule);
+        const bi = catalog.indexOf(b.submodule);
+        if (ai === -1 && bi === -1) return a.submodule.localeCompare(b.submodule);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
+      return {
+        module,
+        actions: modulePerms.actions || [],
+        submodules: submodulesArray.filter(
+          (s) => catalogSet.has(s.submodule) || (s.actions && s.actions.length > 0)
+        )
+      };
+    });
+    if (onChange) onChange(formattedPermissions);
+  };
+
   const handleModuleToggle = (module) => {
-    setModulePermissions(prev => {
+    setModulePermissions((prev) => {
       const newPerms = { ...prev };
-      const moduleSubmodules = SUBMODULES[module] || [];
-      
+      const moduleSubmodules = getCatalogSubmodules(module);
+
       if (newPerms[module]) {
         delete newPerms[module];
-        setExpandedModules(prevExp => {
-          const newExp = { ...prevExp };
-          delete newExp[module];
-          return newExp;
+        setExpandedModules((prevExp) => {
+          const next = { ...prevExp };
+          delete next[module];
+          return next;
         });
       } else {
-        // Initialize with all submodules (empty actions for each)
         const submoduleMap = {};
-        moduleSubmodules.forEach(submodule => {
+        moduleSubmodules.forEach((submodule) => {
           submoduleMap[submodule] = [];
         });
-        newPerms[module] = {
-          submodules: submoduleMap,
-          actions: []
-        };
-        // Auto-expand when module is selected
-        setExpandedModules(prevExp => ({
-          ...prevExp,
-          [module]: true
-        }));
+        newPerms[module] = { submodules: submoduleMap, actions: [] };
+        setExpandedModules((prevExp) => ({ ...prevExp, [module]: true }));
       }
       notifyChange(newPerms);
       return newPerms;
@@ -100,14 +157,13 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
   };
 
   const handleSubmoduleActionToggle = (module, submodule, action) => {
-    setModulePermissions(prev => {
+    setModulePermissions((prev) => {
       const modulePerms = prev[module] || { submodules: {}, actions: [] };
       const submoduleActions = modulePerms.submodules[submodule] || [];
-      
       const newActions = submoduleActions.includes(action)
-        ? submoduleActions.filter(a => a !== action)
+        ? submoduleActions.filter((a) => a !== action)
         : [...submoduleActions, action];
-      
+
       const newPerms = {
         ...prev,
         [module]: {
@@ -124,11 +180,11 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
   };
 
   const handleSelectAllSubmoduleActions = (module, submodule) => {
-    const allActions = PERMISSION_ACTIONS.map(a => a.value);
+    const allActions = PERMISSION_ACTIONS.map((a) => a.value);
     const currentActions = modulePermissions[module]?.submodules[submodule] || [];
-    const hasAll = allActions.every(action => currentActions.includes(action));
-    
-    setModulePermissions(prev => {
+    const hasAll = allActions.every((action) => currentActions.includes(action));
+
+    setModulePermissions((prev) => {
       const modulePerms = prev[module] || { submodules: {}, actions: [] };
       const newPerms = {
         ...prev,
@@ -145,32 +201,47 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
     });
   };
 
+  const grantReadToNewOrEmpty = (module) => {
+    const catalog = getCatalogSubmodules(module);
+    setModulePermissions((prev) => {
+      const modulePerms = prev[module] || { submodules: {}, actions: [] };
+      const submoduleMap = { ...modulePerms.submodules };
+      catalog.forEach((key) => {
+        const acts = submoduleMap[key] || [];
+        if (acts.length === 0) submoduleMap[key] = ['read'];
+      });
+      const newPerms = {
+        ...prev,
+        [module]: { ...modulePerms, submodules: submoduleMap }
+      };
+      notifyChange(newPerms);
+      return newPerms;
+    });
+  };
+
+  const grantAllCatalogActions = (module) => {
+    const catalog = getCatalogSubmodules(module);
+    const allActions = PERMISSION_ACTIONS.map((a) => a.value);
+    setModulePermissions((prev) => {
+      const modulePerms = prev[module] || { submodules: {}, actions: [] };
+      const submoduleMap = { ...modulePerms.submodules };
+      catalog.forEach((key) => {
+        submoduleMap[key] = [...allActions];
+      });
+      const newPerms = {
+        ...prev,
+        [module]: { ...modulePerms, submodules: submoduleMap }
+      };
+      notifyChange(newPerms);
+      return newPerms;
+    });
+  };
+
   const toggleModuleExpand = (module) => {
-    setExpandedModules(prev => ({
+    setExpandedModules((prev) => ({
       ...prev,
       [module]: !prev[module]
     }));
-  };
-
-  const notifyChange = (perms) => {
-    // Format permissions: convert submodule object to array format.
-    // Include all selected modules (even with no actions yet) so parent state preserves
-    // selection and expansion; otherwise useEffect re-sync would clear newly selected modules.
-    const formattedPermissions = Object.keys(perms).map(module => {
-      const modulePerms = perms[module];
-      const submodulesArray = Object.keys(modulePerms.submodules || {}).map(submodule => ({
-        submodule,
-        actions: modulePerms.submodules[submodule] || []
-      }));
-      return {
-        module,
-        actions: modulePerms.actions || [],
-        submodules: submodulesArray
-      };
-    });
-    if (onChange) {
-      onChange(formattedPermissions);
-    }
   };
 
   const getModuleDisplayName = (moduleKey) => {
@@ -178,17 +249,15 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
     return module?.name || moduleKey.charAt(0).toUpperCase() + moduleKey.slice(1);
   };
 
-  const getSubmoduleDisplayName = (submoduleKey) => {
-    // Convert snake_case to Title Case
-    return submoduleKey
+  const getSubmoduleDisplayName = (submoduleKey) =>
+    submoduleKey
       .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  };
 
   const availableModules = Object.keys(MODULES)
-    .filter(key => MODULES[key] && typeof MODULES[key] === 'object' && key !== 'dashboard')
-    .map(key => ({
+    .filter((key) => MODULES[key] && typeof MODULES[key] === 'object' && key !== 'dashboard')
+    .map((key) => ({
       key,
       name: getModuleDisplayName(key)
     }));
@@ -198,22 +267,31 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
       <Typography variant="h6" sx={{ mb: 2 }}>
         Permission Matrix
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Select modules to see their submodules. Assign permissions to specific submodules as needed.
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Select modules to see their submodules. New menu tabs are picked up automatically from the
+        module catalog — grant them here, then save the role.
       </Typography>
+      <Alert severity="info" sx={{ mb: 3 }}>
+        After adding a new sidebar tab under a module, open that module here and use{' '}
+        <strong>Grant Read to New / Empty</strong> (or tick permissions manually), then save.
+      </Alert>
 
       <Grid container spacing={2}>
         {availableModules.map(({ key, name }) => {
           const isModuleSelected = !!modulePermissions[key];
           const isExpanded = expandedModules[key] || false;
-          const moduleSubmodules = SUBMODULES[key] || [];
+          const moduleSubmodules = getCatalogSubmodules(key);
           const modulePerms = modulePermissions[key] || { submodules: {}, actions: [] };
-          
-          // Count total permissions across all submodules
-          const totalSubmodulePermissions = Object.values(modulePerms.submodules || {})
-            .reduce((sum, actions) => sum + (actions?.length || 0), 0);
-          const selectedSubmodulesCount = Object.keys(modulePerms.submodules || {})
-            .filter(submodule => (modulePerms.submodules[submodule] || []).length > 0).length;
+          const savedKeys = savedSubmoduleKeys[key] || new Set();
+
+          const totalSubmodulePermissions = Object.values(modulePerms.submodules || {}).reduce(
+            (sum, actions) => sum + (actions?.length || 0),
+            0
+          );
+          const selectedSubmodulesCount = Object.keys(modulePerms.submodules || {}).filter(
+            (submodule) => (modulePerms.submodules[submodule] || []).length > 0
+          ).length;
+          const newCount = moduleSubmodules.filter((sm) => !savedKeys.has(sm)).length;
 
           return (
             <Grid item xs={12} key={key}>
@@ -225,7 +303,7 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
                   backgroundColor: isModuleSelected ? 'action.selected' : 'background.paper'
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: isModuleSelected ? 1 : 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: isModuleSelected ? 1 : 0, flexWrap: 'wrap', gap: 1 }}>
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -245,18 +323,32 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
                         label={`${selectedSubmodulesCount} submodule${selectedSubmodulesCount !== 1 ? 's' : ''} with ${totalSubmodulePermissions} permission${totalSubmodulePermissions !== 1 ? 's' : ''}`}
                         size="small"
                         color="primary"
-                        sx={{ ml: 1 }}
                       />
-                      {moduleSubmodules.length > 0 && (
-                        <Button
+                      {newCount > 0 && (
+                        <Chip
+                          label={`${newCount} new in catalog`}
                           size="small"
-                          onClick={() => toggleModuleExpand(key)}
-                          startIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                          sx={{ ml: 'auto' }}
-                        >
-                          {isExpanded ? 'Collapse' : 'Expand'} Submodules
-                        </Button>
+                          color="warning"
+                          variant="outlined"
+                        />
                       )}
+                      <Stack direction="row" spacing={1} sx={{ ml: 'auto' }} flexWrap="wrap" useFlexGap>
+                        <Button size="small" variant="outlined" onClick={() => grantReadToNewOrEmpty(key)}>
+                          Grant Read to New / Empty
+                        </Button>
+                        <Button size="small" variant="outlined" onClick={() => grantAllCatalogActions(key)}>
+                          Grant All Actions
+                        </Button>
+                        {moduleSubmodules.length > 0 && (
+                          <Button
+                            size="small"
+                            onClick={() => toggleModuleExpand(key)}
+                            startIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                          >
+                            {isExpanded ? 'Collapse' : 'Expand'} Submodules
+                          </Button>
+                        )}
+                      </Stack>
                     </>
                   )}
                 </Box>
@@ -265,13 +357,14 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
                   <>
                     <Divider sx={{ my: 1 }} />
                     <Collapse in={isExpanded}>
-                      <Box sx={{ pl: 4, pt: 1 }}>
+                      <Box sx={{ pl: { xs: 1, sm: 4 }, pt: 1 }}>
                         <Grid container spacing={2}>
-                          {moduleSubmodules.map(submodule => {
+                          {moduleSubmodules.map((submodule) => {
                             const submoduleActions = modulePerms.submodules[submodule] || [];
-                            const hasAllActions = PERMISSION_ACTIONS.every(a => 
+                            const hasAllActions = PERMISSION_ACTIONS.every((a) =>
                               submoduleActions.includes(a.value)
                             );
+                            const isNew = !savedKeys.has(submodule);
 
                             return (
                               <Grid item xs={12} key={submodule}>
@@ -279,21 +372,25 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
                                   variant="outlined"
                                   sx={{
                                     p: 2,
-                                    backgroundColor: submoduleActions.length > 0 
-                                      ? 'action.hover' 
-                                      : 'background.paper'
+                                    borderColor: isNew ? 'warning.main' : undefined,
+                                    backgroundColor:
+                                      submoduleActions.length > 0
+                                        ? 'action.hover'
+                                        : 'background.paper'
                                   }}
                                 >
-                                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
                                     <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                                       {getSubmoduleDisplayName(submodule)}
                                     </Typography>
+                                    {isNew && (
+                                      <Chip label="NEW" size="small" color="warning" />
+                                    )}
                                     {submoduleActions.length > 0 && (
                                       <Chip
                                         label={`${submoduleActions.length} permission${submoduleActions.length !== 1 ? 's' : ''}`}
                                         size="small"
                                         color="secondary"
-                                        sx={{ ml: 1 }}
                                       />
                                     )}
                                     <Button
@@ -306,13 +403,15 @@ const RolePermissionMatrix = ({ permissions = [], onChange }) => {
                                   </Box>
                                   <FormGroup>
                                     <Grid container spacing={1}>
-                                      {PERMISSION_ACTIONS.map(action => (
+                                      {PERMISSION_ACTIONS.map((action) => (
                                         <Grid item xs={6} sm={4} md={3} key={action.value}>
                                           <FormControlLabel
                                             control={
                                               <Checkbox
                                                 checked={submoduleActions.includes(action.value)}
-                                                onChange={() => handleSubmoduleActionToggle(key, submodule, action.value)}
+                                                onChange={() =>
+                                                  handleSubmoduleActionToggle(key, submodule, action.value)
+                                                }
                                                 size="small"
                                               />
                                             }
