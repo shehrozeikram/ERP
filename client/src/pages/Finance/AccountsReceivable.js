@@ -949,7 +949,9 @@ const AccountsReceivable = () => {
                 </Box>
                 <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
                   Schedule only — no voucher until you record a receipt. Parts cannot exceed outstanding.
-                  You can still use <strong>Record Full / Custom Payment</strong> anytime.
+                  {(selectedInvoice.installments || []).length > 0
+                    ? ' After a schedule is saved, receive payment only against installment parts.'
+                    : ' Without a schedule, you can still use Record Payment for a full / custom receipt.'}
                 </Typography>
                 {(() => {
                   const cap = getInstallmentCapInfo(selectedInvoice, installmentDraft);
@@ -1134,7 +1136,9 @@ const AccountsReceivable = () => {
             }}
             disabled={!selectedInvoice || getInvoiceOutstanding(selectedInvoice) <= 0.01 || selectedInvoice.status === 'paid'}
           >
-            Record Full / Custom Payment
+            {(selectedInvoice?.installments || []).length > 0
+              ? 'Receive Installment Payment'
+              : 'Record Full / Custom Payment'}
           </Button>
         </DialogActions>
       </Dialog>

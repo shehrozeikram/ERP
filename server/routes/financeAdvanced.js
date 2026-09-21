@@ -6064,7 +6064,9 @@ router.get('/customers',
             },
             customerName: { $first: '$customer.name' },
             totalInvoiced: { $sum: { $ifNull: ['$totalAmount', 0] } },
-            totalReceived: { $sum: { $ifNull: ['$paidAmount', 0] } },
+            totalReceived: {
+              $sum: { $ifNull: ['$amountPaid', { $ifNull: ['$paidAmount', 0] }] }
+            },
             invoiceCount: { $sum: 1 },
             lastActivity: { $max: '$updatedAt' }
           }
@@ -6191,8 +6193,9 @@ router.get('/customers/:customerId',
     });
     payments.sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0));
 
+    const invoicePaid = (i) => Number(i.amountPaid || i.paidAmount || 0);
     const totalInvoiced = invoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
-    const totalReceived = invoices.reduce((s, i) => s + (i.paidAmount || 0), 0);
+    const totalReceived = invoices.reduce((s, i) => s + invoicePaid(i), 0);
     const totalPayments = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
     res.json({
@@ -6208,16 +6211,19 @@ router.get('/customers/:customerId',
           paymentTotal: Math.round(totalPayments * 100) / 100,
           journalEntryCount: journalEntries.length
         },
-        invoices: invoices.map((inv) => ({
-          _id: inv._id,
-          invoiceNumber: inv.invoiceNumber,
-          invoiceDate: inv.invoiceDate || inv.createdAt,
-          dueDate: inv.dueDate,
-          totalAmount: inv.totalAmount,
-          paidAmount: inv.paidAmount || 0,
-          balance: Math.round(((inv.totalAmount || 0) - (inv.paidAmount || 0)) * 100) / 100,
-          status: inv.status
-        })),
+        invoices: invoices.map((inv) => {
+          const paid = invoicePaid(inv);
+          return {
+            _id: inv._id,
+            invoiceNumber: inv.invoiceNumber,
+            invoiceDate: inv.invoiceDate || inv.createdAt,
+            dueDate: inv.dueDate,
+            totalAmount: inv.totalAmount,
+            paidAmount: paid,
+            balance: Math.round(((inv.totalAmount || 0) - paid) * 100) / 100,
+            status: inv.status
+          };
+        }),
         payments: payments.slice(0, 200),
         journalEntries: journalEntries.map((je) => ({
           _id: je._id,
@@ -6250,8 +6256,17 @@ router.get('/reports/customer-statement',
           _id: '$customer.name',
           customerEmail: { $first: '$customer.email' },
           totalInvoiced: { $sum: '$totalAmount' },
-          totalReceived: { $sum: '$paidAmount' },
-          totalBalance: { $sum: { $subtract: ['$totalAmount', '$paidAmount'] } },
+          totalReceived: {
+            $sum: { $ifNull: ['$amountPaid', { $ifNull: ['$paidAmount', 0] }] }
+          },
+          totalBalance: {
+            $sum: {
+              $subtract: [
+                '$totalAmount',
+                { $ifNull: ['$amountPaid', { $ifNull: ['$paidAmount', 0] }] }
+              ]
+            }
+          },
           lastActivity: { $max: '$createdAt' }
         }
       },
@@ -6368,9 +6383,13 @@ router.get('/reports/customer-statement/:customerName',
       console.warn('Customer statement party JE lookup skipped:', err.message);
     }
 
+    const stmtPaid = (i) => Number(i.amountPaid || i.paidAmount || 0);
     const totalInvoiced = invoices.reduce((s, i) => s + (i.totalAmount || i.amount || 0), 0);
-    const totalReceived = invoices.reduce((s, i) => s + (i.paidAmount || 0), 0);
-    const totalBalance = invoices.reduce((s, i) => s + ((i.totalAmount || i.amount || 0) - (i.paidAmount || 0)), 0);
+    const totalReceived = invoices.reduce((s, i) => s + stmtPaid(i), 0);
+    const totalBalance = invoices.reduce(
+      (s, i) => s + ((i.totalAmount || i.amount || 0) - stmtPaid(i)),
+      0
+    );
 
     const customerIdSet = new Set(customerIds.map((id) => String(id)));
     let partyDebits = 0;

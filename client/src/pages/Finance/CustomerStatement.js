@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, CircularProgress, Alert, Stack, Card, CardContent,
-  Grid, TextField, Button, Avatar, Divider, IconButton, Tooltip
+  Grid, TextField, Button, Avatar, IconButton, Tooltip
 } from '@mui/material';
 import {
   ArrowBack as BackIcon, People as CustomerIcon,
@@ -21,6 +21,8 @@ export default function CustomerStatement() {
   const [loading2, setLoading2]           = useState(false);
   const [error, setError]                 = useState('');
   const [filters, setFilters]             = useState({ fromDate: '', toDate: '' });
+  const [highlightedInvoiceKey, setHighlightedInvoiceKey] = useState(null);
+  const paymentsSectionRef = useRef(null);
 
   const loadCustomers = useCallback(async () => {
     try {
@@ -37,10 +39,10 @@ export default function CustomerStatement() {
   useEffect(() => { loadCustomers(); }, [loadCustomers]);
 
   const openCustomer = async (customer) => {
-    // _id is now the customer name string (from aggregation by customer.name)
     const customerName = typeof customer._id === 'string' ? customer._id : customer.customerName;
     if (!customerName) return;
     setSelectedCustomer({ ...customer, _id: customerName });
+    setHighlightedInvoiceKey(null);
     setLoading2(true);
     try {
       const params = {};
@@ -55,7 +57,47 @@ export default function CustomerStatement() {
     }
   };
 
-  const back = () => { setSelectedCustomer(null); setStatement(null); };
+  const back = () => {
+    setSelectedCustomer(null);
+    setStatement(null);
+    setHighlightedInvoiceKey(null);
+  };
+
+  const payments = useMemo(() => {
+    const rows = [];
+    (statement?.invoices || []).forEach((inv) => {
+      (inv.payments || []).forEach((p) => {
+        rows.push({
+          _id: p._id,
+          invoiceId: inv._id,
+          invoiceNumber: inv.invoiceNumber,
+          paymentDate: p.paymentDate,
+          amount: p.amount,
+          paymentMethod: p.paymentMethod,
+          reference: p.reference
+        });
+      });
+    });
+    rows.sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0));
+    return rows;
+  }, [statement]);
+
+  const isPaymentHighlighted = (payment) => {
+    if (!highlightedInvoiceKey || !payment) return false;
+    const key = String(highlightedInvoiceKey);
+    if (payment.invoiceId && String(payment.invoiceId) === key) return true;
+    if (payment.invoiceNumber && String(payment.invoiceNumber) === key) return true;
+    return false;
+  };
+
+  const focusInvoicePayments = (invoice) => {
+    if (!invoice) return;
+    const key = invoice._id || invoice.invoiceNumber;
+    setHighlightedInvoiceKey(key ? String(key) : null);
+    window.setTimeout(() => {
+      paymentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
 
   // ── Customer List ──────────────────────────────────────────────────────────
   if (!selectedCustomer) {
@@ -156,7 +198,6 @@ export default function CustomerStatement() {
 
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>{error}</Alert>}
 
-      {/* Date filter for drill-down */}
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }} className="print-hide-toolbar">
         <Stack direction="row" gap={2} alignItems="center">
           <TextField label="From Date" type="date" size="small" value={filters.fromDate}
@@ -171,7 +212,6 @@ export default function CustomerStatement() {
         <Box textAlign="center" py={6}><CircularProgress /></Box>
       ) : statement ? (
         <>
-          {/* Summary cards */}
           <Grid container spacing={2} mb={3}>
             {[
               { label: 'Total Invoiced',   value: statement.summary?.totalInvoiced, color: 'primary.main' },
@@ -189,7 +229,12 @@ export default function CustomerStatement() {
             ))}
           </Grid>
 
-          {/* Transactions table */}
+          <Typography variant="subtitle1" fontWeight={700} mb={1}>
+            Invoices
+            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              (click a row to highlight its payments)
+            </Typography>
+          </Typography>
           <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
             <Table size="small">
               <TableHead>
@@ -209,8 +254,18 @@ export default function CustomerStatement() {
                 )}
                 {(statement.invoices || []).map(inv => {
                   const bal = (inv.totalAmount || inv.amount || 0) - (inv.amountPaid || inv.paidAmount || 0);
+                  const selected =
+                    highlightedInvoiceKey &&
+                    (String(inv._id) === String(highlightedInvoiceKey) ||
+                      String(inv.invoiceNumber) === String(highlightedInvoiceKey));
                   return (
-                    <TableRow key={inv._id} hover>
+                    <TableRow
+                      key={inv._id}
+                      hover
+                      onClick={() => focusInvoicePayments(inv)}
+                      sx={{ cursor: 'pointer', bgcolor: selected ? 'warning.50' : undefined }}
+                      title="Highlight payments for this invoice"
+                    >
                       <TableCell sx={{ fontFamily: 'monospace' }}>{inv.invoiceNumber}</TableCell>
                       <TableCell sx={{ color: 'text.secondary', fontSize: 12 }}>
                         {inv.invoiceDate || inv.createdAt ? new Date(inv.invoiceDate || inv.createdAt).toLocaleDateString() : '—'}
@@ -230,7 +285,6 @@ export default function CustomerStatement() {
                   );
                 })}
 
-                {/* Running total row */}
                 <TableRow sx={{ bgcolor: 'primary.50' }}>
                   <TableCell colSpan={3} align="right"><b>Totals</b></TableCell>
                   <TableCell align="right" sx={{ fontWeight: 800 }}>PKR {fmt(statement.summary?.totalInvoiced)}</TableCell>
@@ -244,7 +298,62 @@ export default function CustomerStatement() {
             </Table>
           </TableContainer>
 
-          {/* Party-tagged journal entries */}
+          <Box ref={paymentsSectionRef} sx={{ mb: 3 }}>
+            <Stack direction="row" alignItems="center" gap={1} mb={1}>
+              <Typography variant="subtitle1" fontWeight={700}>Payments</Typography>
+              {highlightedInvoiceKey && (
+                <Chip
+                  size="small"
+                  color="warning"
+                  label="Highlight on"
+                  onDelete={() => setHighlightedInvoiceKey(null)}
+                />
+              )}
+            </Stack>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'grey.50' }}>
+                    <TableCell><b>Date</b></TableCell>
+                    <TableCell><b>Method</b></TableCell>
+                    <TableCell><b>Reference</b></TableCell>
+                    <TableCell><b>Invoice</b></TableCell>
+                    <TableCell align="right"><b>Amount</b></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {payments.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                        No payments found for these invoices.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {payments.map((p) => {
+                    const highlighted = isPaymentHighlighted(p);
+                    return (
+                      <TableRow
+                        key={String(p._id) + String(p.invoiceId)}
+                        hover
+                        sx={highlighted ? { bgcolor: 'warning.50', outline: '2px solid', outlineColor: 'warning.main' } : undefined}
+                      >
+                        <TableCell sx={{ color: 'text.secondary', fontSize: 12 }}>
+                          {p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '—'}
+                        </TableCell>
+                        <TableCell>{p.paymentMethod || '—'}</TableCell>
+                        <TableCell>{p.reference || '—'}</TableCell>
+                        <TableCell sx={{ fontFamily: 'monospace', fontWeight: highlighted ? 700 : 400 }}>
+                          {p.invoiceNumber || '—'}
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(p.amount)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+
           <Typography variant="subtitle1" fontWeight={700} mb={1}>Journal Entries</Typography>
           <TableContainer component={Paper} variant="outlined">
             <Table size="small">

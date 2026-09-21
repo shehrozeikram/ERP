@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -83,11 +83,38 @@ export default function FinanceCustomersList() {
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [statementFilters, setStatementFilters] = useState({ fromDate: '', toDate: '' });
+  const [highlightedInvoiceKey, setHighlightedInvoiceKey] = useState(null);
+  const paymentsSectionRef = useRef(null);
+  const paymentsTabRef = useRef(null);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(search.trim()), 400);
     return () => window.clearTimeout(t);
   }, [search]);
+
+  const isPaymentHighlighted = (payment) => {
+    if (!highlightedInvoiceKey || !payment) return false;
+    const key = String(highlightedInvoiceKey);
+    if (payment.invoiceId && String(payment.invoiceId) === key) return true;
+    if (payment.invoiceNumber && String(payment.invoiceNumber) === key) return true;
+    return false;
+  };
+
+  const focusInvoicePayments = (invoice, { switchToPaymentsTab = false } = {}) => {
+    if (!invoice) return;
+    const key = invoice._id || invoice.invoiceNumber;
+    setHighlightedInvoiceKey(key ? String(key) : null);
+    if (switchToPaymentsTab) {
+      setDetailTab(1);
+      window.setTimeout(() => {
+        paymentsTabRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+      return;
+    }
+    window.setTimeout(() => {
+      paymentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
 
   const loadCustomers = useCallback(async () => {
     try {
@@ -119,6 +146,7 @@ export default function FinanceCustomersList() {
     setSelected(customer);
     setDetail(null);
     setDetailTab(0);
+    setHighlightedInvoiceKey(null);
     setDetailLoading(true);
     try {
       const res = await api.get(`/finance/customers/${customer._id}`, {
@@ -260,7 +288,13 @@ export default function FinanceCustomersList() {
                   </TableHead>
                   <TableBody>
                     {(detail?.invoices || []).map((inv) => (
-                      <TableRow key={inv._id} hover>
+                      <TableRow
+                        key={inv._id}
+                        hover
+                        onClick={() => focusInvoicePayments(inv, { switchToPaymentsTab: true })}
+                        sx={{ cursor: 'pointer' }}
+                        title="View payments for this invoice"
+                      >
                         <TableCell sx={{ fontFamily: 'monospace' }}>{inv.invoiceNumber || '—'}</TableCell>
                         <TableCell>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'}</TableCell>
                         <TableCell>{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—'}</TableCell>
@@ -287,37 +321,57 @@ export default function FinanceCustomersList() {
             )}
 
             {detailTab === 1 && (
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell><b>Date</b></TableCell>
-                      <TableCell><b>Invoice #</b></TableCell>
-                      <TableCell><b>Method</b></TableCell>
-                      <TableCell><b>Reference</b></TableCell>
-                      <TableCell align="right"><b>Amount</b></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {(detail?.payments || []).map((p) => (
-                      <TableRow key={String(p._id) + String(p.invoiceId)} hover>
-                        <TableCell>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '—'}</TableCell>
-                        <TableCell sx={{ fontFamily: 'monospace' }}>{p.invoiceNumber || '—'}</TableCell>
-                        <TableCell>{p.paymentMethod || '—'}</TableCell>
-                        <TableCell>{p.reference || '—'}</TableCell>
-                        <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(p.amount)}</TableCell>
+              <Box ref={paymentsTabRef}>
+                {highlightedInvoiceKey && (
+                  <Alert
+                    severity="info"
+                    sx={{ mb: 1 }}
+                    onClose={() => setHighlightedInvoiceKey(null)}
+                  >
+                    Showing payments for selected invoice — matching rows are highlighted.
+                  </Alert>
+                )}
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: 'grey.50' }}>
+                        <TableCell><b>Date</b></TableCell>
+                        <TableCell><b>Method</b></TableCell>
+                        <TableCell><b>Reference</b></TableCell>
+                        <TableCell><b>Invoice</b></TableCell>
+                        <TableCell align="right"><b>Amount</b></TableCell>
                       </TableRow>
-                    ))}
-                    {(detail?.payments || []).length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>
-                          No payments recorded for this customer yet.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                    </TableHead>
+                    <TableBody>
+                      {(detail?.payments || []).map((p) => {
+                        const highlighted = isPaymentHighlighted(p);
+                        return (
+                          <TableRow
+                            key={String(p._id) + String(p.invoiceId)}
+                            hover
+                            sx={highlighted ? { bgcolor: 'warning.50', outline: '2px solid', outlineColor: 'warning.main' } : undefined}
+                          >
+                            <TableCell>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '—'}</TableCell>
+                            <TableCell>{p.paymentMethod || '—'}</TableCell>
+                            <TableCell>{p.reference || '—'}</TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace', fontWeight: highlighted ? 700 : 400 }}>
+                              {p.invoiceNumber || '—'}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(p.amount)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {(detail?.payments || []).length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                            No payments recorded for this customer yet.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
             )}
 
             {detailTab === 2 && (
@@ -386,7 +440,12 @@ export default function FinanceCustomersList() {
                   </Stack>
                 </Paper>
 
-                <Typography variant="subtitle2" fontWeight={700} mb={1}>Invoices</Typography>
+                <Typography variant="subtitle2" fontWeight={700} mb={1}>
+                  Invoices
+                  <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                    (click a row to highlight its payments)
+                  </Typography>
+                </Typography>
                 <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
                   <Table size="small">
                     <TableHead>
@@ -399,15 +458,30 @@ export default function FinanceCustomersList() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredInvoices.map((inv) => (
-                        <TableRow key={inv._id}>
-                          <TableCell sx={{ fontFamily: 'monospace' }}>{inv.invoiceNumber}</TableCell>
-                          <TableCell>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'}</TableCell>
-                          <TableCell align="right">{fmt(inv.totalAmount)}</TableCell>
-                          <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(inv.paidAmount)}</TableCell>
-                          <TableCell align="right">{fmt(inv.balance)}</TableCell>
-                        </TableRow>
-                      ))}
+                      {filteredInvoices.map((inv) => {
+                        const selected =
+                          highlightedInvoiceKey &&
+                          (String(inv._id) === String(highlightedInvoiceKey) ||
+                            String(inv.invoiceNumber) === String(highlightedInvoiceKey));
+                        return (
+                          <TableRow
+                            key={inv._id}
+                            hover
+                            onClick={() => focusInvoicePayments(inv)}
+                            sx={{
+                              cursor: 'pointer',
+                              bgcolor: selected ? 'warning.50' : undefined
+                            }}
+                            title="Highlight payments for this invoice"
+                          >
+                            <TableCell sx={{ fontFamily: 'monospace' }}>{inv.invoiceNumber}</TableCell>
+                            <TableCell>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'}</TableCell>
+                            <TableCell align="right">{fmt(inv.totalAmount)}</TableCell>
+                            <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(inv.paidAmount)}</TableCell>
+                            <TableCell align="right">{fmt(inv.balance)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
                       {filteredInvoices.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={5} align="center" sx={{ py: 2, color: 'text.secondary' }}>No invoices in range</TableCell>
@@ -417,34 +491,54 @@ export default function FinanceCustomersList() {
                   </Table>
                 </TableContainer>
 
-                <Typography variant="subtitle2" fontWeight={700} mb={1}>Payments</Typography>
-                <TableContainer component={Paper} variant="outlined">
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: 'grey.50' }}>
-                        <TableCell><b>Date</b></TableCell>
-                        <TableCell><b>Invoice #</b></TableCell>
-                        <TableCell><b>Reference</b></TableCell>
-                        <TableCell align="right"><b>Amount</b></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filteredPayments.map((p) => (
-                        <TableRow key={String(p._id) + '-stmt'}>
-                          <TableCell>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '—'}</TableCell>
-                          <TableCell sx={{ fontFamily: 'monospace' }}>{p.invoiceNumber}</TableCell>
-                          <TableCell>{p.reference || '—'}</TableCell>
-                          <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(p.amount)}</TableCell>
+                <Box ref={paymentsSectionRef}>
+                  <Stack direction="row" alignItems="center" gap={1} mb={1}>
+                    <Typography variant="subtitle2" fontWeight={700}>Payments</Typography>
+                    {highlightedInvoiceKey && (
+                      <Chip
+                        size="small"
+                        color="warning"
+                        label="Filtered highlight on"
+                        onDelete={() => setHighlightedInvoiceKey(null)}
+                      />
+                    )}
+                  </Stack>
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: 'grey.50' }}>
+                          <TableCell><b>Date</b></TableCell>
+                          <TableCell><b>Reference</b></TableCell>
+                          <TableCell><b>Invoice</b></TableCell>
+                          <TableCell align="right"><b>Amount</b></TableCell>
                         </TableRow>
-                      ))}
-                      {filteredPayments.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={4} align="center" sx={{ py: 2, color: 'text.secondary' }}>No payments in range</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                      </TableHead>
+                      <TableBody>
+                        {filteredPayments.map((p) => {
+                          const highlighted = isPaymentHighlighted(p);
+                          return (
+                            <TableRow
+                              key={String(p._id) + '-stmt'}
+                              sx={highlighted ? { bgcolor: 'warning.50', outline: '2px solid', outlineColor: 'warning.main' } : undefined}
+                            >
+                              <TableCell>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '—'}</TableCell>
+                              <TableCell>{p.reference || '—'}</TableCell>
+                              <TableCell sx={{ fontFamily: 'monospace', fontWeight: highlighted ? 700 : 400 }}>
+                                {p.invoiceNumber || '—'}
+                              </TableCell>
+                              <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(p.amount)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {filteredPayments.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={4} align="center" sx={{ py: 2, color: 'text.secondary' }}>No payments in range</TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
               </Box>
             )}
 

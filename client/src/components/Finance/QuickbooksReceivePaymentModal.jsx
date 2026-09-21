@@ -19,12 +19,6 @@ import {
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import FinanceApprovalAuthorityPicker from './FinanceApprovalAuthorityPicker';
-import {
-  fetchFinanceAuthorityCandidates,
-  buildFinanceApprovalAuthoritiesPayload,
-  validateFinanceAuthoritySelection
-} from '../../services/financeApprovalAuthorityService';
 
 
 import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
@@ -80,13 +74,6 @@ export default function QuickbooksReceivePaymentModal({
   
   const [bankAccounts, setBankAccounts] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
-    
-  const [financeAuthorityCandidates, setFinanceAuthorityCandidates] = useState([]);
-
-  const [finAuth, setFinAuth] = useState({
-    accountsManagerUser: null,
-    financeControllerUser: null
-  });
 
   const [paymentForm, setPaymentForm] = useState({
     paymentDate: new Date().toISOString().split('T')[0],
@@ -99,13 +86,6 @@ export default function QuickbooksReceivePaymentModal({
   });
 
   const [processing, setProcessing] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    fetchFinanceAuthorityCandidates()
-      .then(setFinanceAuthorityCandidates)
-      .catch(() => setFinanceAuthorityCandidates([]));
-  }, [open]);
 
 
   // Load Customers from finance customer master (same source as Customer List / JE form)
@@ -289,29 +269,7 @@ export default function QuickbooksReceivePaymentModal({
                 payAmount: preselect ? inst.balance : 0
               });
             });
-            // Extra row: full / custom receipt against invoice (no installment link)
-            if (openBal > 0) {
-              const preselectFull = isTargetBill && !preselectedInstallmentId;
-              rows.push({
-                rowKey: `${b._id}-full`,
-                rowType: 'full',
-                billId: String(b._id),
-                billNumber: b.invoiceNumber,
-                billDate: b.invoiceDate,
-                dueDate: b.dueDate,
-                totalAmount: total,
-                billOpenBalance: openBal,
-                installmentId: '',
-                installmentSequence: null,
-                installmentAmount: null,
-                installmentPaid: null,
-                status: 'full_receipt',
-                openBalance: openBal,
-                disabled: false,
-                selected: !!preselectFull,
-                payAmount: preselectFull ? openBal : 0
-              });
-            }
+            // Saved installment schedule: do not offer full / custom receipt row
           } else if (openBal > 0) {
             rows.push({
               rowKey: String(b._id),
@@ -511,7 +469,7 @@ export default function QuickbooksReceivePaymentModal({
           <Box display="flex" alignItems="center" gap={1.5}>
             <PaymentIcon fontSize="medium" />
             <Typography variant="h6" fontWeight={700}>
-              Receive Payment — Full Receipt or Installment
+              Receive Payment
             </Typography>
           </Box>
           <IconButton onClick={onClose} size="small" sx={{ color: 'white' }}>
@@ -569,8 +527,9 @@ export default function QuickbooksReceivePaymentModal({
         )}
 
         <Alert severity="info" sx={{ mb: 2 }}>
-          If a bill has an installment plan, each part is listed with its <strong>status</strong> (pending / partial / paid / overdue).
-          Select unpaid parts to receive, or use the <strong>Full / custom receipt</strong> row. Paid parts are shown but cannot be selected.
+          If a bill has an installment schedule, only installment parts are listed (pending / partial / paid / overdue).
+          Select unpaid parts to receive — full / custom receipt is not available once a schedule is saved.
+          Without a schedule, the open bill balance can be received as a full / custom payment. Paid parts are shown but cannot be selected.
         </Alert>
 
         {/* Bills Selection Table */}
@@ -878,19 +837,6 @@ export default function QuickbooksReceivePaymentModal({
             </Grid>
           </Grid>
         </Paper>
-        {/* Approval Routing */}
-        <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid #e0e0e0' }}>
-          <Typography variant="h6" sx={{ fontSize: '1rem', mb: 2, fontWeight: 500 }}>
-            Approval Routing
-          </Typography>
-          <Grid container spacing={2}>
-            <FinanceApprovalAuthorityPicker
-              finAuth={finAuth}
-              onChange={setFinAuth}
-              candidateUsers={financeAuthorityCandidates}
-            />
-          </Grid>
-        </Box>
       </DialogContent>
 
       <DialogActions sx={{ p: 2, px: 3, justifyContent: 'space-between' }}>
