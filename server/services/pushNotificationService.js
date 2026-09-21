@@ -1,4 +1,5 @@
-const admin = require('firebase-admin');
+const { initializeApp, getApps, cert } = require('firebase-admin/app');
+const { getMessaging } = require('firebase-admin/messaging');
 const UserPushToken = require('../models/chat/UserPushToken');
 
 let firebaseApp = null;
@@ -9,15 +10,10 @@ function initFirebase() {
   try {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+      firebaseApp = initializeApp({
+        credential: cert(serviceAccount)
       });
       console.log('✅ Firebase Admin SDK initialized for Push Notifications (env var)');
-    } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.applicationDefault()
-      });
-      console.log('✅ Firebase Admin SDK initialized for Push Notifications (default credentials)');
     } else {
       console.warn('⚠️ Firebase credentials not configured. Push notifications will be logged only.');
     }
@@ -45,11 +41,11 @@ async function sendPushNotification(userIds, payload) {
 
     const tokens = tokenDocs.map((t) => t.token);
 
-    if (!admin.apps || !admin.apps.length) {
+    if (getApps().length === 0) {
       initFirebase();
     }
 
-    if (!admin.apps || !admin.apps.length) {
+    if (getApps().length === 0) {
       console.log(`[Push Notification Mock] Would send to ${tokens.length} tokens:`, {
         title: payload.title,
         body: payload.body,
@@ -104,7 +100,7 @@ async function sendPushNotification(userIds, payload) {
       }
     };
 
-    const response = await admin.messaging().sendEachForMulticast(message);
+    const response = await getMessaging().sendEachForMulticast(message);
     
     // Clean up expired or invalid tokens
     if (response.failureCount > 0) {
