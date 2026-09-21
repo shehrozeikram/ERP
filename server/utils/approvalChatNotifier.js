@@ -41,9 +41,10 @@ function serializeSystemMessage(doc, viewerId) {
 async function notifyChatApprovers(userIds, context = {}) {
   try {
     const rawIds = Array.isArray(userIds) ? userIds : [userIds];
-    const ids = rawIds
-      .map((item) => (item && typeof item === 'object' ? item._id || item.id : item))
+    const extractedIds = rawIds
+      .map((item) => (item && typeof item === 'object' ? String(item._id || item.id) : String(item)))
       .filter(Boolean);
+    const ids = [...new Set(extractedIds)];
 
     if (!ids.length) return;
 
