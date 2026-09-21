@@ -457,7 +457,7 @@ accountsReceivableSchema.methods.recordPayment = async function(paymentData) {
     : {};
 
   const journalEntry = new JournalEntry({
-    date: paymentData.paymentDate || new Date(),
+    date: this.dueDate || paymentData.paymentDate || new Date(),
     reference: `PAY-${this.invoiceNumber}`,
     description: `Payment received for invoice ${this.invoiceNumber}`,
     department: this.department,

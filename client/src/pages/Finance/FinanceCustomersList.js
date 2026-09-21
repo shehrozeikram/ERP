@@ -151,7 +151,7 @@ export default function FinanceCustomersList() {
     try {
       const res = await api.get(`/finance/customers/${customer._id}`, {
         headers: { 'Cache-Control': 'no-cache' },
-        params: { _: Date.now() }
+        params: { _: Date.now(), name: customer.name || undefined }
       });
       setDetail(res.data?.data || null);
     } catch (e) {
@@ -299,7 +299,7 @@ export default function FinanceCustomersList() {
                         <TableCell>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'}</TableCell>
                         <TableCell>{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : '—'}</TableCell>
                         <TableCell align="right">{fmt(inv.totalAmount)}</TableCell>
-                        <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(inv.paidAmount)}</TableCell>
+                        <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(inv.paidAmount ?? inv.amountPaid)}</TableCell>
                         <TableCell align="right" sx={{ color: (inv.balance || 0) > 0 ? 'error.main' : 'text.secondary' }}>
                           {fmt(inv.balance)}
                         </TableCell>
@@ -477,7 +477,7 @@ export default function FinanceCustomersList() {
                             <TableCell sx={{ fontFamily: 'monospace' }}>{inv.invoiceNumber}</TableCell>
                             <TableCell>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'}</TableCell>
                             <TableCell align="right">{fmt(inv.totalAmount)}</TableCell>
-                            <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(inv.paidAmount)}</TableCell>
+                            <TableCell align="right" sx={{ color: 'success.main' }}>{fmt(inv.paidAmount ?? inv.amountPaid)}</TableCell>
                             <TableCell align="right">{fmt(inv.balance)}</TableCell>
                           </TableRow>
                         );

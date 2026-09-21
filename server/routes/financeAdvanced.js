@@ -35,7 +35,7 @@ const {
 } = require('../utils/financePayrollQueue');
 const PayrollPeriodPaymentHelper = require('../utils/payrollPeriodPayment');
 const PayrollBankLetterService = require('../utils/payrollBankLetterService');
-const { requireCompanyFromRequest, findHistoricalCompany, resolveCompanyForFinanceRoute, companyQuery, voucherCompanyQuery, resolveDocumentCompanyId } = require('../utils/financeCompanyContext');
+const { requireCompanyFromRequest, findHistoricalCompany, resolveCompanyForFinanceRoute, companyQuery, voucherCompanyQuery, resolveDocumentCompanyId, isHistoricalCompany } = require('../utils/financeCompanyContext');
 const { financeScope, assertDocCompany, loadScopedDoc } = require('../utils/financeRouteScope');
 const { co, acct, withCompany } = require('../utils/financePosting');
 const { seedChartOfAccountsForCompany } = require('../utils/companyChartOfAccounts');
@@ -1848,61 +1848,215 @@ router.get('/accounts-receivable',
       limit = 20,
       status,
       customerId,
+      customer,
       startDate,
       endDate,
       search
     } = req.query;
 
     const company = await resolveCompanyForFinanceRoute(req);
-    const filters = companyQuery({}, company);
+    const baseFilters = {};
 
-    if (status) filters.status = status;
-    if (customerId) filters['customer.customerId'] = customerId;
-    if (search) {
-      filters.$or = [
-        { invoiceNumber: { $regex: search, $options: 'i' } },
-        { 'customer.name': { $regex: search, $options: 'i' } },
-        { 'customer.email': { $regex: search, $options: 'i' } }
+    if (status) baseFilters.status = status;
+    if (customerId) {
+      baseFilters['customer.customerId'] = customerId;
+    } else if (customer && String(customer).trim()) {
+      baseFilters['customer.name'] = {
+        $regex: escapeRegex(String(customer).trim()),
+        $options: 'i'
+      };
+    }
+    if (search && String(search).trim()) {
+      const escaped = escapeRegex(String(search).trim());
+      baseFilters.$or = [
+        { invoiceNumber: { $regex: escaped, $options: 'i' } },
+        { 'customer.name': { $regex: escaped, $options: 'i' } },
+        { 'customer.email': { $regex: escaped, $options: 'i' } }
       ];
     }
     if (startDate || endDate) {
-      filters.invoiceDate = {};
+      baseFilters.invoiceDate = {};
       if (startDate) {
         const start = new Date(startDate);
         start.setHours(0, 0, 0, 0);
-        filters.invoiceDate.$gte = start;
+        baseFilters.invoiceDate.$gte = start;
       }
       if (endDate) {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        filters.invoiceDate.$lte = end;
+        baseFilters.invoiceDate.$lte = end;
       }
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    // Only Finance Customers (SalesCustomer) invoices — hide Taj/legacy AR parties
+    const SalesCustomer = require('../models/sales/SalesCustomer');
+    const salesCustomers = await SalesCustomer.find({}).select('_id name').lean();
+    const salesIds = salesCustomers.map((c) => c._id);
+    const salesNames = salesCustomers.map((c) => c.name).filter(Boolean);
+    if (!salesIds.length && !salesNames.length) {
+      return res.json({
+        success: true,
+        data: {
+          invoices: [],
+          pagination: {
+            currentPage: parseInt(page, 10) || 1,
+            totalPages: 1,
+            totalCount: 0,
+            hasNextPage: false,
+            hasPrevPage: false,
+            limit: parseInt(limit, 10) || 20
+          },
+          summary: {
+            totalOutstanding: 0,
+            totalOverdue: 0,
+            totalPaid: 0,
+            totalInvoices: 0
+          }
+        }
+      });
+    }
+    const financeCustomerMatch = {
+      $or: [
+        ...(salesIds.length ? [{ 'customer.customerId': { $in: salesIds } }] : []),
+        ...(salesNames.length ? [{ 'customer.name': { $in: salesNames } }] : [])
+      ]
+    };
+    const scopedBase = Object.keys(baseFilters).length
+      ? { $and: [baseFilters, financeCustomerMatch] }
+      : financeCustomerMatch;
 
-    const [invoices, totalCount] = await Promise.all([
+    // Legacy AR rows often have companyId=null — include them with the selected company
+    let filters;
+    if (!company?._id || company.isAll || isHistoricalCompany(company)) {
+      filters = companyQuery(scopedBase, company);
+    } else {
+      const companyFilter = {
+        $or: [
+          { companyId: company._id },
+          { companyId: null },
+          { companyId: { $exists: false } }
+        ]
+      };
+      filters = { $and: [scopedBase, companyFilter] };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit, 10) || 20;
+    const pageNum = parseInt(page, 10) || 1;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [invoices, totalCount, summaryResult] = await Promise.all([
       AccountsReceivable.find(filters)
         .sort({ invoiceDate: -1 })
         .skip(skip)
-        .limit(parseInt(limit)),
-      AccountsReceivable.countDocuments(filters)
+        .limit(limitNum),
+      AccountsReceivable.countDocuments(filters),
+      AccountsReceivable.aggregate([
+        { $match: filters },
+        {
+          $addFields: {
+            _received: {
+              $max: [
+                { $ifNull: ['$amountPaid', 0] },
+                { $ifNull: ['$paidAmount', 0] },
+                {
+                  $reduce: {
+                    input: { $ifNull: ['$payments', []] },
+                    initialValue: 0,
+                    in: { $add: ['$$value', { $ifNull: ['$$this.amount', 0] }] }
+                  }
+                },
+                {
+                  $reduce: {
+                    input: { $ifNull: ['$installments', []] },
+                    initialValue: 0,
+                    in: { $add: ['$$value', { $ifNull: ['$$this.paidAmount', 0] }] }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          $addFields: {
+            _balance: {
+              $max: [
+                {
+                  $subtract: [{ $ifNull: ['$totalAmount', 0] }, '$_received']
+                },
+                0
+              ]
+            }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalOutstanding: {
+              $sum: {
+                $cond: [
+                  { $in: ['$status', ['cancelled']] },
+                  0,
+                  '$_balance'
+                ]
+              }
+            },
+            totalPaid: { $sum: '$_received' },
+            totalOverdue: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $ne: ['$status', 'cancelled'] },
+                      { $ne: ['$status', 'paid'] },
+                      { $gt: ['$_balance', 0] },
+                      {
+                        $or: [
+                          { $eq: ['$status', 'overdue'] },
+                          {
+                            $and: [
+                              { $ne: ['$dueDate', null] },
+                              { $lt: ['$dueDate', today] }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  '$_balance',
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ])
     ]);
 
-    const totalPages = Math.ceil(totalCount / parseInt(limit));
+    const totalPages = Math.ceil(totalCount / limitNum) || 1;
+    const summaryRow = summaryResult[0] || {};
+    const summary = {
+      totalOutstanding: Math.round((summaryRow.totalOutstanding || 0) * 100) / 100,
+      totalOverdue: Math.round((summaryRow.totalOverdue || 0) * 100) / 100,
+      totalPaid: Math.round((summaryRow.totalPaid || 0) * 100) / 100,
+      totalInvoices: totalCount
+    };
 
     res.json({
       success: true,
       data: {
         invoices,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: pageNum,
           totalPages,
           totalCount,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-          limit: parseInt(limit)
-        }
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1,
+          limit: limitNum
+        },
+        summary
       }
     });
   })
@@ -5784,11 +5938,32 @@ router.get('/reports/vendor-statement',
 // FINANCE CUSTOMERS (unified list + detail like vendors)
 // ─────────────────────────────────────────────────────────────────────────────
 const SalesCustomer = require('../models/sales/SalesCustomer');
+const { isHistoricalCompany: isHistoricalFinanceCompany } = require('../utils/financeCompanyContext');
+
+/**
+ * AR invoices on production are mostly companyId=null (legacy).
+ * Include those alongside the selected company so customer totals appear.
+ */
+const customerArCompanyQuery = (filters = {}, company) => {
+  if (!company?._id || company.isAll || isHistoricalFinanceCompany(company)) {
+    return companyQuery(filters, company);
+  }
+  const base = { ...filters };
+  const companyFilter = {
+    $or: [
+      { companyId: company._id },
+      { companyId: null },
+      { companyId: { $exists: false } }
+    ]
+  };
+  if (Object.keys(base).length === 0) return companyFilter;
+  return { $and: [base, companyFilter] };
+};
 
 const collectCustomerJournalEntryIds = async (customerObjectId, companyId) => {
   const mongoose = require('mongoose');
   const customerOid = mongoose.Types.ObjectId.isValid(String(customerObjectId))
-    ? new mongoose.Types.ObjectId(customerObjectId)
+    ? new mongoose.Types.ObjectId(String(customerObjectId))
     : null;
   if (!customerOid) return [];
 
@@ -5842,24 +6017,77 @@ const collectCustomerJournalEntryIds = async (customerObjectId, companyId) => {
     .map((id) => new mongoose.Types.ObjectId(id));
 };
 
+/** Best available "received" amount on an AR invoice (field vs payments vs installments). */
+const invoiceReceivedExpr = {
+  $max: [
+    { $ifNull: ['$amountPaid', 0] },
+    { $ifNull: ['$paidAmount', 0] },
+    {
+      $reduce: {
+        input: { $ifNull: ['$payments', []] },
+        initialValue: 0,
+        in: { $add: ['$$value', { $ifNull: ['$$this.amount', 0] }] }
+      }
+    },
+    {
+      $reduce: {
+        input: { $ifNull: ['$installments', []] },
+        initialValue: 0,
+        in: { $add: ['$$value', { $ifNull: ['$$this.paidAmount', 0] }] }
+      }
+    }
+  ]
+};
+
+const invoicePaidAmount = (inv) => {
+  const fromField = Number(inv.amountPaid || inv.paidAmount || 0);
+  const fromPayments = (inv.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const fromInstallments = (inv.installments || []).reduce(
+    (s, row) => s + (Number(row.paidAmount) || 0),
+    0
+  );
+  return Math.max(fromField, fromPayments, fromInstallments);
+};
+
 const customerArMatch = (customer, companyQ) => {
+  const mongoose = require('mongoose');
   const name = String(customer.name || '').trim();
-  const or = [{ 'customer.customerId': customer._id }];
+  const or = [];
+  if (customer._id && mongoose.Types.ObjectId.isValid(String(customer._id))) {
+    or.push({ 'customer.customerId': new mongoose.Types.ObjectId(String(customer._id)) });
+  }
   if (name) {
     or.push({
       'customer.name': new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
     });
   }
+  if (!or.length) return companyQ({ _id: null });
   return companyQ({ $or: or });
+};
+
+/** Only real Finance Customers (SalesCustomer) — not AR invoice parties. */
+const resolveFinanceCustomer = async (customerId) => {
+  const mongoose = require('mongoose');
+  if (!mongoose.Types.ObjectId.isValid(String(customerId))) {
+    return null;
+  }
+  const sales = await SalesCustomer.findById(customerId).lean();
+  if (!sales) return null;
+  return { ...sales, source: 'sales_customer' };
 };
 
 router.get('/customers',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { search, status, page = 1, limit = 100 } = req.query;
+    const { company } = await financeScope(req);
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+    const trimmed = search != null ? String(search).trim() : '';
+
+    // List only customers created in Finance Customers (SalesCustomer)
     const customerQuery = {};
     if (status) customerQuery.status = status;
-    const trimmed = search != null ? String(search).trim() : '';
     if (trimmed) {
       const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       customerQuery.$or = [
@@ -5870,26 +6098,30 @@ router.get('/customers',
       ];
     }
 
-    const skip = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
     const [customers, total] = await Promise.all([
-      SalesCustomer.find(customerQuery).sort({ name: 1 }).skip(skip).limit(parseInt(limit, 10)).lean(),
+      SalesCustomer.find(customerQuery)
+        .sort({ name: 1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
       SalesCustomer.countDocuments(customerQuery)
     ]);
 
-    const { q } = await financeScope(req);
     const customerIds = customers.map((c) => c._id);
     const names = customers.map((c) => c.name).filter(Boolean);
+    const arQ = (filters = {}) => customerArCompanyQuery(filters, company);
 
     const financeAgg = customerIds.length
       ? await AccountsReceivable.aggregate([
         {
-          $match: q({
+          $match: arQ({
             $or: [
               { 'customer.customerId': { $in: customerIds } },
               ...(names.length ? [{ 'customer.name': { $in: names } }] : [])
             ]
           })
         },
+        { $addFields: { _received: invoiceReceivedExpr } },
         {
           $group: {
             _id: {
@@ -5899,11 +6131,8 @@ router.get('/customers',
                 { $toLower: { $ifNull: ['$customer.name', ''] } }
               ]
             },
-            customerName: { $first: '$customer.name' },
             totalInvoiced: { $sum: { $ifNull: ['$totalAmount', 0] } },
-            totalReceived: {
-              $sum: { $ifNull: ['$amountPaid', { $ifNull: ['$paidAmount', 0] }] }
-            },
+            totalReceived: { $sum: '$_received' },
             invoiceCount: { $sum: 1 },
             lastActivity: { $max: '$updatedAt' }
           }
@@ -5924,13 +6153,13 @@ router.get('/customers',
       const fin = byId.get(String(c._id)) || byName.get(String(c.name || '').toLowerCase());
       const totalInvoiced = fin?.totalInvoiced || 0;
       const totalReceived = fin?.totalReceived || 0;
-      const outstanding = Math.round((totalInvoiced - totalReceived) * 100) / 100;
       return {
         ...c,
+        source: 'sales_customer',
         finance: {
           totalInvoiced: Math.round(totalInvoiced * 100) / 100,
           totalReceived: Math.round(totalReceived * 100) / 100,
-          outstanding,
+          outstanding: Math.round((totalInvoiced - totalReceived) * 100) / 100,
           invoiceCount: fin?.invoiceCount || 0,
           lastActivity: fin?.lastActivity || null
         }
@@ -5942,10 +6171,10 @@ router.get('/customers',
       data: {
         customers: rows,
         pagination: {
-          page: parseInt(page, 10),
-          limit: parseInt(limit, 10),
+          page: pageNum,
+          limit: limitNum,
           total,
-          pages: Math.ceil(total / parseInt(limit, 10))
+          pages: Math.ceil(total / limitNum) || 1
         }
       }
     });
@@ -5990,18 +6219,19 @@ router.get('/customers/:customerId',
       return res.status(400).json({ success: false, message: 'Invalid customer ID' });
     }
 
-    const customer = await SalesCustomer.findById(customerId).lean();
+    const { company, companyId } = await financeScope(req);
+    const arQ = (filters = {}) => customerArCompanyQuery(filters, company);
+    const customer = await resolveFinanceCustomer(customerId);
     if (!customer) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
-    const { q, companyId } = await financeScope(req);
-    const arFilter = customerArMatch(customer, q);
+    const arFilter = customerArMatch(customer, arQ);
 
     const [invoices, customerJeIds] = await Promise.all([
       AccountsReceivable.find(arFilter)
         .sort({ invoiceDate: -1, createdAt: -1 })
-        .limit(200)
+        .limit(500)
         .lean(),
       collectCustomerJournalEntryIds(customer._id, companyId)
     ]);
@@ -6030,9 +6260,8 @@ router.get('/customers/:customerId',
     });
     payments.sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0));
 
-    const invoicePaid = (i) => Number(i.amountPaid || i.paidAmount || 0);
     const totalInvoiced = invoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
-    const totalReceived = invoices.reduce((s, i) => s + invoicePaid(i), 0);
+    const totalReceived = invoices.reduce((s, i) => s + invoicePaidAmount(i), 0);
     const totalPayments = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
     res.json({
@@ -6049,7 +6278,7 @@ router.get('/customers/:customerId',
           journalEntryCount: journalEntries.length
         },
         invoices: invoices.map((inv) => {
-          const paid = invoicePaid(inv);
+          const paid = invoicePaidAmount(inv);
           return {
             _id: inv._id,
             invoiceNumber: inv.invoiceNumber,
@@ -6057,6 +6286,7 @@ router.get('/customers/:customerId',
             dueDate: inv.dueDate,
             totalAmount: inv.totalAmount,
             paidAmount: paid,
+            amountPaid: paid,
             balance: Math.round(((inv.totalAmount || 0) - paid) * 100) / 100,
             status: inv.status
           };

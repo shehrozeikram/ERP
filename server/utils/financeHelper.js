@@ -649,7 +649,7 @@ const FinanceHelper = {
         }
 
         await FinanceHelper.createAndPostJournalEntry(withCompany({
-          date: invoiceDate,
+          date: dueDate || invoiceDate || new Date(),
           reference: invoiceNumber,
           description: `AR Invoice: ${invoiceNumber} for ${customerName}`,
           department,
@@ -973,9 +973,12 @@ const FinanceHelper = {
           });
         }
 
+        // Voucher date follows invoice/installment due date (not "today")
+        const voucherDate = installment?.dueDate || invoice.dueDate || date || new Date();
+
         const je = await FinanceHelper.createAndPostJournalEntry(
           withVoucherNarration(withCompany({
-            date: date || new Date(),
+            date: voucherDate,
             reference: reference || '',
             description: `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${instLabel}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
             department: invoice.department,

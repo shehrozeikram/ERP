@@ -294,6 +294,14 @@ export default function QuickbooksReceivePaymentModal({
         });
 
         setOpenInvoices(rows);
+        const dueSource = rows.find((r) => r.selected && r.dueDate) || rows.find((r) => r.dueDate);
+        if (dueSource?.dueDate) {
+          const d = new Date(dueSource.dueDate);
+          if (!Number.isNaN(d.getTime())) {
+            const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            setPaymentForm((prev) => ({ ...prev, paymentDate: ymd }));
+          }
+        }
       } else {
         setOpenInvoices([]);
       }

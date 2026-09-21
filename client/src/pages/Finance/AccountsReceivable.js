@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -63,6 +63,22 @@ import toast from 'react-hot-toast';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
+/** Local YYYY-MM-DD (avoids UTC day-shift from toISOString). */
+const toYmd = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+/** FBR / SGC financial year: 1 July → 30 June. */
+const getFinancialYearStartYmd = (date = new Date()) => {
+  const fyStartYear = date.getMonth() >= 6 ? date.getFullYear() : date.getFullYear() - 1;
+  return toYmd(new Date(fyStartYear, 6, 1));
+};
+
+const isValidYmd = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+
 const AccountsReceivable = () => {
   const { selectedCompanyId } = useFinanceCompany();
   const navigate = useNavigate();
@@ -70,6 +86,7 @@ const AccountsReceivable = () => {
   
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -96,13 +113,21 @@ const AccountsReceivable = () => {
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [deletingInvoice, setDeletingInvoice] = useState(false);
 
+  const initialFyStart = getFinancialYearStartYmd();
+  const initialToday = toYmd(new Date());
+
   const [filters, setFilters] = useState({
     status: '',
     customer: '',
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: initialFyStart,
+    endDate: initialToday,
     search: ''
   });
+  // Draft inputs — typing here must NOT refetch until committed
+  const [startDateInput, setStartDateInput] = useState(initialFyStart);
+  const [endDateInput, setEndDateInput] = useState(initialToday);
+  const [searchInput, setSearchInput] = useState('');
+  const [customerInput, setCustomerInput] = useState('');
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
@@ -126,15 +151,23 @@ const AccountsReceivable = () => {
       .catch(() => setBankAccounts([]));
   }, [selectedCompanyId]);
 
+  // Debounce text filters into committed filters (dates apply only on blur — see handlers)
   useEffect(() => {
-    if (!selectedCompanyId) {
-      setLoading(false);
-      return;
-    }
-    fetchAccountsReceivable();
-  }, [filters, pagination.currentPage, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+    const timer = setTimeout(() => {
+      let changed = false;
+      setFilters((prev) => {
+        if (prev.search === searchInput && prev.customer === customerInput) return prev;
+        changed = true;
+        return { ...prev, search: searchInput, customer: customerInput };
+      });
+      if (changed) {
+        setPagination((p) => (p.currentPage === 1 ? p : { ...p, currentPage: 1 }));
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput, customerInput]);
 
-  const fetchAccountsReceivable = async () => {
+  const fetchAccountsReceivable = useCallback(async () => {
     if (!selectedCompanyId) return;
     try {
       setLoading(true);
@@ -151,30 +184,82 @@ const AccountsReceivable = () => {
       const response = await api.get(`/finance/accounts-receivable?${params}`);
       if (response.data.success) {
         setInvoices(response.data.data.invoices || []);
-        setPagination(prev => ({
+        setPagination((prev) => ({
           ...prev,
-          ...response.data.data.pagination
+          currentPage: response.data.data.pagination?.currentPage ?? prev.currentPage,
+          totalPages: response.data.data.pagination?.totalPages ?? prev.totalPages,
+          totalCount: response.data.data.pagination?.totalCount ?? prev.totalCount,
+          limit: response.data.data.pagination?.limit ?? prev.limit
         }));
-        setSummary(response.data.data.summary || summary);
+        setSummary(response.data.data.summary || {
+          totalOutstanding: 0,
+          totalOverdue: 0,
+          totalPaid: 0,
+          totalInvoices: response.data.data.pagination?.totalCount || 0
+        });
       }
     } catch (error) {
       console.error('Error fetching accounts receivable:', error);
       setError('Failed to fetch accounts receivable data');
     } finally {
       setLoading(false);
+      setInitialLoading(false);
+    }
+  }, [filters, pagination.currentPage, pagination.limit, selectedCompanyId]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setLoading(false);
+      setInitialLoading(false);
+      return;
+    }
+    fetchAccountsReceivable();
+  }, [fetchAccountsReceivable, selectedCompanyId]);
+
+  const applyDateFilters = (nextStart, nextEnd) => {
+    const start = nextStart ?? startDateInput;
+    const end = nextEnd ?? endDateInput;
+    if (start && !isValidYmd(start)) {
+      setStartDateInput(filters.startDate);
+      return;
+    }
+    if (end && !isValidYmd(end)) {
+      setEndDateInput(filters.endDate);
+      return;
+    }
+    if (filters.startDate === start && filters.endDate === end) return;
+    setFilters((prev) => ({ ...prev, startDate: start, endDate: end }));
+    setPagination((p) => (p.currentPage === 1 ? p : { ...p, currentPage: 1 }));
+  };
+
+  const handleDateInputChange = (field) => (event) => {
+    const value = event.target.value;
+    if (field === 'startDate') setStartDateInput(value);
+    else setEndDateInput(value);
+    // Do not fetch while editing — wait for blur
+  };
+
+  const handleDateBlur = (field) => () => {
+    if (field === 'startDate') applyDateFilters(startDateInput, endDateInput);
+    else applyDateFilters(startDateInput, endDateInput);
+  };
+
+  const handleDateKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.target.blur();
     }
   };
 
   const handleFilterChange = (field) => (event) => {
-    setFilters(prev => ({
+    setFilters((prev) => ({
       ...prev,
       [field]: event.target.value
     }));
-    setPagination(prev => ({ ...prev, currentPage: 1 }));
+    setPagination((prev) => ({ ...prev, currentPage: 1 }));
   };
 
   const handlePageChange = (event, page) => {
-    setPagination(prev => ({ ...prev, currentPage: page }));
+    setPagination((prev) => ({ ...prev, currentPage: page }));
   };
 
   const handleViewInvoice = async (invoice) => {
@@ -447,7 +532,7 @@ const AccountsReceivable = () => {
     return null;
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <Box sx={{ p: 3 }}>
         <LinearProgress />
@@ -458,6 +543,7 @@ const AccountsReceivable = () => {
 
   return (
     <Box sx={{ p: 3 }}>
+      {loading && <LinearProgress sx={{ mb: 1, borderRadius: 1 }} />}
       {/* Header */}
       <Paper sx={{ p: 3, mb: 3, background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.1)} 0%, ${alpha(theme.palette.primary.main, 0.1)} 100%)` }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -529,8 +615,10 @@ const AccountsReceivable = () => {
               fullWidth
               type="date"
               label="Start Date"
-              value={filters.startDate}
-              onChange={handleFilterChange('startDate')}
+              value={startDateInput}
+              onChange={handleDateInputChange('startDate')}
+              onBlur={handleDateBlur('startDate')}
+              onKeyDown={handleDateKeyDown}
               InputLabelProps={{ shrink: true }}
               size="small"
             />
@@ -540,8 +628,10 @@ const AccountsReceivable = () => {
               fullWidth
               type="date"
               label="End Date"
-              value={filters.endDate}
-              onChange={handleFilterChange('endDate')}
+              value={endDateInput}
+              onChange={handleDateInputChange('endDate')}
+              onBlur={handleDateBlur('endDate')}
+              onKeyDown={handleDateKeyDown}
               InputLabelProps={{ shrink: true }}
               size="small"
             />
@@ -567,8 +657,8 @@ const AccountsReceivable = () => {
             <TextField
               fullWidth
               label="Customer"
-              value={filters.customer}
-              onChange={handleFilterChange('customer')}
+              value={customerInput}
+              onChange={(e) => setCustomerInput(e.target.value)}
               placeholder="Search customers"
               size="small"
             />
@@ -577,8 +667,8 @@ const AccountsReceivable = () => {
             <TextField
               fullWidth
               label="Search"
-              value={filters.search}
-              onChange={handleFilterChange('search')}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search invoices"
               size="small"
             />

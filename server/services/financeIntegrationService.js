@@ -326,7 +326,7 @@ class FinanceIntegrationService {
       }
 
       const journalEntry = new JournalEntry({
-        date: new Date(),
+        date: invoice.dueDate || paymentData.paymentDate || paymentData.date || new Date(),
         reference: `PAY-${reference || Date.now()}`,
         description: `Payment received for invoice ${invoice.invoiceNumber}`,
         department: invoice.department,
